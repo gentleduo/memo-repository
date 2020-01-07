@@ -1,0 +1,694 @@
+/*************************************************************hadoop安装*************************************************************
+1) 配置文件修改
+
+	第一个：slaves
+		把slave的主机名都配上去
+
+	第二个：hadoop-env.sh
+		export JAVA_HOME=/usr/java/jdk1.7.0_65
+
+	第三个：core-site.xml
+		<!-- 指定HADOOP所使用的文件系统schema（URI），HDFS的老大（NameNode）的地址 -->
+		<property>
+			<name>fs.defaultFS</name>
+			<value>hdfs://server01:9000</value>
+		</property>
+		<!-- 指定hadoop运行时产生文件的存储目录 -->
+		<property>
+			<name>hadoop.tmp.dir</name>
+			<value>/home/hadoop/hdpdata</value>
+		</property>
+
+	第四个：hdfs-site.xml
+		<property>
+			<name>dfs.replication</name>
+			<value>2</value>
+		</property>
+		<property>
+			<name>dfs.http.address</name>
+			<value>server01:50070</value>
+		</property>
+		<!--
+		这个参数用于确定将HDFS文件系统的元信息保存在什么目录下。
+		如果这个参数设置为多个目录，那么这些目录下都保存着元信息的多个备份。
+		默认：${hadoop.tmp.dir}/dfs/name
+		-->
+		<property>
+			<!--<name>dfs.name.dir</name>-->
+			<name>dfs.namenode.name.dir</name>
+			<value>file://${hadoop.tmp.dir}/dfs/name</value>
+		</property>
+		<!--
+		这个参数用于确定将HDFS文件系统的数据保存在什么目录下。
+		我们可以将这个参数设置为多个分区上目录，即可将HDFS建立在不同分区上。
+		默认：${hadoop.tmp.dir}/dfs/data
+		-->
+		<property>
+			<!--<name>dfs.data.dir</name>-->
+			<name>dfs.datanode.data.dir</name>
+			<value>file://${hadoop.tmp.dir}/dfs/data</value>
+		</property>
+		<!--namenode和secondary namenode的工作目录存储结构完全相同，所以，当namenode
+		故障退出需要重新恢复时，可以从secondary namenode的工作目录中将fsimage拷贝到
+		namenode的工作目录，以恢复namenode的元数据-->
+		<property>
+			<name>dfs.namenode.checkpoint.dir</name>
+			<value>file://${hadoop.tmp.dir}/dfs/namesecondary</value>
+		</property>
+		<property>
+			<name>dfs.secondary.http.address</name>
+			<value>server01:50090</value>
+		</property>
+		<!--文件分片的大小(单位:Byte,默认值128M:134217728),
+		修改的时候必须改成1024整数倍-->
+		<property>
+			<name>dfs.block.size</name>
+			<value>134217728</value>
+		</property>
+
+	第五个：mapred-site.xml (mv mapred-site.xml.template mapred-site.xml)
+		<!-- 指定mr运行在yarn上 -->
+		<property>
+			<name>mapreduce.framework.name</name>
+			<value>yarn</value>
+		</property>
+		<!--
+		Caused by: java.io.IOException: java.net.ConnectException: Call From server01/192.168.56.110 to 0.0.0.0:10020 failed on connection 
+		exception: java.net.ConnectException: 拒绝连接; For more details see:  http://wiki.apache.org/hadoop/ConnectionRefused
+		这个问题是由于没有启动historyserver引起的，解决办法：
+		在mapred-site.xml配置文件中添加：
+		-->
+		<property>  
+			<name>mapreduce.jobhistory.address</name>  
+			<value>server01:10020</value>  
+		</property>
+		在namenode上执行命令：mr-jobhistory-daemon.sh start historyserver 
+		这样在，namenode上会启动JobHistoryServer服务，可以在historyserver的日志中查看运行情况
+
+	第六个：yarn-site.xml
+		<!-- 指定YARN的老大（ResourceManager）的地址 -->
+		<property>
+			<name>yarn.resourcemanager.hostname</name>
+			<value>server01</value>
+		</property>
+		<!-- reducer获取数据的方式 -->
+		<property>
+			<name>yarn.nodemanager.aux-services</name>
+			<value>mapreduce_shuffle</value>
+		</property>
+		<!-- NodeManager总的可用物理内存。默认值是8192MB，即使机器内存不够8192MB，YARN也会按照这些内存来使用，因此这个值一定要配置 -->
+		<property>
+			<name>yarn.nodemanager.resource.memory-mb</name>
+			<value>2048</value>
+		</property>
+		
+		<!-- Hadoop YARN内存设置(spark以yarn的形式运行的时候下面的前2项目需要配置) -->
+		<!-- 表示是否启动一个线程检查每个任务正使用的物理内存量，如果任务超过分配值，则直接将其杀掉，默认是true -->
+		<property>
+			<name>yarn.nodemanager.pmem-check-enabled</name>
+			<value>false</value>
+		</property>
+		<!-- 表示是否启动一个线程检查每个任务正使用的虚拟内存量，如果任务超过分配值，则直接将其杀掉，默认是true -->
+		<property>
+			<name>yarn.nodemanager.vmem-check-enabled</name>
+			<value>false</value>
+		</property>
+
+		<!-- 单个任务可申请的最少物理内存量，默认是1024(MB) -->
+		<property>
+			<name>yarn.scheduler.minimum-allocation-mb</name>
+			<value>1024</value>
+		</property>
+		<!-- 单个任务可申请的最多物理内存量，默认是8192(MB) -->
+		<property>
+			<name>yarn.scheduler.maximum-allocation-mb</name>
+			<value>8192</value>
+		</property>
+		
+		<!-- yarn.scheduler.minimum-allocation-mb和yarn.scheduler.maximum-allocation-mb的值均不能大于yarn.nodemanager.resource.memory-mb的值 -->
+		<!-- yarn.nodemanager.resource.memory-mb的值可以计算节点最大Container数量: -->
+		<!-- Max(Container)=yarn.nodemanager.resource.memory-mb/yarn.scheduler.maximum-allocation-mb -->
+		
+		<!-- 任务每使用1MB物理内存最多可使用的虚拟内存数量，默认是2.1 -->
+		<property>
+			<name>yarn.nodemanager.vmem-pmem-ratio</name>
+			<value>2.1</value>
+		</property>
+		
+		<!-- NodeManager总的可用虚拟CPU的个数，默认是8，推荐该值设置为与物理CPU核数相同-->
+		<property>
+			<name>yarn.nodemanager.resource.cpu-vcores</name>
+			<value>4</value>
+		</property>
+		<!-- 单个任务可申请的最少虚拟CPU个数，默认是1 -->
+		<property>
+			<name>yarn.scheduler.minimum-allocation-vcores</name>
+			<value>1</value>
+		</property>
+		<!-- 单个任务可申请的最多虚拟CPU个数，默认是32 -->
+		<property>
+			<name>yarn.scheduler.maximum-allocation-vcores</name>
+			<value>32</value>
+		</property>
+		
+		<!-- 日志聚集是YARN提供的日志中央化管理功能，它能将运行完成的Container/任务日志上传到HDFS上，从而减轻NodeManager负载，且提供一个中央化存储和分析体制。 -->
+		<!-- 默认情况下，Container/任务日志存在各个NodeManager上，如果启用日志聚集功能需要额外的配置 -->
+		<!-- 参数解释：是否启用日志聚集功能。默认值：false -->
+		<property>
+			<name>yarn.log-aggregation-enable</name>
+			<value>true</value>
+		</property>
+		<!-- 参数解释：当应用程序运行结束后，日志被转移到的HDFS目录。默认值：/temp/logs -->
+		<property>
+			<description>Where to aggregate logs to.</description>
+			<name>yarn.nodemanager.remote-app-log-dir</name>
+			<value>/home/hadoop/logs</value>
+		</property>
+		<!-- 参数解释：在HDFS上聚集的日志最多保存多长时间，单位为s。默认值：-1 -->
+		<property>
+			<name>yarn.log-aggregation.retain-seconds</name>
+			<value>259200</value>
+		</property>
+		<!-- 参数解释：多长时间检查一次日志，并将满足条件的删除，如果是0或者负数，则为上一个值的1/10，上例值在此处为259200s。默认值：-1 -->
+		<property>
+			<name>yarn.log-aggregation.retain-check-interval-seconds</name>
+			<value>3600</value>
+		</property>
+		<!-- 应用程序完成之后 NodeManager 的 DeletionService 删除应用程序的本地化文件和日志目录之前的时间（秒数）。要诊断 YARN 应用程序问题，请将此属性的值设为足够大（例如，设为 600 秒，即 10 分钟）以允许检查这些目录。默认值：0，app执行完之后立即删除本地文件 
+		本地化文件通过yarn.nodemanager.local-dirs属性配置
+		日志目录通过yarn.nodemanager.log-dirs属性配置
+		Number of seconds after an application finishes before the nodemanager's DeletionService will delete the application's localized file directory and log directory. To diagnose Yarn application problems, set this property's value large enough (for example, to 600 = 10 minutes) to permit examination of these directories. After changing the property's value, you must restart the nodemanager in order for it to have an effect. The roots of Yarn applications' work directories is configurable with the yarn.nodemanager.local-dirs property (see below), and the roots of the Yarn applications' log directories is configurable with the yarn.nodemanager.log-dirs property (see also below). -->
+		<property>
+		  <name>yarn.nodemanager.delete.debug-delay-sec</name>
+		  <value>600</value>
+		</property>
+		<!-- 参数解释：	yarn node 运行时日志存放地址，记录container日志，并非nodemanager日志存放地址
+		Where to store container logs. An application's localized log directory will be found in ${yarn.nodemanager.log-dirs}/application_${appid}. Individual containers' log directories will be below this, in directories named container_{$contid}. Each container directory will contain the files stderr, stdin, and syslog generated by that container. 
+		-->
+		<property>
+			<name>yarn.nodemanager.log-dirs</name>
+			<value>${yarn.log.dir}/userlogs</value>
+		</property>
+		<!-- 参数解释：	中间结果存放位置，类似于1.0中的mapred.local.dir。注意，这个参数通常会配置多个目录，已分摊磁盘IO负载。默认值：${hadoop.tmp.dir}/nm-local-dir
+		List of directories to store localized files in. An application's localized file directory will be found in: ${yarn.nodemanager.local-dirs}/usercache/${user}/appcache/application_${appid}. Individual containers' work directories, called container_${contid}, will be subdirectories of this. 
+		-->
+		<property>
+			<name>yarn.nodemanager.log-dirs</name>
+			<value>${hadoop.tmp.dir}/nm-local-dir</value>
+		</property>
+		<!-- 参数解释：NodeManager上日志最多存放时间（不启用日志聚集功能时有效）。默认值：10800 
+		ResourceManager日志存放位置是Hadoop安装目录下的logs目录下的yarn-*-resourcemanager-*.log
+		NodeManager日志存放位置是各个NodeManager节点上hadoop安装目录下的logs目录下的yarn-*-nodemanager-*.log-->
+		<property>
+			<name>yarn.nodemanager.log.retain-seconds</name>
+			<value>3600</value>
+		</property>
+2) 将hadoop添加到环境变量
+	
+	vi /etc/proflie
+		export JAVA_HOME=/usr/local/java/jdk1.8.0_144
+		export HADOOP_HOME=/usr/local/hadoop/hadoop-2.7.3
+		export PATH=$PATH:$JAVA_HOME/bin:$HADOOP_HOME/bin:$HADOOP_HOME/sbin
+
+	source /etc/profile
+	
+3) 格式化namenode（是对namenode进行初始化）
+
+	hdfs namenode -format (hadoop namenode -format)
+
+	启动hadoop
+		单节点启动:
+		hadoop-daemon.sh start namenode
+		hadoop-daemon.sh start datanode
+		
+		hadoop-daemon.sh stop namenode
+		hadoop-daemon.sh stop datanode
+		
+		集群启动：
+		先启动HDFS
+		sbin/start-dfs.sh
+		
+		再启动YARN
+		sbin/start-yarn.sh
+		
+	验证是否启动成功
+		使用jps命令验证
+		27408 NameNode
+		28218 Jps
+		27643 SecondaryNameNode
+		28066 NodeManager
+		27803 ResourceManager
+		27512 DataNode
+	
+		http://192.168.1.101:50070 （HDFS管理界面）
+		http://192.168.1.101:8088 （MR管理界面）
+/*************************************************************hadoop安装*************************************************************
+
+/***********************************************************************spark参数调优***********************************************************************
+1.num-executors
+
+    参数说明：该参数用于设置Spark作业总共要用多少个Executor进程来执行。Driver在向YARN集群管理器申请资源时，
+	YARN集群管理器会尽可能按照你的设置来在集群的各个工作节点上，启动相应数量的Executor进程。这个参数非常之重要，如果不设置的话，
+	默认只会给你启动少量的Executor进程，此时你的Spark作业的运行速度是非常慢的。
+    参数调优建议：每个Spark作业的运行一般设置50~100个左右的Executor进程比较合适，设置太少或太多的Executor进程都不好。设置的太少，无法充分利用集群资源；设置的太多的话，大部分队列可能无法给予充分的资源。
+
+2.executor-memory
+
+    参数说明：该参数用于设置每个Executor进程的内存。Executor内存的大小，很多时候直接决定了Spark作业的性能，而且跟常见的JVM OOM异常，也有直接的关联。
+    参数调优建议：每个Executor进程的内存设置4G~8G较为合适。但是这只是一个参考值，具体的设置还是得根据不同部门的资源队列来定。
+	可以看看自己团队的资源队列的最大内存限制是多少，num-executors乘以executor-memory，是不能超过队列的最大内存量的。
+	此外，如果你是跟团队里其他人共享这个资源队列，那么申请的内存量最好不要超过资源队列最大总内存的1/3~1/2，避免你自己的Spark作业占用了队列所有的资源，
+	导致别的同学的作业无法运行。
+
+3.executor-cores
+
+    参数说明：该参数用于设置每个Executor进程的CPU core数量。这个参数决定了每个Executor进程并行执行task线程的能力。
+	因为每个CPU core同一时间只能执行一个task线程，因此每个Executor进程的CPU core数量越多，越能够快速地执行完分配给自己的所有task线程。
+    参数调优建议：Executor的CPU core数量设置为2~4个较为合适。同样得根据不同部门的资源队列来定，可以看看自己的资源队列的最大CPU core限制是多少，
+	再依据设置的Executor数量，来决定每个Executor进程可以分配到几个CPU core。同样建议，如果是跟他人共享这个队列，
+	那么num-executors * executor-cores不要超过队列总CPU core的1/3~1/2左右比较合适，也是避免影响其他同学的作业运行。
+
+4.driver-memory
+
+    参数说明：该参数用于设置Driver进程的内存。
+    参数调优建议：Driver的内存通常来说不设置，或者设置1G左右应该就够了。唯一需要注意的一点是，
+	如果需要使用collect算子将RDD的数据全部拉取到Driver上进行处理，那么必须确保Driver的内存足够大，否则会出现OOM内存溢出的问题。
+
+5.spark.default.parallelism
+
+    参数说明：该参数用于设置每个stage的默认task数量。这个参数极为重要，如果不设置可能会直接影响你的Spark作业性能。
+    参数调优建议：Spark作业的默认task数量为500~1000个较为合适。很多同学常犯的一个错误就是不去设置这个参数，
+	那么此时就会导致Spark自己根据底层HDFS的block数量来设置task的数量，默认是一个HDFS block对应一个task。通常来说，
+	Spark默认设置的数量是偏少的（比如就几十个task），如果task数量偏少的话，就会导致你前面设置好的Executor的参数都前功尽弃。试想一下，
+	无论你的Executor进程有多少个，内存和CPU有多大，但是task只有1个或者10个，那么90%的Executor进程可能根本就没有task执行，也就是白白浪费了资源！
+	因此Spark官网建议的设置原则是，设置该参数为num-executors * executor-cores的2~3倍较为合适，比如Executor的总CPU core数量为300个，
+	那么设置1000个task是可以的，此时可以充分地利用Spark集群的资源。
+
+6.spark.storage.memoryFraction
+
+    参数说明：该参数用于设置RDD持久化数据在Executor内存中能占的比例，默认是0.6。也就是说，默认Executor 60%的内存，可以用来保存持久化的RDD数据。
+	根据你选择的不同的持久化策略，如果内存不够时，可能数据就不会持久化，或者数据会写入磁盘。
+    参数调优建议：如果Spark作业中，有较多的RDD持久化操作，该参数的值可以适当提高一些，保证持久化的数据能够容纳在内存中。避免内存不够缓存所有的数据，
+	导致数据只能写入磁盘中，降低了性能。但是如果Spark作业中的shuffle类操作比较多，而持久化操作比较少，那么这个参数的值适当降低一些比较合适。
+	此外，如果发现作业由于频繁的gc导致运行缓慢（通过spark web ui可以观察到作业的gc耗时），意味着task执行用户代码的内存不够用，那么同样建议调低这个参数的值。
+
+7.spark.shuffle.memoryFraction
+
+    参数说明：该参数用于设置shuffle过程中一个task拉取到上个stage的task的输出后，进行聚合操作时能够使用的Executor内存的比例，默认是0.2。也就是说，
+	Executor默认只有20%的内存用来进行该操作。shuffle操作在进行聚合时，如果发现使用的内存超出了这个20%的限制，那么多余的数据就会溢写到磁盘文件中去，
+	此时就会极大地降低性能。
+    参数调优建议：如果Spark作业中的RDD持久化操作较少，shuffle操作较多时，建议降低持久化操作的内存占比，
+	提高shuffle操作的内存占比比例，避免shuffle过程中数据过多时内存不够用，必须溢写到磁盘上，降低了性能。此外，如果发现作业由于频繁的gc导致运行缓慢，
+	意味着task执行用户代码的内存不够用，那么同样建议调低这个参数的值。
+
+8.total-executor-cores
+
+    参数说明：Total cores for all executors.
+
+9.资源参数参考示例
+
+以下是一份spark-submit命令的示例：
+
+./bin/spark-submit \
+  --master spark://192.168.1.1:7077 \
+  --num-executors 100 \
+  --executor-memory 6G \
+  --executor-cores 4 \
+　--total-executor-cores 400 \ ##standalone default all cores 
+  --driver-memory 1G \
+  --conf spark.default.parallelism=1000 \
+  --conf spark.storage.memoryFraction=0.5 \
+  --conf spark.shuffle.memoryFraction=0.3 \
+  
+  
+当运行在yarn集群上时，Yarn的ResourceMananger用来管理集群资源，集群上每个节点上的NodeManager用来管控所在节点的资源，从yarn的角度来看，
+每个节点看做可分配的资源池，当向ResourceManager请求资源时，它返回一些NodeManager信息，这些NodeManager将会提供execution container给你，
+每个execution container就是满足请求的堆大小的JVM进程，JVM进程的位置是由ResourceMananger管理的，不能自己控制，
+如果一个节点有64GB的内存被yarn管理（通过yarn.nodemanager.resource.memory-mb配置),当请求10个4G内存的executors时，
+这些executors可能运行在同一个节点上。
+ 
+当在yarn上启动spark集群上，可以指定executors的数量（-num-executors或者spark.executor.instances)，
+可以指定每个executor使用的内存（-executor-memory或者spark.executor.memory),可以指定每个executor使用的cpu核数（-executor-cores或者spark.executor.cores),
+指定每个task执行使用的core数（spark.task.cpus),也可以指定driver应用使用的内存（-driver-memory和spark.driver.memory)
+ 
+当在集群上执行应用时，job会被切分成stages,每个stage切分成task,每个task单独调度，可以把executor的jvm进程看做task执行池，
+每个executor有 spark.executor.cores / spark.task.cpus execution 个执行槽，这里有个例子：集群有12个节点运行Yarn的NodeManager，
+每个节点有64G内存和32的cpu核，每个节点可以启动2个executor，每个executor的使用26G内存，剩下的内用系统和别的服务使用，
+每个executor有12个cpu核用于执行task,这样整个集群有12 machines * 2 executors per machine * 12 cores per executor / 1 core = 288 个task执行槽，
+这意味着spark集群可以同时跑288个task,
+整个集群用户缓存数据的内存有0.9 spark.storage.safetyFraction * 0.6 spark.storage.memoryFraction * 12 machines * 2 executors per machine * 26 GB per executor = 336.96 GB.
+ 
+到目前为止，我们已经了解了spark怎么使用JVM的内存以及集群上执行槽是什么，目前为止还没有谈到task的一些细节，这将在另一个文章中提高，
+基本上就是spark的一个工作单元，作为exector的jvm进程中的一个线程执行，这也是为什么spark的job启动时间快的原因，
+在jvm中启动一个线程比启动一个单独的jvm进程快（在hadoop中执行mapreduce应用会启动多个jvm进程）
+ 
+下面将关注spark的另一个抽象：partition, spark处理的所有数据都会切分成partion,一个parition是什么以及怎么确定，
+partition的大小完全依赖数据源，spark中大部分用于读取数据的方法都可以指定生成的RDD中partition的个数，当从hdfs上读取一个文件时，
+会使用Hadoop的InputFormat来处理，默认情况下InputFormat返回每个InputSplit都会映射RDD中的一个Partition,
+大部分存储在HDFS上的文件每个数据块会生成一个InputSplit,每个数据块大小为64mb和128mb,因为HDFS上面的数据的块边界是按字节来算的（64mb一个块），
+但是当数据被处理是，它又要按记录进行切分，对于文本文件来说切分的字符就是换行符，对于sequence文件来说，他是块结束，如果是压缩文件，
+整个文件都被压缩了，它不能按行进行切分了，整个文件只有一个inputsplit,这样spark中也会只有一个parition,在处理的时候需要手动的repatition。
+
+
+配置–-executor-cores参数无效的原因：
+因为我们的capacity schedule使用的是DefaultResourceCalculator，那么DefaultResourceCalculator它在加载Container时其实仅仅只会考虑内存而不考虑cores。
+所以，如果我们想让它既考虑内存也考虑cores的话，需要将$HADOOP_HOME/etc/Hadoop/capacity-scheduler.xml中的：
+<property>
+<name>yarn.scheduler.capacity.resource-calculator</name>
+<value>org.apache.hadoop.yarn.util.resource.DefaultResourceCalculator</value>
+</property>
+修改为：
+<property>
+<name>yarn.scheduler.capacity.resource-calculator</name>
+<value>org.apache.hadoop.yarn.util.resource.DominantResourceCalculator</value>
+</property>
+
+(1)Driver的JVM参数：
+-Xmx，-Xms，如果是yarn-client模式，则默认读取spark-env文件中的SPARK_DRIVER_MEMORY值，-Xmx，-Xms值一样大小；
+如果是yarn-cluster模式，则读取的是spark-default.conf文件中的spark.driver.extraJavaOptions对应的JVM参数值。
+PermSize，如果是yarn-client模式，则是默认读取spark-class文件中的JAVA_OPTS="-XX:MaxPermSize=256m $OUR_JAVA_OPTS"值；
+如果是yarn-cluster模式，读取的是spark-default.conf文件中的spark.driver.extraJavaOptions对应的JVM参数值。
+GC方式，如果是yarn-client模式，默认读取的是spark-class文件中的JAVA_OPTS；
+如果是yarn-cluster模式，则读取的是spark-default.conf文件中的spark.driver.extraJavaOptions对应的参数值。
+以上值最后均可被spark-submit工具中的--driver-java-options参数覆盖。
+
+(2)Executor的JVM参数：
+-Xmx，-Xms，如果是yarn-client模式，则默认读取spark-env文件中的SPARK_EXECUTOR_MEMORY值，-Xmx，-Xms值一样大小；
+如果是yarn-cluster模式，则读取的是spark-default.conf文件中的spark.executor.extraJavaOptions对应的JVM参数值。
+PermSize，两种模式都是读取的是spark-default.conf文件中的spark.executor.extraJavaOptions对应的JVM参数值。
+GC方式，两种模式都是读取的是spark-default.conf文件中的spark.executor.extraJavaOptions对应的JVM参数值。
+
+(3)Executor数目及所占CPU个数
+如果是yarn-client模式，Executor数目由spark-env中的SPARK_EXECUTOR_INSTANCES指定，每个实例的数目由SPARK_EXECUTOR_CORES指定；
+如果是yarn-cluster模式，Executor的数目由spark-submit工具的--num-executors参数指定，默认是2个实例，而每个Executor使用的CPU数目由--executor-cores指定，默认为1核。
+/***********************************************************************spark参数调优***********************************************************************
+
+/*************************************************************spark*************************************************************
+spark集群中的配置：
+    1) 首先修改配置文件:slaves 把slave的主机名都配上去。
+    2) spark-env.sh中做如下配置；
+	    export SCALA_HOME=/usr/local/scala/scala-2.11.8
+		export JAVA_HOME=/usr/local/java/jdk1.8.0_144
+		export HADOOP_CONF_DIR=/usr/local/hadoop/hadoop-2.7.3/etc/hadoop
+		export SPARK_MASTER_IP=server01
+		#SPARK_WORKER_MEMORY是计算节点worker所支配的内存，各个节点可以根据实际物理内存的大小，通过配置
+		#conf/spark-env.sh来分配内存给该节点的worker进程使用
+		export SPARK_WORKER_MEMORY=2g
+		#是sparkContext提交给worker运行的executor进程所需要的内存,
+		#注意:如果worker本身能支配的内存小于这个内存，那么在该worker上就不会分配到executor。
+		export SPARK_EXECUTOR_MEMORY=1g
+
+		
+1. spark on yarn后一个spark application资源使用情况如何？
+在不考虑动态分配spark资源的情况下： 一个spark application程序资源主要分为两部分：driver + executor，下面分别以client、cluster模式说明：
+
+client模式：
+spark driver启动在本地，而YARN Application Master启动在集群的某个节点中，所以要设置driver的资源必须要在启动时设定。AM仅用作资源管理。
+     driver资源：（因为是本地的JVM程序，并没有运行在容器中，不能做到cpu资源的隔离）
+          --driver-memory（也可以使用spark.driver.memory）
+     AM资源：
+          spark.yarn.am.cores
+          spark.yarn.am.memory
+          spark.yarn.am.memoryOverhead
+     executor资源：    
+          spark.executor.cores
+          spark.executor.memory
+          spark.yarn.executor.memoryOverhead  
+          spark.executor.instances
+故而：一个spark application所使用的资源为：
+cores = spark.yarn.am.cores + spark.executor.cores * spark.executor.instances
+memory = spark.yarn.am.memory + spark.yarn.am.memoryOverhead + (spark.executor.memory + spark.yarn.executor.memoryOverhead) * spark.executor.instances + --driver-memory
+
+cluster模式：
+spark driver和YARN Application Master运行在同一个JVM中，所以driver的资源参数也意味着控制着YARN AM的资源。通过spark.yarn.submit.waitAppCompletion设置为false使spark client(运行在本地JVM中)提交完任务就退出，下面将不考虑其资源使用情况：
+     driver(AM)资源：
+          spark.driver.cores
+          spark.driver.memory
+          spark.yarn.driver.memoryOverhead
+     executor：
+          spark.executor.cores
+          spark.executor.memory
+          spark.yarn.executor.memoryOverhead
+          spark.executor.instances
+故而：一个spark application所使用的资源为：
+cores = spark.driver.cores + spark.executor.cores * spark.executor.instances
+memory = spark.driver.memory + spark.yarn.driver.memoryOverhead + (spark.executor.memory + spark.yarn.executor.memoryOverhead) * spark.executor.instances
+
+总上所述：
+     client模式，AM和executor运行在yarn的container中；cluster模式，AM（和spark driver共享JVM）executor运行在yarn的container中，可以享用container的资源隔离机制。
+
+2. 运行在yarn container中的程序资源域值如何？
+
+首先，运行在yarn container中的程序，其可使用的资源域值受container限制，即：
+each container mem:
+     yarn.scheduler.minimum-allocation-mb
+     yarn.scheduler.maximum-allocation-mb
+each container vcore:
+     yarn.scheduler.minimum-allocation-vcores
+     yarn.scheduler.maximum-allocation-vcores
+	 
+PS:每个物理节点上的可以被nodemanager管理的资源受限于
+total container mem:
+     yarn.nodemanager.resource.memory-mb
+total container vcore:
+     yarn.nodemanager.resource.cpu-vcores(无法限制yarn可以管理的vcore，只是表示这么多vcore可以用于RM scheduler分配给container的)
+必须保证这些值大于单个container的资源使用值。
+     其次，运行在yarn container中的程序，其可使用的资源域值受自身参数限制。比如说spark的进程要求最小内存512MB，分配到1个core。
+
+3. 分配给executor的core是如何被使用的？
+private val tasksPerExecutor = conf.getInt("spark.executor.cores", 1) / conf.getInt("spark.task.cpus", 1)
+executor将她拥有的全部core，按照每一个任务需要的core数目，分配给这个executor上的任务
+
+/////////////////////////////////////////////Spark RDD的默认分区数：（spark 2.1.0）/////////////////////////////////////////////
+
+spark.default.parallelism：（默认的并发数）
+如果配置文件spark-default.conf中没有显示的配置，则按照如下规则取值
+
+本地模式（不会启动executor，由SparkSubmit进程生成指定数量的线程数来并发）：
+    spark-shell                     spark.default.parallelism = 1
+    spark-shell --master local[N]   spark.default.parallelism = N （使用N个核）
+    spark-shell --master local      spark.default.parallelism = 1
+	
+伪集群模式（x为本机上启动的executor数，y为每个executor使用的core数，z为每个 executor使用的内存）
+     spark-shell --master local-cluster[x,y,z] spark.default.parallelism = x * y
+
+mesos 细粒度模式
+     Mesos fine grained mode  spark.default.parallelism = 8
+
+其他模式（这里主要指yarn模式，当然standalone也是如此）
+    Others: total number of cores on all executor nodes or 2, whichever is larger
+    spark.default.parallelism =  max（所有executor使用的core总数， 2）
+
+经过上面的规则，就能确定了spark.default.parallelism的默认值（前提是配置文件spark-default.conf中没有显示的配置，如果配置了，则spark.default.parallelism = 配置的值）
+
+还有一个配置比较重要，spark.files.maxPartitionBytes = 128 M（默认）
+The maximum number of bytes to pack into a single partition when reading files.
+代表着rdd的一个分区能存放数据的最大字节数，如果一个400m的文件，只分了两个区，则在action时会发生错误。
+
+当一个spark应用程序执行时，生成spark.context，同时会生成两个参数，由上面得到的spark.default.parallelism推导出这两个参数的值
+
+    sc.defaultParallelism   = spark.default.parallelism（如果配置文件中没有显示的配置则取CPU的核数）
+    sc.defaultMinPartitions = min(spark.default.parallelism,2)
+
+当sc.defaultParallelism和sc.defaultMinPartitions最终确认后，就可以推算rdd的分区数了
+
+有两种产生rdd的方式：
+
+1，通过scala 集合方式parallelize生成rdd，
+如， val rdd = sc.parallelize(1 to 10)
+这种方式下，如果在parallelize操作时没有指定分区数，则
+rdd的分区数 = sc.defaultParallelism
+
+2，通过textFile方式生成的rdd，
+如， val rdd = sc.textFile(“path/file”)
+有两种情况：
+a，从本地文件file:///生成的rdd，操作时如果没有指定分区数，则默认分区数规则为：
+（按照官网的描述，本地file的分片规则，应该按照hdfs的block大小划分，但实测的结果是固定按照32M来分片，可能是bug，不过不影响使用，
+因为spark能用所有hadoop接口支持的存储系统，所以spark textFile使用hadoop接口访问本地文件时和访问hdfs还是有区别的）
+rdd的分区数 = max（本地file的分片数， sc.defaultMinPartitions）
+b，从hdfs分布式文件系统hdfs://生成的rdd，操作时如果没有指定分区数，则默认分区数规则为：
+rdd的分区数 = max（hdfs文件的block数目， sc.defaultMinPartitions）
+
+Spark会根据文件大小默认设置Map阶段的任务数，所以我们能够自行调整的就是Reduce阶段的分区数了。
+也就是说进行map类操作的时候 partition数量通常取自parent RDD中较大的一个，而且不会涉及shuffle，因此这个parallelism的参数没有影响
+而进行reduce类操作的时候通过spark.default.parallelism进行默认分区数量配置
+
+例如：sc.textFile("hdfs://server01:9000/input/part-r-00000").map(_.split(",")).map(x=>(x(0),x(1))).reduceByKey(_+_).collect
+sc.textFile("hdfs://server01:9000/input/part-r-00000").map(_.split(",")).map(x=>(x(0),x(1)))这个操作的task数目(即：分区数)由parent RDD的分区数即hdfs的block数目决定
+而reduceByKey(_+_).collect的task的数目（即：分区数）由spark.default.parallelism决定
+
+并行度
+在分布式计算的环境下，如果不能正确配置并行度，就不能够充分利用集群的并行计算能力，浪费计算资源。Spark会根据文件的大小，默认配置Map阶段任务数量，
+也就是分区数量（也可以通过SparkContext.textFile等方法进行配置）。而Reduce的阶段任务数量配置可以有两种方式，下面分别进行介绍。
+
+第一种方式：写函数的过程中通过函数的第二个参数进行配置
+ /**
+* Merge the values for each key using an associative and commutative reduce function. This will
+* also perform the merging locally on each mapper before sending results to a reducer, similarly
+* to a "combiner" in MapReduce. Output will be hash-partitioned with numPartitions partitions.
+*/
+def reduceByKey(func: (V, V) => V, numPartitions: Int): RDD[(K, V)] = self.withScope {
+	reduceByKey(new HashPartitioner(numPartitions), func)
+}
+
+第二种方式：通过配置spark.default.parallelism来进行配置。它们的本质原理一致，均是控制Shuffle过程的默认任务数量。
+下面介绍通过配置spark.default.parallelism来配置默认任务数量（如groupByKey、reduceByKey等操作符需要用到此参数配置任务数），这里的数量选择也是权衡的过程，
+需要在具体生产环境中调整，Spark官方推荐选择每个CPU Core分配2~3个任务，即cpu corenum*2（或3）数量的并行度。如果并行度太高，任务数太多，
+就会产生大量的任务启动和切换开销。如果并行度太低，任务数太小，就会无法发挥集群的并行计算能力，任务执行过慢，同时可能会造成内存combine数据过多占用内存，
+而出现内存溢出（out of memory）的异常。
+下面通过源码介绍这个参数是怎样发挥作用的。可以通过分区器的代码看到，分区器函数式决定分区数量和分区方式，因为Spark的任务数量由分区个数决定，一个分区对应一个任务。
+object Partitioner {
+	/**
+	* Choose a partitioner to use for a cogroup-like operation between a number of RDDs.
+	*
+	* If any of the RDDs already has a partitioner, choose that one.
+	*
+	* Otherwise, we use a default HashPartitioner. For the number of partitions, if
+	* spark.default.parallelism is set, then we'll use the value from SparkContext
+	* defaultParallelism, otherwise we'll use the max number of upstream partitions.
+	*
+	* Unless spark.default.parallelism is set, the number of partitions will be the
+	* same as the number of partitions in the largest upstream RDD, as this should
+	* be least likely to cause out-of-memory errors.
+	*
+	* We use two method parameters (rdd, others) to enforce callers passing at least 1 RDD.
+	*/
+	def defaultPartitioner(rdd: RDD[_], others: RDD[_]*): Partitioner = {
+		val rdds = (Seq(rdd) ++ others)
+		val hasPartitioner = rdds.filter(_.partitioner.exists(_.numPartitions > 0))
+		if (hasPartitioner.nonEmpty) {
+			hasPartitioner.maxBy(_.partitions.length).partitioner.get
+		} else {
+			if (rdd.context.conf.contains("spark.default.parallelism")) {
+				new HashPartitioner(rdd.context.defaultParallelism)
+			} else {
+				new HashPartitioner(rdds.map(_.partitions.length).max)
+			}
+		}
+	}
+}
+/////////////////////////////////////////////Spark RDD的默认分区数：（spark 2.1.0）/////////////////////////////////////////////
+
+/////////////////////////////////////////////SparkSubmit：（spark 2.1.0）/////////////////////////////////////////////
+http://tech.dianwoda.com/2018/01/10/sparkyuan-ma-fen-xi/
+https://www.cnblogs.com/devos/p/3720174.html
+https://my.oschina.net/kavn/blog/1540548
+Spark源码分析
+
+1. org.apache.spark.deploy.SparkSubmit
+  spark入口是org.apache.spark.deploy.SparkSubmit，依次打印各类信息，其中最引人注目的是welcome信息
+  在SparkSubmit中， 
+    1. 执行main函数根据外部参数(在我们应用中对应启动sh文件中的参数)构造SparkSubmitArguments，然后调用submit函数
+	2. 调用submit方法
+      2.1 构造运行环境：
+        根据步骤1中构造的SparkSubmitArguments对象，确定运行环境，例如master 、deployMode、childMainClass，如果是yarn-cluster，使用org.apache.spark.deploy.yarn.YarnClusterApplication(有的资料上显示是org.apache.spark.deploy.yarn.Client可能是老版本，YarnClusterApplication这个class与org.apache.spark.deploy.yarn.Client在同一个scala文件中)作为childMainClass；如果是mesos-cluster，使用org.apache.spark.deploy.rest.RestSubmissionClient作为childMainClass；如果是standalone模式，使用org.apache.spark.deploy.rest.RestSubmissionClient作为childMainClass
+	  2.2 反射出上一步骤的生成的childMainClass，调用其main方法(以yarn-cluster为例，其中childMainClass为：org.apache.spark.deploy.yarn.Client)
+	3. 执行Client的main方法，最终调用Client.run()方法。(在Client.run()方法里执行submitApplication()方法)
+	  3.1 在submitApplication方法中，在经过一些初始化操作后，提交请求到ResouceManager，检查集群的内存情况，检验集群的内存等资源是否满足当前的作业需求，
+	    最后正式提交application。具体步骤如下：
+		a) 通过org.apache.hadoop.yarn.client.api.YarnClient.createApplication()方法获取一个YarnClientApplication对象。这是对ResourceManager的第一次请求。
+		  通过这次请求得到的YarnClientApplication对象有两个方法：
+		    1. getApplicationSubmissionContext() ， 它返回一个 ApplicationSubmissionContext对象。“ApplicationSubmissionContext represents all of the information needed by the ResourceManager to launch the ApplicationMaster for an application.” 即：144/5000
+            ApplicationSubmissionContext表示ResourceManager为应用程序启动ApplicationMaster所需的所有信息
+			2. getNewApplicationResponse()，它返回一个GetNewApplicationResponse对象。
+		  鉴于YarnClient的createApplication方法没有任何参数，而YarnClient本身的状态中由用户指定的部分只是YarnConfiguration的内容，因此这个createApplication
+		  方法并不会告诉YARN客户端对资源的需求，因此它返回的app对象只包含了yarn的RM本身的信息。
+		  在获取了YarnClientApplication这个对象之后，可以通过YarnClientApplication.getNewApplicationResponse方法从中取出了newAppResponse这个对象，
+		  然后从中取出了当前YARN集群最多支持的内存和CPU数目(TODO:这个值是当前可用的资源的值，还是整体上最大资源值)。然后对比给AM申请的container想要的内存和CPU，
+		  如果超出了YARN支持的最大值，就抛出异常。
+		  否则，就把从newAppResponse中获取的applicationId赋给appId。看来在第一次请求时，YARN就给分配了appId，只是这个appId，并不和资源关联。
+		b) createContainerLaunchContext()，创建environment, java options以及启动AM的命令
+        c) createApplicationSubmissionContext()，设置提交我们的ApplicationMaster的上下文。(创建提交AM的Context，包括名字、队列、类型、内存、CPU及参数)	
+		d) 最后完成了任务的提交(对于cluster模式而言，任务提交后本地进程就只是一个client而已，Driver就运行在与AppMaster同一container里)
+	  3.2 通过org.apache.spark.deploy.yarn.ApplicationMaster中的方法run()再调用runDriver()方法启动Driver。（在runDriver方法中，调用startUserApplication方法，
+	    创建一个线程，用反射构造出启动脚本中的MainClass，并在线程中执行其main方法。）
+/////////////////////////////////////////////SparkSubmit：（spark 2.1.0）/////////////////////////////////////////////
+
+/////////////////////////////////////////////Spark Stage划分：（spark 2.1.0）/////////////////////////////////////////////
+http://blog.csdn.net/mahuacai/article/details/51919615
+
+org.apache.spark.scheduler.DAGScheduler
+1. 在方法handleJobSubmitted中调用：createResultStage。(关于stage 的划分的逻辑 就包含在里面)
+2. 在方法createResultStage中调用：getOrCreateParentStages(rdd, firstJobId)方法获取或创建给定RDD的父级列表，新的Stage将使用提供的firstJobId创建
+3. 在方法getOrCreateParentStages中：
+  a) 调用getShuffleDependencies根据最后一个RDD(也就是执行action的RDD)从后面向前计算，返回给定RDD的直系父级(宽依赖)列表
+  例如：C shuffle dependency B ，B shuffle dependency A (A <-- B <-- C)；调用这个函数后只返回B <-- C dependency
+  b) 遍历上述a)返回的shuffleDep列表，以shuffleDep位参数调用getOrCreateShuffleMapStage方法
+    如果shuffleDep.shuffleId存在于shuffleIdToMapStage中continue
+	如果shuffleDep.shuffleId尚不存在：
+	  在方法getMissingAncestorShuffleDependencies调用getShuffleDependencies循环执行从a)开始的流程
+	  为给定的shuffleDep创建一个stage
+/////////////////////////////////////////////Spark Stage划分：（spark 2.1.0）/////////////////////////////////////////////
+
+/////////////////////////////////////////////窄依赖(NarrowDependency)与宽依赖(ShuffleDependency)：（spark 2.1.0）/////////////////////////////////////////////
+https://www.jianshu.com/p/5c2301dfa360
+如果父RDD的每个分区最多只能被子RDD的一个分区使用，我们称之为（narrow dependency）窄依赖； 
+若一个父RDD的每个分区可以被子RDD的多个分区使用，我们称之为（wide dependency）宽依赖，在源代码中方法名为ShuffleDependency，顾名思义这之中还需要Shuffle操作。
+首先，从计算过程来看，窄依赖是数据以管道方式经一系列计算操作可以运行在了一个集群节点上，如（map、filter等），宽依赖则可能需要将数据通过跨节点传递后运行（如groupByKey），有点类似于MR的shuffle过程。
+其次，从失败恢复来看，窄依赖的失败恢复起来更高效，因为它只需找到父RDD的一个对应分区即可，而且可以在不同节点上并行计算做恢复；宽依赖则牵涉到父RDD的多个分区，恢复起来相对复杂些。
+综上， 这里引入了一个新的概念Stage。Stage可以简单理解为是由一组RDD组成的可进行优化的执行计划。如果RDD的衍生关系都是窄依赖，则可放在同一个Stage中运行，若RDD的依赖关系为宽依赖，则要划分到不同的Stage。这样Spark在执行作业时，会按照Stage的划分, 生成一个完整的最优的执行计划。
+
+https://www.jianshu.com/p/4c5c2e535da5
+Spark Shuffle的技术
+在Spark或Hadoop MapReduce的分布式计算框架中，数据被按照key分成一块一块的分区，打散分布在集群中各个节点的物理存储或内存空间中，每个计算任务一次处理一个分区，但map端和reduce端的计算任务并非按照一种方式对相同的分区进行计算，例如，当需要对数据进行排序时，就需要将key相同的数据分布到同一个分区中，原分区的数据需要被打乱重组，这个按照一定的规则对数据重新分区的过程就是Shuffle（洗牌）。
+
+Spark Shuffle的两阶段
+对于Spark来讲，一些Transformation或Action算子会让RDD产生宽依赖，即parent RDD中的每个Partition被child RDD中的多个Partition使用，这时便需要进行Shuffle，根据Record的key对parent RDD进行重新分区。
+以Shuffle为边界，Spark将一个Job划分为不同的Stage，这些Stage构成了一个大粒度的DAG。Spark的Shuffle分为Write和Read两个阶段，分属于两个不同的Stage，前者是Parent Stage的最后一步，后者是Child Stage的第一步。
+执行Shuffle的主体是Stage中的并发任务，这些任务分ShuffleMapTask和ResultTask两种，ShuffleMapTask要进行Shuffle，ResultTask负责返回计算结果，一个Job中只有最后的Stage采用ResultTask，其他的均为ShuffleMapTask。如果要按照map端和reduce端来分析的话，ShuffleMapTask可以即是map端任务，又是reduce端任务，因为Spark中的Shuffle是可以串行的；ResultTask则只能充当reduce端任务的角色。
+我把Spark Shuffle的流程简单抽象为以下几步以便于理解：
+1) Shuffle Write
+  a) Map side combine (if needed)
+  b) Write to local output file
+2) Shuffle Read
+  a) Block fetch
+  b) Reduce side combine
+  c) Sort (if needed)
+Write阶段发生于ShuffleMapTask对该Stage的最后一个RDD完成了map端的计算之后，首先会判断是否需要对计算结果进行聚合，然后将最终结果按照不同的reduce端进行区分，写入当前节点的本地磁盘。
+Read阶段开始于reduce端的任务读取ShuffledRDD之时，首先通过远程或本地数据拉取获得Write阶段各个节点中属于当前任务的数据，根据数据的Key进行聚合，然后判断是否需要排序，最后生成新的RDD。
+/////////////////////////////////////////////窄依赖(NarrowDependency)与宽依赖(ShuffleDependency)：（spark 2.1.0）/////////////////////////////////////////////
+/*************************************************************spark*************************************************************
+
+/*************************************************************spark提交参数*************************************************************
+–archives archives
+
+以逗号分隔的归档文件列表，会被解压到每个executor的工作目录， 仅限于spark on yarn模式。
+
+//local 使用1个线程在本地运行spark应用程序
+//local[*] 使用K个worker线程在本地运行spark应用程序
+//local[]模式必须用dirver memory
+./spark-submit --class org.deeplearning4j.dl4j_demo.monitor.RequestHandler --master local[1] /home/hadoop/jars/dl4j-demo-0.0.1-SNAPSHOT-bin.jar org.deeplearning4j.dl4j_demo.spark.classification.ClassificationPrediction predicted /home/hadoop/convert.xml
+./spark-submit --class org.deeplearning4j.dl4j_demo.spark.classification.ClassficationNetWork --master local[10] --driver-memory 12G  /home/dl4juser/jars/dl4j-demo-0.0.1-SNAPSHOT-bin.jar /home/dl4juser/xmls/convert.xml
+
+//standalone模式运行spark
+./spark-submit --class org.deeplearning4j.dl4j_demo.monitor.RequestHandler --master spark://server01:7077 --executor-memory 512M /home/hadoop/jars/dl4j-demo-0.0.1-SNAPSHOT-bin.jar org.deeplearning4j.dl4j_demo.spark.classification.ClassificationTrain train /home/hadoop/convert.xml
+
+//yarn-cluster模式运行spark
+./spark-submit --class org.deeplearning4j.dl4j_demo.monitor.RequestHandler --master yarn --deploy-mode cluster /home/hadoop/jars/dl4j-demo-0.0.1-SNAPSHOT-bin.jar org.deeplearning4j.dl4j_demo.spark.classification.ClassificationTrain train /home/hadoop/convert.xml 
+./spark-submit --class org.deeplearning4j.dl4j_demo.spark.classification.ClassficationNetWork --master yarn --deploy-mode cluster --num-executors 4 --executor-memory 4g --executor-cores 6 --conf spark.default.parallelism=48 /home/dl4juser/jars/dl4j-demo-0.0.1-SNAPSHOT-bin.jar /home/dl4juser/xmls/convert.xml
+
+//yarn-client模式运行spark
+./spark-submit --class org.deeplearning4j.dl4j_demo.monitor.RequestHandler --master yarn --deploy-mode client /home/hadoop/jars/dl4j-demo-0.0.1-SNAPSHOT-bin.jar org.deeplearning4j.dl4j_demo.spark.classification.ClassificationTrain train /home/hadoop/convert.xml
+./spark-submit --class org.deeplearning4j.dl4j_demo.spark.classification.ClassficationNetWork --master yarn --deploy-mode client --num-executors 4 --executor-memory 4g --executor-cores 6 --conf spark.default.parallelism=48 /home/dl4juser/jars/dl4j-demo-0.0.1-SNAPSHOT-bin.jar /home/dl4juser/xmls/convert.xml
+
+http://blog.csdn.net/guohecang/article/details/52088117
+http://blog.csdn.net/u010657789/article/details/52623107
+https://yq.aliyun.com/articles/86463?t=t1
+./spark-submit --class org.deeplearning4j.dl4j_demo.spark.classification.ClassficationNetWork --master yarn --deploy-mode client --num-executors 2 --executor-memory 1536M --executor-cores 3 --driver-memory 1G --conf spark.yarn.am.cores=1 --conf spark.yarn.am.memory=512M --conf spark.yarn.am.memoryOverhead=512M --conf spark.default.parallelism=20 /home/hadoop/jars/dl4j-demo-0.0.1-SNAPSHOT-bin.jar /home/hadoop/convert.xml
+
+./spark-submit --class org.deeplearning4j.dl4j_demo.spark.classification.ClassficationNetWork --master yarn --deploy-mode cluster --num-executors 2 --executor-memory 1536M --executor-cores 3 --conf spark.driver.cores=1 --conf spark.driver.memory=512M --conf spark.yarn.driver.memoryOverhead=512M --conf spark.default.parallelism=20 /home/hadoop/jars/dl4j-demo-0.0.1-SNAPSHOT-bin.jar /home/hadoop/convert.xml
+/*************************************************************spark提交参数*************************************************************
+
+
+/*************************************************************spark*************************************************************
+终于找到原因了，要修改（主机名hostname）：
+/etc/sysconfig/network
+
+然后重启
+/etc/rc.d/init.d/network restart
+
+yarn logs -applicationId
+/*************************************************************spark*************************************************************	
+
+./spark-submit --class org.deeplearning4j.dl4j_demo.spark.classification.Atec_Classification --master yarn --deploy-mode client --num-executors 2 --executor-memory 1536M --executor-cores 3 --driver-memory 1G --conf spark.yarn.am.cores=1 --conf spark.yarn.am.memory=512M --conf spark.yarn.am.memoryOverhead=512M --conf spark.default.parallelism=20 /home/hadoop/jars/dl4j-demo-0.0.1-SNAPSHOT-bin.jar /home/hadoop/convert.xml
+	

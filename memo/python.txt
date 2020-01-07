@@ -1,0 +1,1178 @@
+ **************************************************************python环境安装**************************************************************
+1.下载python
+wget https://www.python.org/ftp/python/3.6.8/Python-3.6.8.tgz
+wget https://www.python.org/ftp/python/2.7.12/Python-2.7.12.tgz
+
+2.准备必要的库文件
+yum install -y gcc zlib-devel openssl-devel
+yum install openssl-devel bzip2-devel expat-devel gdbm-devel readline-devel sqlite-devel
+
+3.解压到临时目录
+tar -zxvf Python-3.6.3.tgz -C /home
+cd /home
+
+4.make、make install
+# ./configure --prefix=/usr/local/python2 --enable-unicode=ucs4
+# make
+# make altinstall
+执行 ./configure --prefix=/usr/local/python3 命令。./configure命令执行完毕之后创建一个文件creating Makefile，
+供下面的make命令使用 执行make install之后就会把程序安装到我们指定的目录中去。
+Configure是一个可执行脚本，它有很多选项，在待安装的源码路径下使用命令./configure –help输出详细的选项列表。
+
+其中--prefix选项是配置安装的路径，如果不配置该选项，安装后可执行文件默认放在/usr/local/bin，库文件默认放
+在/usr/local/lib，配置文件默认放在/usr/local/etc，其它的资源文件放在/usr/local/share，比较凌乱。
+如果配置--prefix，如：
+./configure --prefix=/usr/local/test
+可以把所有资源文件放在/usr/local/test的路径中，不会杂乱。
+用了—prefix选项的另一个好处是卸载软件或移植软件。当某个安装的软件不再需要时，只须简单的删除该安装目录，
+就可以把软件卸载得干干净净；移植软件只需拷贝整个目录到另外一个机器即可（相同的操作系统）。
+当然要卸载程序，也可以在原来的make目录下用一次make uninstall，但前提是make文件指定过uninstall。
+然后执行make、make install命令。
+
+
+python3.6程序的执行文件：/usr/local/python3/bin/python3.6
+python3.6应用程序目录：/usr/local/python3/lib/python3.6
+pip3的执行文件：/usr/local/python3/bin/pip3.6
+pyenv3的执行文件：/usr/local/python3/bin/pyenv-3.6
+
+更改/usr/bin/python链接并查看版本
+# cd /usr/bin
+# mv  python python.backup
+# ln -s /usr/local/python3/bin/python3.6 /usr/bin/python
+# ln -s /usr/local/python3/bin/python3.6 /usr/bin/python3
+# cd /usr/bin
+# python -V
+
+更改yum脚本的python依赖
+# cd /usr/bin
+# ls yum*
+yum yum-config-manager yum-debug-restore yum-groups-manager
+yum-builddep yum-debug-dump yumdownloader
+更改以上文件头为
+#!/usr/bin/python 改为 #!/usr/bin/python2
+
+修改gnome-tweak-tool配置文件
+# vi /usr/bin/gnome-tweak-tool
+#!/usr/bin/python 改为 #!/usr/bin/python2
+
+修改urlgrabber配置文件
+# vi /usr/libexec/urlgrabber-ext-down
+#!/usr/bin/python 改为 #!/usr/bin/python2
+**************************************************************python环境安装**************************************************************
+
+*****************************************指定版本软件安装******************************************
+apt-get install autoconf=2.50
+pip install robotframework==2.8.7
+*****************************************指定版本软件安装******************************************
+
+************************anaconda创建新环境，并打开基于不同Python版本的jupyter************************
+1、这里对于使用anaconda navigator(界面操作，就不多说），重点讲讲使用anaconda prompt
+2、打开prompt ，一般默认的是base,可以使用conda env list 列出当前系统中存在多少环境，使用activate env_name 来激活你想要使用的环境，
+3、接下来就是开挂似的conda install pakage_name = 2.7 pakage_name pakage_name
+4、激活环境 activate env_name,输入jupyter notebook就打开了当前环境的jupyter notebook（如果当前环境没有安装jupyter，那么会调用base的）
+5、使用conda env create -f enviroment .yaml，根据别人代码库中的enviroment.yaml 文件来创建一个环境。这个yaml文件中存储的就是文件名，以及代码中使用的相关包以及包的型号。所以调用这个语句就可以完全不用担心运行别人代码出现包型号不对的问题。（这个非常重要*****）
+6、所以如果想要将自己的代码放在同性交友网站（gayhub）供别人使用，为了防止别人运行你代码出现问题，所以最好将自己使用的包及其型号告诉呈现出来，并放在项目中。conda env exp > enviroment.yaml
+************************anaconda创建新环境，并打开基于不同Python版本的jupyter************************
+
+*************************************************在windows上通过浏览器远程连接Linux服务器的jupyter*************************************************
+jupyter安装：
+python3 -m pip install --upgrade pip
+python3 -m pip install jupyter
+
+1. Linux服务器端配置
+（1）启动python
+（2）创建远程连接密码
+	>>> from notebook.auth import passwd
+	>>> passwd()
+	输入两次密码，将得到一个字符串，比如:'sha1:5de1d67cf70b:db7f685df7f053178be59f597dde89bb1fb3dea9'
+（3）生成jupyter的配置文件
+	$ /usr/local/python3/bin/jupyter notebook --generate-config 
+（4）打开配置文件
+	$ vim ~/.jupyter/jupyter_notebook_config.py
+	复制以下内容粘贴到配置文件中
+	c.NotebookApp.ip = '*' # 就是设置所有ip皆可访问
+	后续:升级jupyter后运行jupyter-notebook报错：ValueError: '' does not appear to be an IPv4 or IPv6 address，此时修改文件jupyter_notebook_config.py中c.NotebookApp.ip='0.0.0.0',主要原因是notebook版本不兼容($pip uninstall notebook  $pip install notebook==5.6.0)
+	c.NotebookApp.password = u'sha1:5de1d67cf70b:db7f685df7f053178be59f597dde89bb1fb3dea9' #刚才复制的那个密文 
+	c.NotebookApp.port = 8889 #随便指定一个端口
+	c.NotebookApp.open_browser = False # 禁止自动打开浏览器
+	c.InteractiveShellApp.matplotlib = 'inline' #这个在demo里面没找到不知道啥意思
+（5）设置jupyter notebook在后台不间断运行，且配置成错误信息输出到屏幕（可选），nohup ./jupyter notebook --allow-root >/home/pythonLogs/logs_201711231024 2>&1 &
+	nohup /usr/local/python3/bin/jupyter notebook --allow-root >/home/pythonLogs/logs_201712301042 2>&1 &
+*************************************************在windows上通过浏览器远程连接Linux服务器的jupyter*************************************************
+
+*************************************************配置jupyter工作目录*************************************************
+Linux下更改Jupyter Notebook工作的目录
+打开/home/.jupyter 文件，找到jupyter_notebook_config.py并打开
+以“.”开头的文件是ubuntu隐藏文件，按 Ctrl+h 显示隐藏文件，​
+在文档末尾添加如下命令：
+​c.NotebookApp.notebook_dir = 'working directory'  #/home/jupyterworkspace
+用你想要的工作目录替换上边的红体字部分
+保存文件，
+再次启动jupyter notebook即可​​
+
+windows下更改Jupyter Notebook工作的目录
+找到Jupyter Notebook的桌面快捷方式，右键=>属性=>快捷方式=>目标，然后把后面输入框最后的“%USERPROFILE%”这个参数去掉后，确定。（否则之后做的其它修改无法生效。）
+然后：
+1.打开 cmd 输入命令 jupyter notebook --generate-config
+2.找到C:\Users\Administrator\.jupyter 中的文件 jupyter_notebook_config.py
+3.用记事本打开找到# The directory to use for notebooks and kernels.
+c.NotebookApp.notebook_dir = u'' （请注意修改的是这一行）
+将其修改为
+# The directory to use for notebooks and kernels.
+c.NotebookApp.notebook_dir = u'E:\\jupyter'
+*************************************************配置jupyter工作目录*************************************************
+
+*************************************************Python CGI编程*************************************************
+找到apache配置文件httpd.conf ,去掉下面代码前面的#号
+LoadModule cgi_module modules/mod_cgid.so
+
+vim /usr/local/httpd/conf
+LoadModule cgid_module modules/mod_cgid.so
+*************************************************Python CGI编程*************************************************
+
+*******************************************************tensorflow安装*******************************************************
+Linux下安装tensorflow
+cd /usr/local/python3/bin
+./pip3.6 install tensorflow
+
+windows下Anaconda中安装Tensorflow
+1、安装Anaconda
+2、安装TensorFlow
+	在Anaconda Prompt，输入：
+	pip install tensorflow（CPU）
+	pip install tensorflow-gpu（GPU）
+	（如果是想安装CPU版本的，在命令行输入“pip install tensorflow”就可以了
+	如果是想安装GPU版本的，在命令行输入“pip install tensorflow-gpu”就可以了）
+
+*******************************************************tensorflow安装*******************************************************
+
+*********************************************************exp(x) log(x)*********************************************************
+指数函数是数学中重要的函数。应用到值e上的这个函数写为exp(x)。还可以等价的写为ex，这里的e是数学常数，就是自然对数的底数，近似等于 2.718281828，还称为欧拉数。
+math.e：2.718281828459045
+exp() 方法返回x的指数,ex
+exp(x)：返回e的x次幂(ex),如math.exp(1) 返回2.718281828459045
+
+log() 方法返回x的自然对数
+log(x)：如math.log(math.e)返回1.0,math.log(100,10)返回2.0
+
+数据取对数的意义：
+平时在一些数据处理中，经常会把原始数据取对数后进一步处理。之所以这样做是基于对数函数在其定义域内是单调增函数，取对数后不会改变数据的相对关系，取对数作用主要有：
+1.缩小数据的绝对数值，方便计算。例如，每个数据项的值都很大，许多这样的值进行计算可能对超过常用数据类型的取值范围，这时取对数，就把数值缩小了，例如TF-IDF计算时，由于在大规模语料库中，很多词的频率是非常大的数字。
+2.取对数后，可以将乘法计算转换称加法计算。例如：log8*8=log8+log8；log0.125*0.125=log0.125+log0.125
+3.某些情况下，在数据的整个值域中的在不同区间的差异带来的影响不同。例如，中文分词的mmseg算法，计算语素自由度时候就取了对数，这是因为，如果某两个字的频率分别都是500，频率和为1000，另外两个字的频率分别为200和800，如果单纯比较频率和都是相等的，但是取对数后，log500=2.69897,log200=2.30103,log800=2.90308这时候前者为2log500=5.39794,后者为log200+log800=5.20411，这时前者的和更大，取前者。因为前面两个词频率都是500,可见都比较常见。后面有个词频是200,说明不太常见，所以选择前者。从log函数的图像可以看到，自变量x的值越小，函数值y的变化越快，还是前面的例子，同样是相差了300,但log500-log200>log800-log500，因为前面一对的比后面一对更小。也就是说，对数值小的部分差异的敏感程度比数值大的部分的差异敏感程度更高。这也是符合生活常识的，例如对于价格，买个家电，如果价格相差几百元能够很大程度影响你决策，但是你买汽车时相差几百元你会忽略不计了。
+4.取对数之后不会改变数据的性质和相关关系，但压缩了变量的尺度，例如800/200=4,但log800/log200=1.2616，数据更加平稳，也消弱了模型的共线性、异方差性等。
+5.所得到的数据易消除异方差问题。
+6.在经济学中，常取自然对数再做回归，这时回归方程为lnY=alnX+b ，两边同时对X求导，1/Y*(DY/DX)=a*1/X, b=(DY/DX)*(X/Y)=(DY*X)/(DX*Y)=(DY/Y)/(DX/X) 这正好是弹性的定义
+*********************************************************exp(x) log(x)*********************************************************
+
+*************************************************************************函数的凹凸性*************************************************************************
+在函数f(x)的图象上取任意两点，如果函数图象在这两点之间的部分总在连接这两点的线段的下方，那么这个函数就是凸函数。[1]
+直观上看，凹函数就是图象向上突出来的。比如y=- x² ，y=lnx
+*************************************************************************函数的凹凸性*************************************************************************
+
+***********************************************************python -m***********************************************************
+__name__
+__name__ 是内置变量，用于表示当前模块的名字，同时还能反映一个包的结构。来举个例子，假设有如下一个包：
+a
+├── b
+│   ├── c.py
+│   └── __init__.py
+└── __init__.py
+目录中所有 py 文件的内容都为：
+print(__name__)
+我们执行 python -c "import a.b.c"，输出结果：
+a
+a.b
+a.b.c
+由此可见，__name__ 可以清晰的反映一个模块在包中的层次。其实，所谓模块名就是 import 时需要用到的名字，例如：
+import tornado
+import tornado.web
+这里的 tornado 和 tornado.web 就被称为模块的模块名。
+如果一个模块被直接运行，则其没有包结构，其 __name__ 值为 __main__。例如在上例中，我们直接运行 c.py 文件（python a/b/c.py），输出结果如下：
+__main__
+所以，if __name__ == '__main__' 我们简单的理解就是： 如果模块是被直接运行的，则代码块被运行，如果模块是被导入的，则代码块不被运行。
+我们执行 python -m a.b.c，输出结果：
+a
+a.b
+__main__
+
+python -m
+首先我们需要来看看 python xxx.py 与 python -m xxx.py 的区别。两种运行 Python 程序的方式的不同点在于，一种是直接运行，一种是当做模块来运行。
+
+先来看一个简单的例子，假设有一个 Python 文件 run.py，其内容如下：
+import sys
+print(sys.path)
+我们用直接运行的方式启动（python run.py），输出结果(为了说明问题，输出结果只截取了重要部分，下同)：
+['D:\\jupyterworkspace', 'D:\\Anaconda3\\python36.zip', ...]
+然后以模块的方式运行（python -m run.py）:
+['', 'D:\\Anaconda3\\python36.zip', ...]
+/usr/bin/python: No module named run.py
+由于输出结果只列出了关键的部分，应该很容易看出他们之间的差异。直接运行是把 run.py 文件所在的目录放到了 sys.path 属性中。
+以模块方式运行是把你输入命令的目录（也就是当前工作路径），放到了 sys.path 属性中。
+以模块方式运行还有一个不同的地方是，多出了一行 No module named run.py 的错误。错误的原因如下：
+实际上以模块方式运行时，Python会根据模块在包中的层次依次导入最后一个[.]之前的模块，再将最后一个模块当作__main__来执行
+例如在执行python -m run.py时，首先python会导入run模块，再执行run.py模块(使用python -m run.py这种写法的话，python会将.py这个扩张名也当成一个模块)
+因为.py是扩张名而不是模块 所以会报错，而直接执行python -m run的时候python会直接将run当作__main__来执行所以没有问题
+
+python -m run.py  报错。
+python -m run     没有问题，正常执行
+
+总结一下：
+    1、 加上 -m 参数时会把你输入命令的目录(当前工作目录)添加到sys.path 中，而不加时则会把脚本所在目录添加到sys.path 中。
+    2、 加上 -m 参数时 Python 会先将模块或者包导入，然后再执行
+    3、 __main__.py 文件是一个包或者目录的入口程序。不管是用 python package 还是用 python -m package 运行时，__main__.py 文件总是被执行。
+
+***********************************************************python -m***********************************************************
+
+*******************************************************************python import&namespace*******************************************************************
+1、模块、包
+模块module：一般情况下，是一个以.py为后缀的文件。其他可作为module的文件类型还有”.pyo”、”.pyc”、”.pyd”、”.so”、”.dll”
+包package： 为避免模块名冲突，Python引入了按目录组织模块的方法，称之为包（package）。包是含有Python模块的文件夹。
+当一个文件夹下有__init__.py时，意为该文件夹是一个包（package），其下的多个模块（module）构成一个整体，而这些模块（module）都可通过同一个包（package）导入其他代码中。
+其中__init__.py文件用于组织包（package），方便管理各个模块之间的引用、控制着包的导入行为。该文件可以什么内容都不写，即为空文件（为空时，仅仅用import[该包]形式是什么也做不了的），存在即可，相当于一个标记。
+但若想使用from pacakge_1 import * 这种形式的写法，需在init.py中加上：all=['file_a,'file_b'] # package_1下有file_a.py和file_b.py，在导入时init.py文件将被执行。
+但不建议在__init__.py中写模块，以保证该文件简单。不过可在__init__.py导入我们需要的模块，以便避免一个个导入、方便使用
+其中，__all__是一个重要的变量，用来指定此包（package）被import *时，哪些模块（module）会被import进【当前作用域中】。不在__all__列表中的模块不会被其他程序引用。
+可以重写__all__，如：__all__= [‘当前所属包模块1名字’, ‘模块1名字’]，如果写了这个，则会按列表中的模块名进行导入。
+__path__也是一个常用变量，是个列表，默认情况下只有一个元素，即当前包（package）的路径。修改__path__可改变包（package）内的搜索路径。
+比如在package1的__init__里面改变变量__path__的值 比如：增加package2的路径(__path__.insert(0,'/project/package2'))，相当于改变了package1的搜索范围
+默认情况下__path__的值为：['/project/package1']，import package1的时候，只能导入该路径下的子包和模块
+__path__.insert(0,'/project/package2')之后__path__的值为：['/project/package1','/project/package2']，
+这样的话import package1的时候，不仅能导入/project/package1路径下的子包和模块还能导入/project/package2下的子包和模块
+
+例如：
+project
+├── package1
+│       │
+│       │── sub_package1
+│       │         │
+│       │         │── sub_module1.py
+│       │         │
+│       │         │── __init__.py
+│       │ 
+│       │── __init__.py
+│
+├── package2
+│       │
+│       │── sub_package2
+│       │         │
+│       │         │── sub_module2.py
+│       │         │
+│       │         │── __init__.py
+│       │ 
+│       │── __init__.py
+│        
+└── run.py
+
+sub_module1.py内容如下：
+def sub_module1_print_path():
+    print(__file__)
+	
+sub_module2.py内容如下：
+def sub_module2_print_path():
+    print(__file__)
+
+package1的__init__.py内容如下：
+__path__.insert(0,'/project/package2')
+
+run.py的内容如下：
+from package1.sub_package1.sub_module1 import sub_module1_print_path
+from package1.sub_package2.sub_module2 import sub_module2_print_path
+sub_module1_print_path()
+sub_module2_print_path()
+
+当我们在导入一个包（package）时（会先加载__init__.py定义的引入模块，然后再运行其他代码），实际上是导入的它的__init__.py文件（导入时，该文件自动运行，助我们一下导入该包中的多个模块）。我们可以在__init__.py中再导入其他的包（package）或模块或自定义类。
+
+2、sys.modules、命名空间、模块内置属性
+2.1 sys.modules
+sys.modules是一个将模块名称（module_name）映射到已加载的模块（modules）的字典。可用来强制重新加载modules。Python一启动，它将被加载在内存中。当我们导入新modules，sys.modules将自动记录下该module；当第二次再导入该module时，Python将直接到字典中查找，加快运行速度。
+它是个字典，故拥有字典的一切方法，如sys.modules.keys()、sys.modules.values()、sys.modules[‘os’]。但请不要轻易替换字典、或从字典中删除某元素，将可能导致Python运行失败。
+import sys
+print(sys.modules)#打印，查看该字典具体内容。
+2.2 命名空间
+如同一个dict，key 是变量名字，value 是变量的值
+每个函数function 有自己的命名空间，称local namespace，记录函数的变量。
+每个模块module 有自己的命名空间，称global namespace，记录模块的变量，包括functions、classes、导入的modules、module级别的变量和常量。
+build-in命名空间，它包含build-in function和exceptions，可被任意模块访问。
+某段Python代码访问变量x时，Python会所有的命名空间中查找该变量，顺序是：
+local namespace 即当前函数或类方法。若找到，则停止搜索；
+global namespace 即当前模块。若找到，则停止搜索；
+build-in namespace Python会假设变量x是build-in的函数函数或变量。若变量x不是build-in的内置函数或变量，Python将报错NameError。
+对于闭包，若在local namespace找不到该变量，则下一个查找目标是父函数的local namespace。
+内置函数locals()、globals()返回一个字典。区别：前者只读、后者可写。
+命名空间 在from module_name import 、import module_name中的体现：from关键词是导入模块或包中的某个部分。
+from module_A import X：会将该模块的函数/变量导入到当前模块的命名空间中，无须用module_A.X访问了。
+import module_A：modules_A本身被导入，但保存它原有的命名空间，故得用module_A.X方式访问其函数或变量。
+2.3 模块内置属性
+__name__：直接运行本模块，__name__值为__main__；import module，__name__值为模块名字。
+__file__：当前module的绝对路径
+3、绝对导入、相对导入
+3.1 绝对导入：所有的模块import都从“根节点”开始。根节点的位置由sys.path中的路径决定，项目的根目录一般自动在sys.path中。
+3.2 相对导入：只关心相对自己当前目录的模块位置就好。不能在包（package）的内部直接执行（会报错）。不管根节点在哪儿，包内的模块相对位置都是正确的。
+在使用相对导入时，可能遇到ValueError: Attempted relative import beyond toplevel package
+假设有如下层次包目录：
+project/
+    __init__.py
+    mypackage/
+        __init__.py
+        A/
+            __init__.py
+            spam.py     #* print("In spam") *#
+            grok.py     #* print("In grok") *#
+            C/
+                __init__.py
+                hello.py    #* print("In hello") *#
+        B/
+            __init__.py
+            bar.py      #* print("In bar") *#
+        run.py
+    main.py
+相对导入语法
+from . import module
+from .. import module
+from ... import module
+相对导入与模块__name__有关
+    run.py作为顶层模块执行导入A.spam时
+    run.py的__name__ 等于 __main__
+    spam.py的__name__ 等于 A.spam
+A成为顶层的包，所以相对导入最多​只能访问到A，A之外的层次结构是不可见的
+    main.py作为顶层模块执行导入mypackage.A.spam是
+    main.py的 __name__ 为 __main__
+    spam.py的__name__ 为 mypackage.A.spam
+    mypackage成为顶层包，相对导入作用域扩大，B/包对spam.py可见
+相对导入只适用于包中的模块，顶层的模块中将不起作用
+如果将run.py当作顶层执行模块
+    A/ 和 B/ 将成为  toplevel package 顶层包 A/中的模块不能用相对导入来导入B/包中的模块，因为不能越过顶层包。
+    A/、B/ 包中的目录可以导入本包中及以下的模块
+如果将main.py当作顶层执行模块
+    mypackage/成为顶层包，A/可以访问到B/包，不会出现 ValueError: attempted relative import beyond top-level package
+
+例子：
+## run.py （run.py当作顶层执行模块，即 python run.py）
+#-----------
+import A.spam
+
+## spam.py
+#-------------- 
+from . import grok      # ok
+from .C import hello    # ok
+from ..B import bar     # !Err ##—— ValueError: attempted relative import beyond top-level package
+print('In spam') 
+
+## main.py
+#------------
+import mypackage.A.spam
+
+## spam.py
+#-------------
+from ..B import bar     # ok
+print('In spam')
+*******************************************************************python import&namespace*******************************************************************
+
+*****************************************************************使用Flask实现RESTful API***********************************************************************
+https://www.jianshu.com/p/f3624eebff80
+*****************************************************************使用Flask实现RESTful API***********************************************************************
+
+**********************************************************************python多线程GIL****************************************************************************
+GIL 的作用是：对于一个解释器，只能有一个thread在执行bytecode。所以每时每刻只有一条bytecode在被执行一个thread。GIL保证了bytecode 这层面上是thread safe的。
+但是如果你有个操作比如 x += 1，这个操作需要多个bytecodes操作，在执行这个操作的多条bytecodes期间的时候可能中途就换thread了，这样就出现了data races的情况了。
+比如这小家伙就有很多条bytecodes：
+>>> dis.dis(lambda x: x+1)
+  1           0 LOAD_FAST                0 (x)
+              3 LOAD_CONST               1 (1)
+              6 BINARY_ADD
+              7 RETURN_VALUE
+
+参考：https://stackoverflow.com/questions/26873512/why-does-python-provide-locking-mechanisms-if-its-subject-to-a-gil
+The GIL synchronizes bytecode operations. Only one byte code can execute at once. But if you have an operation that requires more than one bytecode, 
+you could switch threads between the bytecodes. If you need the operation to be atomic, then you need synchronization above and beyond the GIL.
+For example, incrementing an integer is not a single bytecode:
+>>> def f():
+...   global num
+...   num += 1
+...
+>>> dis.dis(f)
+  3           0 LOAD_GLOBAL              0 (num)
+              3 LOAD_CONST               1 (1)
+              6 INPLACE_ADD
+              7 STORE_GLOBAL             0 (num)
+             10 LOAD_CONST               0 (None)
+             13 RETURN_VALUE
+Here it took four bytecodes to implement num += 1. The GIL will not ensure that x is incremented atomically. Your experiment demonstrates the problem: 
+you have lost updates because the threads switched between the LOAD_GLOBAL and the STORE_GLOBAL.
+The purpose of the GIL is to ensure that the reference counts on Python objects are incremented and decremented atomically. 
+It isn't meant to help you with your own data structures.
+
+https://www.zhihu.com/question/23474039
+在介绍Python中的线程之前，先明确一个问题，Python中的多线程是假的多线程！ 为什么这么说，我们先明确一个概念，全局解释器锁（GIL）。Python代码的执行由Python虚拟机（解释器）来控制。Python在设计之初就考虑要在主循环中，同时只有一个线程在执行，就像单CPU的系统中运行多个进程那样，内存中可以存放多个程序，但任意时刻，只有一个程序在CPU中运行。同样地，虽然Python解释器可以运行多个线程，只有一个线程在解释器中运行。对Python虚拟机的访问由全局解释器锁（GIL）来控制，正是这个锁能保证同时只有一个线程在运行。在多线程环境中，Python虚拟机按照以下方式执行。1.设置GIL。2.切换到一个线程去执行。3.运行。4.把线程设置为睡眠状态。5.解锁GIL。6.再次重复以上步骤。对所有面向I/O的（会调用内建的操作系统C代码的）程序来说，GIL会在这个I/O调用之前被释放，以允许其他线程在这个线程等待I/O的时候运行。如果某线程并未使用很多I/O操作，它会在自己的时间片内一直占用处理器和GIL。也就是说，I/O密集型的Python程序比计算密集型的Python程序更能充分利用多线程的好处。我们都知道，比方我有一个4核的CPU，那么这样一来，在单位时间内每个核只能跑一个线程，然后时间片轮转切换。但是Python不一样，它不管你有几个核，单位时间多个核只能跑一个线程，然后时间片轮转。看起来很不可思议？但是这就是GIL搞的鬼。任何Python线程执行前，必须先获得GIL锁，然后，每执行100条字节码，解释器就自动释放GIL锁，让别的线程有机会执行。这个GIL全局锁实际上把所有线程的执行代码都给上了锁，所以，多线程在Python中只能交替执行，即使100个线程跑在100核CPU上，也只能用到1个核。通常我们用的解释器是官方实现的CPython，要真正利用多核，除非重写一个不带GIL的解释器。我们不妨做个试验：
+#coding=utf-8
+from multiprocessing import Pool
+from threading import Thread
+from multiprocessing import Process
+
+def loop():
+    while True:
+        pass
+if __name__ == '__main__':
+    for i in range(3):
+        t = Thread(target=loop)
+        t.start()
+    while True:
+        pass
+我的电脑是4核，所以我开了4个线程，看一下CPU资源占有率：
+我们发现CPU利用率并没有占满，大致相当于单核水平。
+
+而如果我们变成进程呢？我们改一下代码：
+#coding=utf-8
+from multiprocessing import Pool
+from threading import Thread
+from multiprocessing import Process
+
+def loop():
+    while True:
+        pass
+if __name__ == '__main__':
+    for i in range(3):
+        t = Process(target=loop)
+        t.start()
+    while True:
+        pass
+结果直接飙到了100%，说明进程是可以利用多核的！
+
+为了验证这是Python中的GIL搞得鬼，我试着用Java写相同的代码，开启线程，我们观察一下：结果也直接飙到了100%，
+package com.darrenchan.thread;
+
+public class TestThread {
+    public static void main(String[] args) {
+        for (int i = 0; i < 3; i++) {
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    while (true) {
+
+                    }
+                }
+            }).start();
+        }
+        while(true){
+        }
+    }
+}
+由此可见，Java中的多线程是可以利用多核的，这是真正的多线程！而Python中的多线程只能利用单核，这是假的多线程！
+
+难道就如此？我们没有办法在Python中利用多核？当然可以！刚才的多进程算是一种解决方案，还有一种就是调用C语言的链接库。对所有面向I/O的（会调用内建的操作系统C代码的）程序来说，GIL会在这个I/O调用之前被释放，以允许其他线程在这个线程等待I/O的时候运行。我们可以把一些计算密集型任务用C语言编写，然后把.so链接库内容加载到Python中，因为执行C代码，GIL锁会释放，这样一来，就可以做到每个核都跑一个线程的目的！
+可能有的小伙伴不太理解什么是计算密集型任务，什么是I/O密集型任务？
+计算密集型任务的特点是要进行大量的计算，消耗CPU资源，比如计算圆周率、对视频进行高清解码等等，全靠CPU的运算能力。这种计算密集型任务虽然也可以用多任务完成，但是任务越多，花在任务切换的时间就越多，CPU执行任务的效率就越低，所以，要最高效地利用CPU，计算密集型任务同时进行的数量应当等于CPU的核心数。计算密集型任务由于主要消耗CPU资源，因此，代码运行效率至关重要。Python这样的脚本语言运行效率很低，完全不适合计算密集型任务。对于计算密集型任务，最好用C语言编写。
+第二种任务的类型是IO密集型，涉及到网络、磁盘IO的任务都是IO密集型任务，这类任务的特点是CPU消耗很少，任务的大部分时间都在等待IO操作完成（因为IO的速度远远低于CPU和内存的速度）。对于IO密集型任务，任务越多，CPU效率越高，但也有一个限度。常见的大部分任务都是IO密集型任务，比如Web应用。IO密集型任务执行期间，99%的时间都花在IO上，花在CPU上的时间很少，因此，用运行速度极快的C语言替换用Python这样运行速度极低的脚本语言，完全无法提升运行效率。对于IO密集型任务，最合适的语言就是开发效率最高（代码量最少）的语言，脚本语言是首选，C语言最差。
+综上，Python多线程相当于单核多线程，多线程有两个好处：CPU并行，IO并行，单核多线程相当于自断一臂。所以，在Python中，可以使用多线程，但不要指望能有效利用多核。如果一定要通过多线程利用多核，那只能通过C扩展来实现，不过这样就失去了Python简单易用的特点。不过，也不用过于担心，Python虽然不能利用多线程实现多核任务，但可以通过多进程实现多核任务。多个Python进程有各自独立的GIL锁，互不影响。
+
+http://python3-cookbook.readthedocs.io/zh_CN/latest/c15/p07_release_the_gil_in_c_extensions.html
+http://blog.csdn.net/chpllp/article/details/68946149
+http://gitbook.cn/books/5a008c6281f0e620b94de83d/index.html
+从C扩展中释放全局锁
+
+问题
+你想让C扩展代码和Python解释器中的其他进程一起正确的执行， 那么你就需要去释放并重新获取全局解释器锁（GIL）。
+
+解决方案
+在C扩展代码中，GIL可以通过在代码中插入下面这样的宏来释放和重新获取：
+
+#include "Python.h"
+...
+PyObject *pyfunc(PyObject *self, PyObject *args) {
+   ...
+   Py_BEGIN_ALLOW_THREADS
+   // Threaded C code.  Must not use Python API functions
+   ...
+   Py_END_ALLOW_THREADS
+   ...
+   return result;
+}
+
+讨论
+在扩展模块层面是可以释放GIL的，使得CPU控制权交还给Python，而当前C/C++代码也可以继续执行。但务必注意的是任何Python API的调用都必须在GIL控制下进行。所以在执行密集计算的任务前释放GIL，完成计算后，重新申请GIL，再进行返回值和异常处理。
+只有当你确保你的C code中没有调用任何Python C API函数的时候你才能安全的释放GIL。（就是说在C中不会调用任何Python API） GIL需要被释放的常见的场景是在计算密集型代码中需要在C数组上执行计算（比如在numpy中） 或者是要执行阻塞的I/O操作时（比如在一个文件描述符上读取或写入时）。
+
+当GIL被释放后，其他Python线程才被允许在解释器中执行。 Py_END_ALLOW_THREADS 宏会阻塞执行直到调用线程重新获取了GIL
+Py_BEGIN_ALLOW_THREADS：临时释放全局锁(在扩展模块层面释放GIL的，使得CPU控制权交还给Python，而当前C/C++代码也可以继续执行)
+Py_END_ALLOW_THREADS：重新获取全局锁(重新申请GIL，再进行返回值和异常处理)
+
+**********************************************************************python多线程GIL****************************************************************************
+
+**********************************************************************python编码问题****************************************************************************
+我们要知道python内部使用的是unicode编码，而外部却要面对千奇百怪的各种编码，比如作为中国程序经常要面对的gbk，gb2312，utf8等，那这些编码是怎么转换成内部的unicode呢？
+首先我们先看一下源代码文件中使用字符串的情况。源代码文件作为文本文件就必然是以某种编码形式存储代码的，python默认会认为源代码文件是asci编码，比如说代码中有一个变量赋值：
+s1='a' 
+print(s1)
+python认为这个'a'就是一个asci编码的字符。在仅仅使用英文字符的情况下一切正常，但是如果用了中文，比如：
+s1='哈'
+print(s1)
+这个代码文件被执行时就会出错，就是编码出了问题。python默认将代码文件内容当作asci编码处理，但asci编码中不存在中文，因此抛出异常。
+解决问题之道就是要让python知道文件中使用的是什么编码形式，对于中文，可以用的常见编码有utf-8，gbk和gb2312等。只需在代码文件的最前端添加如下：
+# -*- coding: utf-8 -*-或者#coding:UTF-8
+这就是告知python我这个文件里的文本是用utf-8编码的，这样，python就会依照utf-8的编码形式解读其中的字符，然后转换成unicode编码内部处理使用。
+不过，如果你在Windows控制台下运行此代码的话，虽然程序是执行了，但屏幕上打印出的却不是哈字。这是由于python编码与控制台编码的不一致造成的。Windows下控制台中的编码使用的
+是gbk，而在代码中使用的utf-8，python按照utf-8编码打印到gbk编码的控制台下自然就会不一致而不能打印出正确的汉字。
+解决办法一个是将源代码的编码也改成gbk，也就是代码第一行改成：
+# -*- coding: gbk -*-
+另一种方法是保持源码文件的utf-8不变，而是在'哈'前面加个u字，也就是:
+s1=u'哈'
+print(s1)
+这样就可以正确打印出'哈'字了。
+这里的这个u表示将后面跟的字符串以unicode格式存储。python会根据代码第一行标称的utf-8编码识别代码中的汉字'哈'，然后转换成unicode对象。如果我们用type查看一下'哈'的数据类型type('哈')，会得到<type 'str'>，而type(u'哈')，则会得到<type'unicode'>，也就是在字符前面加u就表明这是一个unicode对象，这个字会以unicode格式存在于内存中，而如果不加u
+，表明这仅仅是一个使用某种编码的字符串，编码格式取决于python对源码文件编码的识别，这里就是utf-8。
+Python在向控制台输出unicode对象的时候会自动根据输出环境的编码进行转换，但如果输出的不是unicode对象而是普通字符串，则会直接按照字符串的编码输出字符串，从而出现上面的现象。
+**********************************************************************python编码问题****************************************************************************
+
+*************************************************python常用api*************************************************
+numpy.random.seed()
+seed( ) 用于指定随机数生成时所用算法开始的整数值，如果使用相同的seed( )值，则每次生成的随即数都相同，如果不设置这个值，则系统根据时间来自己选择这个值，此时每次生成的随机数因时间差异而不同。
+
+编写如下第一份代码：
+from numpy import *
+num=0
+while(num<5):
+    random.seed(5)
+    print(random.random())
+    num+=1
+
+运行结果为：
+1 0.22199317108973948
+2 0.22199317108973948
+3 0.22199317108973948
+4 0.22199317108973948
+5 0.22199317108973948
+可以看到，每次运行的结果都是一样的
+
+修改代码，如下为第二份代码：
+from numpy import *
+num=0
+random.seed(5)
+while(num<5):
+    print(random.random())
+    num+=1
+	
+运行结果为：
+1 0.22199317108973948
+2 0.8707323061773764
+3 0.20671915533942642
+4 0.9186109079379216
+5 0.48841118879482914
+
+numpy.random.permutation
+随机排列一个序列，返回一个排列的序列
+>>> np.random.permutation(10)
+array([1, 7, 4, 3, 0, 9, 2, 5, 8, 6])
+>>> np.random.permutation([1, 4, 9, 12, 15])
+array([15,  1,  9,  4, 12])
+
+Python zip() 函数
+zip() 函数用于将可迭代的对象作为参数，将对象中对应的元素打包成一个个元组，然后返回由这些元组组成的列表。
+如果各个迭代器的元素个数不一致，则返回列表长度与最短的对象相同，利用 * 号操作符，可以将元组解压为列表
+zip 方法在 Python 2 和 Python 3 中的不同：在 Python 3.x 中为了减少内存，zip() 返回的是一个对象。如需展示列表，需手动 list() 转换。
+
+以下实例展示了 zip 的使用方法：
+>>>a = [1,2,3]
+>>> b = [4,5,6]
+>>> c = [4,5,6,7,8]
+>>> zipped = zip(a,b)     # 打包为元组的列表
+[(1, 4), (2, 5), (3, 6)]
+>>> zip(a,c)              # 元素个数与最短的列表一致
+[(1, 4), (2, 5), (3, 6)]
+>>> zip(*zipped)          # 与 zip 相反，*zipped 可理解为解压，返回二维矩阵式
+[(1, 2, 3), (4, 5, 6)]
+
+python3
+>>>a = [1,2,3]
+>>> b = [4,5,6]
+>>> c = [4,5,6,7,8]
+>>> zipped = zip(a,b)         # 返回一个对象
+>>> zipped
+<zip object at 0x103abc288>
+>>> list(zipped)              # list() 转换为列表
+[(1, 4), (2, 5), (3, 6)]
+>>> list(zip(a,c))            # 元素个数与最短的列表一致
+[(1, 4), (2, 5), (3, 6)]
+>>> a1, a2 = zip(*zip(a,b))   # 与 zip 相反，zip(*) 可理解为解压，返回二维矩阵式
+>>> list(a1)
+[1, 2, 3]
+>>> list(a2)
+[4, 5, 6]
+>>>
+
+
+Python range() 函数用法
+python range() 函数可创建一个整数列表，一般用在 for 循环中。
+range(start, stop[, step])
+参数说明：
+    start: 计数从 start 开始。默认是从 0 开始。例如range（5）等价于range（0， 5）;
+    stop: 计数到 stop 结束，但不包括 stop。例如：range（0， 5） 是[0, 1, 2, 3, 4]没有5
+    step：步长，默认为1。例如：range（0， 5） 等价于 range(0, 5, 1)
+实例
+>>>range(10)        # 从 0 开始到 10
+[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+>>> range(1, 11)     # 从 1 开始到 11
+[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+>>> range(0, 30, 5)  # 步长为 5
+[0, 5, 10, 15, 20, 25]
+>>> range(0, 10, 3)  # 步长为 3
+[0, 3, 6, 9]
+>>> range(0, -10, -1) # 负数
+[0, -1, -2, -3, -4, -5, -6, -7, -8, -9]
+>>> range(0)
+[]
+>>> range(1, 0)
+[]
+
+
+Python关键字yield的解释
+1) 通常的for…in…循环中，in后面是一个数组，这个数组就是一个可迭代对象，类似的还有链表，字符串，文件。它可以是mylist = [1, 2, 3]，也可以是mylist = [x*x for x in range(3)]。 它的缺陷是所有数据都在内存中，如果有海量数据的话将会非常耗内存。
+2) 生成器是可以迭代的，但只可以读取它一次。因为用的时候才生成。比如 mygenerator = (x*x for x in 
+range(3))，注意这里用到了()，它就不是数组，而上面的例子是[]。
+3) 生成器(generator)能够迭代的关键是它有一个next()方法，工作原理就是通过重复调用next()方法，直到捕获一个异常。可以用上面的mygenerator测试
+4) 带有 yield 的函数不再是一个普通函数，而是一个生成器generator，可用于迭代，工作原理同上。
+5) yield 是一个类似 return 的关键字，迭代一次遇到yield时就返回yield后面的值。重点是：下一次迭代时，从上一次迭代遇到的yield后面的代码开始执行。
+6) 简要理解：yield就是 return 返回一个值，并且记住这个返回的位置，下次迭代就从这个位置后开始。
+
+迭代器：凡是实现了__iter__()和__next__()（python2.x是next()）方法的对象就是迭代器
+可迭代对象：凡是能返回迭代器对象的对象就是可迭代对象
+内建函数iter()会调用__iter__()来获取迭代器对象，所以可迭代对象必须实现__iter__()
+自定义迭代器
+class OddIterator(object):
+    """Iterator to return all
+        odd numbers"""
+    def __init__(self, max):
+        self.max = max
+        self.num = 1
+    def __iter__(self):
+        return self
+    def __next__(self):    # python 2.x 改成 next(self)
+        if self.num <= self.max:
+            num = self.num
+            self.num += 2
+            return num
+        else:
+            raise StopIteration
+测试
+>>> i = OddIterator(5)
+>>> next(i)
+1
+>>> next(i)
+3
+>>> next(i)
+5
+迭代器可以直接调用next()方法（迭代器本身也是可迭代对象）
+
+自定义可迭代对象
+class OddNumber(object):
+    def __init__(self, max):
+        self.max = max
+    def __iter__(self):
+        return OddIterator(self.max)
+测试
+>>> i = OddNumber(5)
+>>> next(i)
+Traceback (most recent call last):
+  File "test.py", line 53, in <module>
+    print next(i)
+TypeError: instance has no next() method
+因为OddNumber是可迭代对象，而不是一个迭代器，所以无法直接调用next()方法，必须先调用内建函数iter()获取迭代器
+>>> o = OddNumber(5)
+>>> i = iter(o)
+>>> next(i)
+1
+>>> next(i)
+3
+>>> next(i)
+5
+
+生成器、yield 表达式
+生成器函数（generator function）和生成器（generator）
+生成器函数是一种特殊的函数；生成器则是特殊的迭代器。它不需要再像上面的类一样写__iter__()和__next__()方法了，只需要一个yiled关键字。 生成器一定是迭代器（反之不成立），因此任何生成器也是以一种懒加载的模式生成值。
+如果一个函数包含 yield 表达式，那么它是一个生成器函数；调用它会返回一个特殊的迭代器，称为生成器。
+def func():
+    return 1
+def gen():
+    yield 1
+print(type(func))   # <class 'function'>
+print(type(gen))    # <class 'function'>
+print(type(func())) # <class 'int'>
+print(type(gen()))  # <class 'generator'>
+如上，生成器 gen 看起来和普通的函数没有太大区别。仅只是将 return 换成了 yield。用 type() 函数打印二者的类型也能发现，func 和 gen 都是函数。然而，二者的返回值的类型就不同了。func() 是一个 int 类型的对象；而 gen() 则是一个迭代器对象。
+
+yield 表达式
+如果一个函数定义中包含 yield 表达式，那么该函数是一个生成器函数（而非普通函数）。实际上，yield 仅能用于定义生成器函数。
+与普通函数不同，生成器函数被调用后，其函数体内的代码并不会立即执行，而是返回一个生成器（generator-iterator）。当返回的生成器调用成员方法时，相应的生成器函数中的代码才会执行。
+def square():
+    for x in range(4):
+        yield x ** 2
+square_gen = square()
+for x in square_gen:
+    print(x)
+
+for 循环会调用 iter() 函数，获取一个生成器；而后调用 next() 函数，将生成器中的下一个值赋值给 x；再执行循环体。因此，上述 for 循环基本等价于：
+genitor = square_gen.__iter__()
+while True:
+    x = geniter.next() # Python 3 是 __next__()
+    print(x)
+注意到，square 是一个生成器函数；作为它的返回值，square_gen 已经是一个迭代器；迭代器的 __iter__() 返回它自己。（也可以直接执行next(square_gen)）因此 geniter 对应的生成器函数，即是 square。
+每次执行到 x = geniter.next() 时，square 函数会从上一次暂停的位置开始，一直执行到下一个 yield 表达式，将 yield 关键字后的表达式列表返回给调用者，并再次暂停。注意，每次从暂停恢复时，生成器函数的内部变量、指令指针、内部求值栈等内容和暂停时完全一致。
+
+使用列表推导，将会一次产生所有结果：
+>>> squares = [x**2 for x in range(5)]
+>>> squares
+[0, 1, 4, 9, 16]
+
+将列表推导的中括号，替换成圆括号，就是一个生成器表达式：
+>>> squares = (x**2 for x in range(5))
+>>> squares
+<generator object <genexpr> at 0x7fc175e4fa40>
+>>> next(squares)
+0
+>>> next(squares)
+1
+>>> next(squares)
+4
+>>> next(squares)
+9
+>>> next(squares)
+16
+>>> next(squares)
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+StopIteration
+*************************************************python常用api*************************************************
+
+*****************************************************************python日志*****************************************************************
+
+通过logging.config模块配置日志
+
+注意：配置文件必须包含[loggers],[handlers], [formatters],且每个结点下的logger,handler，formatter都必须有对应的结点，
+且格式必须正确:[loggers_logger], [handlers_handler], [handlers_formatter]
+
+注：[logger_root]，为root logger专用
+D:/log.conf文件如下：
+[loggers]
+keys=root,eg01,eg02
+[logger_root]
+level=NOTSET
+handlers=handler01, handler02
+[logger_eg01]
+handlers=handler01
+qualname=eg01
+propagate=0
+[logger_eg02]
+handlers=handler02
+qualname=eg02
+propagate=0
+[handlers]
+keys=handler01,handler02
+[handler_handler01]
+class=StreamHandler
+level=WARNING
+formatter=form01
+args=(sys.stdout,)
+[handler_handler02]
+class=FileHandler
+level=ERROR
+formatter=form02
+args=('d:/logs.txt', 'a')
+[formatters]
+keys=form01,form02
+[formatter_form01]
+format=%(name)s: %(asctime)s %(filename)s[line:%(lineno)d] %(levelname)s %(message)s
+datefmt=%a, %d %b %Y %H:%M:%S
+[formatter_form02]
+format=%(name)-12s: %(levelname)-8s %(message)s
+datefmt=
+
+例：
+import logging
+import logging.config
+logging.config.fileConfig('D:/log.conf')
+logger = logging.getLogger('')
+logging.debug('this is a debug level message')
+logging.info('this is info level message')
+logging.warning('this is warning level message')
+logging.error('this is error level message')
+logging.critical('this is critical level message')
+运行结果
+控制台输出：
+>>> ================================ RESTART ================================
+>>>  
+root: (asctime)s test2.py[line:9] WARNING this is warning level message
+root: (asctime)s test2.py[line:10] ERROR this is error level message
+root: (asctime)s test2.py[line:11] CRITICAL this is critical level message
+>>> 
+说明：输出由handler_handler01 的level=WARNING控制
+d:\logs.txt输出
+root        : ERROR    this is error level message
+root        : CRITICAL this is critical level message
+说明：输出由handler_handler012的level=ERROR控制
+修改logger_root结点下的level为DEBUG，如下
+[logger_root]
+level=DEBUG
+执行后发现，输出结果不变
+说明：
+1. 如果设置日志级别为NOTSET，意味着所有消息都会被记录
+2. propagete=0,表示输出日志，但消息不传递；propagate=1是输出日志，同时消息往更高级别的地方传递。若上面配置文件参数progagate=1，
+   那么将会看到重复的消息记录
+3. qualname指定logger的名称
+4. class指定handler的类型
+5. args根据class的不同而不同，即handler类型的初始化参数，详情可参考官方logging.config模块
+
+对比实验1
+修改logger_root结点下的level为NOTSET，修改 logger = logging.getLogger('')为：
+logger = logging.getLogger('eg01')，，再次运行，查看输出结果：
+控制台输出：
+>>> ================================ RESTART ================================
+>>>  
+eg01: (asctime)s test2.py[line:9] WARNING this is warning level message
+eg01: (asctime)s test2.py[line:10] ERROR this is error level message
+eg01: (asctime)s test2.py[line:11] CRITICAL this is critical level message
+>>> 
+说明：输出由handler_handler01 的level=WARNING控制
+d:\logs.txt为空
+
+对比实验2
+修改logger_root结点下的level为NOTSET，修改 logger = logging.getLogger('eg01')为：
+logger = logging.getLogger('eg02')，，再次运行，查看输出结果：
+控制台无输出
+d:\logs.txt
+eg02        : ERROR    this is error level message
+eg02        : CRITICAL this is critical level message
+说明：输出由handler_handler012的level=ERROR控制
+
+对比实验3：
+修改logger_eg01结点,增加level为DEBUG，修改 logger = logging.getLogger('eg02')为：
+logger = logging.getLogger('eg01')，，再次运行，查看输出结果：
+[logger_eg01]
+level=DEBUG
+结果，和没增加level时一样。
+说明：当[logger_logname]和[handler_handlername]中同时指定了level值时，使用[handler_handlername]中设置的level。
+
+对比实验4
+在以上基础上，去掉[handler_handler01]中的level=WARNING，,同时，修改[logger_root]结点下
+level=NOTSET为level=INFO,,再次运行
+控制台输出：
+>>> ================================ RESTART ================================
+>>>  
+eg01: (asctime)s test2.py[line:7] DEBUG this is a debug level message
+eg01: (asctime)s test2.py[line:8] INFO this is info level message
+eg01: (asctime)s test2.py[line:9] WARNING this is warning level message
+eg01: (asctime)s test2.py[line:10] ERROR this is error level message
+eg01: (asctime)s test2.py[line:11] CRITICAL this is critical level message
+说明：当[logger_logname]中设置了level，而[handler_handlername]未指定level值时，使用[logger_logname]中设置的level
+
+对比实验5
+在以上基础上，去掉[logger_eg01]中的level=WARNING，,再次运行，查看结果
+控制台输出：
+>>> ================================ RESTART ================================
+>>>  
+eg01: (asctime)s test2.py[line:8] INFO this is info level message
+eg01: (asctime)s test2.py[line:9] WARNING this is warning level message
+eg01: (asctime)s test2.py[line:10] ERROR this is error level message
+eg01: (asctime)s test2.py[line:11] CRITICAL this is critical level message
+说明：当[logger_logname]和[handler_handlername]都未指定level值时，使用[logger_root]中设置的level，
+如果[logger_root]未指定level则默认level为WARNING
+
+对比实验6
+修改[logger_eg02]结点handlers为：handlers=handler02,handler01，修改logger = logging.getLogger('eg01')
+为logger = logging.getLogger('eg02')，再次运行，查看结果
+控制台输出：
+>>> ================================ RESTART ================================
+>>>
+eg02: (asctime)s test2.py[line:8] INFO this is info level message
+eg02: (asctime)s test2.py[line:9] WARNING this is warning level message
+eg02: (asctime)s test2.py[line:10] ERROR this is error level message
+eg02: (asctime)s test2.py[line:11] CRITICAL this is critical level message
+>>> 
+d:/logs.txt输出：
+eg02        : ERROR    this is error level message
+eg02        : CRITICAL this is critical level message
+说明：可在一个[logger_logname]结点中指定多个handlername以支持多个处理器
+
+对比实验6
+修改[handler_handler01]结点中args=(sys.stdout,)为args=(sys.stderr,), 运行后发现：控制台输出的记录都变成红色，类似如下：
+>>> ================================ RESTART ================================
+>>>
+eg02: (asctime)s test2.py[line:8] INFO this is info level message
+eg02: (asctime)s test2.py[line:9] WARNING this is warning level message
+eg02: (asctime)s test2.py[line:10] ERROR this is error level message
+eg02: (asctime)s test2.py[line:11] CRITICAL this is critical level message
+>>> 
+注：上述本该显示时间的地方都显示为(asctime)s了，原因是format (astime)s前漏了%，修正如下：
+format=%(name)s: %(asctime)s %(filename)s[line:%(lineno)d] %(levelname)s %(message)s
+*****************************************************************python日志*****************************************************************
+
+*************************************************************python rename*************************************************************
+os.rename(src, dst)
+    src -- 要修改的目录名
+    dst -- 修改后的目录名
+*************************************************************python rename*************************************************************
+
+*************************************************************python tarfile*************************************************************
+tar打包
+在写打包代码的过程中，使用tar.add()增加文件时，会把文件本身的路径也加进去，
+加上arcname就能根据自己的命名规则将文件加入tar包(arcname可以重命名文件)
+比如要将/home/usr/files/*文件打包：
+tar.add('/home/usr/files')打包后，使用extractall解压的时候会将文件解压到/home/usr/files下面
+tar.add('/home/usr/files',arcname='newfile'),使用extractall解压的时候会将文件解压到/newfile下面
+*************************************************************python tarfile*************************************************************
+
+*****************************************************python mkdir&makedirs*****************************************************
+python os.mkdir与 os.makedirs
+
+1.mkdir( path [,mode] )
+      作用：创建一个目录，可以是相对或者绝对路径，mode的默认模式是0777。
+      如果目录有多级，则创建最后一级。如果最后一级目录的上级目录有不存在的，则会抛出一个OSError。
+
+ 2.makedirs( path [,mode] )
+      作用： 创建递归的目录树，可以是相对或者绝对路径，mode的默认模式也是0777。
+      如果子目录创建失败或者已经存在，会抛出一个OSError的异常，Windows上Error 183即为目录已经存在的异常错误。如果path只有一级，与mkdir一样。
+*****************************************************python mkdir&makedirs*****************************************************
+
+*****************************************************python multiprocessing*****************************************************
+出现类似如下错误：
+RuntimeError: Lock objects should only be shared between processes through inheritance
+RuntimeError: Queue objects should only be shared between processes through inheritance
+原因：
+用了进程池，而进程池中的进程并不是由当前同一个父进程创建的原因。
+解决方案：
+利用multiprocessing的Manager，multiprocessing.Manager()返回的manager对象控制了一个server进程，可用于多进程之间的安全通信，其支持的类型有list,dict,Namespace,Lock,RLock,Semaphore,BoundedSemaphore,Condition,Event,Queue,Value和Array等。
+错误的写法：
+lock = multiprocessing.Lock()
+pool = multiprocessing.Pool(processes=3)
+for i in range(0,3):
+    pool.apply_async(child_worker, ((my_parameter, lock),))
+pool.close()
+pool.join()
+正确的写法：
+lock = multiprocessing.Manager().Lock()
+pool = multiprocessing.Pool(processes=3)
+for i in range(0,3):
+    pool.apply_async(child_worker, ((my_parameter, lock),))
+pool.close()
+pool.join()
+
+1.from queue import Queue 
+这个是普通的队列模式，类似于普通列表，先进先出模式，get方法会阻塞请求，直到有数据get出来为止
+2.from multiprocessing.Queue import Queue（各子进程共有）
+这个是多进程并发的Queue队列，用于解决多进程间的通信问题。普通Queue实现不了。例如来跑多进程对一批IP列表进行运算，运算后的结果都存到Queue队列里面，这个就必须使用multiprocessing提供的Queue来实现
+3.如果是用进程池，那么就需要使用Manager().Queue()队列才能在各子进程间通信，否则会抛异常。如果要在manger().Queue()中使用锁，就要lock = manager.Lock()   #锁的获取和释放都一样
+*****************************************************python multiprocessing*****************************************************
+
+*****************************************************python 正则表达式*****************************************************
+正则表达式修饰符 - 可选标志
+正则表达式可以包含一些可选标志修饰符来控制匹配的模式。修饰符被指定为一个可选的标志。多个标志可以通过按位 OR(|) 它们来指定。如 re.I | re.M 被设置成 I 和 M 标志：
+修饰符	描述
+re.I	使匹配对大小写不敏感
+re.L	做本地化识别（locale-aware）匹配
+re.M	多行匹配，影响 ^ 和 $
+re.S	使 . 匹配包括换行在内的所有字符
+re.U	根据Unicode字符集解析字符。这个标志影响 \w, \W, \b, \B.
+re.X	该标志通过给予你更灵活的格式以便你将正则表达式写得更易于理解。
+
+re.match函数
+re.match 尝试从字符串的起始位置匹配一个模式，如果不是起始位置匹配成功的话，match()就返回none。
+re.match(pattern, string, flags=0)
+pattern	匹配的正则表达式
+string	要匹配的字符串。
+flags	标志位，用于控制正则表达式的匹配方式，如：是否区分大小写，多行匹配等等。参见：正则表达式修饰符 - 可选标志
+匹配成功re.match方法返回一个匹配的对象，否则返回None。
+我们可以使用group(num) 或 groups() 匹配对象函数来获取匹配表达式。
+group(num=0)	匹配的整个表达式的字符串，group() 可以一次输入多个组号，在这种情况下它将返回一个包含那些组所对应值的元组。
+groups()	    返回一个包含所有小组字符串的元组，从 1 到 所含的小组号。
+实例：
+import re
+print(re.match('www', 'www.runoob.com').span())  # 在起始位置匹配
+print(re.match('com', 'www.runoob.com'))         # 不在起始位置匹配
+以上实例运行输出结果为：
+(0, 3)
+None
+实例：
+import re
+line = "Cats are smarter than dogs"
+mode = re.compile(r'(.*) are (.*?) .*', re.U|re.M|re.I)
+matchObj = re.match(mode,line)
+if matchObj:
+   print "matchObj.group() : ", matchObj.group()
+   print "matchObj.group(1) : ", matchObj.group(1)
+   print "matchObj.group(2) : ", matchObj.group(2)
+else:
+   print "No match!!"
+
+re.search方法
+re.search 扫描整个字符串并返回第一个成功的匹配。
+re.search(pattern, string, flags=0)
+pattern	匹配的正则表达式
+string	要匹配的字符串。
+flags	标志位，用于控制正则表达式的匹配方式，如：是否区分大小写，多行匹配等等。
+匹配成功re.search方法返回一个匹配的对象，否则返回None。
+我们可以使用group(num) 或 groups() 匹配对象函数来获取匹配表达式。
+group(num=0)	匹配的整个表达式的字符串，group() 可以一次输入多个组号，在这种情况下它将返回一个包含那些组所对应值的元组。
+groups()	    返回一个包含所有小组字符串的元组，从 1 到 所含的小组号。
+实例：
+import re
+print(re.search('www', 'www.runoob.com').span())         # 在起始位置匹配
+print(re.search('com', 'www.runoob.com').span())         # 不在起始位置匹配
+以上实例运行输出结果为：
+(0, 3)
+(11, 14)
+
+re.match与re.search的区别
+re.match只匹配字符串的开始，如果字符串开始不符合正则表达式，则匹配失败，函数返回None；而re.search匹配整个字符串，直到找到一个匹配。
+实例:
+import re
+line = "Cats are smarter than dogs";
+matchObj = re.match( r'dogs', line, re.M|re.I)
+if matchObj:
+   print "match --> matchObj.group() : ", matchObj.group()
+else:
+   print "No match!!"
+matchObj = re.search( r'dogs', line, re.M|re.I)
+if matchObj:
+   print "search --> matchObj.group() : ", matchObj.group()
+else:
+   print "No match!!"
+以上实例运行结果如下：
+No match!!
+search --> matchObj.group() :  dogs
+
+检索和替换
+Python 的 re 模块提供了re.sub用于替换字符串中的匹配项。
+re.sub(pattern, repl, string, count=0, flags=0)
+参数：
+pattern : 正则中的模式字符串。
+repl : 替换的字符串，也可为一个函数。
+string : 要被查找替换的原始字符串。
+count : 模式匹配后替换的最大次数，默认 0 表示替换所有的匹配。
+实例：
+import re
+phone = "2004-959-559 # 这是一个国外电话号码"
+# 删除字符串中的 Python注释 
+num = re.sub(r'#.*$', "", phone)
+print "电话号码是: ", num
+# 删除非数字(-)的字符串 
+num = re.sub(r'\D', "", phone)
+print "电话号码是 : ", num
+以上实例执行结果如下：
+电话号码是:  2004-959-559 
+电话号码是 :  2004959559
+
+re.split函数
+split 方法按照能够匹配的子串将字符串分割后返回列表，它的使用形式如下：
+re.split(pattern, string[, maxsplit=0, flags=0])
+pattern	    匹配的正则表达式
+string	    要匹配的字符串。
+maxsplit	分隔次数，maxsplit=1 分隔一次，默认为 0，不限制次数。
+flags	    标志位，用于控制正则表达式的匹配方式，如：是否区分大小写，多行匹配等等。参见：正则表达式修饰符 - 可选标志
+
+不加括号，就不显示匹配的项，即\W+，加括号，显示匹配的项
+>>>import re
+>>> re.split('\W+', 'runoob, runoob, runoob.')
+['runoob', 'runoob', 'runoob', '']
+>>> re.split('(\W+)', ' runoob, runoob, runoob.') 
+['', ' ', 'runoob', ', ', 'runoob', ', ', 'runoob', '.', '']
+>>> re.split('\W+', ' runoob, runoob, runoob.', 1) 
+['', 'runoob, runoob, runoob.']
+ 
+>>> re.split('a*', 'hello world')   # 对于一个找不到匹配的字符串而言，split 不会对其作出分割
+['hello world']
+
+u/U:表示unicode字符串 
+不是仅仅是针对中文, 可以针对任何的字符串，代表是对字符串进行unicode编码。 
+一般英文字符在使用各种编码下, 基本都可以正常解析, 所以一般不带u；但是中文, 必须表明所需编码, 否则一旦编码转换就会出现乱码。 
+建议所有编码方式采用utf8
+
+r/R:非转义的原始字符串 
+与普通字符相比，其他相对特殊的字符，其中可能包含转义字符，即那些，反斜杠加上对应字母，表示对应的特殊含义的，比如最常见的'\n'表示换行，'\t'表示Tab等。而如果是以r开头，那么说明后面的字符，都是普通的字符了，即如果是'\n'那么表示一个反斜杠字符，一个字母n，而不是表示换行了。 
+以r开头的字符，常用于正则表达式，对应着re模块。
+
+b:bytes 
+python3.x里默认的str是(py2.x里的)unicode, bytes是(py2.x)的str, b前缀代表的就是bytes 
+python2.x里, b前缀没什么具体意义， 只是为了兼容python3.x的这种写法
+*****************************************************python 正则表达式*****************************************************
+
+*****************************************************map函数*****************************************************
+map()函数
+map()是 Python 内置的高阶函数，它接收一个函数 f 和一个 list，并通过把函数 f 依次作用在 list 的每个元素上，得到一个新的 list 并返回。
+例如，对于list [1, 2, 3, 4, 5, 6, 7, 8, 9]
+
+如果希望把list的每个元素都作平方，就可以用map()函数：
+因此，我们只需要传入函数f(x)=x*x，就可以利用map()函数完成这个计算：
+def f(x):
+    return x*x
+
+在pthon2中
+print map(f, [1, 2, 3, 4, 5, 6, 7, 8, 9])
+输出结果：
+[1, 4, 9, 10, 25, 36, 49, 64, 81]
+
+在python3中
+（如果想打印出变换后的列表的值，必须加list函数）
+print(list(map(f, [1, 2, 3, 4, 5, 6, 7, 8, 9]))
+*****************************************************map函数*****************************************************
+
+#######################################ImportError: No module named '_tkinter'#######################################
+在centos系统下，导入matplotlib时，出现ImportError: No module named '_tkinter'的错误，首先yum list installed | grep ^tk  
+查看是否存在相应模块，通常原因是tkinter和tk-devel缺失。
+通过yum install -y tkinter 和yum install -y tk-devel下载相应模块，
+
+如果是python3需要再重新编译python。重新编译代码如下：
+./configure --prefix=/usr/local/python3  --enable-optimizations #注意：这里是自己的Python安装目录
+make
+make install
+注意：以上三条指令在python源码解压包里面执行，因为./configure 是在python解压文件里面的
+#######################################ImportError: No module named '_tkinter'#######################################
+
+###########################################PuTTY + Xming 远程使用 Linux GUI###########################################
+什么是 X11 forwarding？
+X forwarding是X的一个功能，它可以让程序运行在一台主机上，而用户在另外一台机器上与之交互。其概念上与VNC和微软的远程桌面类似，而与这些软件不同，我们想要实现的是在Microsoft Windows平台运行特定的图形用户界面程序，而不是显示控制整个桌面。在X上下文中，客户端“client”是指运行程序的主机，而你坐在服务器“Server”前面，这点和常规的叫法不同。举例来说，你通过A远程打开B上面的程序，也就是说你在操作A，而你要远程控制B，那么B就是客户端，A是服务端。
+
+SSH 的 X11 forwarding 特性可以使 X client 和 X server 安全地通讯。使用 X11 forwarding 后，从 X client 到 X Server 方向的数据先被送至 SSH server，SSH server 利用和 SSH client 的安全通道转发给 SSH client，再由 SSH client 转发给 X server，从 X server 到 X client 的数据流同理。这里 SSH server 和 SSH client 充当了 X client 和 X server 间数据的转发器，由于 SSH server 和 X client、SSH client 和 X server 一般在同一台机器上，它们之间是一种安全的进程间通讯，而 SSH server 和 SSH client 间的通讯也是安全的，所以 X client 和 X server 间的通讯就是安全的。
+
+X Server端
+可以选择Xming：一个免费的windows平台上的X server。需要安装两个组件，主程序和字体：
+Xming X server, Xming-6-9-0-31-setup.exe
+Xming Fonts,    Xming-fonts-7-7-0-10-setup.exe
+https://sourceforge.net/projects/xming/files/
+https://sourceforge.net/projects/xming/files/Xming-fonts/7.7.0.10/
+启动Xming的时候必选选中"No Access Control"
+
+SSH客户端
+putty：在putty界面的左边点击Connection/SSH/X11 子菜单。选中"Enable X11 Forwarding"
+
+Linux端
+1) 允许Linux主机上的SSH X转发，查看 /etc/ssh/sshd_config 文件，加入以下一行，
+X11Forwarding yes
+如果sshd_config有改动必须重启sshd服务：systemctl restart sshd.service
+2) 设置DISPLAY环境变量（IP为安装X Server端的机器IP地址）
+export DISPLAY=192.168.56.1:0.0
+###########################################PuTTY + Xming 远程使用 Linux GUI###########################################
+
+######################################pip download/install 下载/离线安装第三方包######################################
+下载第三方包的两种方式
+（1）直接把jieba包下载到/usr/local/download/pip/目录下
+pip download -d /usr/local/download/pip/ jieba
+（2）建一个requirement.txt文件里面一行一行写需要的包，/usr/local/download/pip/是下载目录
+pip download -d /usr/local/download/pip/ -r requirement.txt
+requirement.txt 一行一行写如下
+alembic==1.0.0            # via flask-migrate
+amqp==2.3.2               # via kombu
+asn1crypto==0.24.0        # via cryptography
+babel==2.6.0              # via flask-babel
+billiard==3.5.0.4         # via celery
+bleach==3.0.2
+celery==4.2.0
+certifi==2018.8.24        # via requests
+cffi==1.11.5              # via cryptography
+chardet==3.0.4            # via requests
+
+安装
+把上述包打包到 离线的服务器，并解压到/usr/local/download/pip/目录 ，并新建requirement.txt，把需要安装的包写进去，同上；并执行以下命令：
+pip install --no-index --find-links=/usr/local/download/pip/ -r requirement.txt
+也可以直接
+pip install --no-index --find-links=/usr/local/download/pip/ jieba 
+其中jieba是包名
+######################################pip download/install 下载/离线安装第三方包######################################

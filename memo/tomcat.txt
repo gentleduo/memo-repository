@@ -1,0 +1,63 @@
+TOMCAT服务器不写端口号、不写项目名访问项目
+不写端口：
+TOMCAT默认的访问端口为8080，而TCP/IP协议默认80端口访问，
+大家之所以看到别的网站都不写端口号是因为人家用的的80端口访问的，而80端口因为的TCP/IP的默认端口所以就不用写出来了。
+大家如果想改的话可以在tomcat安装目录中的conf文件中的server.xml文件中的
+<Connector connectionTimeout="20000" port="80" protocol="HTTP/1.1" redirectPort="8443"/>，
+上面的port的值TOMCAT默认为8080,我这里把它改成了80端口，就这么简单。之后你访问项目就不用再写端口了。
+
+虚拟目录配置。
+    这里以TOMCAT7为例。虚拟目录在我看来就是为了隐藏真实目录而存在的。通过虚拟目录可以间接访问所映射的真实目录。
+打开Tomcat7/conf/web.xml
+找到
+<servlet>
+	<servlet-name>default</servlet-name>
+	<servlet-class>org.apache.catalina.servlets.DefaultServlet</servlet-class>
+	<init-param>
+		<param-name>debug</param-name>
+		<param-value>0</param-value>
+	</init-param>
+	<init-param>
+		<param-name>listings</param-name>
+		<param-value>true</param-value>
+	</init-param>
+<	load-on-startup>1</load-on-startup>
+</servlet>      
+在<param-value>处将false改为true再打开server.xml在</host>之前加入<Context path="/虚拟目录名" docBase="D:\Tomcat 7.0\文件夹名"/>
+之后，你就只能通过虚拟目录名来访问你的项目名了
+
+不写项目名。
+修改conf目录下的server.xml配置
+    <Host appBase="webapps" autoDeploy="true" name="localhost" unpackWARs="true" xmlNamespaceAware="false" xmlValidation="false">  
+         <!-- path留空代表访问域名后面不需要带项目的名称 -->  
+         <Context path="" docBase="F:\temp" reloadable="false" />  
+    </Host> 
+说明：
+appBase：这个目录下面的子目录将自动被部署为应用，且war文件将被自动解压缩并部署为应用，默认为tomcat下webapps目录，
+docBase：只是指向了你某个应用的目录，这个可以和appBase没有任何关系 
+
+docBase：代表项目的绝对路径。也可以使用相对路径。
+path：代表访问时的项目名称
+
+总结：
+如果你想自己指定路径，那么应该在docBase里面
+如果你想简单，那么直接把他们复制到appBase下面就行了
+如果你把他们弄重复了(意思就是appBase和docBase指向了同一个目录，实际上appBase目录下的子目录都被当作应用，而docBase目录指定的是某一个应用)，
+也就是2个指向了一个目录，看上去也能运行，但你的应用下面的每个子目录，其实是被部署为单独的应用的。
+
+比如你的应用为myApp, 放在了d:\project\myApp里面有2个子目录
+d:\project\myApp\images
+d:\project\myApp\js
+
+你可以通过
+1 设置 appBase 指向 d:\project 来让系统自动部署
+2 你可以手工指定docBase到 d:\project\myApp
+3 如果你指定了 appBase到 d:\project\myApp 那么
+d:\project\myApp\images这个将不再是普通的子目录，而是一个单独的虚拟目录，或者叫应用了。因为其被自动部署
+d:\project\myApp\js 也一样的后果
+
+默认index.jsp
+修改WEB－INF文件夹下的web.xml
+<welcome-file-list>
+<welcome-file>index.jsp</welcome-file>
+</welcome-file-list>

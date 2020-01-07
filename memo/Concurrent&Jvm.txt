@@ -1,0 +1,1222 @@
+//Java轻量级锁原理
+http://blog.csdn.net/guomei/article/details/17210139 
+http://blog.csdn.net/zhoufanyang_china/article/details/54601311 
+http://blog.csdn.net/choukekai/article/details/63688332 
+http://blog.csdn.net/zero__007/article/details/49587319
+http://blog.sina.com.cn/s/blog_c038e9930102v2ht.html
+
+//Java Class的文件结构
+http://www.cnblogs.com/01picker/p/4592245.html
+http://blog.csdn.net/luanlouis/article/details/39960815
+http://blog.csdn.net/silentbalanceyh/article/details/42640739
+
+//基于栈的字节码解释执行引擎
+http://hllvm.group.iteye.com/group/topic/25858
+http://xtu-tja-163-com.iteye.com/blog/775987
+http://blog.csdn.net/a616413086/article/details/51272309
+http://www.thinksaas.cn/topics/0/439/439410.html
+http://www.aiuxian.com/article/p-3181761.html
+
+//HotSpot虚拟机解释器与编译器并存
+http://blog.csdn.net/sunxianghuang/article/details/52094859
+
+//JVM的Server与Client运行模式区别与切换
+http://blog.csdn.net/rainnnbow/article/details/52228773
+
+//jdk分析工具:jmap和jhat
+http://www.cnblogs.com/ggjucheng/archive/2013/04/16/3024986.html
+
+//JAR
+http://jingyan.baidu.com/article/219f4bf7d0ef87de442d3820.html
+http://www.2cto.com/kf/201305/208332.html
+
+//classloader
+http://blog.chinaunix.net/uid-21227800-id-65879.html
+
+#######################################################原子性，可见性，有序性#######################################################
+内存  ======> 高速缓存(java的话个人理解就是线程栈) ======> CPU寄存器
+个人理解原子性是针对高速缓存到CPU寄存器，可见性是针对内存到高速缓存
+
+例1：
+public class Test {
+
+    public volatile int inc = 0;
+    public void increase() {
+        inc++;
+    }
+    public static void main(String[] args) {
+        final Test test = new Test();
+        for(int i=0;i<10;i++){
+            new Thread(){
+                public void run() {
+                    for(int j=0;j<1000;j++)
+                        test.increase();
+                };
+            }.start();
+        }
+        while(Thread.activeCount()>1)  //保证前面的线程都执行完
+            Thread.yield();
+        System.out.println(test.inc);
+    }
+}
+大家想一下这段程序的输出结果是多少？也许有些朋友认为是10000。但是事实上运行它会发现每次运行结果都不一致，都是一个小于10000的数字。
+这里面就有一个误区了，volatile关键字能保证可见性没有错，但是上面的程序错在没能保证原子性。可见性只能保证每次读取的是最新的值，但是volatile没办法保证对变量的操作的原子性。
+这个例子的说明有点问题：
+重点在自增操作并非是原子性的，分3步
+1.从线程的工作内存中读取inc到寄存器
+2.执行i++
+3.再把寄存器的i复制回工作内存
+所以在线程1在读取inc的为10后，执行自增操作的第一步或者第二步，此时被堵塞了。所以工作内存的inc仍然为10在线程2读取inc的时候，值也是为10，但线程2的自增操作执行完了3步，所以工作内存的inc会被修改为11，主存的inc也被立刻修改为11，从而所有线程的工作内存里的inc也为11。但是由于此时线程1的自增操作是基于寄存器里的i（仍为10），所以才会出现这种情况。所以，volatile是把所有线程的工作内存的变量捆绑在一起，它保证了所有线程的变量是一致的。但它却并不是线程安全的。
+
+例2：
+public class VolatileExample extends Thread {
+
+    private volatile boolean flag = false;
+    //无限循环,等待flag变为true时才跳出循环
+    public void run() {
+        while (!flag) {
+            //System.out.println("1");
+        }
+    }
+    public static void main(String[] args) throws Exception {
+
+        VolatileExample example = new VolatileExample();
+        example.start();
+        //sleep的目的是等待线程启动完毕,也就是说进入run的无限循环体了
+        Thread.sleep(100);
+        example.setFlag(true);
+
+    }
+    public void setFlag(boolean flag) {
+        this.flag = flag;
+    }
+}
+这个例子很好理解，main函数里启动一个线程，其run方法是一个以flag为标志位的无限循环。如果flag为true则跳出循环。当main执行到12行的时候，flag被置为true，按逻辑分析此时线程该结束，即整个程序执行完毕。
+执行一下看看是什么结果？结果是令人惊讶的，程序始终也不会结束。main是肯定结束了的，其原因就是线程的run方法未结束，即run方法中的flag仍然为false。
+把第3行加上volatile修饰符，即
+private volatile boolean flag = false;
+再执行一遍看看？结果是程序正常退出，volatile生效了。
+我们再修改一下。去掉volatile关键字，恢复到起始的例子，然后把while(!flag){}改为while(!flag){System.out.println(1);}，再执行一下看看。按分析，没有volatile关键字的时候，程序不会执行结束，虽然加上了打印语句，但没有做任何的关键字/逻辑的修改，应该程序也不会结束才对，但执行结果却是：程序正常结束。
+
+volatile是保证线程间变量的可见性但是不能保证原子性
+各线程的工作内存间彼此独立、互不可见，在线程启动的时候，虚拟机为每个内存分配一块工作内存，不仅包含了线程内部定义的局部变量，也包含了线程所需要使用的共享变量(非线程内构造的对象)的副本，即为了提高执行效率
+工作内存可以说是主内存的一份缓存，为了避免缓存的不一致性，所以volatile需要废弃此缓存。但除了内存缓存之外，在CPU硬件级别也是有缓存的，即寄存器。假如线程A将变量X由0修改为1的时候，CPU是在其缓存内操作，没有及时回写到内存，那么JVM是无法X=1是能及时被之后执行的线程B看到的，所以我觉得JVM在处理volatile变量的时候，也同样用了硬件级别的缓存一致性原则
+“各线程的工作内存间彼此独立、互不可见，在线程启动的时候，虚拟机为每个内存分配一块工作内存，不仅包含了线程内部定义的局部变量，也包含了线程所需要使用的共享变量(非线程内构造的对象)的副本，即为了提高执行效率”并不准确。如今的volatile的例子已经是很难重现，如本例开头时只有在while死循环时才体现出volatile的作用，哪怕只是加了System.out.println(1)这么一小段，普通变量也能达到volatile的效果，这是什么原因呢？原来只有在对变量读取频率很高的情况下，虚拟机才不会及时回写主内存，而当频率没有达到虚拟机认为的高频率时，普通变量和volatile是同样的处理逻辑。如在每个循环中执行System.out.println(1)加大了读取变量的时间间隔，使虚拟机认为读取频率并不那么高，所以实现了和volatile的效果。volatile的效果在jdk1.2及之前很容易重现，但随着虚拟机的不断优化，如今的普通变量的可见性已经不是那么严重的问题了，这也是volatile如今确实不太有使用场景的原因吧。
+#######################################################原子性，可见性，有序性#######################################################
+
+同步（synchronous）和异步（asynchronous）
+
+并发(Concurrent)
+当有多个线程在操作时,如果系统只有一个CPU,则它根本不可能真正同时进行一个以上的线程,它只能把CPU运行时间划分成若干个时间段,再将时间段分配给各个线程执行,在一个时间段的线程代码运行时,其它线程处于挂起状态.这种方式我们称之为并发(Concurrent).
+
+并行(Parallel)
+当系统有一个以上CPU时,则线程的操作有可能非并发.当一个CPU执行一个线程时,另一个CPU可以执行另一个线程,两个线程互不抢占CPU资源,可以同时进行,这种方式我们称之为并行(Parallel)
+
+临界区
+–临界区用来表示一种公共资源或者说是共享数据，可以被多个线程使用。但是每一次，只能有一个线程使用它，一旦临界区资源被占用，其他线程要想使用这个资源，就必须等待。
+临界区在多线程环境下是需要被控制的区域
+
+阻塞（Blocking）和非阻塞（Non-Blocking）
+–阻塞和非阻塞通常用来形容多线程间的相互影响。比如一个线程占用了临界区资源，那么其它所有需要这个资源的线程就必须在这个临界区中进行等待，等待会导致线程挂起。这种情况就是阻塞。此时，如果占用资源的线程一直不愿意释放资源，那么其它所有阻塞在这个临界区上的线程都不能工作。
+–非阻塞允许多个线程同时进入临界区
+
+死锁（Deadlock）、饥饿（Starvation）和活锁（Livelock）
+
+并发级别
+阻塞
+–当一个线程进入临界区后，其他线程必须等待
+非阻塞
+无障碍（Obstruction-Free） 其实就是排他，先拿一个更新日期，然后在有限次数内完成更新，因为次数限定所以不保证一定能更新成功
+–无障碍是一种最弱的非阻塞调度
+–自由出入临界区
+–无竞争时，有限步内完成操作
+–有竞争时，回滚数据
+无锁（Lock-Free）
+–是无障碍的
+–保证有一个线程可以胜出
+while (!atomicVar.compareAndSet(localVar, localVar+1)) { localVar = atomicVar.get(); }
+无等待（Wait-Free） 典型的案例就是读写锁中的读锁
+–无锁的
+–要求所有的线程都必须在有限步内完成
+–无饥饿的
+
+//******************************************************Thread sleep,yield,wait******************************************************
+1.sleep()方法
+在指定时间内让当前正在执行的线程暂停执行，但不会释放“锁标志”。不推荐使用。
+sleep()使当前线程进入阻塞状态，在指定时间内不会执行。sleep可使优先级低的线程得到执行的机会，当然也可以让同优先级和高优先级的线程有执行的机会
+
+2.yield()方法
+只是使当前线程重新回到可执行状态，所以执行yield()线程有可能在进入到可执行状态后马上又被执行. 只能使同优先级的线程有执行的机会。同样, yield()也不会释放锁资源.
+sleep和yield的区别在于, sleep可以使优先级低的线程得到执行的机会,  而yield只能使同优先级的线程有执行的机会.
+
+3.wait()方法
+在其他线程调用对象的notify或notifyAll方法前，导致当前线程等待。线程会释放掉它所占有的“锁标志”，从而使别的线程有机会抢占该锁。
+当前线程必须拥有当前对象锁。如果当前线程不是此锁的拥有者，会抛出IllegalMonitorStateException异常。
+唤醒当前对象锁的等待线程使用notify或notifyAll方法，也必须拥有相同的对象锁，否则也会抛出IllegalMonitorStateException异常。
+waite()和notify()必须在synchronized函数或synchronized　block中进行调用。如果在non-synchronized函数或non-synchronized　block中进行调用，虽然能编译通过，但在运行时会发生IllegalMonitorStateException的异常。
+//******************************************************Thread sleep,yield,wait******************************************************
+
+//************************************************************JDK 并发包************************************************************
+1.1. ReentrantLock
+1.1.1. 可重入
+单线程可以重复进入，但要重复退出
+1.1.2. 可中断
+lockInterruptibly()
+1.1.3. 可限时
+超时不能获得锁，就返回false，不会永久等待构成死锁
+1.1.4. 公平锁
+先来先得
+public ReentrantLock(boolean fair)
+public static ReentrantLock fairLock = new ReentrantLock(true);
+
+1.2. Condition
+1.2.1. 概述
+类似于 Object.wait()和Object.notify()
+与ReentrantLock结合使用
+1.2.2. 主要接口
+void await() throws InterruptedException;
+void awaitUninterruptibly();
+long awaitNanos(long nanosTimeout) throws InterruptedException;
+boolean await(long time, TimeUnit unit) throws InterruptedException;
+boolean awaitUntil(Date deadline) throws InterruptedException;
+void signal();
+void signalAll();
+1.2.3. API详解
+await()方法会使当前线程等待，同时释放当前锁，当其他线程中使用signal()时或者signalAll()方法时，线程会重新获得锁并继续执行。或者当线程被中断时，也能跳出等待。这和Object.wait()方法很相似。awaitUninterruptibly()方法与await()方法基本相同，但是它并不会再等待过程中响应中断。singal()方法用于唤醒一个在等待中的线程。相对的singalAll()方法会唤醒所有在等待中的线程。这和Obejct.notify()方法很类似。
+
+1.3.Semaphore
+1.3.1. 概述
+共享锁
+允许多个线程同时进入临界区
+1.3.2. 主要接口
+public void acquire()
+public void acquireUninterruptibly()
+public boolean tryAcquire()
+public boolean tryAcquire(long timeout, TimeUnit unit)
+public void release()
+
+1.4.ReadWriteLock
+1.4.1. 概述
+ReadWriteLock是JDK5中提供的读写分离锁
+1.4.2. 访问情况
+读-读不互斥：读读之间不阻塞。
+读-写互斥：读阻塞写，写也会阻塞读。
+写-写互斥：写写阻塞。
+1.4.3. 主要接口
+private static ReentrantReadWriteLock readWriteLock=new ReentrantReadWriteLock();
+private static Lock readLock = readWriteLock.readLock();
+private static Lock writeLock = readWriteLock.writeLock();
+
+1.5.CountDownLatch
+1.5.1. 概述
+倒数计时器
+一种典型的场景就是火箭发射。在火箭发射前，为了保证万无一失，往往还要进行各项设备、仪器的检查。只有等所有检查完毕后，引擎才能点火。这种场景就非常适合使用CountDownLatch。它可以使得点火线程，等待所有检查线程全部完工后，再执行
+1.5.2. 主要接口
+static final CountDownLatch end = new CountDownLatch(10);
+end.countDown();
+end.await();
+
+1.6. CyclicBarrier
+1.6.1. 概述
+循环栅栏
+Cyclic意为循环，也就是说这个计数器可以反复使用。比如，假设我们将计数器设置为10。那么凑齐第一批10个线程后，计数器就会归零，然后接着凑齐下一批10个线程
+1.6.2. 主要接口
+public CyclicBarrier(int parties, Runnable barrierAction)
+barrierAction就是当计数器一次计数完成后，系统会执行的动作
+await()
+
+1.7. LockSupport
+1.7.1. 概述
+提供线程阻塞原语
+1.7.2. 主要接口
+LockSupport.park();
+LockSupport.unpark(t1);
+1.7.3. 与suspend()比较
+不容易引起线程冻结
+1.7.4. 中断响应
+能够响应中断，但不抛出异常。中断响应的结果是，park()函数的返回，可以从Thread.interrupted()得到中断标志
+
+1.8. ReentrantLock 的实现
+1.8.1. CAS状态
+1.8.2. 等待队列
+1.8.3. park()
+//************************************************************JDK 并发包************************************************************
+
+//************************************************************Thread.join************************************************************
+    /** 
+     * Waits at most {@code millis} milliseconds for this thread to 
+     * die. A timeout of {@code 0} means to wait forever. 
+     * 
+     * <p> This implementation uses a loop of {@code this.wait} calls 
+     * conditioned on {@code this.isAlive}. As a thread terminates the 
+     * {@code this.notifyAll} method is invoked. It is recommended that 
+     * applications not use {@code wait}, {@code notify}, or 
+     * {@code notifyAll} on {@code Thread} instances. 
+     * 
+     * @param  millis 
+     *         the time to wait in milliseconds 
+     * 
+     * @throws  IllegalArgumentException 
+     *          if the value of {@code millis} is negative 
+     * 
+     * @throws  InterruptedException 
+     *          if any thread has interrupted the current thread. The 
+     *          <i>interrupted status</i> of the current thread is 
+     *          cleared when this exception is thrown. 
+     */  
+    public final synchronized void join(long millis)  
+    throws InterruptedException {  
+        long base = System.currentTimeMillis();  
+        long now = 0;  
+      
+        if (millis < 0) {  
+            throw new IllegalArgumentException("timeout value is negative");  
+        }  
+      
+        if (millis == 0) {  
+            while (isAlive()) {  
+                wait(0);  
+            }  
+        } else {  
+            while (isAlive()) {  
+                long delay = millis - now;  
+                if (delay <= 0) {  
+                    break;  
+                }  
+                wait(delay);  
+                now = System.currentTimeMillis() - base;  
+            }  
+        }  
+    }
+Join方法实现是通过wait（小提示：Object 提供的方法）。 当main线程调用t.join时候，main线程会获得线程对象t的锁（wait 意味着拿到该对象的锁),
+调用该对象的wait(等待时间)，直到该对象唤醒main线程，比如退出后。
+1) main线程中调用子线程的join()方法,join()方法中的isAlive()应该是判断"子线程"是不是Alive状态
+而wait()的作用是让"当前线程"等待,而这里的"当前线程"是指当前在CPU上运行的线程.所以,虽然是调用子线程的wait()方法,但是它是通过"主线程"去调用的:
+所以,休眠的是主线程,而不是"子线程"!
+即:A线程调用B线程的时候,可以把B线程看成是一个对象,当在一个线程中调用一个对象的wait()方法时候会导致当前线程阻塞.
+Object中wait()方法的定义:导致当前的线程等待,直到其他线程调用此对象的notify()方法或notifyAll()方法,或者超过指定的时间量. 
+2) 线程执行完毕后系统会调用notifyAll(),唤醒等待在该线程对象上的其他线程.（这个调用是虚拟机层面的调用不在Thread类中）
+//************************************************************Thread.join************************************************************
+
+//****************************************************************JAR****************************************************************
+『JAR file』
+Eclipse中以『JAR file』的形式export普通jar包的时候，必须自己定义MANIFEST.MF或者手动修改MANIFEST.MF清单文件。该文件的“Main-Class”属性指定了程序的主类，“Class-Path”属性则指定了运行主类所依赖的外部类的路径。
+MANIFEST.MF文件定义如下所示：
+Manifest-Version: 1.0
+Main-Class: com.Task
+Class-Path: lib/dom4j-1.6.1.jar lib/jaxen-1.1-beta-7.jar
+注意:
+<1> manifest.mf文件最后一行必须是一个空行。
+<2> lib/dom4j-1.6.1.jar和lib/jaxen-1.1-beta-7.jar之间用一个空格隔开。
+<3>每个冒号后有一个空格。
+具体流程：
+<1>在eclipse中选择你要导出的类或者package，右击，选择Export子选项
+<2>在弹出的对话框中，选择java文件---选择JAR file
+<3>在JAR file后面的文本框中选择你要生成的jar包的位置以及名字
+<4>注意在Export generated class files and resources和Export java source files and resources前面打上勾
+<5>选择Manifest文件 （即：自己定义MANIFEST.MF然后选择Use existing manifest from workspace）
+<6>将生成的jar文件和存放引用包的lib文件夹放在同一个目录下，最后点击生成的jar文件就可以成功运行了
+还需要注意的是，Class-Path属性指定的类或jar包是本地的文件，不可以是远程访问的类或者JAR包文件中的JAR包，即不能是jar in jar；当然也就不能是本jar包中包含的jar包。要实现对jar in jar的引用，需要自定义相关代码来读取它们。『Runnable JAR file』之所以能够运行，就是因为Eclipse为我们提供了jar in jar loader，来帮助我们读取jar in jar。
+
+『Runnable JAR file』
+Extract required libraries into generated jar -> 提取需要的库(以解压的形式)放到生成的jar文件中
+Package required libraries into generated jar -> 将需要的Jar库包放到生成的jar文件中（即：jar in jar的形式）
+Copy required libraries into a sub-folder next to the generated jar -> 将需要的库拷贝到一个子文件夹并放在生成的jar文件旁边
+//****************************************************************JAR****************************************************************
+
+//****************************************************JVM Server与Client运行模式****************************************************
+JVM Server与Client运行模式 
+JVM Server模式与client模式启动，最主要的差别在于：-Server模式启动时，速度较慢，但是一旦运行起来后，性能将会有很大的提升.原因是:
+当虚拟机运行在-client模式的时候,使用的是一个代号为C1的轻量级编译器, 而-server模式启动的虚拟机采用相对重量级,代号为C2的编译器. C2比C1编译器编译的相对彻底,,服务起来之后,性能更高.
+Java -version 可以直接查看出你使用的是client还是 server
+Jvm client代码:
+    C:\Documents and Settings\Administrator>java -version  
+    java version "1.6.0_21"  
+    Java(TM) SE Runtime Environment (build 1.6.0_21-b06)  
+    Java HotSpot(TM) Client VM (build 17.0-b16, mixed mode, sharing) 
+Jvm server代码:
+    [root@kaifa02 ~]# java -version  
+    java version "1.6.0_06"  
+    Java(TM) SE Runtime Environment (build 1.6.0_06-b02)  
+    Java HotSpot(TM) Server VM (build 10.0-b22, mixed mode)
+
+两种模式的切换可以通过更改配置(jvm.cfg配置文件)来实现:
+32位的虚拟机在目录JAVA_HOME/jre/lib/i386/jvm.cfg,
+64位的在JAVA_HOME/jre/lib/amd64/jvm.cfg, 目前64位只支持server模式,  配置内容大致如下
+    -server KNOWN  
+    -client KNOWN  
+    -hotspot ALIASED_TO -client  
+    -classic WARN  
+    -native ERROR  
+    -green ERROR  
+一般只要变更 -server KNOWN 与 -client KNOWN 两个配置位置先后顺序即可,前提是JAVA_HOME/jre/bin 目录下同时存在 server 与client两个文件夹,分别对应着各自的jvm.
+缺少其中一个,切换模式就会报错.类似下图:
+
+Java虚拟机层面的可见性
+public class VisibilityTest extends Thread { 
+	private boolean stop;
+
+	public void run() {
+		int i = 0;
+		while (!stop) {
+			i++;
+		}
+		System.out.println("finish loop,i=" + i);
+	}
+
+	public void stopIt() {
+		stop = true;
+	}
+
+	public boolean getStop() {
+		return stop;
+	}
+	public static void main(String[] args) throws Exception {
+		VisibilityTest v = new VisibilityTest();
+		v.start();
+		Thread.sleep(1000);
+		v.stopIt();
+		Thread.sleep(2000);
+		System.out.println("finish main");
+		System.out.println(v.getStop());
+	}
+}
+-server模式运行上述代码，永远不会停止
+//****************************************************JVM Server与Client运行模式****************************************************
+
+//*************************************************************锁的优化*************************************************************
+锁消除 在即时编译器时，如果发现不可能被共享的对象，则可以消除这些对象的锁操作
+
+	public static void main(String args[]) throws InterruptedException {
+		long start = System.currentTimeMillis();
+		for (int i = 0; i < CIRCLE; i++) {
+			craeteStringBuffer("JVM", "Diagnosis");
+		}
+		long bufferCost = System.currentTimeMillis() - start;
+		System.out.println("craeteStringBuffer: " + bufferCost + " ms");
+	}
+
+	public static String craeteStringBuffer(String s1, String s2) {
+		StringBuffer sb = new StringBuffer();
+		sb.append(s1);// 同步操作
+		sb.append(s2);
+		return sb.toString();
+	}
+
+CIRCLE= 2000000
+
+//开启锁消除
+-server -XX:+DoEscapeAnalysis -XX:+EliminateLocks
+
+//不开启锁消除
+-server -XX:+DoEscapeAnalysis -XX:-EliminateLocks
+
+虚拟机内的锁优化
+?偏向锁
+?轻量级锁
+?自旋锁
+
+对象头Mark
+?Mark Word，对象头的标记，32位
+?描述对象的hash、锁信息，垃圾回收标记，年龄
+–指向锁记录的指针
+–指向monitor的指针
+–GC标记
+–偏向锁线程ID
+
+偏向锁
+?大部分情况是没有竞争的，所以可以通过偏向来提高性能
+?所谓的偏向，就是偏心，即锁会偏向于当前已经占有锁的线程
+?将对象头Mark的标记设置为偏向，并将线程ID写入对象头Mark
+?只要没有竞争，获得偏向锁的线程，在将来进入同步块，不需要做同步
+?当其他线程请求相同的锁时，偏向模式结束
+?-XX:+UseBiasedLocking
+    –默认启用
+?在竞争激烈的场合，偏向锁会增加系统负担
+
+	public static List<Integer> numberList = new Vector<Integer>();
+
+	public static void main(String[] args) throws InterruptedException {
+		long begin = System.currentTimeMillis();
+		int count = 0;
+		int startnum = 0;
+		while (count < 10000000) {
+			numberList.add(startnum);
+			startnum += 2;
+			count++;
+		}
+		long end = System.currentTimeMillis();
+		System.out.println(end - begin);
+	}
+
+//启用偏向锁（JVM启动马上启用偏向锁模式：-XX:BiasedLockingStartupDelay=0）
+-XX:+UseBiasedLocking -XX:BiasedLockingStartupDelay=0
+//禁用偏向锁
+-XX:-UseBiasedLocking
+
+本例中，使用偏向锁，可以获得5%以上的性能提升
+
+轻量级锁
+?BasicObjectLock
+    –嵌入在线程栈中的对象
+?普通的锁处理性能不够理想，轻量级锁是一种快速的锁定方法。
+?如果对象没有被锁定
+    –将对象头的Mark指针保存到锁对象中
+    –将对象头设置为指向锁的指针（在线程栈空间中）
+?如果轻量级锁失败，表示存在竞争，升级为重量级锁（常规锁）
+?在没有锁竞争的前提下，减少传统锁使用OS互斥量产生的性能损耗
+?在竞争激烈时，轻量级锁会多做很多额外操作，导致性能下降
+
+自旋锁
+?当竞争存在时，如果线程可以很快获得锁，那么可以不在OS层挂起线程，让线程做几个空操作（自旋）
+?JDK1.6中-XX:+UseSpinning开启
+?JDK1.7中，去掉此参数，改为内置实现
+?如果同步块很长，自旋失败，会降低系统性能
+?如果同步块很短，自旋成功，节省线程挂起切换时间，提升系统性能
+
+偏向锁，轻量级锁，自旋锁总结
+不是Java语言层面的锁优化方法
+内置于JVM中的获取锁的优化方法和获取锁的步骤
+–偏向锁可用会先尝试偏向锁
+–轻量级锁可用会先尝试轻量级锁
+–以上都失败，尝试自旋锁
+–再失败，尝试普通锁，使用OS互斥量在操作系统层挂起
+//*************************************************************锁的优化*************************************************************
+
+JDK8对并发的新支持
+- LongAdder
+- CompletableFuture
+- StampedLock
+
+
+//***********************************************JVM诊断之查看JVM参数及值的命令行工具************************************************
+系统性能监控- linux
+uptime
+系统时间
+运行时间
+    例子中为7分钟
+连接数
+    每一个终端算一个连接
+1,5,15分钟内的系统平均负载
+    运行队列中的平均进程数
+
+top
+同uptime
+CPU内存
+每个进程占CPU的情况
+
+vmstat
+可以统计系统的CPU，内存，swap，io等情况
+
+pidstat
+细致观察进程
+需要安装
+    sudo apt-get install sysstat
+监控CPU
+监控IO
+监控内存
+
+Java自带的工具
+jps
+列出java进程，类似于ps命令
+参数-q可以指定jps只输出进程ID ，不输出类的短名称
+参数-m可以用于输出传递给Java进程（主函数）的参数
+参数-l可以用于输出主函数的完整路径
+参数-v可以显示传递给JVM的参数
+
+
+问题描述
+为了分析和定位一个Java线上系统问题，我们需要查看JVM启动时的一些参数设置，例如：垃圾回收算法、堆大小等等。这些参数可能在启动脚本中明确指明，也可能采用默认值。在系统运行过程中其他人也许动态调整了系统参数。 如何实时查看正在运行的JVM的参数呢？
+
+解决方案
+可以采用jcmd来查看正在运行的JVM的参数。jcmd从JDK 7开始引入的一个JVM诊断命令行工具，可以向运行中的JVM发送诊断命令。
+查看JVM进程的PID
+$ jcmd -l
+27940 sun.tools.jcmd.JCmd -l
+24684 org.codehaus.plexus.classworlds.launcher.Launcher -Prun 
+23839 com.intellij.idea.Main
+23951 org.jetbrains.idea.maven.server.RemoteMavenServer
+
+查看进程24684的参数
+jcmd 24684 VM.flags
+24684:
+-XX:InitialHeapSize=98566144 -XX:MaxHeapSize=1547698176 -XX:MaxNewSize=515899392 -XX:MinHeapDeltaBytes=524288 -XX:NewSize=1572864 -XX:OldSize=96993280 -XX:+UseCompressedClassPointers -XX:+UseCompressedOops -XX:+UseParallelGC 
+堆大小设置，垃圾回收算法等一目了然。
+
+1.-XX:+PrintFlagsInitial参数(java -XX:+PrintFlagsInitial)
+显示所有可设置参数及默认值，可结合-XX:+PrintFlagsInitial与-XX:+PrintFlagsFinal对比设置前、设置后的差异，方便知道对那些参数做了调整。
+
+2.-XX:+PrintFlagsFinal参数(java -XX:+PrintFlagsFinal)
+可以获取到所有可设置参数及值(手动设置之后的值)，这个参数只能使用在Jdk6 update 21以上版本(包括该版本)。-XX:+PrintFlagsFinal参数的使用 与上面-XX:+PrintFlagsInitial 参数使用相同  Java -XX:+PrintFlagsFinal
+
+3.使用 jinfo 命令 查看或设置某个参数的值, 
+jinfo命令格式：
+jinfo [option] <pid>
+pid虚拟机进程id  可以通过  jps命令查看
+例子：查询MaxPermSize 参数的值
+jinfo -flag MaxPermSize <pid>
+或直接使用 jinfo -flags pid 查看vm的所有设置参数
+jinfo -flag [+/-][flagName] [pid] #启用/禁止某个参数
+jinfo -flag [flagName=value] [pid] #设置某个参数
+
+4. -XX:+PrintCommandLineFlags参数(java -XX:+PrintCommandLineFlags)
+显示出JVM初始化完毕后所有跟最初的默认值不同的参数及它们的值。
+
+eclipse启动时，由于安装了两种版本的jdk，Eclipse启动失败解决方法： ， 
+需要在eclipse.ini中参数：-startup plugins/org.eclipse.equinox.launcher_1.3.0.v20140415-2008.jar的后面指定jdk的路径。
+-vm 
+E:\Program Files\Java\jdk1.8.0_51\bin\javaw.exe**
+
+例：
+-startup
+plugins/org.eclipse.equinox.launcher_1.3.0.v20140415-2008.jar
+-vm
+E:\Program Files\Java\jdk1.8.0_51\bin\javaw.exe
+
+eclipse堆栈分析插件
+Memory Analyzer
+
+jstack
+打印线程dump
+-l 打印锁信息
+-m 打印java和native的帧信息
+-F 强制dump，当jstack没有响应时使用
+
+jmap
+打印出某个java进程（使用pid）内存内的，所有‘对象’的情况（如：产生那些对象，及其数量）。
+可以输出所有内存中对象的工具，甚至可以将VM 中的heap，以二进制输出成文本。使用方法 jmap -histo pid。如果连用SHELL jmap -histo pid>a.log可以将其保存到文本中去，在一段时间后，使用文本对比工具，可以对比出GC回收了哪些对象。jmap -dump:format=b,file=outfile 3024可以将3024进程的内存heap输出出来到outfile文件里，再配合MAT（内存分析工具(Memory Analysis Tool）或与jhat (Java Heap Analysis Tool)一起使用，能够以图像的形式直观的展示当前内存是否有问题。
+
+例：
+jmap -F -dump:format=b,file=tomcat.bin 9142
+
+jhat
+
+hat是一个Java堆复制浏览器。这个工具分析Java堆复制文件（例如，由上面的"jmap-dump"所产生的）。Jhat启动一个允许堆中的对象在web浏览器中进行分析的web服务器。这个工具并不是想用于应用系统中而是用于"离线"分析。"jhat工具是平台独立的"，其意思是，它可以被用来观察在任何平台上所产生的堆复制。例如，我们有可能在Linux系统上使用jhat来观察一个 在Solaris OS上所产生的堆复制。
+把本机的java内存映像导出到heap.dmp中,其中PID为java进程的ID号。
+jmap -dump:live,format=b,file=heap.dmp PID 导出后的映像文件可以用jhat来进行分析，-J是向java虚拟机传一个参数，如-mx768m是指定虚拟机可用最大的内存为768M。如果映像文件很大，你要指定一个很大的值，否则在分析过程中就会有OutOfMemeryError的错误。
+jhat -J-mx768m -port <端口号:默认为7000> heap.dmp
+执行后等待console 中输入start HTTP server on port 7000 即可使用浏览器访问 IP：7000
+
+例：
+jhat tomcat.bin
+
+//***********************************************JVM诊断之查看JVM参数及值的命令行工具************************************************
+
+//*********************************************************Java栈 – 栈上分配*********************************************************
+Java栈
+线程私有
+栈由一系列帧组成（因此Java栈也叫做帧栈）
+帧保存一个方法的局部变量、操作数栈、常量池指针
+每一次方法调用创建一个帧，并压栈
+
+public class OnStackTest {
+    public static void alloc(){
+        byte[] b=new byte[2];
+        b[0]=1;
+    }
+    public static void main(String[] args) {
+        long b=System.currentTimeMillis();
+        for(int i=0;i<100000000;i++){
+            alloc();
+        }
+        long e=System.currentTimeMillis();
+        System.out.println(e-b);
+    }
+}
+
+-server -Xmx10m -Xms10m
+-XX:+DoEscapeAnalysis -XX:+PrintGC
+
+输出结果 5
+
+-server -Xmx10m -Xms10m  
+-XX:-DoEscapeAnalysis -XX:+PrintGC
+
+[GC 3550K->478K(10240K), 0.0000977 secs]
+[GC 3550K->478K(10240K), 0.0001361 secs]
+[GC 3550K->478K(10240K), 0.0000963 secs]
+564
+
+Java栈 – 栈上分配
+小对象（一般几十个bytes），在没有逃逸的情况下，可以直接分配在栈上
+直接分配在栈上，可以自动回收，减轻GC压力
+大对象或者逃逸对象无法栈上分配
+
+解释运行
+    解释执行以解释方式运行字节码
+    解释执行的意思是：读一句执行一句
+编译运行（JIT）
+    将字节码编译成机器码
+    直接执行机器码
+    运行时编译
+    编译后性能有数量级的提升
+	编译的时间开销
+
+解释器的执行，抽象的看是这样的：
+输入的代码 -> [ 解释器 解释执行 ] -> 执行结果
+而要JIT编译然后再执行的话，抽象的看则是：
+输入的代码 -> [ 编译器 编译 ] -> 编译后的代码 -> [ 执行 ] -> 执行结果
+说JIT比解释快，其实说的是“执行编译后的代码”比“解释器解释执行”要快，并不是说“编译”这个动作比“解释”这个动作快。
+JIT编译再怎么快，至少也比解释执行一次略慢一些，而要得到最后的执行结果还得再经过一个“执行编译后的代码”的过程。
+所以，对“只执行一次”的代码而言，解释执行其实总是比JIT编译执行要快。
+怎么算是“只执行一次的代码”呢？粗略说，下面两个条件同时满足时就是严格的“只执行一次”
+1、只被调用一次，例如类的构造器（class initializer，<clinit>()）
+2、没有循环
+对只执行一次的代码做JIT编译再执行，可以说是得不偿失。
+对只执行少量次数的代码，JIT编译带来的执行速度的提升也未必能抵消掉最初编译带来的开销。
+只有对频繁执行的代码，JIT编译才能保证有正面的收益。
+//*********************************************************Java栈 – 栈上分配*********************************************************
+
+//**********************************************************常用JVM配置参数**********************************************************
+Trace跟踪参数
+-verbose:gc
+-XX:+printGC
+可以打印GC的简要信息
+-XX:+PrintGCDetails(只有在程序结束后会把堆的使用状况打印出来)
+打印GC详细信息
+-XX:+PrintGCTimeStamps
+打印GC发生的时间戳
+
+默认打印的GC信息是输出在控制台，但是可以通过如下的配置指定GC log的位置
+-Xloggc:log/gc.log
+指定GC log的位置，以文件输出
+帮助开发人员分析问题
+
+-XX:+PrintHeapAtGC(每次发生GC都会打印出堆目前的使用状况)
+每次一次GC后，都打印堆信息
+
+-XX:+TraceClassLoading
+监控类的加载
+
+-XX:+PrintClassHistogram
+按下Ctrl+Break后，打印类的信息：
+
+堆的分配参数
+-Xmx –Xms
+指定最大堆和最小堆
+-Xmx20m -Xms5m  运行代码：
+System.out.print("Xmx=");
+System.out.println(Runtime.getRuntime().maxMemory()/1024.0/1024+"M");
+System.out.print("free mem=");
+System.out.println(Runtime.getRuntime().freeMemory()/1024.0/1024+"M");
+System.out.print("total mem=");
+System.out.println(Runtime.getRuntime().totalMemory()/1024.0/1024+"M");
+
+-Xmn
+    设置新生代大小
+-XX:NewRatio
+    新生代（eden+2*s）和老年代（不包含永久区）的比值
+    4 表示 新生代:老年代=1:4，即年轻代占堆的1/5
+-XX:SurvivorRatio （即from，to）
+    设置两个Survivor区和eden的比
+    8表示 两个Survivor :eden=2:8，即一个Survivor占年轻代的1/10
+
+例：
+public static void main(String[] args) {
+   byte[] b=null;
+   for(int i=0;i<10;i++)
+       b=new byte[1*1024*1024];
+}
+
+分别以不同的参数运行，将输出不同的GC信息：
+-Xmx20m -Xms20m -Xmn1m -XX:+PrintGCDetails 
+没有触发GC
+全部分配在老年代
+
+-Xmx20m -Xms20m -Xmn15m -XX:+PrintGCDetails
+没有触发GC
+全部分配在eden
+老年代没有使用
+
+-Xmx20m -Xms20m -Xmn7m -XX:+PrintGCDetails 
+1.进行了2次新生代GC
+2.s0 s1 太小需要老年代担保
+因为如果是新生代的大小是7m的话from和to的空间比较小（小于1M）所以无法进行新生代的GC回收，因此部分对象会放在老年代
+eden space 5760K
+from space 704K
+to   space 704K
+
+-Xmx20m -Xms20m -Xmn7m -XX:SurvivorRatio=2 -XX:+PrintGCDetails
+1.进行了3次新生代GC
+2.s0 s1 增大
+
+-Xmx20m -Xms20m -XX:NewRatio=1 -XX:SurvivorRatio=2 -XX:+PrintGCDetails
+比例分配，新生代 老年代对半开
+对象全部留在新生代
+
+-Xmx20m -Xms20m -XX:NewRatio=1 -XX:SurvivorRatio=3 -XX:+PrintGCDetails
+减少了s0 s1 GC数量变少，老年代未使用 空间使用率更高
+
+-XX:+HeapDumpOnOutOfMemoryError
+    OOM时导出堆到文件
+-XX:+HeapDumpPath
+    导出OOM的路径
+例：
+-Xmx20m -Xms5m -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=d:/a.dump
+
+-XX:OnOutOfMemoryError
+在OOM时，执行一个脚本
+"-XX:OnOutOfMemoryError=D:/tools/jdk1.7_40/bin/printstack.bat %p“ 当程序OOM时，在D:/a.txt中将会生成线程的dump
+可以在OOM时，发送邮件，甚至是重启程序
+printstack.bat里面的内容
+D:/tools/jdk1.7_40/bin/jstack -F %1 > D:/a.txt
+
+根据实际事情调整新生代和幸存代的大小
+官方推荐新生代占堆的3/8
+幸存代占新生代的1/10
+在OOM时，记得Dump出堆，确保可以排查现场问题
+
+永久区分配参数
+-XX:PermSize  -XX:MaxPermSize
+    设置永久区的初始空间和最大空间
+    他们表示，一个系统可以容纳多少个类型
+
+栈大小分配
+-Xss
+    通常只有几百K
+    决定了函数调用的深度
+    每个线程都有独立的栈空间
+    局部变量、参数 分配在栈上
+
+例：
+public class TestStackDeep {
+	private static int count=0;
+	public static void recursion(long a,long b,long c){
+		long e=1,f=2,g=3,h=4,i=5,k=6,q=7,x=8,y=9,z=10;
+		count++;
+		recursion(a,b,c);
+	}
+	public static void main(String args[]){
+		try{
+			recursion(0L,0L,0L);
+		}catch(Throwable e){
+			System.out.println("deep of calling = "+count);
+			e.printStackTrace();
+		}
+	}
+}
+
+递归调用
+-Xss128K
+deep of calling = 701
+java.lang.StackOverflowError
+-Xss256K
+deep of calling = 1817
+java.lang.StackOverflowError
+
+//**********************************************************常用JVM配置参数**********************************************************
+
+//****************************************************Garbage Collection 垃圾收集****************************************************
+GC算法
+引用计数法（没有被Java采用）
+标记清除
+标记压缩
+复制算法
+
+引用计数法
+引用计数器的实现很简单，对于一个对象A，只要有任何一个对象引用了A，则A的引用计数器就加1，当引用失效时，引用计数器就减1。只要对象A的引用计数器的值为0，则对象A就不可能再被使用。
+引用计数法的问题
+引用和去引用伴随加法和减法，影响性能
+很难处理循环引用
+
+标记-清除
+标记-清除算法是现代垃圾回收算法的思想基础。标记-清除算法将垃圾回收分为两个阶段：标记阶段和清除阶段。一种可行的实现是，在标记阶段，首先通过根节点，标记所有从根节点开始的可达对象。因此，未被标记的对象就是未被引用的垃圾对象。然后，在清除阶段，清除所有未被标记的对象。
+
+标记-压缩
+标记-压缩算法适合用于存活对象较多的场合，如老年代。它在标记-清除算法的基础上做了一些优化。和标记-清除算法一样，标记-压缩算法也首先需要从根节点开始，对所有可达对象做一次标记。但之后，它并不简单的清理未标记的对象，而是将所有的存活对象压缩到内存的一端。之后，清理边界外所有的空间。
+
+复制算法
+与标记-清除算法相比，复制算法是一种相对高效的回收方法
+不适用于存活对象较多的场合 如老年代
+将原有的内存空间分为两块，每次只使用其中一块，在垃圾回收时，将正在使用的内存中的存活对象复制到未使用的内存块中，之后，清除正在使用的内存块中的所有对象，交换两个内存的角色，完成垃圾回收
+复制算法的最大问题是：空间浪费 整合标记清理思想
+
+分代思想
+依据对象的存活周期进行分类，短命对象归为新生代，长命对象归为老年代。
+根据不同代的特点，选取合适的收集算法
+少量对象存活，适合复制算法
+大量对象存活，适合标记清理或者标记压缩
+
+可触及性
+
+可触及的
+    从根节点可以触及到这个对象
+可复活的
+    一旦所有引用被释放，就是可复活状态
+    因为在finalize()中可能复活该对象
+不可触及的
+    在finalize()后，可能会进入不可触及状态
+    不可触及的对象不可能复活
+    可以回收
+
+垃圾回收器要回收对象的时候，首先要调用这个类的finalize方法(你可以 写程序验证这个结论)，一般的纯Java编写的Class不需要重新覆盖这个方法，因为Object已经实现了一个默认的，除非我们要实现特殊的功能(这 里面涉及到很多东西，比如对象空间树等内容)。
+不过用Java以外的代码编写的Class(比如JNI，C++的new方法分配的内存)，垃圾回收器并不能对这些部分进行正确的回收，这时就需要我们覆盖默认的方法来实现对这部分内存的正确释放和回收(比如C++需要delete)。
+总之，finalize相当于析构函数，他是垃圾回收器回收一个对象的时候第一个要调用的方法。不过由于Java的垃圾回收机制能自动为我们做这些事情，所以我们在一般情况下是不需要自己来手工释放的。
+
+垃圾收集器在进行垃圾收集的时候会自动呼叫对象的finalize方法，用来进行一些用户自定义的非内存清理工作，因为垃圾收集器不会处理内存以外的东西。所以，有的时候用户需要定义一些清理的方法，比如说处理文件和端口之类的非内存资源。
+
+finalize()在什么时候被调用?
+有三种情况
+1.所有对象被Garbage Collection时自动调用,比如运行System.gc()的时候.
+2.程序退出时为每个对象调用一次finalize方法。
+3.显式的调用finalize方法
+
+public class CanReliveObj {
+
+	public static CanReliveObj obj;
+
+	@Override
+	protected void finalize() throws Throwable {
+		super.finalize();
+		System.out.println("CanReliveObj finalize called");
+		obj = this;
+	}
+
+	@Override
+	public String toString() {
+		return "I am CanReliveObj";
+	}
+
+	public static void main(String[] args) throws InterruptedException {
+		obj = new CanReliveObj();
+		System.out.println("第一次gc");
+		obj = null; // 可复活
+		System.gc();
+		Thread.sleep(1000);
+		if (obj == null) {
+			System.out.println("obj 是 null");
+		} else {
+			System.out.println("obj 可用");
+		}
+		System.out.println("第二次gc");
+		obj = null; // 不可复活
+		System.gc();
+		Thread.sleep(1000);
+		if (obj == null) {
+			System.out.println("obj 是 null");
+		} else {
+			System.out.println("obj 可用");
+		}
+	}
+}
+注意
+    1) finalize()只会被调用一次
+    2) 如果在第一次发生GC的时候在finalize方法中将对象复活，然后没有将调用该对象的引用赋值为null
+即上面的obj = null没有被执行，那么有可能这个对象永远没有办法被回收。
+	
+经验：避免使用finalize()，操作不慎可能导致错误。
+优先级低，何时被调用， 不确定
+    何时发生GC不确定
+可以使用try-catch-finally来替代它
+
+根
+    栈中引用的对象
+    方法区中静态成员或者常量引用的对象（全局对象）
+    JNI方法栈中引用对象
+
+Stop-The-World
+    Java中一种全局暂停的现象
+    全局停顿，所有Java代码停止，native代码可以执行，但不能和JVM交互
+    多半由于GC引起
+        Dump线程
+        死锁检查
+        堆Dump
+		
+GC时为什么会有全局停顿？
+    类比在聚会时打扫房间，聚会时很乱，又有新的垃圾产生，房间永远打扫不干净，只有让大家停止活动了，才能将房间打扫干净。
+危害
+    长时间服务停止，没有响应
+    遇到HA系统，可能引起主备切换，严重危害生产环境。
+
+GC参数 - 串行收集器
+最古老，最稳定
+效率高
+可能会产生较长的停顿
+-XX:+UseSerialGC
+    新生代、老年代使用串行回收
+    新生代复制算法
+    老年代标记-压缩
+新生代：（GC）
+0.844: [GC 0.844: [DefNew: 17472K->2176K(19648K), 0.0188339 secs] 17472K->2375K(63360K), 0.0189186 secs] [Times: user=0.01 sys=0.00, real=0.02 secs]
+老年代：（Full GC）
+8.259: [Full GC 8.259: [Tenured: 43711K->40302K(43712K), 0.2960477 secs] 63350K->40302K(63360K), [Perm : 17836K->17836K(32768K)], 0.2961554 secs] [Times: user=0.28 sys=0.02, real=0.30 secs]
+
+GC参数 - 并行收集器
+ParNew
+-XX:+UseParNewGC
+    新生代并行
+    老年代串行
+Serial收集器新生代的并行版本
+复制算法
+多线程，需要多核支持
+-XX:ParallelGCThreads 限制线程数量
+新生代：并行（ParNew）
+0.834: [GC 0.834: [ParNew: 13184K->1600K(14784K), 0.0092203 secs] 13184K->1921K(63936K), 0.0093401 secs] [Times: user=0.00 sys=0.00, real=0.00 secs]
+
+GC参数 -并行收集器
+Parallel收集器
+类似ParNew
+新生代复制算法
+老年代 标记-压缩
+更加关注吞吐量
+-XX:+UseParallelGC
+    使用Parallel收集器+ 老年代串行
+-XX:+UseParallelOldGC
+    使用Parallel收集器+ 并行老年代
+1.500: [Full GC [PSYoungGen: 2682K->0K(19136K)] [ParOldGen: 28035K->30437K(43712K)] 30717K->30437K(62848K) [PSPermGen: 10943K->10928K(32768K)], 0.2902791 secs] [Times: user=1.44 sys=0.03, real=0.30 secs]
+
+GC参数
+-XX:MaxGCPauseMills
+    最大停顿时间，单位毫秒
+    GC尽力保证回收时间不超过设定值
+-XX:GCTimeRatio
+    0-100的取值范围
+    垃圾收集时间占总时间的比
+    默认99，即最大允许1%时间做GC
+这两个参数是矛盾的。因为停顿时间和吞吐量不可能同时调优
+
+GC参数 – CMS收集器
+CMS收集器（CMS收集器使用的是标记清除算法）
+    Concurrent Mark Sweep 并发标记清除
+    标记-清除算法
+    与标记-压缩相比
+    并发阶段会降低吞吐量
+    老年代收集器（新生代使用ParNew）
+    -XX:+UseConcMarkSweepGC
+CMS运行过程比较复杂，着重实现了标记的过程，可分为
+    初始标记
+        根可以直接关联到的对象
+        速度快
+    并发标记（和用户线程一起）
+        主要标记过程，标记全部对象
+    重新标记
+        由于并发标记时，用户线程依然运行，因此在正式清理前，再做修正
+    并发清除（和用户线程一起）
+        基于标记结果，直接清理对象
+特点
+    尽可能降低停顿
+    会影响系统整体吞吐量和性能
+        比如，在用户线程运行过程中，分一半CPU去做GC，系统性能在GC阶段，反应速度就下降一半
+    清理不彻底
+        因为在清理阶段，用户线程还在运行，会产生新的垃圾，无法清理
+    因为和用户线程一起运行，不能在空间快满时再清理
+        -XX:CMSInitiatingOccupancyFraction设置触发GC的阈值
+        如果不幸内存预留空间不够，就会引起concurrent mode failure
+
+有关碎片
+    标记-清除（有可能产生碎片）和标记-压缩
+由于CMS收集器使用的是标记清除算法所以会产生碎片，因此在用CMS收集器进行完垃圾回收后必须进行碎片整理
+-XX:+ UseCMSCompactAtFullCollection Full GC后，进行一次整理
+    整理过程是独占的，会引起停顿时间变长
+-XX:+CMSFullGCsBeforeCompaction 
+    设置进行几次Full GC后，进行一次碎片整理
+-XX:ParallelCMSThreads
+    设定CMS的线程数量
+
+GC参数整理
+-XX:+UseSerialGC：在新生代和老年代使用串行收集器
+-XX:SurvivorRatio：设置eden区大小和survivior区大小的比例
+-XX:NewRatio:新生代和老年代的比
+-XX:+UseParNewGC：在新生代使用并行收集器
+-XX:+UseParallelGC ：新生代使用并行回收收集器
+-XX:+UseParallelOldGC：老年代使用并行回收收集器
+-XX:ParallelGCThreads：设置用于垃圾回收的线程数
+-XX:+UseConcMarkSweepGC：新生代使用并行收集器，老年代使用CMS+串行收集器
+-XX:ParallelCMSThreads：设定CMS的线程数量
+-XX:CMSInitiatingOccupancyFraction：设置CMS收集器在老年代空间被使用多少后触发
+-XX:+UseCMSCompactAtFullCollection：设置CMS收集器在完成垃圾收集后是否要进行一次内存碎片的整理
+-XX:CMSFullGCsBeforeCompaction：设定进行多少次CMS垃圾回收后，进行一次内存压缩
+-XX:+CMSClassUnloadingEnabled：允许对类元数据进行回收
+-XX:CMSInitiatingPermOccupancyFraction：当永久区占用率达到这一百分比时，启动CMS回收
+-XX:UseCMSInitiatingOccupancyOnly：表示只在到达阀值的时候，才进行CMS回收
+
+//****************************************************Garbage Collection 垃圾收集****************************************************
+
+//*********************************************************ClassLoader类加载*********************************************************
+http://blog.chinaunix.net/uid-21227800-id-65879.html
+ClassLoader
+当JVM（Java虚拟机）启动时，会形成由三个类加载器组成的初始类加载器层次结构：
+bootstrap classloader
+|
+extension classloader
+|
+system classloader
+
+bootstrap classloader
+－引导（也称为原始）类加载器，它负责加载Java的核心类。在Sun的JVM中，在执行java的命令中使用-Xbootclasspath选项或使用 -D选项指定sun.boot.class.path系统属性值可以指定附加的类。这个加载器的是非常特殊的，它实际上不是 java.lang.ClassLoader的子类，而是由JVM自身实现的。大家可以通过执行以下代码来获得bootstrap classloader加载了那些核心类库：
+//URL[] urls=sun.misc.Launcher.getBootstrapClassPath().getURLs();
+//for (int i = 0; i < urls.length; i++) {
+//  System.out.println(urls.toExternalForm());
+//}
+System.out.println("bootstrap classloader －引导（也称为原始）类加载器:");
+String[] classpaths = System.getProperty("sun.boot.class.path").split(";");
+for (String path : classpaths) {
+System.out.println(path);
+}
+
+extension classloader －扩展类加载器，它负责加载JRE的扩展目录（JAVA_HOME/jre/lib/ext或者由java.ext.dirs系统属性指定的）中JAR的类包。这为引入除Java核心类以外的新功能提供了一个标准机制。因为默认的扩展目录对所有从同一个JRE中启动的JVM都是通用的，所以放入这个目录的 JAR类包对所有的JVM和system classloader都是可见的。在这个实例上调用方法getParent()总是返回空值null，因为引导加载器bootstrap classloader不是一个真正的ClassLoader实例。所以当大家执行以下代码时：
+System.out.println("extension classloader －扩展类加载器:");
+classpaths = System.getProperty("java.ext.dirs").split(";");
+for (String path : classpaths) {
+System.out.println(path);
+}
+ClassLoader extensionClassloader=ClassLoader.getSystemClassLoader().getParent();
+System.out.println("the parent of extension classloader : "+extensionClassloader.getParent());
+extension classloader是system classloader的parent，而bootstrap classloader是extension classloader的parent，但它不是一个实际的classloader，所以为null。
+
+system classloader
+－系统（也称为应用）类加载器，它负责在JVM被启动时，加载来自在命令java中的-classpath或者java.class.path系统属性或者 CLASSPATH操作系统属性所指定的JAR类包和类路径。总能通过静态方法ClassLoader.getSystemClassLoader()找到该类加载器。如果没有特别指定，则用户自定义的任何类加载器都将该类加载器作为它的父加载器。执行以下代码即可获得：
+System.out.println("system classloader －系统（也称为应用）类加载器:");
+classpaths = System.getProperty("java.class.path").split(";");
+for (String path : classpaths) {
+System.out.println(path);
+}
+输出结果则为用户在系统属性里面设置的CLASSPATH。
+classloader 加载类用的是全盘负责委托机制。所谓全盘负责，即是当一个classloader加载一个Class的时候，这个Class所依赖的和引用的所有 Class也由这个classloader负责载入，除非是显式的使用另外一个classloader载入；委托机制则是先让parent（父）类加载器 (而不是super，它与parent classloader类不是继承关系)寻找，只有在parent找不到的时候才从自己的类路径中去寻找。此外类加载还采用了cache机制，也就是如果 cache中保存了这个Class就直接返回它，如果没有才从文件中读取和转换成Class，并存入cache，这就是为什么我们修改了Class但是必须重新启动JVM才能生效的原因。
+
+下面就让我们来看看JVM是如何来为我们来建立类加载器的结构的：
+sun.misc.Launcher，顾名思义，当你执行java命令的时候，JVM会先使用bootstrap classloader载入并初始化一个Launcher，执行下来代码：
+   System.out.println("the Launcher's classloader is "+sun.misc.Launcher.getLauncher().getClass().getClassLoader());
+结果为：
+   the Launcher's classloader is null (因为是用bootstrap classloader加载,所以class loader为null)
+Launcher 会根据系统和命令设定初始化好class loader结构，JVM就用它来获得extension classloader和system classloader,并载入所有的需要载入的Class，最后执行java命令指定的带有静态的main方法的Class。extension classloader实际上是sun.misc.Launcher$ExtClassLoader类的一个实例，system classloader实际上是sun.misc.Launcher$AppClassLoader类的一个实例。并且都是 java.net.URLClassLoader的子类。
+
+extension classloader是使用系统属性“java.ext.dirs”设置类搜索路径的，并且没有parent。system classloader是使用系统属性“java.class.path”设置类搜索路径的，并且有一个parent classloader。Launcher初始化extension classloader，system classloader，并将system classloader设置成为context classloader，但是仅仅返回system classloader给JVM。
+这里怎么又出来一个context classloader呢？它有什么用呢？我们在建立一个线程Thread的时候，可以为这个线程通过setContextClassLoader方法来指定一个合适的classloader作为这个线程的context classloader，当此线程运行的时候，我们可以通过getContextClassLoader方法来获得此context classloader，就可以用它来载入我们所需要的Class。默认的是system classloader。利用这个特性，我们可以“打破”classloader委托机制了，父classloader可以获得当前线程的context classloader，而这个context classloader可以是它的子classloader或者其他的classloader，那么父classloader就可以从其获得所需的 Class，这就打破了只能向父classloader请求的限制了。这个机制可以满足当我们的classpath是在运行时才确定,并由定制的 classloader加载的时候,由system classloader(即在jvm classpath中)加载的class可以通过context classloader获得定制的classloader并加载入特定的class(通常是抽象类和接口,定制的classloader中是其实现),例如web应用中的servlet就是用这种机制加载的.
+
+好，现在我们能够动态的载入Class了，这样我们就可以利用newInstance方法来获得一个Object。但我们如何将此Object造型呢？可以将此Object造型成它本身的Class吗？
+首先让我们来分析一下java源文件的编译，运行吧！javac命令是调用“JAVA_HOME/lib/tools.jar”中的“com.sun.tools.javac.Main”的compile方法来编译：
+public static int compile(String as[]);
+public static int compile(String as[], PrintWriter printwriter);
+
+其中 Main是由JVM使用Launcher初始化的system classloader载入的，根据全盘负责原则，编译器在解析这个java源文件时所发现的它所依赖和引用的所有Class也将由system classloader载入，如果system classloader不能载入某个Class时，编译器将抛出一个“cannot resolve symbol”错误。
+
+所以首先编译就通不过，也就是编译器无法编译一个引用了不在CLASSPATH中的未知Class的java源文件，而由于拼写错误或者没有把所需类库放到CLASSPATH中，大家一定经常看到这个“cannot resolve symbol”这个编译错误吧！
+
+其次，就是我们把这个Class放到编译路径中，成功的进行了编译，然后在运行的时候不把它放入到CLASSPATH中而利用我们自己的 classloader来动态载入这个Class，这时候也会出现“java.lang.NoClassDefFoundError”的违例，为什么呢？
+
+我们再来分析一下，首先调用这个造型语句的可执行的Class一定是由JVM使用Launcher初始化的system classloader载入的，根据全盘负责原则，当我们进行造型的时候，JVM也会使用system classloader来尝试载入这个Class来对实例进行造型，自然在system classloader寻找不到这个Class时就会抛出“java.lang.NoClassDefFoundError”的违例。
+
+OK，现在让我们来总结一下，java文件的编译和Class的载入执行，都是使用Launcher初始化的system classloader作为类载入器的，我们无法动态的改变system classloader，更无法让JVM使用我们自己的classloader来替换system classloader，根据全盘负责原则，就限制了编译和运行时，我们无法直接显式的使用一个system classloader寻找不到的Class，即我们只能使用Java核心类库，扩展类库和CLASSPATH中的类库中的Class。
+
+还不死心！再尝试一下这种情况，我们把这个Class也放入到CLASSPATH中，让system classloader能够识别和载入。然后我们通过自己的classloader来从指定的class文件中载入这个Class（不能够委托 parent载入，因为这样会被system classloader从CLASSPATH中将其载入），然后实例化一个Object，并造型成这个Class，这样JVM也识别这个Class（因为 system classloader能够定位和载入这个Class从CLASSPATH中），载入的也不是CLASSPATH中的这个Class，而是从 CLASSPATH外动态载入的，这样总行了吧！十分不幸的是，这时会出现“java.lang.ClassCastException”违例。
+
+为什么呢？我们也来分析一下，不错，我们虽然从CLASSPATH外使用我们自己的classloader动态载入了这个Class，但将它的实例造型的时候是JVM会使用system classloader来再次载入这个Class，并尝试将使用我们的自己的classloader载入的Class的一个实例造型为system classloader载入的这个Class（另外的一个）。大家发现什么问题了吗？也就是我们尝试将从一个classloader载入的Class的一个实例造型为另外一个classloader载入的Class，虽然这两个Class的名字一样，甚至是从同一个class文件中载入。但不幸的是JVM 却认为这个两个Class是不同的，即JVM认为不同的classloader载入的相同的名字的Class（即使是从同一个class文件中载入的）是不同的！这样做的原因我想大概也是主要出于安全性考虑，这样就保证所有的核心Java类都是system classloader载入的，我们无法用自己的classloader载入的相同名字的Class的实例来替换它们的实例。
+
+看到这里，聪明的读者一定想到了该如何动态载入我们的Class，实例化，造型并调用了吧！
+
+那就是利用面向对象的基本特性之一的多形性。我们把我们动态载入的Class的实例造型成它的一个systemclassloader所能识别的父类就行了！这是为什么呢？我们还是要再来分析一次。当我们用我们自己的classloader来动态载入这个Class的时候，发现它有一个父类Class，在载入它之前JVM先会载入这个父类Class，这个父类Class是system classloader所能识别的，根据委托机制，它将由system classloader载入，然后我们的classloader再载入这个Class，创建一个实例，造型为这个父类Class，注意了，造型成这个父类 Class的时候（也就是上溯）是面向对象的java语言所允许的并且JVM也支持的，JVM就使用system classloader再次载入这个父类Class，然后将此实例造型为这个父类Class。大家可以从这个过程发现这个父类Class都是由 system classloader载入的，也就是同一个class loader载入的同一个Class，所以造型的时候不会出现任何异常。而根据多形性，调用这个父类的方法时，真正执行的是这个Class（非父类 Class）的覆盖了父类方法的方法。这些方法中也可以引用system classloader不能识别的Class，因为根据全盘负责原则，只要载入这个Class的classloader即我们自己定义的 classloader能够定位和载入这些Class就行了。
+
+这样我们就可以事先定义好一组接口或者基类并放入CLASSPATH中，然后在执行的时候动态的载入实现或者继承了这些接口或基类的子类。还不明白吗？让我们来想一想Servlet吧，web application server能够载入任何继承了Servlet的Class并正确的执行它们，不管它实际的Class是什么，就是都把它们实例化成为一个Servlet Class，然后执行Servlet的init，doPost，doGet和destroy等方法的,而不管这个Servlet是从web- inf/lib和web-inf/classes下由system classloader的子classloader(即定制的classloader)动态载入。说了这么多希望大家都明白了。在applet,ejb等容器中,都是采用了这种机制.
+
+例：
+public class CustomClassLoader extends ClassLoader {
+    
+    // 定义文件所在目录
+    private static final String DEAFAULTDIR = "D:\\jar\\";
+    
+    @Override
+    protected synchronized Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
+    
+    //系统类以及父类都使用system classloader进行加载
+        if (name.startsWith("java.") || name.equals("ClassLoaderPack.ClassLoaderInf")) {
+//如果父类也使用CustomClassLoader载入的话就无法实现动态载入
+        // if (name.startsWith("java.")) {
+            try {
+                return super.loadClass(name, false);
+            }
+            catch (ClassNotFoundException e) {
+                e.printStackTrace();
+            }
+            
+        }
+        byte[] b = null;
+        try {
+            b = loadClassData(GetClassName(name));
+        }
+        catch (Exception e) {
+            e.printStackTrace();
+        }
+        return defineClass(name, b, 0, b.length);
+    }
+    
+    private byte[] loadClassData(String filepath) throws Exception {
+    
+        int n = 0;
+        BufferedInputStream br = new BufferedInputStream(new FileInputStream(new File(filepath)));
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        
+        while ((n = br.read()) != -1) {
+            bos.write(n);
+        }
+        br.close();
+        return bos.toByteArray();
+    }
+    
+    public static String GetClassName(String name) {
+    
+        return DEAFAULTDIR + name.replace('.', '/') + ".class";
+    }
+}
+
+public class MainTest {
+    
+    public static void main(String[] args) throws ClassNotFoundException, InstantiationException, IllegalAccessException {
+        
+        CustomClassLoader customClsLoader = new CustomClassLoader();
+        System.out.println(customClsLoader.getClass().getClassLoader());
+        Thread.currentThread().setContextClassLoader(customClsLoader);
+        //使用自定义的classloader加载子类：ClassLoaderBean（CustomClassLoader中父类是通过systemclassloader加载，
+        //子类是通过自定义classloader加载）
+        Object obj = Thread.currentThread().getContextClassLoader().loadClass("ClassLoaderPack.ClassLoaderBean").newInstance();
+        System.out.println(obj.getClass().getClassLoader());
+        //下面这个造型语句是将由CustomClassLoader载入的子类class造型为由system //classloader载入的父类class（也就是上溯，是面向对象的java语言所允许的并且JVM也支持的）
+        //由此得出子类class和父类class不一定需要由同一个classloader载入 如果在自定义的CustomClassLoader中，
+        //父类也使用CustomClassLoader载入的话那么下面的造型处理就会抛出java.lang.ClassCastException
+        ClassLoaderInf clazz = (ClassLoaderInf) obj;
+        System.out.println(ClassLoaderInf.class.getClassLoader());
+        System.out.println(clazz.getClass().getClassLoader());
+        System.out.println(obj instanceof ClassLoaderInf);
+        clazz.myPrint();
+        
+    }
+}
+
+Thread. setContextClassLoader()
+    上下文加载器
+    是一个角色
+    用以解决顶层ClassLoader无法访问底层ClassLoader的类的问题
+    基本思想是，在顶层ClassLoader中，传入底层ClassLoader的实例
+
+关于setContextClassLoader的理解：
+调用setContextClassLoader后，就定义了一个上下文加载器（这里的上下文指线程），但是并不是setContextClassLoader之后该线程之后引用的所有类都是通过这个上下文加载器进行加载的（只有显式的调用这个上下文加载器加载的类才算）。
+这就相当于在jvm类加载中增加了一个角色（打破顶层classloader无法访问底层classloader的类的问题）在需要打破双亲模式的时候显式的调用这个角色加载器进行加载，而其他的地方都是按照默认的加载模式进行加载
+//*********************************************************ClassLoader类加载********************************************************
+
+//*************************************************************Java堆分析***********************************************************
+在JVM中，有哪些内存区间？
+堆，永久区，线程栈，直接内存
+操作系统分配给每个进程的内存是有限制的，譬如32的Windows限制为2GB。虚拟机提供了参数来控制Java堆和方法区的这两部分内存的最大值。剩余的
+内存为2GB（操作系统限制）减去Xmx（最大堆容量），再减去MaxPermSize（最大方法区容量），程序计数器消耗内存很小，可以忽略掉。如果虚拟机进程本身消耗的内存不计算在内，剩下的内存就由虚拟机和本地方法栈“瓜分”了。每个线程分配到的栈容量越大，可以建立的线程数量自然就越少，建立线程时就越容易把剩下的内存耗尽。
+但是在64位虚拟机上Java堆的大小受限于物理内存和操作系统提供的虚拟内存（理论上JVM进程能分配到的内存只要不超过物理内存即可）
+
+直接内存
+DirectMemory容量可通过-XX:MaxDirectMemorySize=10M指定，如果不指定，则默认与Java堆最大值（-Xmx10M指定）一样。
+ 
+在对象引用图中，所有指向对象B的路径都经过对象A（即：对象A是唯一引用对象B的对象）
+则认为对象A支配对象B
+如果对象A是离对象B最近的一个支配对象，
+则认为对象A为对象B的直接支配者
+
+支配者被回收，被支配对象也被回收
+
+浅堆 
+    一个对象结构所占用的内存大小
+    3个int类型以及一个引用类型合计占用内存3*4+4=16个字节。再加上对象头的8个字节，因此String对象占用的空间，即浅堆的大小是16+8=24字节
+    对象大小按照8字节对齐
+    浅堆大小和对象的内容无关，只和对象的结构有关
+深堆
+    一个对象被GC回收后，可以真实释放的内存大小
+    只能通过对象访问到的（直接或者间接）所有对象的浅堆之和 （支配树）
+
+//*************************************************************Java堆分析***********************************************************

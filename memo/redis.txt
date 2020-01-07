@@ -1,0 +1,550 @@
+redis是什么:
+Redis is an open source, BSD licensed, advanced key-value store. It is often referred to as a data structure server since keys can contain strings, hashes, lists, sets and sorted sets.
+redis是开源,BSD许可,高级的key-value存储系统. 
+可以用来存储字符串,哈希结构,链表,集合,因此,常用来提供数据结构服务.
+
+redis和memcached相比,的独特之处:
+1: redis可以用来做存储(storge), 而memccached是用来做缓存(cache)
+  这个特点主要因为其有”持久化”的功能.
+2: 存储的数据有”结构”,对于memcached来说,存储的数据,只有1种类型--”字符串”,
+  而redis则可以存储字符串,链表,哈希结构,集合,有序集合.
+
+Redis下载安装
+
+1:官方站点: redis.io 下载最新版或者最新stable版
+2:解压源码并进入目录
+3: 不用configure
+4: 直接make 
+(如果是32位机器 make 32bit)
+
+注:易碰到的问题,时间错误.
+原因: 源码是官方configure过的,但官方configure时,生成的文件有时间戳信息,
+Make只能发生在configure之后,
+如果你的虚拟机的时间不对,比如说是2012年
+解决: date -s ‘yyyy-mm-dd hh:mm:ss’   重写时间
+    再 clock -w  写入cmos
+
+5: 可选步骤: make test  测试编译情况
+(可能出现: need tcl  >8.4这种情况, yum install tcl)
+
+6: 安装到指定的目录,比如 /usr/local/redis
+make  PREFIX=/usr/local/redis install
+注: PREFIX要大写
+
+7: make install之后,得到如下几个文件
+redis-benchmark  性能测试工具
+redis-check-aof  日志文件检测工(比如断电造成日志损坏,可以检测并修复)
+redis-check-dump  快照文件检测工具,效果类上
+redis-cli  客户端
+redis-server 服务端
+
+8: 复制配置文件
+Cp /usr/local/src/redis-2.6.16/redis.conf /usr/local/redis/
+
+9: 启动与连接
+/usr/local/redis/bin/redis-server  /usr/local/redis/redis.conf
+例:[root@localhost redis]# ./bin/redis-server ./redis.conf 
+
+连接: 用redis-cli
+#/usr/local/redis/bin/redis-cli [-h localhost -p 6379 ]
+
+10: 让redis以后台进程的形式运行
+编辑conf配置文件,修改如下内容;
+daemonize yes
+
+11：Redis持久化之RDB和AOF
+Redis有两种持久化方案，RDB（Redis DataBase）和AOF（Append Only File）。
+RDB 详解
+RDB是Redis默认的持久化方案。在指定的时间间隔内，执行指定次数的写操作，则会将内存中的数据写入到磁盘中。即在指定目录下生成一个dump.rdb文件。Redis 重启会通过加载dump.rdb文件恢复数据。
+1) RDB核心规则配置（重点）
+save <seconds> <changes>
+# save ""
+save 900 1
+save 300 10
+save 60 10000
+解说：save <指定时间间隔> <执行指定次数更新操作>，满足条件就将内存中的数据同步到硬盘中。官方出厂配置默认是 900秒内有1个更改，300秒内有10个更改以及60秒内有10000个更改，则将内存中的数据快照写入磁盘。
+若不想用RDB方案，可以把 save "" 的注释打开，下面三个注释。
+2) 指定本地数据库文件名，一般采用默认的 dump.rdb
+dbfilename dump.rdb
+3) 指定本地数据库存放目录，一般也用默认配置
+dir ./
+4) 默认开启数据压缩
+rdbcompression yes
+解说：配置存储至本地数据库时是否压缩数据，默认为yes。Redis采用LZF压缩方式，但占用了一点CPU的时间。若关闭该选项，但会导致数据库文件变的巨大。建议开启。
+
+AOF 详解
+AOF ：Redis默认不开启。它的出现是为了弥补RDB的不足（数据的不一致性），所以它采用日志的形式来记录每个写操作，并追加到文件中。Redis 重启的会根据日志文件的内容将写指令从前到后执行一次以完成数据的恢复工作。
+1) redis 默认关闭，开启需要手动把no改为yes
+appendonly yes
+2) 指定本地数据库文件名，默认值为 appendonly.aof
+appendfilename "appendonly.aof"
+3) 指定更新日志条件
+# appendfsync always
+appendfsync everysec
+# appendfsync no
+解说：
+always：同步持久化，每次发生数据变化会立刻写入到磁盘中。性能较差当数据完整性比较好（慢，安全）
+everysec：出厂默认推荐，每秒异步记录一次（默认值）
+no：不同步
+4) 配置重写触发机制
+auto-aof-rewrite-percentage 100
+auto-aof-rewrite-min-size 64mb
+解说：当AOF文件大小是上次rewrite后大小的一倍且文件大于64M时触发。一般都设置为3G，64M太小了。
+
+12：Redis配置外网访问
+更改redis.conf 文件
+bind 127.0.0.1
+protected-mode yes
+更改为：
+# bind 127.0.0.1
+protected-mode no
+并且设置密码：
+requirepass yourpassword  
+
+注意：Docker安装Redis并使用外部配置文件启动时，切记注释掉redis.conf文件中的：#daemonize yes 否则无法启动容器（或者改为：daemonize no）
+#############################################################Redis通用key操作命令#############################################################
+keys pattern 查询相应的key
+在redis里,允许模糊查询key
+有3个通配符 *, ? ,[]
+*: 通配任意多个字符
+?: 通配单个字符
+[]: 通配括号内的某1个字符
+
+randomkey 返回随机key
+
+exists key
+判断key是否存在,返回1/0
+
+type key
+返回key存储的值的类型
+有string,link,set,order set, hash
+
+del key1 key2 ... Keyn
+作用: 删除1个或多个键
+返回值: 不存在的key忽略掉,返回真正删除的key的数量
+
+rename key newkey
+作用: 给key赋一个新的key名
+注:如果newkey已存在,则newkey的原值被覆盖
+
+renamenx key newkey  
+作用: 把key改名为newkey
+返回: 发生修改返回1,未发生修改返回0
+注: nx--> not exists, 即, newkey不存在时,作改名动作
+
+move key db
+(注意: 一个redis进程,打开了不止一个数据库, 默认打开16个数据库,从0到15编号,{选择其中某一个库使用select 编号}如果想打开更多数据库,可以从配置文件修改)
+
+ttl key 
+作用: 查询key的生命周期
+返回: 秒数
+
+注:对于不存在的key或已过期的key/不过期的key,都返回-1
+Redis2.8中,对于不存在的key,返回-2
+
+expire key 整型值
+作用: 设置key的生命周期,以秒为单位
+
+同理: 
+pexpire key 毫秒数, 设置生命周期
+pttl  key, 以毫秒返回生命周期
+
+persist key
+作用: 把指定key置为永久有效
+#############################################################Redis通用key操作命令#############################################################
+
+#############################################################Redis字符串类型的操作#############################################################
+flushdb 清空DB
+et key value [ex 秒数] / [px 毫秒数]  [nx] /[xx]
+如: set a 1 ex 10 , 10秒有效
+Set a 1 px 9000  , 9秒有效
+注: 如果ex,px同时写,以后面的有效期为准
+如 set a 1 ex 100 px 9000, 实际有效期是9000毫秒
+
+nx: 表示key不存在时,执行操作
+xx: 表示key存在时,执行操作
+
+mset multi set , 一次性设置多个键值
+例: mset key1 v1 key2 v2 ....
+
+get key 
+作用:获取key的值
+
+mget key1 key2 ..keyn
+作用:获取多个key的值
+
+setrange key offset value
+作用:把字符串的offset偏移字节,改成value
+redis 127.0.0.1:6379> set greet hello
+OK
+redis 127.0.0.1:6379> setrange greet 2 x
+(integer) 5
+redis 127.0.0.1:6379> get greet
+"hexlo"
+注意: 如果偏移量>字符长度, 该字符自动补0x00
+redis 127.0.0.1:6379> setrange greet 6 !
+(integer) 7
+redis 127.0.0.1:6379> get greet
+"heyyo\x00!"
+
+append key value
+作用: 把value追加到key的原值上
+
+getrange key start stop
+作用: 是获取字符串中 [start, stop]范围的值
+注意: 对于字符串的下标,左数从0开始,右数从-1开始
+redis 127.0.0.1:6379> set title 'chinese'
+OK
+redis 127.0.0.1:6379> getrange title 0 3
+"chin"
+redis 127.0.0.1:6379> getrange title 1 -2
+"hines"
+
+注意: 
+1: start>=length, 则返回空字符串
+2: stop>=length,则截取至字符结尾
+3: 如果start 所处位置在stop右边, 返回空字符串
+
+getset key newvalue
+作用: 获取并返回旧值,设置新值
+redis 127.0.0.1:6379> set cnt 0
+OK
+redis 127.0.0.1:6379> getset cnt 1
+"0"
+redis 127.0.0.1:6379> getset cnt 2
+"1"
+
+incr key
+作用: 指定的key的值加1,并返回加1后的值
+注意:
+1:不存在的key当成0,再incr操作
+2: 范围为64有符号 
+
+incrby key number
+redis 127.0.0.1:6379> incrby age  90
+(integer) 92
+
+incrbyfloat key floatnumber
+redis 127.0.0.1:6379> incrbyfloat age 3.5
+"95.5"
+
+decr key
+redis 127.0.0.1:6379> set age 20
+OK
+redis 127.0.0.1:6379> decr age
+(integer) 19
+
+decrby key number
+redis 127.0.0.1:6379> decrby age 3
+(integer) 16
+
+getbit key offset
+作用:获取值的二进制表示,对应位上的值(从左,从0编号)
+redis 127.0.0.1:6379> set char A
+OK
+redis 127.0.0.1:6379> getbit char 1
+(integer) 1
+redis 127.0.0.1:6379> getbit char 2
+(integer) 0
+redis 127.0.0.1:6379> getbit char 7
+(integer) 1
+
+setbit  key offset value
+设置offset对应二进制位上的值
+返回: 该位上的旧值
+
+注意: 
+1:如果offset过大,则会在中间填充0,
+2:offset最大大到多少
+3:offset最大2^32-1,可推出最大的的字符串为512M
+
+bitop operation destkey key1 [key2 ...]
+对key1,key2..keyN作operation,并将结果保存到 destkey 上。
+operation 可以是 AND 、 OR 、 NOT 、 XOR
+redis 127.0.0.1:6379> setbit lower 7 0
+(integer) 0
+redis 127.0.0.1:6379> setbit lower 2 1
+(integer) 0
+redis 127.0.0.1:6379> get lower
+" "
+redis 127.0.0.1:6379> set char Q
+OK
+redis 127.0.0.1:6379> get char
+"Q"
+redis 127.0.0.1:6379> bitop or char char lower
+(integer) 1
+redis 127.0.0.1:6379> get char
+"q"
+注意: 对于NOT操作, key不能多个
+
+#############################################################Redis字符串类型的操作#############################################################
+
+#############################################################Redis-list结构及命令详解#############################################################
+push key value 
+作用: 把值插入到链接头部
+
+rpop key
+作用: 返回并删除链表尾元素
+
+rpush,lpop: 不解释
+
+lrange key start  stop
+作用: 返回链表中[start ,stop]中的元素
+规律: 左数从0开始,右数从-1开始
+
+lrem key count value
+作用: 从key链表中删除 value值
+注: 删除count的绝对值个value后结束
+Count>0 从表头删除
+Count<0 从表尾删除
+
+ltrim key start stop
+作用: 剪切key对应的链接,切[start,stop]一段,并把该段重新赋给key
+
+lindex key index
+作用: 返回index索引上的值,
+如  lindex key 2
+
+llen key
+作用:计算链接表的元素个数
+redis 127.0.0.1:6379> llen task
+(integer) 3
+redis 127.0.0.1:6379> 
+
+linsert  key after|before search value
+作用: 在key链表中寻找’search’,并在search值之前|之后,.插入value
+注: 一旦找到一个search后,命令就结束了,因此不会插入多个value
+
+rpoplpush source dest
+作用: 把source的尾部拿出,放在dest的头部,
+并返回 该单元值
+业务逻辑:
+1:rpoplpush task bak
+2:接收返回值,并做业务处理
+3:如果成功,rpop bak 清除任务. 如不成功,下次从bak表里取任务
+
+brpop ,blpop  key timeout
+作用:等待弹出key的尾/头元素, 
+Timeout为等待超时时间
+如果timeout为0,则一直等待
+场景: 长轮询Ajax,在线聊天时,能够用到
+
+#############################################################Redis-list结构及命令详解#############################################################
+
+#############################################################Redis-set结构及命令详解#############################################################
+集合的性质: 唯一性,无序性,确定性
+
+sadd key value1 value2
+作用: 往集合key中增加元素
+
+srem value1 value2
+作用: 删除集合中集为 value1 value2的元素
+返回值: 忽略不存在的元素后,真正删除掉的元素的个数
+
+spop key
+作用: 返回并删除集合中key中1个随机元素
+随机--体现了无序性
+
+srandmember key
+作用: 返回集合key中,随机的1个元素.
+
+sismember key  value
+作用: 判断value是否在key集合中
+是返回1,否返回0
+
+smembers key
+作用: 返回集中中所有的元素
+
+scard key
+作用: 返回集合中元素的个数
+
+smove source dest value
+作用:把source中的value删除,并添加到dest集合中
+
+sinter  key1 key2 key3
+作用: 求出key1 key2 key3 三个集合中的交集,并返回
+
+sinterstore dest key1 key2 key3
+作用: 求出key1 key2 key3 三个集合中的交集,并赋给dest
+
+suion key1 key2.. Keyn
+作用: 求出key1 key2 keyn的并集,并返回
+
+sdiff key1 key2 key3 
+作用: 求出key1与key2 key3的差集
+即key1-key2-key3 
+
+#############################################################Redis-set结构及命令详解#############################################################
+
+#############################################################Redis-order set有序集合#############################################################
+zadd key score1 value1 score2 value2 ..
+添加元素
+redis 127.0.0.1:6379> zadd stu 18 lily 19 hmm 20 lilei 21 lilei
+(integer) 3
+
+zrem key value1 value2 ..
+作用: 删除集合中的元素
+
+zremrangebyscore key min max
+作用: 按照socre来删除元素,删除score在[min,max]之间的
+
+zremrangebyrank key start end
+作用: 按排名删除元素,删除名次在[start,end]之间的
+
+zrank key member
+查询member的排名(升续 0名开始)
+
+zrevrank key memeber
+查询 member的排名(降续 0名开始)
+
+ZRANGE key start stop [WITHSCORES]
+把集合排序后,返回名次[start,stop]的元素
+默认是升续排列 
+Withscores 是把score也打印出来
+
+zrevrange key start stop
+作用:把集合降序排列,取名字[start,stop]之间的元素
+
+zrangebyscore  key min max [withscores] limit offset N
+作用: 集合(升续)排序后,取score在[min,max]内的元素,
+并跳过 offset个, 取出N个
+
+zcard key
+返回元素个数
+
+zcount key min max
+返回[min,max] 区间内元素的数量
+
+zinterstore destination numkeys key1 [key2 ...] 
+[WEIGHTS weight [weight ...]] 
+[AGGREGATE SUM|MIN|MAX]
+求key1,key2的交集(numkeys表示key的个数),key1,key2的权重分别是 weight1,weight2
+聚合方法用: sum |min|max
+聚合的结果,保存在dest集合内
+注意: weights ,aggregate如何理解?
+答: 如果有交集, 交集元素又有socre,score怎么处理?
+ Aggregate sum->score相加   , min 求最小score, max 最大score
+另: 可以通过weigth设置不同key的权重, 交集时,socre * weights
+详见下例
+redis 127.0.0.1:6379> zadd z1 2 a 3 b 4 c
+(integer) 3
+redis 127.0.0.1:6379> zadd z2 2.5 a 1 b 8 d
+(integer) 3
+redis 127.0.0.1:6379> zinterstore tmp 2 z1 z2
+(integer) 2
+redis 127.0.0.1:6379> zrange tmp 0 -1
+1) "b"
+2) "a"
+redis 127.0.0.1:6379> zrange tmp 0 -1 withscores
+1) "b"
+2) "4"
+3) "a"
+4) "4.5"
+redis 127.0.0.1:6379> zinterstore tmp 2 z1 z2 aggregate sum
+(integer) 2
+redis 127.0.0.1:6379> zrange tmp 0 -1 withscores
+1) "b"
+2) "4"
+3) "a"
+4) "4.5"
+redis 127.0.0.1:6379> zinterstore tmp 2 z1 z2 aggregate min
+(integer) 2
+redis 127.0.0.1:6379> zrange tmp 0 -1 withscores
+1) "b"
+2) "1"
+3) "a"
+4) "2"
+redis 127.0.0.1:6379> zinterstore tmp 2 z1 z2 weights 1 2
+(integer) 2
+redis 127.0.0.1:6379> zrange tmp 0 -1 withscores
+1) "b"
+2) "5"
+3) "a"
+4) "7"
+
+#############################################################Redis-order set有序集合#############################################################
+
+#############################################################Redis-hash结构及命令详解#############################################################
+hset key field value
+作用: 把key中filed域的值设为value
+注:如果没有field域,直接添加,如果有,则覆盖原field域的值
+
+hmset key field1 value1 [field2 value2 field3 value3 ......fieldn valuen]
+作用: 设置field1->N 个域, 对应的值是value1->N
+
+hget key field
+作用: 返回key中field域的值
+
+hmget key field1 field2 fieldN
+作用: 返回key中field1 field2 fieldN域的值
+
+hgetall key
+作用:返回key中,所有域与其值
+
+hdel key field
+作用: 删除key中 field域
+
+hlen key
+作用: 返回key中元素的数量
+
+hexists key field
+作用: 判断key中有没有field域
+
+hinrby key field value
+作用: 是把key中的field域的值增长整型值value
+
+hinrbyfloat key field value
+作用: 是把key中的field域的值增长浮点值value
+
+hkeys key
+作用: 返回key中所有的field
+
+kvals key
+作用: 返回key中所有的value
+
+#############################################################Redis-hash结构及命令详解#############################################################
+
+#############################################################python链接redis操作#############################################################
+redis-py提供两个类Redis和StrictRedis用于实现Redis的命令，StrictRedis用于实现大部分官方的命令，并使用官方的语法和命令，Redis是StrictRedis的子类，用于向后兼容旧版本的redis-py。
+
+import redis
+#创建redis链接对象
+r = redis.Redis(host='127.0.0.1',port=6379,decode_responses=True)
+#存储键值对
+r.set('site','www.qi.cn')
+#获取值
+print(r.get('site'))
+#指定decode_responses为True，表示输出为字符串
+red = redis.StrictRedis(host='127.0.0.1',port=6379,decode_responses=True)
+#默认redis入库编码是utf-8，如果要修改的话，需要指明 charset 和 decode_responsers 为True
+#test = redis.StrictRedis(host='localhost', port=6379, db=0, password=None, socket_timeout=None, connection_pool=None, charset='utf-8', errors='strict', decode_responses=False, unix_socket_path=None)
+red.lpush('list1','mongdb','redis','mysql')
+print(r.lrange('list1',0,-1))
+print(r.llen('list1'))
+#output:
+www.qi.cn
+['mysql', 'redis', 'mongdb']
+3
+
+连接池：
+
+redis-py使用connection pool来管理对一个redis server的所有连接，避免每次建立、释放连接的开销。默认，每个Redis实例都会维护一个自己的连接池。可以直接建立一个连接池，然后作为参数Redis，这样就可以实现多个Redis实例共享一个连接池。
+import redis
+#创建连接池
+pool = redis.ConnectionPool(host='127.0.0.1',port=6379,decode_responses=True)
+#创建链接对象
+r=redis.Redis(connection_pool=pool)
+#设置集合
+r.sadd('set1','v1','v2','v3')
+r.sadd('set1','v2')
+#显示集合的值
+print(r.smembers('set1'))
+#使用strictRedis连接池
+rs = redis.StrictRedis(connection_pool=pool)
+r.lpush('l1','python','memcache','redis','mongodb')
+print(r.lrange('l1',0,-1))
+#output:
+{'v3', 'v1', 'v2'}
+['mongodb', 'redis', 'memcache', 'python']
+
+#############################################################python链接redis操作#############################################################

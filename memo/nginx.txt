@@ -1,0 +1,536 @@
+1、创建用户及用户组
+//创建系统用户组Nginx 
+[root@7Core ~]#groupadd -r nginx 
+//创建系统用户nginx并加入nginx系统用户组 
+// -r: 添加系统用户 \
+// -g: 指定要创建的用户所属组 
+// -s: 新帐户的登录shell 
+//其中/sbin/nologin指用户不能用来登录系统 
+// -d: 新帐户的主目录 
+// -M: 不要创建用户的主目录 
+//将要被创建的系统用户nginx不会在/home目录下创建nginx家目录 
+[root@7Core ~]# useradd -r -g nginx -s /sbin/nologin -d /usr/local/nginx -M nginx
+
+2、创建相关目录
+//创建缓存目录在/var/tmp/nginx/ 
+[root@7Core ~]# mkdir -pv /var/tmp/nginx/{client_body,proxy,fastcgi,uwsgi,scgi} 
+//赋予Nginx用户权限 [root@7Core ~]# 
+chown -R nginx:nginx /var/tmp/nginx/ 
+//创建日志目录在/usr/local/nginx/ 
+[root@7Core ~]# mkdir -pv /usr/local/nginx/logs 
+//赋予Nginx用户权限 
+[root@7Core ~]# chown -R nginx:nginx /usr/local/nginx/
+
+3、安装基本环境
+[root@7Core ~]# yum -y install gcc gcc-c++ autoconf automake make wget vim 
+[root@7Core ~]# yum -y install openssl openssl-devel libxml2-devel libxslt-devel perl-devel perl-ExtUtils-Embed libtool zlib zlib-devel pcre pcre-devel patch
+
+4、创建临时软件包目录
+root@7Core ~]# mkdir package && cd package
+
+5、安装PCRE-8.42（Nginx的Rewrite功能）
+[root@7Core package]# wget https://ftp.pcre.org/pub/pcre/pcre-8.42.tar.gz
+[root@7Core package]# tar -zxvf pcre-8.42.tar.gz
+[root@7Core package]#cd pcre-8.42/ && ./configure && make && make install && cd ..
+
+6、安装Zlib-1.2.11（Nginx的Gzip压缩功能）
+[root@7Core package]# wget http://www.zlib.net/fossils/zlib-1.2.11.tar.gz
+[root@7Core package]# tar -zxvf zlib-1.2.11.tar.gz
+[root@7Core package]# cd zlib-1.2.11 && ./configure && make && make install && cd ..
+
+7、安装OpenSSL-1.1.1（nginx第三方模块—nginx-sticky-module的使用）
+[root@7Core package]# wget https://www.openssl.org/source/openssl-1.1.1-pre8.tar.gz
+[root@7Core package]# tar -zxvf openssl-1.1.1-pre8.tar.gz
+[root@7Core package]# cd openssl-1.1.1-pre8 && ./config && make && make install && cd ..
+
+8、安装nginx-sticky-module
+[root@7Core package]# wget https://bitbucket.org/nginx-goodies/nginx-sticky-module-ng/get/master.tar.gz
+[root@7Core package]# tar -zxvf master.tar.gz
+[root@7Core package]# mv nginx-goodies-nginx-sticky-module-ng-08a395c66e42/ nginx-sticky-module/
+
+9、安装Nginx-1.15.8
+//下载源码包
+wget http://nginx.org/download/nginx-1.15.8.tar.gz
+//解压源码包
+[root@7Core package]# tar -zxvf nginx-1.15.8.tar.gz
+//进入工作目录
+[root@7Core package]# cd nginx-1.15.8
+//安装
+./configure \
+--prefix=/usr/local/nginx \
+--user=nginx \
+--group=nginx \
+--with-http_ssl_module \
+--with-pcre=../pcre-8.42
+make
+make install
+//安装（详细信息）
+[root@7Core nginx-1.15.5]# ./configure \
+--prefix=/usr/local/nginx \
+--sbin-path=/usr/sbin/nginx \
+--conf-path=/etc/nginx/nginx.conf \
+--error-log-path=/var/log/nginx/error.log \
+--http-log-path=/var/log/nginx/access.log \
+--pid-path=/var/run/nginx.pid \
+--lock-path=/var/lock/nginx.lock \
+--user=nginx \
+--group=nginx \
+--with-http_ssl_module \
+--with-http_v2_module \
+--with-http_dav_module \
+--with-http_flv_module \
+--with-http_realip_module \
+--with-http_addition_module \
+--with-http_xslt_module \
+--with-http_stub_status_module \
+--with-http_sub_module \
+--with-http_random_index_module \
+--with-http_degradation_module \
+--with-http_secure_link_module \
+--with-http_gzip_static_module \
+--with-http_perl_module \
+--add-module=../nginx-sticky-module \
+--with-pcre=../pcre-8.42 \
+--with-zlib=../zlib-1.2.11 \
+--with-openssl=../openssl-1.1.1-pre8 \
+--with-file-aio \
+--with-mail \
+--with-mail_ssl_module \
+--http-client-body-temp-path=/var/tmp/nginx/client_body \
+--http-proxy-temp-path=/var/tmp/nginx/proxy \
+--http-fastcgi-temp-path=/var/tmp/nginx/fastcgi \
+--http-uwsgi-temp-path=/var/tmp/nginx/uwsgi \
+--http-scgi-temp-path=/var/tmp/nginx/scgi \
+--with-stream \
+--with-ld-opt="-Wl,-E"
+//编译选项说明
+--prefix=PATH //指定nginx的安装目录默认 /usr/local/nginx
+--sbin-path=PATH //设置nginx可执行文件的名称。默认/sbin/nginx
+--conf-path=PATH //设置nginx.conf配置文件的名称。默认/conf/nginx.conf
+--pid-path=PATH //设置存储主进程ID文件nginx.pid的名称。默认/logs/nginx.pid
+--error-log-path=PATH //设置错误，警告和诊断文件的名称。默认/logs/error.log
+--http-log-path=PATH //置HTTP服务器的请求日志文件的名称。默认/logs/access.log
+--lock-path=PATH //安装文件锁定，防止安装文件被利用及误操作
+--user=nginx //指定程序运行时的非特权用户。可以随时在nginx.conf配置文件更改。默认为nobody
+--group=nginx //指定程序运行时的非特权用户所在组名称。默认设置为非root用户的名称
+--with-http_realip_module //启用ngx_http_realip_module支持（允许从请求标头更改客户端的IP地址值，默认关闭）
+--with-http_ssl_module //启用ngx_http_ssl_module支持（使支持https请求，需已安装openssl）
+--with-http_stub_status_module //启用ngx_http_stub_status_module支持（获取nginx自上次启动以来的工作状态）
+--with-http_gzip_static_module //启用ngx_http_gzip_module支持（与without-http_gzip_module功能一致）
+--http-client-body-temp-path=PATH //定义http客户端请求临时文件路径
+--http-proxy-temp-path=PATH //定义http代理临时文件路径
+--http-fastcgi-temp-path=PATH //定义http fastcgi临时文件路径
+--http-uwsgi-temp-path=PATH //定义http scgi临时文件路径
+--with-pcre //设置pcre库的源码路径，如果已通过yum方式安装，使用–with-pcre自动找到库文件。         //使用--with-pcre=PATH时，需要从PCRE网站下载pcre库的源码（版本8.42）并解压 //剩下的就交给Nginx的./configure和make来完成。 //perl正则表达式使用在location指令和 ngx_http_rewrite_module模块中。
+--with-zlib=PATH //指定 zlib-1.2.11的源码目录。默认启用网络传输压缩模块ngx_http_gzip_module时需要使用zlib
+--with-http_ssl_module //使用https协议模块。默认情况下，该模块没有被构建。前提是openssl已安装
+--add-module=PATH //添加第三方外部模块，如nginx-sticky-module-ng或缓存模块。每次添加新的模块都要重新编译
+
+// 建立链接
+ln -s /usr/local/nginx/sbin/nginx /usr/local/sbin/nginx
+
+nginx                      # 启动Nginx
+nginx -s reload            # 在nginx已经启动的情况下重新载入配置文件（平滑重启）
+nginx -s reopen            # 重新打开日志文件
+nginx -s stop              # 停止 Nginx
+nginx -s quit              # stop的方式是立即停止Nginx服务，无论当前工作进程是否正在处理工作。而quit是在完成当前工作任务后再停止
+nginx -c /xxx/nginx.conf   # 以特定目录下的配置文件启动Nginx
+nginx -t                   # 检测当前配置文件是否正确
+nginx -t -c /xxxx/nginx.conf  #检测特定目录下的Nginx配置文件是否正确
+nginx -v                   # 显示版本信息
+nginx -V                   # 显示版本信息和编译选项
+
+//location、proxy_pass、upstream与resolver
+#############################################nginx配置中location匹配规则详解#############################################
+1、 location 的匹配顺序其实是“先匹配普通，再匹配正则”。
+2、“普通location”的匹配规则是“最大前缀”，因此“普通location”的确与location编辑顺序无关；但是“正则location”的匹配规则是“顺序匹配，且只要匹配到第一个就停止后面的匹配”；“普通location”与“正则location”之间的匹配顺序是？先匹配普通location，再“考虑”匹配正则location。注意这里的“考虑”是“可能”的意思，也就是说匹配完“普通location”后，有的时候需要继续匹配“正则location”，有的时候则不需要继续匹配“正则location”。两种情况下，不需要继续匹配正则location：（1）当普通location前面指定了“^~”，特别告诉Nginx本条普通location一旦匹配上，则不需要继续正则匹配；（2）当普通location恰好严格匹配上，不是最大前缀匹配，则不再继续匹配正则。
+
+location
+syntax: location [=|~|~*|^~|@] /uri/ { … }
+1 、different configurations depending on the URI 说的就是语法格式：location [=|~|~*|^~|@] /uri/ { … } ，依据不同的前缀“= ”，“^~ ”，“~ ”，“~* ”和不带任何前缀的（因为[A] 表示可选，可以不要的），表达不同的含义, 简单的说尽 管location 的/uri/ 配置一样，但前缀不一样，表达的是不同的指令含义。
+2 、查询字符串不在URI范围内。例如： /films.htm?fid=123 的URI 是/films.htm 。
+
+location /uri/ 可通过使用不同的前缀，表达不同的含义。对这些不同前缀，分2大类：
+正则location ，英文说法是location using regular expressions “~”和“~*”前缀表示正则location(“~”区分大小写，“~*”不区分大小写)
+普通location ，其他前缀（包 括：“=”，“^~”和“@”）和无任何前缀的都属于普通location 。
+
+对于一个特定的HTTP请求（aparticularquery），nginx应该匹配哪个location块的指令呢（注意：我们在nginx.conf配置文件里面一般会定义多个location的）？匹配规则是：先匹配普通location（再匹配正则表达式）。
+“普通location”内部（普通location与普通location）是如何匹配的呢？简单的说：最大前缀匹配。
+1、match the beginning portion of the query（说的是匹配URI 的前缀部分beginning portion）； 
+2、the most specific match will be used 
+（因为location不是“严格匹配”，而是“前缀匹配”，就会产生一个HTTP请求，可以“前缀匹配”到多个普通location，例如：location /prefix/mid/{}和location /prefix/{}，对于HTTP请求/prefix/mid/t.html，前缀匹配的话两个location都满足，选哪个？原则是：the most specific match，于是选的是location /prefix/mid/{}）。
+
+普通location先匹配，而且选择了最大前缀匹配后，不能就停止后面的匹配，最大前缀匹配只是一个临时的结果，nginx 还需要继续检查正则location（但至于最终使用普通location的最大前缀匹配，还是正则location的匹配，截止 当前的内容还没讲，但后面会讲）。
+“正则location”内部的匹配规则是：按照正则location在配置文件中的物理顺序（编辑顺序）匹配的（这句话就说明location 并不是一定跟顺序无关，只是普通location与顺序无关，正则location还是与顺序有关的），并且只要匹配到一条正则location ，就不再考虑后面的（这与“普通location”与“正则location”之间的规则不一样，“普通location”与“正则location ”之间的规则是：选择出“普通location”的最大前缀匹配结果后，还需要继续搜索正则location）。
+
+匹配结果的决策关系。如果继续搜索的“正则location”也有匹配上的，那么“正则location”覆盖“普通location”的最大前缀匹配；但是如果“正则location”没有能匹配上，那么就用“普通location”的最大前缀匹配结果。
+
+通常的规则是，匹配完了“普通location”指令，还需要继续匹配“正则location”，但是你也可以告诉Nginx：匹配到了“普通location”后，不再需要继续匹配“正则location”了，要做到这一点只要在“普通location”前面加上“^~”符号（^表示“非”，~表示“正则”，字符意思是：不要继续匹配正则）。
+除了“^~”可以阻止继续搜索正则location外，你还可以加“=”。那么如果“^~”和“=”都能阻止继续搜索正则location的话，那它们之间有什么区别呢？区别很简单，共同点是它们都能阻止继续搜索正则location，不同点是“^~”依然遵守“最大前缀”匹配规则，然而“=”不是“最大前缀”，而是必须是严格匹配（exact match）
+
+这里顺便讲下“location / {}”和“location = / {}”的区别，“location / {}”遵守普通location的最大前缀匹配，由于任何URI都必然以“/ ”根开头，所以对于一个URI，如果有更specific的匹配，那自然是选这个更specific的，如果没有，“/”一定能为这个URI垫背（至少能匹配到“/”），也就是说“location/{}”有点默认配置的味道，其他更specific的配置能覆盖overwrite这个默认配置（这也是为什么我们总能看到location / {}这个配置的一个很重要的原因）。而“location = / {}”遵守的是“严格精确匹配exact  match”，也就是只能匹配http://host:port/请求，同时会禁止继续搜索正则location。因此如果我们只想对“GET /”请求配置作用指令，那么我们可以选“location = / {}”这样能减少正则location的搜索，因此效率比“location / {}” 高（注：前提是我们的目的仅仅只想对“GET /”起作用）。
+
+普通location匹配完后，还会继续匹配正则location；但是nginx允许你阻止这种行为，方法很简单，只需要在普通location前加“^~”或“=”。
+
+实验证明：下面的说法不正确
+但其实还有一种“隐含”的方式来阻止正则location的搜索，这种隐含的方式就是：当“最大前缀”匹配恰好就是一个“严格精确（exact match）”匹配，照样会停止后面的搜索。原文字面意思是：只要遇到“精确匹配exact match”，即使普通location没有带“=”或“^~”前缀，也一样会终止后面的匹配。
+
+案例
+假设，现有如下一些规则：
+location = / {  
+    #//精确匹配/ ，主机名后面不能带任何字符串
+	default_type text/html;
+	return 200 "number A";
+}
+ 
+location = /login {
+	#精确匹配 /login 开头的地址，匹配符合以后，不在继续往下搜索
+	default_type text/html;
+	return 200 "number B";
+}
+ 
+location ^~ /blog/ { 
+	#非正则匹配，匹配/blog/后，停止往下搜索正则，采用这一条
+	default_type text/html;
+	return 200 "number C";
+}
+ 
+ 
+location ~  \.(gif|jpg|png|js|css)$ {
+	#区分大小写的正则匹配  若匹配成功，停止往下搜索正则，采用这一条
+	default_type text/html;
+	add_header  Content-Type 'text/html; charset=utf-8';
+	return 200 "number D";
+}
+ 
+ 
+location ~* \.png$ {  
+	#区分大小写的正则匹配 ，停止往下搜索正则，采用这一条
+	default_type text/html;
+	#如果不设置Content-Type的话，则response中的Content-Type会因为被设置成为了imamge/png而显示不正常，
+	add_header  Content-Type 'text/html; charset=utf-8';
+	return 200 "number E";
+}
+ 
+location / {
+	#因为所有的地址都以 / 开头，所以这条规则将匹配到所有请求
+	#如果没任何规则匹配上，就采用这条规则
+	default_type text/html;
+	return 200 "number F";
+}
+ 
+location /blog/detail { 
+	#最长字符串匹配，若完全匹配成功，就不在继续匹配，否则还会进行正则匹配
+	default_type text/html;
+	return 200 "number G";
+}
+ 
+location /images {  
+	#最长字符串匹配，同上
+	default_type text/html;
+	return 200 "number Y";
+}
+ 
+location ^~ /static/files {  
+	#非正则匹配，若匹配成功，就不在继续匹配
+	default_type text/html;
+	return 200 "number X";
+}
+1、当访问根路径/的时候，比如http://www.findme.wang/ ，会匹配规则A。
+2、当访如http://www.findme.wang/login ，会匹配规则B。
+3、当访如http://www.findme.wang/login.html ，会匹配规则F。
+4、当访如http://www.findme.wang/blog/detail/3.html，会匹配规则G。分析思路，首先看看，“精确匹配”是否可以匹配成功，显示不可以；然后，看看是否可以“普通匹配”是否可以完全匹配，显示也没有；接着再看“普通匹配”的最大前缀匹配发现有两条规则符合要求C和G，根据themostspecificmatch原则，先将规则G作为临时结果保存，（由于规则G没有加“^~”符号所以还要继续检查正则location。如果注释掉规则G的location，因为规则C的location加了“^~”符号所以在匹配到普通location后不再需要继续匹配“正则location”了，所以这个时候返回的是规则C）然后继续检查正则location，在正则location中没有匹配到，所以返回G。
+
+nginx配置文件通过使用add_header指令来设置response header。
+具体方法如下：
+add_header key value
+add_header Cache-Control no-store
+add_header Content-Encoding gzip
+用以改变Content-Type时比较特殊，可以在它设置了类型的同时还会指定charset，不过Content-Type和charset之间有分号，所以我们需要这样来添加。
+add_header  Content-Type 'text/html; charset=utf-8';
+这样就可以给responent header的Content-Type添加指定的属性了。
+匹配所有.js文件的话，设置responent header的Content-Type值赋值为"text/javascript;charset=utf-8"。
+
+#############################################nginx配置中location匹配规则详解#############################################
+
+#############################################nginx配置中proxy_pass匹配规则详解#############################################
+proxy_pass 后面有没有带上 / ，差别很大。官方文档上有说明，但是可能没有注意，就会出问题的时候莫名其妙。
+ 
+A request URI is passed to the server as follows:
+If the proxy_pass directive is specified with a URI, then when a request is passed to the server, the part of a normalized request URI matching the location is replaced by a URI specified in the directive:
+location /name/ {
+	proxy_pass http://127.0.0.1/remote/;
+}
+
+If proxy_pass is specified without a URI, the request URI is passed to the server in the same form as sent by a client when the original request is processed, or the full normalized request URI is passed when processing the changed URI:
+location /some/path/ {
+	proxy_pass http://127.0.0.1;
+}
+Before version 1.1.12, if proxy_pass is specified without a URI, the original request URI might be passed instead of the changed URI in some cases.
+
+举个例子，上面的配置，如果一个请求 http://ai-platform.arganzheng.life/api/hello
+如果配置是：
+location /api/ {
+    proxy_pass http://portal;
+}
+那么转发给 upstream 的URL将会是: http://10.21.12.88:8080/api/hello ，如果配置的是:
+location /api/ {
+    proxy_pass http://portal/;
+}
+那么转发给 upstream 的URL将会是: http://10.21.12.88:8080/hello 。 
+
+举例：
+server {
+    listen      80;
+    server_name www.test.com;
+
+    # 情形A
+    # 访问 http://www.test.com/testa/aaaa
+    # 后端的request_uri为: /testa/aaaa
+    location ^~ /testa/ {
+        proxy_pass http://127.0.0.1:8801;
+    }
+    
+    # 情形B
+    # 访问 http://www.test.com/testb/bbbb
+    # 后端的request_uri为: /bbbb
+    location ^~ /testb/ {
+        proxy_pass http://127.0.0.1:8801/;
+    }
+
+    # 情形C
+    # 下面这段location是正确的
+    location ~ /testc {
+        proxy_pass http://127.0.0.1:8801;
+    }
+
+    # 情形D
+    # 下面这段location是错误的
+    #
+    # nginx -t 时，会报如下错误: 
+    #
+    # nginx: [emerg] "proxy_pass" cannot have URI part in location given by regular 
+    # expression, or inside named location, or inside "if" statement, or inside 
+    # "limit_except" block in /opt/app/nginx/conf/vhost/test.conf:17
+    # 
+    # 当location为正则表达式时，proxy_pass 不能包含URI部分。本例中包含了"/"
+    location ~ /testd {
+        proxy_pass http://127.0.0.1:8801/;   # 记住，location为正则表达式时，不能这样写！！！
+    }
+
+    # 情形E
+    # 访问 http://www.test.com/ccc/bbbb
+    # 后端的request_uri为: /aaa/ccc/bbbb
+    location /ccc/ {
+        proxy_pass http://127.0.0.1:8801/aaa$request_uri;
+    }
+
+    # 情形F
+    # 访问 http://www.test.com/namea/ddd
+    # 后端的request_uri为: /yongfu?namea=ddd
+    location /namea/ {
+        rewrite    /namea/([^/]+) /yongfu?namea=$1 break;
+        proxy_pass http://127.0.0.1:8801;
+    }
+
+    # 情形G
+    # 访问 http://www.test.com/nameb/eee
+    # 后端的request_uri为: /yongfu?nameb=eee
+    location /nameb/ {
+        rewrite    /nameb/([^/]+) /yongfu?nameb=$1 break;
+        proxy_pass http://127.0.0.1:8801/;
+    }
+    access_log /data/logs/www/www.test.com.log;
+}
+#############################################nginx配置中proxy_pass匹配规则详解#############################################
+
+#############################################详解proxy_pass、upstream与resolver#############################################
+列举几个应用场景，针对这几个场景并结合代码进行分析。
+1、proxy_pass + upstream
+upstream foo.example.com {
+	server 127.0.0.1:8001;
+}
+
+server {
+	listen       80;
+	server_name  localhost;
+
+	location /foo {
+		proxy_pass http://foo.example.com;
+	}
+}
+访问http://localhost/foo，proxy模块会将请求转发到127.0.0.1的8001端口上。
+
+2、只有proxy_pass，没有upstream与resolver
+server {
+	listen       80;
+	server_name  localhost;
+
+	location /foo {
+		proxy_pass http://foo.example.com;
+	}
+}
+实际上是隐式创建了upstream，upstream名字就是foo.example.com。upstream模块利用本机设置的DNS服务器（或/etc/hosts），将foo.example.com解析成IP，访问http://localhost/foo，proxy模块会将请求转发到解析后的IP上。
+如果本机未设置DNS服务器，或者DNS服务器无法解析域名，则nginx启动时会报类似如下错误：
+nginx: [emerg] host not found in upstream "foo.example.com" in /path/nginx/conf/nginx.conf:110
+
+3、proxy_pass + resolver（变量设置域名）
+server {
+	listen       80;
+	server_name  localhost;
+
+	resolver 114.114.114.114;
+	location /foo {
+		set $foo foo.example.com;
+		proxy_pass http://$foo;
+	}
+}
+访问http://localhost/foo，nginx会动态利用resolver设置的DNS服务器（本机设置的DNS服务器或/etc/hosts无效），将域名解析成IP，proxy模块会将请求转发到解析后的IP上。
+
+4、proxy_pass + upstream（显式） + resolver（变量设置域名）
+upstream foo.example.com {
+	server 127.0.0.1:8001;
+}
+
+server {
+	listen       80;
+	server_name  localhost;
+
+	resolver 114.114.114.114;
+	location /foo {
+		set $foo foo.example.com;
+		proxy_pass http://$foo;
+	}
+}
+访问http://localhost/foo时，upstream模块会优先查找是否有定义upstream后端服务器，如果有定义则直接利用，不再走DNS解析。所以proxy模块会将请求转发到127.0.0.1的8001端口上。
+
+5、proxy_pass + upstream（隐式） + resolver（变量设置域名）
+server {
+	listen       80;
+	server_name  localhost;
+
+	resolver 114.114.114.114;
+	location /foo {
+		set $foo foo.example.com;
+		proxy_pass http://$foo;
+	}
+
+	location /foo2 {
+		proxy_pass http://foo.example.com;
+	}
+}
+location /foo2实际上是隐式定义了upstream foo.example.com，并由本地DNS服务器进行了域名解析，访问http://localhost/foo时，upstream模块会优先查找upstream，即隐式定义的foo.example.com，nginx再动态利用resolver设置的DNS服务器（本机设置的DNS服务器或/etc/hosts无效），将域名（foo.example.com）解析成IP，proxy模块会将请求转发到解析后的IP上。
+
+6、proxy_pass + resolver（不用变量设置域名）
+server {
+	listen       80;
+	server_name  localhost;
+
+	resolver 114.114.114.114;
+	location /foo {
+		proxy_pass http://foo.example.com;
+	}
+}
+不使用变量设置域名，则resolver的设置不起作用，此时相当于场景2，只有proxy_pass的场景。
+
+7、proxy_pass + upstream + resolver（不用变量设置域名）
+upstream foo.example.com {
+	server 127.0.0.1:8001;
+}
+
+server {
+	listen       80;
+	server_name  localhost;
+
+	resolver 114.114.114.114;
+	location /foo {
+		proxy_pass http://foo.example.com;
+	}
+}
+不使用变量设置域名，则resolver的设置不起作用，此时相当于场景1 proxy_pass + upstream。
+
+8、proxy_pass 直接指定IP加端口号
+server {
+	listen       80;
+	server_name  localhost;
+
+	location /foo {
+		proxy_pass http://127.0.0.1:8001/;
+	}
+}
+实际上是隐式创建了upstream，proxy_pass会将请求转发到127.0.0.1的8001端口上。
+
+正向代理主要使用proxy_pass、resolver实现，例如：
+Nginx配置如下：
+server {
+    # 配置DNS解析IP地址，比如 Google Public DNS，以及超时时间（5秒）
+	# resolver 114.114.114.114 8.8.8.8;
+	resolver x.x.x.x;# 必需
+	resolver_timeout 5s;
+	listen 82;
+	access_log  /home/reistlin/logs/proxy.access.log;
+    error_log   /home/reistlin/logs/proxy.error.log;
+	location / {
+        # 配置正向代理参数
+        proxy_pass $scheme://$host$request_uri;
+        # 解决如果URL中带"."后Nginx 503错误
+        proxy_set_header Host $http_host;
+        # 配置缓存大小
+        proxy_buffers 256 4k;
+        # 关闭磁盘缓存读写减少I/O
+        proxy_max_temp_file_size 0;
+         # 代理连接超时时间
+        proxy_connect_timeout 30;
+        # 配置代理服务器HTTP状态缓存时间
+        proxy_cache_valid 200 302 10m;
+        proxy_cache_valid 301 1h;
+        proxy_cache_valid any 1m;
+	}
+}
+注意项：
+1. 不能有hostname
+2. 必须有resolver, 即dns，即上面的x.x.x.x，换成你们的DNS服务器ip即可
+3 . $http_host和$request_uri是nginx系统变量，不要替换他们，保持原样。
+查看dns方法 cat /etc/resolv.conf 代理使用
+在需要访问外网的机器上执行以下操作之一即可：
+一次代理，直接在shell执行：
+1. export http_proxy=http://yourproxyaddress：proxyport
+永久使用：
+2. gedit ~/.bashrc export http_proxy=http://yourproxyaddress：proxyport
+yourproxyaddress也就是你的Nginx服务器的ip了，proxyport就是上面配置中的82，可以根据自己的需要修改
+
+反向代理：主要使用proxy_pass、upstream实现，upstream配置比较简单，但是如果做负载均衡和优化，还是需要下一番功夫的。
+#############################################详解proxy_pass、upstream与resolver#############################################
+
+#############################################fail_timeout和max_fails#############################################
+   upstream  netitcast.com {  #服务器集群名字
+        ip_hash;
+        server 127.0.0.1:18080 max_fails=3 fail_timeout=30s;
+        server 127.0.0.1:28080 max_fails=3 fail_timeout=30s;
+    }
+    
+
+    server {
+        listen       80;
+        server_name  localhost;
+
+        #charset koi8-r;
+
+        #access_log  logs/host.access.log  main;
+
+        location / {
+            proxy_pass http://netitcast.com/;  
+            proxy_buffering off;
+            proxy_redirect default;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_connect_timeout 3;
+        }
+	}
+
+max_fails=3，fail_timeout=30s代表在30秒内请求某一应用失败3次，认为该应用宕机，后等待30秒，这期间内不会再把新请求发送到宕机应用，而是直接发到正常的那一台，时间到后再有请求进来继续尝试连接宕机应用且仅尝试1次，如果还是失败，则继续等待30秒...以此循环，直到恢复。
+Nginx的负载均衡检查模块的特点：
+1)Nginx只有当有访问时后，才发起对后端节点探测
+2)两个节点都可用的情况下，突然有一个节点挂掉，客户端请求过来后哪怕刚好轮询到了不可用的节点，此次请求也不会失败，因为Nginx会把此次请求转发到另外一个可用节点，再把结果返回给客户端。
+#############################################fail_timeout和max_fails#############################################

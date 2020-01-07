@@ -1,0 +1,35 @@
+启动mysql服务：systemctl start mysqld.service
+查看mysql服务：systemctl status mysqld.service
+
+mysql设置跳过密码登录
+linux找到my.cnf文件（提供下linux搜素文件的方法：find  / -name '文件名'）
+修改文件内容
+在[mysqld]下添加 skip-grant-tables
+然后
+mysql service mysqld restart
+
+修改密码：
+注意：如果你想要设置一个简单的测试密码的话，比如设置为123456，会提示这个错误，报错的意思就是你的密码不符合要求
+ERROR 1819 (HY000): Your password does not satisfy the current policy requirements
+这个其实与validate_password_policy的值有关。
+如果不想密码设置得那么复杂，譬如说，只想设置root的密码为123456。
+必须先修改两个全局参数：
+首先，修改validate_password_policy参数的值
+mysql> set global validate_password_policy=0;
+Query OK, 0 rows affected (0.00 sec)
+validate_password_length(密码长度)参数默认为8，我们修改为1
+mysql> set global validate_password_length=1;
+Query OK, 0 rows affected (0.00 sec)
+然后再进行密码修改
+mysql> use mysql; 
+mysql> update mysql.user set authentication_string = password('123456') where user = 'root'; 
+mysql> flush privileges;
+
+配置mysql允许远程访问
+mysql> use mysql; 
+mysql> update mysql.user set host = '%' where user = 'root' limit 1; 
+mysql> flush privileges;
+
+
+
+ 

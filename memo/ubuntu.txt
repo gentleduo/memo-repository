@@ -1,0 +1,95 @@
+**************************************************************Ubuntu python环境安装**************************************************************
+1. apt-get -y install gcc
+
+2. apt-get -y install zlib* openssl libssl-dev libbz2-dev
+3. apt-get -y install libsqlite3-dev libreadline6-dev expat libexpat1-dev libgdbm-dev
+4. apt-get install libgdbm-dev
+5. apt-get -y install make
+
+6. Then complie python again and run a line (可能需要with参数：--with-zlib-dir=/usr/local/lib --with-ssl=openssl )
+./configure --prefix=/usr/local/python2 --enable-unicode=ucs4
+make
+make install
+**************************************************************Ubuntu python环境安装**************************************************************
+
+**************************************************************tensorflow-gpu环境安装**************************************************************
+pip install tensorflow-gpu 
+然后运行程序的时候出现了下面的错误信息：
+>>> import tensorflow as tf
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+  File "/usr/local/python2/lib/python2.7/site-packages/tensorflow/__init__.py", line 24, in <module>
+    from tensorflow.python import pywrap_tensorflow  # pylint: disable=unused-import
+  File "/usr/local/python2/lib/python2.7/site-packages/tensorflow/python/__init__.py", line 49, in <module>
+    from tensorflow.python import pywrap_tensorflow
+  File "/usr/local/python2/lib/python2.7/site-packages/tensorflow/python/pywrap_tensorflow.py", line 74, in <module>
+    raise ImportError(msg)
+ImportError: Traceback (most recent call last):
+  File "/usr/local/python2/lib/python2.7/site-packages/tensorflow/python/pywrap_tensorflow.py", line 58, in <module>
+    from tensorflow.python.pywrap_tensorflow_internal import *
+  File "/usr/local/python2/lib/python2.7/site-packages/tensorflow/python/pywrap_tensorflow_internal.py", line 28, in <module>
+    _pywrap_tensorflow_internal = swig_import_helper()
+  File "/usr/local/python2/lib/python2.7/site-packages/tensorflow/python/pywrap_tensorflow_internal.py", line 24, in swig_import_helper
+    _mod = imp.load_module('_pywrap_tensorflow_internal', fp, pathname, description)
+ImportError: libcublas.so.9.0: cannot open shared object file: No such file or directory
+
+Failed to load the native TensorFlow runtime.  
+  
+See https://www.tensorflow.org/install/install_sources#common_installation_problems  
+  
+for some common reasons and solutions.  Include the entire stack trace  
+above this error message when asking for help.  
+
+ImportError: libcublas.so.9.0: cannot open shared object file: No such file or directory 
+这是因为我装了tensorflow-gpu 1.5版本，而我用的是cuda 8.0和cudnn6.0，1.5版本要求cuda 9.0，我的做法就是回滚
+
+pip install tensorflow-gpu==1.4
+然后运行就没有报错了。
+**************************************************************tensorflow-gpu安装**************************************************************
+
+**************************************************************opencv安装**************************************************************
+opencv
+/usr/local/python2/bin/pip install opencv-python
+
+如安装完opencv可能会出现如下错误
+报错：
+ImportError: libgthread-2.0.so.0: cannot open shared object file: No such file or directory
+解决方案：
+apt-get install libglib2.0-0
+
+报错：
+ImportError: libSM.so.6: cannot open shared object file: No such file or directory
+解决方案：
+apt-get install libsm6 
+
+报错：
+ImportError: libXrender.so.1: cannot open shared object file: No such file or directory
+解决方案：
+apt-get install libxrender1 
+
+报错：
+ImportError: libXext.so.6: cannot open shared object file: No such file or directory
+解决方案：
+apt-get install libxext-dev
+**************************************************************opencv安装**************************************************************
+
+**************************************************************matplotlib安装**************************************************************
+/usr/local/python2/bin/pip install matplotlib
+**************************************************************matplotlib安装**************************************************************
+
+**************************************************************PIL安装*************************************************************
+/usr/local/python2/bin/pip install pillow
+**************************************************************PIL安装*************************************************************
+
+**************************************************************keras安装*************************************************************
+/usr/local/python2/bin/pip install keras==2.1.5
+**************************************************************keras安装*************************************************************
+
+**************************************************************torch安装*************************************************************
+http://pytorch.org/
+/usr/local/python2/bin/pip install torch torchvision
+**************************************************************torch安装*************************************************************
+
+**************************************************************lmdb安装*************************************************************
+/usr/local/python2/bin/pip install lmdb
+**************************************************************lmdb安装*************************************************************

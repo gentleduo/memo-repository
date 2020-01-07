@@ -1,0 +1,2 @@
+DST=destination，目的地
+SRC=source，源

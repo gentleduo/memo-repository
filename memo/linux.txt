@@ -1,0 +1,2304 @@
+/**********************************************************linux版本**********************************************************
+radhat或centos存在：/etc/redhat-release 这个文件
+debian或ubuntu 存在 /etc/debian_version 这个文件
+Slackware存在 /etc/slackware_version 这个文件
+ubuntu存在 /etc/lsb-release 这个文件
+/**********************************************************linux版本**********************************************************
+
+/****************************************************VirtualBox虚拟机复制******************************************************
+http://chensenlin.blog.51cto.com/10559465/1875324
+VBoxManage.exe clonevdi "C:\Users\Administrator\VirtualBox VMs\Virtual-01\Virtual-01.vdi" "D:\Virtual-02\Virtual-02.vdi"
+/****************************************************VirtualBox虚拟机复制******************************************************
+
+
+/*********************************************************#!/bin/bash********************************************************
+shell脚本的第一行一般会写有以下字样：#!/bin/bash或者#!/bin/sh或者#!/bin/awk
+第一行的内容指定了shell脚本解释器的路径，而且这个指定路径只能放在文件的第一行。第一行写错或者不写时，系统会有一个默认的解释器进行解释。
+只有当Shell脚本的第一行的内容以#!开头才认为是指定脚本解释器的路径。（如果不写，或者以#开头的话系统会有一个默认的解释器，但是如果以#!开头然后没有正确指定解释器的路径的话执行脚本就会报错）
+
+为什么.sh脚本必须在前面加上./*****.sh才能执行
+Linux不像DOS，默认的先搜索当前路径，而Linux一般情况下是按$PATH变量去搜索的，
+用户的当前路径是不包含在此变量中的，所以要执行当前路径下的start.sh（必须是有可执行属性）文件,需要明示其路径，用相对路径如./start.sh或绝对路径
+
+/bin/bash -c
+-c string 
+If the -c option is present, then commands are read from  string.   If  there  are  arguments  after  the string, they are assigned to the positional parameters, starting with $0.
+如果-c 选项存在，命令就从字符串中读取。如果字符串后有参数，他们将会被分配到参数的位置上，从$0开始。
+
+例如： 
+/bin/bash -c 'temp=111111;echo ${temp}'
+/bin/bash -c 'echo $0$1' "111111" "222222"
+
+bash -c "cmd string"
+If the -c option is present, then commands are read from the first non-option argument command_string. If there are arguments after the command_string, they are assigned to the positional parameters, starting with $0.
+大致意思就是，如果用-c 那么bash 会从第一个非选项参数后面的字符串中读取命令，如果字符串有多个空格，第一个空格前面的字符串是要执行的命令，也就是$0, 后面的是参数，即$1, $2....
+例子
+首先有个atest shell脚本,里面的内容为
+echo $0
+echo $1
+echo $2
+执行bash -c "./atest hello world"他的输出如下
+./atest
+hello
+world
+个人理解bash -c "./atest hello world"实际上和./atest hello world等价
+bash -c "./atest hello world"和./atest hello world等价，那具体有没有什么区别呢？ 是有的，上面的介绍是直接在终端中运行命令。那当我们在代码中要运行上面的脚本的时候，比如fork + exec的时候，这种情况下一般就使用bash -c
+
+/bin/bash -c "echo $0" 'parm1'
+/bin/bash -c 'echo $0' 'parm1'
+
+在bash里，这两个都是引号，用来表明字符串，区别是，双引号中的变量会被展开，而单引号中不再展开。
+例子：
+a="abc"
+echo "str=$a"  # 结果显示 str=abc
+echo 'str=$a'  # 结果显示str=$a
+/*********************************************************#!/bin/bash********************************************************
+
+/**********************************************linux查看系统已安装内核*******************************************************
+1) uname -r
+2) rpm -qa | grep kernel
+3) rpm -qi kernel
+第一种和第三种为当前运行内核，第二种已安装的所有内核
+/**********************************************linux查看系统已安装内核*******************************************************
+
+/**********************************************linux rpm命令*******************************************************
+查询是否安装某个软件
+[root@localhost 1]# rpm -qa | grep vim
+vim-filesystem-7.4.160-1.el7.x86_64
+vim-enhanced-7.4.160-1.el7.x86_64
+vim-common-7.4.160-1.el7.x86_64
+vim-minimal-7.4.160-1.el7.x86_64
+
+查询命令属于哪个软件
+[root@localhost 1]# which passwd 
+/usr/bin/passwd
+[root@localhost 1]# rpm -qf /usr/bin/passwd
+passwd-0.79-4.el7.x86_64
+
+查看通过yum安装的软件所在的目录
+
+查看通过yum（或者yum源）安装的软件所在的目录
+1) 如果是直接通过yum install安装的软件，用如下方式查找
+[root@localhost ~]# rpm -ql python
+/usr/bin/pydoc
+/usr/bin/python
+/usr/bin/python2
+/usr/bin/python2.7
+/usr/share/doc/python-2.7.5
+/usr/share/doc/python-2.7.5/LICENSE
+/usr/share/doc/python-2.7.5/README
+/usr/share/man/man1/python.1.gz
+/usr/share/man/man1/python2.1.gz
+/usr/share/man/man1/python2.7.1.gz
+2) 如果是通过yum源安装的软件（例：通过执行rpm -ivh mysql80-community-release-el7-1.noarch.rpm命令安装的软件），用如下方式查找
+首先通过which加rpm -qf的方式找到该命令属于哪个软件
+[root@server01 ~]# which mysql
+/usr/bin/mysql
+[root@server01 ~]# rpm -qf /usr/bin/mysql
+mysql-community-client-5.7.26-1.el7.x86_64
+然后再通过rpm -ql查找安装的软件所在的目录
+[root@server01 ~]# rpm -ql mysql-community-client-5.7.26-1.el7.x86_64
+/usr/bin/mysql
+/usr/bin/mysql_config_editor
+/usr/bin/mysqladmin
+/usr/bin/mysqlbinlog
+/usr/bin/mysqlcheck
+/usr/bin/mysqldump
+/usr/bin/mysqlimport
+/usr/bin/mysqlpump
+/usr/bin/mysqlshow
+/usr/bin/mysqlslap
+/usr/share/doc/mysql-community-client-5.7.26
+/usr/share/doc/mysql-community-client-5.7.26/COPYING
+/usr/share/doc/mysql-community-client-5.7.26/README
+/usr/share/man/man1/mysql.1.gz
+/usr/share/man/man1/mysql_config_editor.1.gz
+/usr/share/man/man1/mysqladmin.1.gz
+/usr/share/man/man1/mysqlbinlog.1.gz
+/usr/share/man/man1/mysqlcheck.1.gz
+/usr/share/man/man1/mysqldump.1.gz
+/usr/share/man/man1/mysqlimport.1.gz
+/usr/share/man/man1/mysqlpump.1.gz
+/usr/share/man/man1/mysqlshow.1.gz
+/usr/share/man/man1/mysqlslap.1.gz
+/**********************************************linux rpm命令*******************************************************
+
+/*********************************************NFS服务和挂载*********************************************
+服务器端
+使用yum -y install nfs-utils因为centos7自带了rpcbind，所以不用安装rpc服务，rpc监听在111端口，可以使用ss -tnulp | grep 111查看rpc服务是否自动启动，如果没有启动，就systemctl start rpcbind 启动rpc服务。rpc在nfs服务器搭建过程中至关重要，因为rpc能够获得nfs服务器端的端口号等信息，nfs服务器端通过rpc获得这些信息后才能连接nfs服务器端。
+
+vim /etc/exports
+/home/nfs/ 192.168.1.0/24(rw,sync,fsid=0)
+同192.168.1.0/24一个网络号的主机可以挂载NFS服务器上的/home/nfs/目录到自己的文件系统中
+rw表示可读写；sync表示同步写，fsid=0表示将/data找个目录包装成根目录
+/sharedata *(rw,no_root_squash,sync,insecure)
+表示同局域网内的所有主机都可以挂在NFS服务器上的/sharedata/目录到自己的文件系统中
+
+启动nfs服务，systemctl start nfs ,启动后 使用rpcinfo -p 192.168.1.188 查看
+
+使用showmount -e localhost
+Export list for localhost:
+/data 192.168.1.0/24
+
+创建/data目录添加文件,更改权限（很重要！！！！！）
+mkdir /data 
+touch /data/1.txt
+echo "hello nfs" >> /data/1.txt
+chown -R nfsnobody.nfsnobody /data
+
+客户端
+yum -y intall nfs-utils （客户端上不需要启动nfs服务，只是为了使用showmount工具）
+
+检测rpc是否启动
+systemctl status rpcbind
+ 
+使用showmount -e 192.168.1.188查看
+
+挂载至本地/mnt目录
+mount -t nfs 192.168.1.188:/data /mnt
+
+接下来在服务器端执行
+systemctl enable nfs-server.server
+systemctl enable rpcbind
+让nfs，rpcbind开机自动启动
+
+故障解决
+客户端无法卸载nfs目录
+umount.nfs4: /var/nfs: device is busy
+执行fuser -km /var/nfs/，然后再执行umount
+umount -l /home 强行解除挂载
+/*********************************************NFS服务和挂载*********************************************
+
+/*********************************************通过yum下载rpm包及其依赖包*********************************************
+通过yum下载rpm包及其依赖包（只下载不安装）
+yum -y install --downloadonly --downloaddir=/home nfs-utils
+downloadonly指出本次下载仅仅下载，参数downloaddir指定了保存的目录。
+
+但是如果系统已经下载了相关安装包（包括依赖包），那么这些rpm包是无法下载保存的
+可以使用如下的方式解决：
+yum -y install --downloadonly --installroot=/tmp/createrepo --releasever=/ --downloaddir=/software/nfs nfs-utils
+
+--installroot=/usr/local        表示指定自定义的安装目录（如果安装到自定义目录，会额外安装很多依赖的软件包，即使这些依赖包已经安装过，也会在你自定义的目录中重新安装）
+
+切换到下载目录rpm中批量安装：
+rpm -ivh * --nodeps --force
+/*********************************************通过yum下载rpm包及其依赖包*********************************************
+
+/*********************************************************linux tar*********************************************************
+-c: 建立压缩档案
+-x：解压
+-t：查看内容
+-r：向压缩归档文件末尾追加文件
+-u：更新原压缩包中的文件
+
+这五个是独立的命令，压缩解压都要用到其中一个，可以和别的命令连用但只能用其中一个。下面的参数是根据需要在压缩或解压档案时可选的
+
+-z：有gzip属性的
+-j：有bz2属性的
+-Z：有compress属性的
+-v：显示所有过程
+-O：将文件解开到标准输出
+
+下面的参数-f是必须的
+
+-f: 使用档案名字，切记，这个参数是最后一个参数，后面只能接档案  名。
+例如使用『 tar -zcvfP tfile sfile 』就是错误的写法，要写成『 tar -zcvPf tfile sfile 』才对喔！
+
+# tar -cf all.tar *.jpg
+这条命令是将所有.jpg的文件打成一个名为all.tar的包。-c是表示产生新的包，-f指定包的文件名。
+# tar -rf all.tar *.gif
+这条命令是将所有.gif的文件增加到all.tar的包里面去。-r是表示增加文件的意思。
+# tar -uf all.tar logo.gif
+这条命令是更新原来tar包all.tar中logo.gif文件，-u是表示更新文件的意思。
+# tar -tf all.tar
+这条命令是列出all.tar包中所有文件，-t是列出文件的意思
+# tar -xf all.tar
+这条命令是解出all.tar包中所有文件，-t是解开的意思
+
+压缩
+
+tar -cvf jpg.tar *.jpg            //将目录里所有jpg文件打包成tar.jpg 
+tar -czf jpg.tar.gz *.jpg         //将目录里所有jpg文件打包成jpg.tar后，并且将其用gzip压缩，生成一个gzip压缩过的包，命名为jpg.tar.gz
+tar -cjf jpg.tar.bz2 *.jpg        //将目录里所有jpg文件打包成jpg.tar后，并且将其用bzip2压缩，生成一个bzip2压缩过的包，命名为jpg.tar.bz2
+tar -cZf jpg.tar.Z *.jpg          //将目录里所有jpg文件打包成jpg.tar后，并且将其用compress压缩，生成一个umcompress压缩过的包，命名为jpg.tar.Z
+                                    
+解压                                
+                                    
+tar -xvf file.tar                 //解压 tar包
+tar -xzvf file.tar.gz             //解压tar.gz
+tar -xjvf file.tar.bz2            //解压 tar.bz2
+tar -xZvf file.tar.Z              //解压tar.Z
+tar -xzvf /file.tar.gz -C /files  //把根目录下的file.tar.gz解压到/files下，前提要保证存在/files这个目录 
+/*********************************************************linux tar*********************************************************
+
+/**********************************************************grep命令***********************************************************
+grep（global search regular expression(RE) and print out the line，全面搜索正则表达式并把行打印出来）是一种强大的文本搜索工具，它能使用正则表达式搜索文本，并把匹配的行打印出来。
+
+用法: grep [选项]... PATTERN [FILE]...
+在每个 FILE 或是标准输入中查找 PATTERN。
+默认的 PATTERN 是一个基本正则表达式(缩写为 BRE)。
+例如: grep -i 'hello world' menu.h main.c
+
+选项
+
+-a 不要忽略二进制数据。
+-A<显示列数> 除了显示符合范本样式的那一行之外，并显示该行之后的内容。
+-b 在显示符合范本样式的那一行之外，并显示该行之前的内容。
+-c 计算符合范本样式的列数。
+-C<显示列数>或-<显示列数>  除了显示符合范本样式的那一列之外，并显示该列之前后的内容。
+-d<进行动作> 当指定要查找的是目录而非文件时，必须使用这项参数，否则grep命令将回报信息并停止动作。
+-e<范本样式> 指定字符串作为查找文件内容的范本样式。
+-E 将范本样式为延伸的普通表示法来使用，意味着使用能使用扩展正则表达式。
+-f<范本文件> 指定范本文件，其内容有一个或多个范本样式，让grep查找符合范本条件的文件内容，格式为每一列的范本样式。
+-F 将范本样式视为固定字符串的列表。
+-G 将范本样式视为普通的表示法来使用。
+-h 在显示符合范本样式的那一列之前，不标示该列所属的文件名称。
+-H 在显示符合范本样式的那一列之前，标示该列的文件名称。
+-i 忽略字符大小写的差别。
+-l 列出文件内容符合指定的范本样式的文件名称。
+-L 列出文件内容不符合指定的范本样式的文件名称。
+-n 在显示符合范本样式的那一列之前，标示出该列的编号。
+-q 不显示任何信息。
+-R/-r 此参数的效果和指定“-d recurse”参数相同。
+-s 不显示错误信息。
+-v 反转查找。
+-w 只显示全字符合的列。
+-x 只显示全列符合的列。
+-y 此参数效果跟“-i”相同。
+-o 只输出文件中匹配到的部分。
+
+grep -rE '*PYTHONPATH*' ./
+grep -rE --directories=recurse '*PYTHONPATH*' ./
+/**********************************************************grep命令***********************************************************
+
+####################################################【linux】grep、sed、awk####################################################
+grep、sed、awk 概述
+grep：文本过滤器，如果仅仅是过滤文本，可使用grep，其效率要比其他的高很多
+sed：Stream EDitor，流编辑器，默认只处理模式空间，不处理原数据，如果你处理的数据是针对行进行处理的，可以使用sed
+awk：报告生成器，格式化以后显示。如果对处理的数据需要生成报告之类的信息，或者你处理的数据是按列进行处理的，最好使用awk
+
+grep
+Linux系统中grep命令是一种强大的文本搜索工具，它能使用正则表达式搜索文本，并把匹 配的行打印出来。grep全称是Global Regular Expression Print，表示全局正则表达式版本，它的使用权限是所有用户。
+
+sed
+sed 是一种在线编辑器，它一次处理一行内容。处理时，把当前处理的行存储在临时缓冲区中，称为“模式空间”（pattern space），接着用sed命令处理缓冲区中的内容，处理完成后，把缓冲区的内容送往屏幕。接着处理下一行，这样不断重复，直到文件末尾。文件内容并没有改变，除非你使用重定向存储输出。Sed主要用来自动编辑一个或多个文件；简化对文件的反复操作；编写转换程序等。
+
+awk
+awk是一个强大的文本分析工具，相对于grep的查找，sed的编辑，awk在其对数据分析并生成报告时，显得尤为强大。简单来说awk就是把文件逐行的读入，以空格为默认分隔符将每行切片，切开的部分再进行各种分析处理。 
+awk有3个不同版本: awk、nawk和gawk，未作特别说明，一般指gawk，gawk是 AWK的 GNU版本
+
+sed命令：
+利用sed命令来删除文件中带字符"2"的行：
+sed '/2/d' roc.txt
+这个命令的command部分是/2/d，而且它是用单引号括起来的。用到sed，别忘了用单引号将command部分括起来。/2/d中的d表示删除，意思是说，只要某行内容中含有字符2，就删掉这一行。（sed所谓的删除都是在模式空间中执行的，不会真正改动roc.txt原文件。）
+
+sed命令实现cut命令的效果
+head -n 5 /etc/passwd | sed 's/:.*$//'
+command部分指定成了's/：.*$//'，表示要把每一行的第一个冒号到结尾的部分都清空，这样留下的便是第一个冒号前的内容。
+'s/XXXX/YYYY/'是vi命令中的替换，表示将XXXX替换为YYYY
+
+sed会将模式空间里的行经过处理后输出到标准输出，这是默认的处理方式。也就是说，除非你使用“d”来删除此行，否则经过“模式空间”处理的行都是会被输出到标准输出（屏幕）上的。例：
+原文件的内容
+[roc@roclinux ~]$ cat roc.txt
+1
+2
+3
+4
+5
+输出中出现了两个“4”
+[roc@roclinux ~]$ sed '/4/p' roc.txt
+1
+2
+3
+4
+4
+5
+所有的原始文件内容都被输出来了，而且含有字符4的行被输出了两遍。这就是sed命令的工作原理，它会把经过处理的行先输出出来，然后再执行后面的动作。（在这里我们设定了p，表示打印此行。）这明显不符合我们的初衷，我们只是想让sed命令找到含有4的行再输出。
+加上-n选项后发现，结果变得如你所愿了。
+[roc@roclinux ~]$ sed -n '/4/p' roc.txt
+4
+-n选项表示：除非是明确表明要输出的行，否则不要输出。-n选项经常和p配合使用，其含义就是，输出那些匹配的行。
+
+sed命令的命令格式是这样的：
+$ sed command file
+其中，command部分是sed命令的精髓，对command部分的掌握程度决定了你是不是sed高手。
+command部分可以分为两块知识：一块是范围设定，一块是动作处理。
+范围设定，可以采用两种不同的方式来表达：
+    指定行数：比如'3,5'表示第3、第4和第5行；而'5,$'表示第5行至文件最后一行。
+    模式匹配：比如/^[^dD]/表示匹配行首不是以d或D开头的行。
+而动作处理部分，会提供很丰富的动作供你选择，下面就来介绍几个最常用的动作吧：
+    d：表示删除行。
+    p：打印该行。
+    r：读取指定文件的内容。
+    w：写入指定文件。
+    a：在下面插入新行新内容。
+
+显示test文件的第10行到第20行的内容
+[roc@roclinux ~]$ sed -n '10,20p' test
+
+所有以d或D开头的行里的所有小写x字符变为大写X字符：
+[roc@roclinux ~]$ sed '/^[dD]/s/x/X/g' test
+
+这个用法表示我们在command部分采用了/AA/s/BB/CC/g的语法格式，这表示我们要匹配到文件中带有AA的行，并且将这些行中所有的BB替换成CC。
+删除每行最后的两个字符
+[roc@roclinux ~]$ sed 's/..$//' test
+
+在sed命令中，&字符表示的是"之前被匹配的部分"
+先展示文件的内容
+[roc@roclinux ~]$ cat mysed.txt
+Beijing
+London
+使用&符号替换后的结果
+[roc@roclinux ~]$ sed 's/B.*/&2008/' mysed.txt
+Beijing2008
+London
+
+在sed命令中，小括号'()'称之为"sed的预存储技术"，也就是命令中被"("和")"括起来的内容会被依次暂存起来，存储到\1、\2…里面。这样你就可以使用'\N'形式来调用这些预存储的内容了。例：
+[roc@roclinux ~]$ echo "hello world" | sed 's/\(hello\).*/world \1/'
+world hello
+
+-e选项来设置多个command
+sed命令可以包含不只一个command。如果要包含多个command，只需在每个command前面分别加上一个-e选项即可。例：
+通过2个-e选项设置了两个command
+[roc@roclinux ~]$ sed -n -e '1,2p' -e '4p' mysed.txt
+Beijing 2003
+Beijing 2004
+Beijing 2006
+-e选项的后面要立即接command内容，不允许再夹杂其他选项。多个command之间，是按照在命令中的先后顺序来执行的。
+
+awk命令：
+awk是逐行处理的，意思就是说：当awk处理一个文本时，会一行一行进行处理，处理完当前行，再处理下一行，awk默认以"换行符"为标记，识别每一行，也就是说，awk每次遇到"回车换行"就认为是当前行的结束，新的一行的开始，awk会按照用户指定的分隔符去分割当前行，如果没有指定分隔符，默认使用空格作为分隔符。（分割完的第一个字段为$1，第二个字段为$2依次类推，用$0表示当前处理的整个一行）
+
+awk '{action}' {filenames} # 行匹配语句awk只能用单引号。
+例：
+$ cat log.txt
+2 this is a test
+3 Are you like awk
+This's a test
+10 There are orange,apple,mongo
+# 每行按空格或TAB分割（默认情况），输出文本中的1、4项
+$ awk '{print $1,$4}' log.txt
+2 a
+3 like
+This's
+10 orange,apple,mongo
+
+awk -F #-F相当于内置变量FS, 指定分割字符。
+例：
+$ cat log.txt的内容如下：
+2,this,is,a,test
+3 Are you like awk    
+$  awk -F, '{print $1,$2}'   log.txt
+2 this
+3 Are you like awk
+# 使用多个分隔符：先使用空格分割，然后对分割结果再使用","分割
+$ awk -F '[ ,]'  '{print $1,$2,$5}'   log.txt
+2 this
+3 Are
+
+awk -v # 设置变量。
+例：
+$ cat log.txt
+2 this is a test
+3 Are you like awk
+This's a test
+10 There are orange,apple,mongo
+$ awk -va=1 '{print $1,$1+a}' log.txt
+2 3
+3 4
+This's 1
+10 11
+$ awk -va=1 '{print $1,$(1+a)}' log.txt
+2 this
+3 Are
+This's a
+10 There
+$ awk -va=1 -vb=s '{print $1,$1+a,$1b}' log.txt
+2 3 2s
+3 4 3s
+This's 1 This'ss
+10 11 10s
+$1+a：当两个变量都为数字的时候当数字运算，当有一方为String的时候当字符串拼接处理。
+
+awk 'Pattern {action}' {filenames} # Pattern用来指定判断条件，{}中包含的是awk的动作，也就是awk对记录的操作，比如$3+$4或print。
+例：
+$ awk '$1>2' log.txt    #命令
+#输出
+3 Are you like awk
+This's a test
+10 There are orange,apple,mongo
+例：
+$ awk '$1==2 {print $1,$3}' log.txt    #命令
+#输出
+2 is
+例：
+$ awk '$1>2 && $2=="Are" {print $1,$2,$3}' log.txt    #命令
+#输出
+3 Are you
+
+####################################################【linux】grep、sed、awk####################################################
+
+/***********************************************yum安装时需要安装到指定的文件夹***********************************************
+yum install --installroot=/usr/local/vim vim
+/***********************************************yum安装时需要安装到指定的文件夹***********************************************
+
+
+/*******************************************************用户以及组*******************************************************
+//查看当前登录用户所属组
+groups
+
+//查看Linux某用户属于哪个组
+id  user(用户名)
+groups user(用户名)
+
+//查看当前登录用户名
+whoami
+
+//etc目录下的group文件包含所有组
+/etc/group 
+
+//新建test工作组
+groupadd test 
+
+//删除用户组
+groupdel groupname
+
+gpasswd命令
+功能：管理组
+用法：gpasswd[-a user][-d user][-A user,...][-M user,...][-r][-R]groupname
+参数：
+-a：添加用户到组
+-d：从组删除用户
+-A：指定管理员
+-M：指定组成员和-A的用途差不多
+-r：删除密码
+-R：限制用户登入组，只有组中的成员才可以用newgrp加入该组 
+
+//修改用户所属组
+usermod -g groupA user
+-g 用户组 指定用户所属的用户组。
+-G 附加组 指定用户所属的附加组。
+
+//修改文件或者文件夹的所有者和所属组。
+chown -R ubsadm(用户名):users(所属组) /home/ubsadm
+-R 表示递归遍历子目录，把修改应用到目录下所有文件和子目录
+
+//添加新的用户账号使用 useradd命令，其语法如下： 
+useradd 选项 用户名
+其中各选项含义如下：
+代码:
+-c comment 指定一段注释性描述。
+-d 目录 指定用户主目录，如果此目录不存在，则同时使用-m选项，可以创建主目录。
+-g 用户组 指定用户所属的用户组。
+-G 用户组，用户组 指定用户所属的附加组。
+-s Shell文件 指定用户的登录Shell。
+-u 用户号 指定用户的用户号，如果同时有-o选项，则可以重复使用其他用户的标识号。
+例1：
+useradd -g dl4juser –d /home/dl4juser -m dl4juser
+其中-d和-m选项用来为登录名sam产生一个主目录/usr/sam（/usr为默认的用户主目录所在的父目录）。
+passwd dl4juser 给已创建的用户dl4juser设置密码
+例2：
+# useradd -s /bin/sh -g group –G adm,root gem
+此命令新建了一个用户gem，该用户的登录Shell是/bin/sh，它属于group用户组，同时又属于adm和root用户组，其中group用户组是其主组。
+# passwd username
+修改用户的密码
+
+关于#!/bin/bash和#!/bin/sh
+#!/bin/bash是指此脚本使用/bin/bash来解释执行。
+其中，#!是一个特殊的表示符，其后，跟着解释此脚本的shell路径。
+bash只是shell的一种，还有很多其它shell，如：sh,csh,ksh,tcsh,...
+我们可以通过以下一个示例来进行实验，了解#!/bin/bash的使用。
+除第一行外，脚本中所有以“#”开头的行都是注释。
+1）#!/bin/bash只能放在第一行，如果后面还有#!，那么只能看成是注释。
+这里有三个脚本（脚本都要使用”chmod +x scriptname“命令来获得可执行权限）：
+tbash1.sh:
+#!/bin/sh
+source abc
+echo "hello abc"
+ 
+tbash2.sh:
+#!/bin/bash
+source abc
+echo "hello abc"
+ 
+tbash3.sh:
+source abc
+echo "hello abc"
+ 
+三个脚本执行的结果：
+[nsvc@localhost other]$ ./tbash1.sh 
+./tbash1.sh: line 2: abc: No such file or directory
+注：当source命令执行有问题时，sh不再往下面执行。
+[nsvc@localhost other]$ ./tbash2.sh 
+./tbash2.sh: line 2: abc: No such file or directory
+hello abc
+注：当source命令执行有问题时，bash继续执行下面命令。
+[nsvc@localhost other]$ ./tbash3.sh 
+./tbash3.sh: line 1: abc: No such file or directory
+hello abc
+注：自身登录系统所在的shell是bash。所以，当source命令执行有问题时，bash继续执行下面命令。
+ 
+如果将tbash1.sh改成：
+echo "abc"
+#!/bin/sh
+source abc
+echo "hello abc"
+那么，执行结果是：
+[nsvc@localhost other]$ ./tbash1.sh 
+abc
+./tbash1.sh: line 3: abc: No such file or directory
+hello abc
+也就是说，脚本忽略了第二行“#!/bin/sh"，直接使用当前所在的shell（也就是bash）来解释脚本。
+ 
+当把tbash1.sh改成：
+#!/bin/sh
+#!/bin/bash
+source abc
+echo "hello abc"
+执行结果为：
+[nsvc@localhost other]$ ./tbash1.sh 
+./tbash1.sh: line 3: abc: No such file or directory
+当执行完source命令时，并没有往下执行。说明，#!/bin/sh这一行起到作用了，但#!/bin/bash并没有起作用。在脚本中，除第一行外，脚本中所有以“#”开头的行都是注释。
+ 
+2）#!后面的路径一定要正确，不正确会报错。
+假如，我们把tbash1.sh中第一行的#!后面加了一个不存在的路径”/home/sh“：
+#!/home/sh
+source abc
+echo "hello abc"
+执行结果为：
+[nsvc@localhost other]$ ./tbash1.sh 
+-bash: ./tbash1.sh: /home/sh: bad interpreter: No such file ordirectory
+系统会提示/home/sh的路径不存在。
+ 
+3）如果一个脚本在第一行没有加上#!+shell路径这一行，那么，脚本会默认当前用户登录的shell，为脚本解释器。
+在1）中，脚本tbash3.sh的执行结果，就是用当前自己登录的shell（bash）解释后的结果。我们通常所用的shell都是bash，如果哪天登录到sh，再使用以上类型的脚本，就会有问题。以下是自己登录到sh下，执行tbash3.sh的结果：
+-sh-3.2$ ./tbash3.sh 
+./tbash3.sh: line 1: abc: 没有那个文件或目录
+与1）中的执行结果是不一样的。
+因此，大家应该养成脚本首行加上#!+shell路径的习惯。
+ 
+4）/bin/sh相当于/bin/bash --posix
+我们将脚本tbash1.sh改为：
+#!/bin/bash --posix
+source abc
+echo "hello abc"
+执行结果：
+[nsvc@localhost other]$ ./tbash1.sh 
+./tbash1.sh: line 2: abc: No such file or directory
+与tbash1.sh原脚本执行的结果一样。
+ 
+我们还可以以tbash3.sh为示例。
+用以下命令来执行该脚本：
+[nsvc@localhost other]$ bash tbash3.sh
+tbash3.sh: line 1: abc: No such file or directory
+hello abc
+[nsvc@localhost other]$ sh tbash3.sh 
+tbash3.sh: line 1: abc: No such file or directory
+[nsvc@localhost other]$ bash --posix tbash3.sh 
+tbash3.sh: line 1: abc: No such file or directory
+ "bash tbash3.sh"表示使用bash来作为脚本解释器来执行tbash3.sh。同样，也可以使用如”sh脚本名“这样的命令，来用sh作为脚本解释器。
+从结果可以看出，/bin/bash--posix与/bin/sh的执行结果相同。总结起来，sh跟bash的区别，实际上是bash有没开启posix模式的区别。遵守posix规范，可能包括，”当某行代码出错时，不继续往下执行。“
+ 
+最后加上一点说明，每个脚本开头都使用"#!"，#!实际上是一个2字节魔法数字，这是指定一个文件类型的特殊标记，在这种情况下，指的就是一个可执行的脚本。在#!之后，接一个路径名，这个路径名指定了一个解释脚本命令的程序，这个程序可以是shell，程序语言或者任意一个通用程序。
+
+//删除用户
+userdel test //删除用户，但不删除其相关文件
+userdel -r test //删除用户的同时，删除其相关文件
+/*******************************************************用户以及组*******************************************************
+
+/*****************************************************为每个用户定义PATH*****************************************************
+用户登录时先加载/etc/profile里面设置的path，然后再加载自己目录下.bash_profile文件里面设置的path
+利用这一点，可以为每个用户创立一套自己的环境变量
+1） 在用户自己的目录中vi .bash_profile这个隐藏文件
+cat /home/dl4juser/.bash_profile
+
+2)  用自定义的path覆盖/etc/profile里面定义过的path(这个2个是自己用的$HOME/.local/bin:$HOME/bin)
+
+if [ -f ~/.bashrc ]; then
+        . ~/.bashrc
+fi
+#这里可以完全自定义出一套当前用户的PATH
+PATH=/usr/local/bin:/usr/bin:/bin:/usr/bin/X11:/usr/X11R6/bin:/usr/games:/usr/lib/mit/bin:/usr/lib/mit/sbin:$HOME/.local/bin:$HOME/bin
+exprot PATH
+/*****************************************************为每个用户定义PATH*****************************************************
+
+/***************************************************CentOS 7网络配置*******************************************************
+VirtualBox里面要设置虚拟机可以访问外网，并且虚拟机虚拟机之间，虚拟机和宿主机之间可以通信的话必须设置2片网卡
+第一片网卡在【VirtualBox-->管理-->全局设定-->网络-->NAT网络】里面设置。系统默认是这片网卡：enp0s3
+第二片网卡在【VirtualBox-->管理-->全局设定-->网络-->仅主机(Host-Only)网络】里面设置 拷贝/etc/sysconfig/network-scripts/enp0s3重命名成enp0s8
+enp0s3是上网的网卡，enp0s8是和宿主机通讯的网卡
+然后修改每台虚拟机的【设置-->网络-->网卡1，网卡2】里面的设置：1)勾选启动网络连接 2)连接方式网卡1:网络地址转化(NAT);网络2:仅主机(Host-Only)网络
+
+默认CentOS 7只有ifcfg-enp0s3的配置文件,enp0s3是用来管理上网的网卡
+/etc/sysconfig/network-scripts/ifcfg-enp0s3
+TYPE="Ethernet"
+BOOTPROTO="dhcp"
+DEFROUTE="yes"
+PEERDNS="yes"
+PEERROUTES="yes"
+IPV4_FAILURE_FATAL="no"
+IPV6INIT="yes"
+IPV6_AUTOCONF="yes"
+IPV6_DEFROUTE="yes"
+IPV6_PEERDNS="yes"
+IPV6_PEERROUTES="yes"
+IPV6_FAILURE_FATAL="no"
+IPV6_ADDR_GEN_MODE="stable-privacy"
+NAME="enp0s3"
+UUID="d50fbebb-e4ca-4b21-833d-0b7565a11915"
+DEVICE="enp0s3"
+ONBOOT="yes"
+
+如果要配置和宿主机通讯则需要拷贝enp0s3的信息再配置一块网卡(一般命名为:enp0s8) 
+需要修改的地方：
+1) HWADDR从VirtualBox能查到
+2) BOOTPROTO改成static
+3) UUID随便改一位只要和enp0s3中的不一样即可
+4) NAME和DEVICE都改成enp0s8
+5) IPADDR="192.168.56.110" // 设置成和【VirtualBox-->管理-->全局设定-->网络-->仅主机(Host-Only)网络】里面设置的网络保持同一网段
+6) NETMASK="255.255.255.0" // 设置成和【VirtualBox-->管理-->全局设定-->网络-->仅主机(Host-Only)网络】里面设置的服务器网络掩码
+7) NM_CONTROLLED="no" //表示该接口将通过该配置文件进行设置，而不是通过网络管理器进行管理；如果设置为yes的话那配置的ifcfg-enp0s8将没有效果
+/etc/sysconfig/network-scripts/ifcfg-enp0s8
+HWADDR="08:00:27:F3:C0:DA"
+TYPE="Ethernet"
+BOOTPROTO="static"
+DEFROUTE="yes"
+PEERDNS="yes"
+PEERROUTES="yes"
+IPV4_FAILURE_FATAL="no"
+IPV6INIT="yes"
+IPV6_AUTOCONF="yes"
+IPV6_DEFROUTE="yes"
+IPV6_PEERDNS="yes"
+IPV6_PEERROUTES="yes"
+IPV6_FAILURE_FATAL="no"
+IPV6_ADDR_GEN_MODE="stable-privacy"
+NAME="enp0s8"
+UUID="d50fbebb-e4ca-4b21-833d-0b7565a11916"	
+DEVICE="enp0s8"
+ONBOOT="yes"
+IPADDR="192.168.56.110"
+NETMASK="255.255.255.0"
+NM_CONTROLLED="no"
+
+不使用网络管理配置静态IP地址:
+进入/etc/sysconfig/network-scripts目录，找到该接口的配置文件（ifcfg-enp0s3）。如果没有，请创建一个。
+打开配置文件并编辑以下变量：
+“NM_CONTROLLED=no”表示该接口将通过该配置文件进行设置，而不是通过网络管理器进行管理。
+“ONBOOT=yes”告诉我们，系统将在启动时开启该接口。
+service network restart
+
+使用网络管理器配置静态IP地址
+如果你想要使用网络管理器来管理该接口，你可以使用nmtui（网络管理器文本用户界面），它提供了在终端环境中配置配置网络管理器的方式。
+在使用nmtui之前，首先要在/etc/sysconfig/network-scripts/ifcfg-enp0s3中设置“NM_CONTROLLED=yes”。
+然后继续去编辑enp0s3接口的网络管理器配置：nmtui edit enp0s3
+我们可以手动输入与/etc/sysconfig/network-scripts/ifcfg-enp0s3中所包含的内容相同的信息。
+使用箭头键在屏幕中导航，按回车选择值列表中的内容（或填入想要的内容），最后点击屏幕底部右侧的确定按钮。
+最后，重启网络服务：systemctl restart network.service
+/***************************************************CentOS 7网络配置*******************************************************
+
+/****************************************************************免密登陆*****************************************************
+[root@server01 .ssh]# ssh root@server02 (在server01中以server02中的用户root登陆服务器:server02)
+scp test.txt root@192.168.56.111:/home/admin/
+
+server01的用户root想免密登陆server02则 需要先在server01中生成用户root用户的密钥对
+生成密钥对:ssh-keygen(提示时，不用输入任何东西 直接回车即可)
+然后再将生成的root用户的自己的公钥拷贝并追加到server02的授权列表文件authorized_keys中(拷贝和追加用一条命令即可完成:ssh-copy-id)
+授权(authorized_keys):ssh-copy-id 192.168.56.111
+
+查看更新完的授权列表
+cat /root/.ssh/authorized_keys
+
+由于上面的ssh-copy-id命令是将server01的root用户的公钥仅仅拷贝并且追加到了/root/.ssh/authorized_keys中
+所以只是 ssh root@server02的时候免密码，而如果ssh admin@server02的时候还是需要输入密码的
+要想在server01中用server02的用户admin登陆的时候也实现免密登陆则需要将server01的root用户的公钥拷贝并且追加到/home/admin/.ssh/authorized_keys中
+scp /root/.ssh/id_rsa.pub admin@server02:/home/admin/.ssh/authorized_keys
+/****************************************************************免密登陆*****************************************************
+
+/********************************************************vi文本编辑器********************************************************
+1) 最基本用法
+vi  somefile.4
+1、首先会进入“一般模式”，此模式只接受各种快捷键，不能编辑文件内容
+2、按i键，就会从一般模式进入编辑模式，此模式下，敲入的都是文件内容
+3、编辑完成之后，按Esc键退出编辑模式，回到一般模式；
+4、再按：，进入“底行命令模式”，输入wq命令，回车即可
+
+2) 一些常用快捷键
+一些有用的快捷键（在一般模式下使用）：
+a  在光标后一位开始插入
+A   在该行的最后插入
+I   在该行的最前面插入
+gg   直接跳到文件的首行
+G    直接跳到文件的末行
+dd   删除行，如果  5dd   ，则一次性删除光标后的5行
+yy  复制当前行,  复制多行，则  3yy，则复制当前行附近的3行
+p   粘贴
+v  进入字符选择模式，用方向键进行文本选择，完成后，按y复制，按p粘贴
+ctrl+v  进入块选择模式，选择完成后，按y复制，按p粘贴
+shift+v  进入行选择模式，选择完成后，按y复制，按p粘贴
+在底行命令模式下，输入:.,$d再按回车，表示从当前行到末行全部删除掉。
+
+3) 查找并替换（在底行命令模式中输入）
+/pattern         从光标开始处向文件尾搜索pattern
+?pattern         从光标开始处向文件首搜索pattern
+n                在同一方向重复上一次搜索命令
+N                在反方向上重复上一次搜索命令
+%                查找配对的括号（将光标停顿在"{"上按%，即可定位到对应的"}"上。相反，光标停顿在"}"上按%即可定位到对应的"{"上咯。）
+:s/p1/p2/g       将当前行中所有p1均用p2替代，若要每个替换都向用户询问则应该用gc选项
+:n1,n2s/p1/p2/g  将第n1至n2行中所有p1均用p2替代
+:g/p1/s//p2/g    将文件中所有p1均用p2替换
+.*[]^%~$         在Vi中具有特殊含义，若需要查找则应该加上转义字符"\"
+
+%s/sad/88888888888888     效果：查找文件中所有sad，替换为88888888888888
+
+1:  :s/vivian/sky/         #替换当前行第一个 vivian 为 sky
+2:  :s/vivian/sky/g        #替换当前行所有 vivian 为 sky
+3:  :n,$s/vivian/sky/      #替换第 n 行开始到最后一行中每一行的第一个 vivian 为 sky
+4:  :n,$s/vivian/sky/g     #替换第 n 行开始到最后一行中每一行所有 vivian 为 sky（n 为数字，若 n 为 .，表示从当前行开始到最后一行） 
+7:  :%s/vivian/sky/        #（等同于 :g/vivian/s//sky/） 替换每一行的第一个 vivian 为 sky
+8:  :%s/vivian/sky/g       #（等同于 :g/vivian/s//sky/g） 替换每一行中所有 vivian 为 sky
+
+%s/four/4/g
+↑         ↑
+|         +-- 替换行中所有的匹配项目
+在所有行中执行替换
+
+:%s/\<four\>/4/gc    //只替换 four
+                ↑
+                在每次替换前提示确认
+
+/you       效果：查找文件中出现的you，并定位到第一个找到的地方，按n可以定位到下一个匹配位置（按N定位到上一个）
+
+vi 文件名，打开文件后
+如果要显示所有行号，使用 :set nu
+如果要显示当前行号，使用 :nu
+如果要跳转到指定行，使用 :行号
+例如，跳转到第10行，使用 :10
+
+vim列编辑模式
+
+
+在使用vim时，我们可能有这样的需求，在文件的某一列或几列加上统一的字符，比如写shell脚本时，需要注释掉某段程序，或者删除某一列或几列上的字符，比如删除之前添加的注释符。手工一个个整肯定是要把人整疯的，还好vim本身有支持列编辑。下面介绍一下如何实现一列的添加和删除。
+
+添加一列：
+1）vim 打开文件，并移动光标到要添加列的起始行
+2）按下ctrl+v，打开visual模式
+3）通过光标向下选中你要添加内容的位置
+4）按下I（即shift＋i）键，然后输入你要插入的内容
+5）按下ESC键，大概1s后，你就能看到内容加上了
+
+删除一列：
+1）vim打开文件，并移动光标到要删除列所在的启示位置
+2）按下ctrl＋v，进入visual模式
+3）通过移动光标，选中你要删除的区域
+4）按下d键完成删除
+
+同理，如果你要在一个区域内添加或者删除内容，只需要在上面的第3步选择你要操作的区域即可。
+
+Vi 撤销 回退 操作
+在一般模式下：
+u   撤销上一步的操作
+Ctrl+r 恢复上一步被撤销的操作
+/*******************************************************vi文本编辑器*******************************************************
+
+/*******************************************************查看文件内容*******************************************************
+Cat
+[功能说明]
+cat本身是一个串接命令，把指定一个或多个源文件的内容，利用>符号重定向到目标文件中，如果不指定重定向文件，则默认在标准输出设备上显示。此时，可以利用cat命令来显示文件的内容。若源文件定向到屏幕上，则以连续滚动的方式显示文件内容。如果文件太大，只能看见满屏的字符滚动，看不清文件的内容，所以cat命令适合查看内容不满一屏的文件
+[语法格式]
+Cat[参数][源文件][>|>>重定向的文件名]
+[选项参数]
+参数      说明
+-n        所有输出的行数编号
+-b        和-n类似，但不对空白行编号
+-s        输出多行空白，即当遇到有连续两行以上空白，就替换成一行空白行
+-E        在每行结尾显示$符号
+-T        将文件中的tab建显示为^I（i的大写）
+-v        显示非打印的字符
+-t ;-a    等于-Vt；等于-VEt
+--version 显示版本信息并退出
+--help    显示帮助信息并退出
+
+Head
+[功能说明]
+如果只需要查看文件头部的内容，利用more和less命令也可以实现，但是用户必须从一屏幕的内容里面提取自己需要的信息，幸运的是，Linux提供了一个方便查看文件头部的命令-head
+[语法格式]
+Head[参数][文件名]
+[选项参数]
+参数               说明
+-<N>               指定显示的行数
+-n<N>或--lines=<N> 显示目标文件的前N行，若N前面加“-”则表示显示除文件最后N行的其他所有行
+-c<N>或--bytes=<N> 显示目标文件的前N行字节，若N前面加“-”则表示显示除文件最后Nbyter行的其他所有内容
+-v或-verbose       总是打印文件名
+--hele             显示帮助信息并退出
+--version          显示版本信息并退出
+
+More
+[功能说明]
+more和cat相反，适合查看大文件，因为more分屏显示文件的内容，默认情况下每次显示一屏。输入空格后，继续显示下一屏数据，而按Enter只显示下一行数据。用户可以利用Enter建逐行查看文件的内容。输入q，即可退出more命令。
+[语法格式]
+More[参数][文件名]
+[选项参数]
+参数 说明
+-d   在屏幕底部显示press space to continue，‘q’to quit，对于不熟悉more命令的用户非常方便
+-c   该参数定义了每次显示从屏幕的最顶部显示文件的内容，即不以滚动的方式显示文件内容，但要先清楚原来的行，然后再显示新的内容
+-p   和-c类似，不同的是，先显示内容，再清空原有的行
++<起始行数>   从给定的起始行显示文件的内容，比如more：+90：file,则file的内容将从90行开始显示，该参数可以帮助用户迅速定位到查看文件的位置，省去逐页翻屏的麻烦
+-<屏幕行数>	
+该参数用设置屏幕大小，即一屏多少行：Linux系统默认的是一屏22行，用户可以根据自己的喜好设定屏幕的大小
+-s   和cat命令一样，不输出多行空白
++/<关键字> 如果用户只关心文件中某关键字和词组，如果肉眼逐行观察，显示是低效的，但利用该参数定位要查询的关键字和词组，系统将跳过前面的行，直接从该关键字第一次出现的前两行显示的内容，若关键字位于前两行，则从前一行显示
+每屏显示完，可以输入相应的参数来控制文件的范围或者退出more命令。例如输入i，可以面对从下屏的第i行开始显示，输入d，用来半屏半屏的显示文件的内容
+[选项参数]
+参数   说明
+i      从下屏的第i行开始显示
+Ctrl+d 半屏半屏的显示文件的内容
+d	   同上
+i+s    先输入行数i，然后输入s，系统跳过i行后再显示一屏
+h      显示帮助文件
+=      显示当前的行
+q      退出more命令
+
+Less
+[功能说明]
+less命令的作用与more命令十分相似，都可以用来浏览文件的内容。不同的是，less命令允许用户往来滚动浏览已经看过的内容
+[语法格式]
+Less[参数][文件名]
+[选项参数]
+参数       说明
+-c         从顶部刷新屏幕，并显示文件内容，而不是通过底部滚动完成刷新
+-f         强制打开文件，并且二进制文件在显示时不提示警告
+-i         搜索时，忽略大小写，除非搜索串中包含大写字母
+-I         搜索时，忽略大小写，除非搜索串中包含小写字母
+-m         显示读取文件的百分比
+-M         显示读取文件的百分比，行号及总行数
+-N         在每行前输出行号
+-p:pattern 用来搜索指出的字符串。例如，在/etc/passwd目录中搜索字符串userl，就用less -p userl  /etc/passwd,这样该文件中所有的字符串userl将反色显示
+-s         把连续多个空白行作为一个空白行显示
+-Q         在终端下不响铃
+--help     获得在线帮助
+和more命令一样，进入less后可输入相应的动作命令来控制文件的显示范围或者退出less命令。相对more命令，less命令参数相对丰富一些，不仅可以灵活地查看文件的内容，还可以调用vi编辑器对文本进行编辑，具体参数如下
+-h或-H       显示这些命令的帮助信息
+Enter        向下移动一行
+y            向上移动一行
+空格或^V或^F 向下滚动一屏
+b            向上滚动一屏
+d            向下滚动半屏
+h            帮助信息
+u            向上滚动半屏
+w<n>         可以指定从哪行开始显示，即从指定数字的下一行显示，例如，若指定的是6，则从第七行显示
+g            跳到第一行
+G            跳到最后一行
+pn           跳到n%处。例如，n为30，也就是说从整个文件内容的30%处开始显示
+/pattern     搜索指定字符串，例如/root表示在文件中搜索root字符串
+v            调用vi
+q            退出less
+!command     调用shell，可按任意键返回到显示文件的屏幕。例如！Ls显示当前目录下的所有文件。
+
+Tail
+[功能说明]
+#tail和head命令相反，默认显示文件末10行，同样也可以设定显示的行数
+[语法格式]
+Tail[参数][文件名]
+[选项参数]
+参数               说明
+--retry            当执行tail命令时，文件变的不可读，可利用此参数试图打开
+-f或--follwe[{name|descriptor}] 随着文件的增长，显示文件新追加的内容，比如对于查看日志文件的内容，但是日志文件时动态增长的，利用该参数就可以显示改变的文件内容
+-F                 其功能等同于--follow和--retry
+-n<N>或--lines=<N> 显示目标文件的后N行，而不是系统默认的后10行
+-c<N>或--bytes=<N> 显示目标文件的后N行内容
+-<行数>            指定显示文件的末尾行数
++<行数>            从给定的行数进行显示，直到文件的末尾
+/*******************************************************查看文件内容*******************************************************
+
+/***********************************************nc在centos7上的安装和简单使用***********************************************
+yum install nmap-ncat.x86_64
+
+nc -lk 8888
+/***********************************************nc在centos7上的安装和简单使用***********************************************
+
+/****************************************shell 1>&2 2>&1 &>filename重定向的含义和区别****************************************
+0 是一个文件描述符，表示标准输入(stdin)
+1 是一个文件描述符，表示标准输出(stdout)
+2 是一个文件描述符，表示标准错误(stderr)
+
+在标准情况下, 这些FD分别跟如下设备关联:
+stdin(0): keyboard 键盘输入,并返回在前端
+stdout(1): monitor 正确返回值 输出到前端
+stderr(2): monitor 错误返回值 输出到前端
+
+举例说明
+当前目录只有一个文件 a.txt.
+[root@redhat box]# ls
+a.txt
+[root@redhat box]# ls a.txt b.txt
+ls: b.txt: No such file or directory
+a.txt
+由于没有b.txt这个文件, 于是返回错误值, 【ls: b.txt: No such file or directory】就是所谓的2输出
+而【a.txt】这个就是所谓的1输出
+
+再接着看
+[root@redhat box]# ls a.txt b.txt 1>file.out 2>file.err
+执行后,没有任何返回值. 原因是, 返回值都重定向到相应的文件中了,而不再前端显示 
+[root@redhat box]# cat file.out
+a.txt 
+[root@redhat box]# cat file.err
+ls: b.txt: No such file or directory
+一般来说, "1>" 通常可以省略成 ">".
+即可以把如上命令写成: ls a.txt b.txt >file.out 2>file.err
+
+有了这些认识才能理解 "1>&2" 和 "2>&1".
+1>&2 正确返回值传递给2输出通道 &2表示2输出通道
+如果此处错写成 1>2, 就表示把1输出重定向到文件2中.
+2>&1 错误返回值传递给1输出通道, 同样&1表示1输出通道.
+举个例子.
+[root@redhat box]# ls a.txt b.txt 1>file.out 2>&1
+[root@redhat box]# cat file.out
+ls: b.txt: No such file or directory
+a.txt
+现在, 正确的输出和错误的输出都定向到了file.out这个文件中, 而不显示在前端.
+补充下, 输出不只1和2, 还有其他的类型, 这两种只是最常用和最基本的.
+/****************************************shell 1>&2 2>&1 &>filename重定向的含义和区别****************************************
+
+
+
+/*******************************************************linux 文件系统*******************************************************
+Linux启动过程
+
+Linux内核在初始化之后会执行init进程，而init进程会挂载根文件系统，但由于init程序也是在根文件系统上的，所以这就有了悖论。Linux采用两步走的方法来解决这个问题。
+
+Linux2.6版以前的方法是：除了内核vmlinuz之外还有一个独立的initrd.img映像文件，其实它就是一个文件系统映像，linux内核在初始化后会mount             initrd.img作为一个临时的根文件系统（虚拟根文件系统），执行initrd上的特定脚本，待完成后，挂载了真正的根分区，再启动根分区中的 init  进程。负责加载内核访问根文件系统必须的驱动，以及加载根文件系统。这个initrd中的指定脚本通常称为/linuxrc，通过它，可以加载不同设备的驱动或运行其他程序，Live CD 的自动配置和Debian的安装程序都是以initrd来进行工作的。 
+
+linux2.6 内核支持两种格式的 initrd，一种是前面第 3 部分介绍的 linux2.4 内核那种传统格式的文件系统镜像－image-initrd，它的制作方法同 Linux2.4 内核的 initrd 一样，其核心文件就是 /linuxrc。另外一种格式的 initrd 是 cpio 格式的，这种格式的 initrd 从 linux2.5 起开始引入，使用 cpio 工具生成，其核心文件不再是 /linuxrc，而是 /init，本文将这种 initrd 称为 cpio-initrd。尽管 linux2.6 内核对 cpio-initrd和 image-initrd 这两种格式的 initrd 均支持，但对其处理流程有着显著的区别，下面分别介绍 linux2.6 内核对这两种 initrd 的处理流程。
+一、cpio-initrd的处理流程：
+1． boot loader 把内核以及 initrd 文件加载到内存的特定位置。
+2． 内核判断initrd的文件格式，如果是cpio格式。
+3． 将initrd的内容释放到rootfs中。
+4． 执行initrd中的/init文件，执行到这一点，内核的工作全部结束，完全交给/init文件处理。
+二、传统image-initrd的处理流程：
+1． boot loader把内核以及initrd文件加载到内存的特定位置。
+2． 内核判断initrd的文件格式，如果不是cpio格式，将其作为image-initrd处理。
+3． 内核将initrd的内容保存在rootfs下的/initrd.image文件中。
+4． 内核将/initrd.image的内容读入/dev/ram0设备中，也就是读入了一个内存盘中。
+5． 接着内核以可读写的方式把/dev/ram0设备挂载为原始的根文件系统。
+6． 如果/dev/ram0被指定为真正的根文件系统，那么内核跳至最后一步正常启动。
+7． 执行initrd上的/linuxrc文件，linuxrc通常是一个脚本文件，负责加载内核访问根文件系统必须的驱动， 以及加载根文件系统。
+8． /linuxrc执行完毕，常规根文件系统被挂载
+9． 如果常规根文件系统存在/initrd目录，那么/dev/ram0将从/移动到/initrd。否则如果/initrd目录不存在， /dev/ram0将被卸载。
+10． 在常规根文件系统上进行正常启动过程 ，执行/sbin/init。
+
+initrd和initramfs 都是载体，是在内核被引导程序启动之后首先可以访问到的部分，它没有内核那么严格的尺寸限制，可以包含很多在启动过程中可能需要用到的模块，比如硬盘控制器的驱动模块，对于需要引导不同硬件的发布版官方内核尤其有用。并且，它们不是内核的一部分，因此可以完成很多内核不能做的事情，比如内核必须尽量限制自己的行为，过多的功能会引入更多的问题，从而降低内核的代码质量，这样，很多内核被迫放弃的有用功能，如图形化的启动界面（bootsplash）和系统自动配置等都可以放在 initramfs/initrd 中来进行。 
+
+initrd是init ram disk，initramfs是init ram file system，前者把内存模拟成磁盘，后者直接把内存模拟成文件系统
+ramdisk，就是把一块内存（ram）当做磁盘（disk）去挂载，然后找到ram里的init进行执行。
+ramfs，直接在ram上挂载文件系统，执行文件系统中的init。
+
+http://www.infoq.com/cn/articles/how-to-read-linux-file-system-and-directory-structure#
+
+访问原理
+在Windows系统中，一切东西都是存放在硬盘上的。启动系统后，先确定硬盘，再确定硬盘上的分区以及每个分区所对应文件系统，最后是存放在某个分区特定的文件系统中的文件。也就是说，Windows是通过 “某个硬盘-硬盘上的某个分区-分区上的特定文件系统-特定文件系统中的文件” 这样的顺序来访问到一个文件的。
+
+但是与Windows不同,Linux系统中的一切都是存放在唯一的虚拟文件系统中的，这个虚拟文件系统是树状的结构以一个根目录开始。启动系统后，先有这个虚拟文件系统，再识别出各个硬盘，再把某个硬盘的某个分区挂载到这个虚拟文件系统的某个子树上（即分区用某个子目录来表示），再确定分区对应的子目录文件系统，最后的文件就存放在这个特定的文件系统中。也就是说，Linux系统是通过“虚拟文件系统-硬盘-硬盘上的分区-分区上的特定文件系统-特定文件系统中的文件” 这样的顺序来访问一个文件的。
+
+可能对习惯了使用Windows的用户来说，Linux的方式有些不适应，它的虚拟文件系统，实质就是一颗目录树，最开始的目录叫做根目录，根目录中又有每一级子目录，或者文件，子目录又有子子目录和文件，其中每个子目录都特定的功能这个功能
+
+也许有人会问，没有这个虚拟文件系统就无法使用硬盘，可是最开始没有硬盘，那么这个虚拟文件系统以及相应的组织结构是怎么存放起来的呢？这个问题，就像先有鸡还是先有蛋这个问题一样看似简单实则……但是，在 Linux 中，很轻易地跳出了这个思维循环，问题的答案并没在虚拟文件系统和硬盘这两者之间徘徊，而是第三者—— 内存，Linux系统启动起来之后，整个虚拟文件系统的组织结构，都是随着每次内核系统的启动自动在内存中建立好了的，根本就不需要硬盘。
+
+另外还要注意，就是在我们用户的角度上，无论在Windows还是Linux上面，都是使用路径来访问一个文件的。表示文件的路径由 “文件所在的目录+各级目录的分隔符+文件” 三个部分组成，这个策略在两者之间是一样的，所不同的是，Windows下面目录分隔符是\，Linux下面是/，也许这也是两者之间为了表示其各自立场不同的一个原因吧？^_^
+
+系统组织
+
+在Windows系统中，我们可以把文件大体分为两种： 系统文件和用户文件 。一般来说系统文件（例如Windows操作系统本身，一些系统程序，程序运行所需的库文件，以及一些系统配置文件等）存放的默认位置在 C 盘，当然也可以在安装时候指定在其他盘；其它用户文件，包含用户后来安装的程序以及一些数据文件等，用户可以把它们随意存放在任意的分区。
+
+在 Linux 系统中，主要有两个概念： 虚拟文件系统中的文件和 Linux操作系统内核 本身。逻辑上可以认为前者属于上层，后者在下层，前者基于后者，后者依赖前者而存在。 Linux 把除了它本身（ Linux操作系统内核 ）以外的一切事物都看作是在 虚拟文件系统中的文件了。无论是键盘，鼠标，数据，程序，CPU，内存，网卡……无论是硬件、软件、数据还是内存中的东西，我们都可以在 虚拟文件系统中的相应子目录对他们进行访问和操作，操作统一。而实现这些管理的幕后就是 Linux操作系统内核 本身：启动 Linux 系统的时候，首先电脑把 Linux操作系统内核 加载到内存中，内核本身提供了文件管理，设备管理，内存管理，CPU进程调度管理，网络管理等功能，等内核运行起来之后，就在内存中建立起相应的 虚拟文件系统，最后就是内核利用它提供的那些功能，通过管理文件的方式，来管理 虚拟文件系统中的硬件软件等各种资源了。
+
+Linux 把提供操作系统本身功能（管理计算机软硬件资源）的那些部分划给了 Linux操作系统内核 ，使得Linux操作系统内核 成为一个独立的部分，有它自己独立的开源代码；而其它的一切（软件应用，硬件驱动，数据）都根据其特性有自己的开源代码、或者自由地组织并且存放在那个 虚拟文件系统中由 Linux操作系统内核 来管理。这样，将系统本身和系统所管理的资源分开，并开放源代码，有助于对系统或者系统所管理的资源进行灵活的定制和扩展，还能按需快速建立起只适合自己使用的操作系统，也利于操作系统本身的发展。实际 Ubuntu ， Fedora ， RedHat 等各种不同的 Linux 操作系统发行版，简单来说就是不同厂商对其文件系统和内核进行了不同的配置而产生的 “大众化” 的操作系统。相比之下，Windows就显得非常地零乱复杂，将系统、软件、硬件、数据都混在了一起，其不同版本只能由Microsoft 一家公司发行。
+
+举例说明
+
+下面用直观的例子，来说明两者的不同，以加深理解。假设我们的机器上面有一个硬盘，硬盘分为三个区。
+
+在Windows系统中， 我们启动系统之后就会看到 C, D, E, 盘符，它们分别对应硬盘上的三个分区，增加硬盘，或者分区，会导致盘符的增加（注意由于历史原因， A, B 用于表示软驱，硬盘分区盘符从 C 开始按字母递增），这里的每个分区都各自可以被格式化为不同的文件系统（这里的文件系统，包括例如 NTFS 格式， FAT32 格式等)，文件系统的基本功能就是为了存放文件的，不同文件系统区别一般在于管理其中存放的文件的功能的强弱，所以分区被格式化成指定格式的文件系统之后，就可以存放任何文件和目录了，我们看到的 C, D, E 内容也就对应了硬盘中相应分区的数据内容。
+
+但是，与Windows中把硬盘分区看成 C, D, E 盘符不同， Linux 中最开始根本就没有硬盘的概念，就只有一个纯粹的 虚拟文件系统。如果想要使用哪个硬盘的某个分区，就把那个分区 “挂载” 到某个子目录之下，这样硬盘中的分区，文件系统，目录等内容就呈现到了那个子目录里面。也就是说，在 Linux 中，我们使用硬盘中的数据，实际是先把硬盘的某个分区 “挂载” 到某个子目录下，然后通过那个子目录来访问的。这个例子中， 通常硬盘会对应 虚拟文件系统中的/dev/sda （如有多个硬盘，则为 /dev/sda, /dev/sdb, ……， 按字母递增）, 其三个分区对应 /dev/sda1, /dev/sda2,/dev/sda3 （多个分区按数字递增，不同硬盘的分区，对应为 /dev/sdb1, /dev/sdb2 等等）, 默认硬盘各个分区会被挂载到 虚拟文件系统系统中类似 /mnt/sda1/, /mnt/sda2/, /mnt/sda3/ 的目录（在 Linux 又叫挂载点）中，在/etc/fstab 文件中，我们可以找到分区文件和挂载点的对应关系描述。这样，硬盘相应的分区就做为整个 虚拟文件系统根目录下的一颗子树，反映到了子目录（挂载点）上，子目录中的内容就对应分区中的数据。
+
+假设访问上述硬盘第三个分区 dir1 目录中的文件 test.file
+
+Window系统上的路径：E:\dir1\test.file
+Linux系统上的路径：/mnt/sda3/dir1/test.file
+
+再有，假设用户安装和卸载一个程序 firefox ：
+
+Windows系统中
+指定或不指定安装路径类似，程序的安装目录会在 C:\Program Files\Firefox 类似的目录中，或指定的安装路径中； 可执行文件一般在程序的安装路径；依赖的内部库、第三方库、和系统库可能在安装路径中，也可能在C:\Windows\System32, 或 C:\Windows\system 等类似的路径；而程序访问期间的系统和用户配置文件和产生的输入输出文件，可能会在安装路径配置中，或者在 C:\Windows\ 下的某些文件中（比如注册表数据库文件、用户目录等），这就不一定了。而且不同的系统版本，应用程序版本下，这些目录的具体名称和路径可能会有所不同。卸载的时候由于不确定哪些地方安装了什么内容，很容易造成文件删除补全，遗留系统垃圾等现象，造成系统越来越瘫肿。
+
+Linux 系统中
+如果不指定安装路径，所有程序的可执行文件在 /usr/bin 中， 全局配置文件在 /etc/firefox 类似的目录， 用户配置文件一般在用户主目录的 .firefox 的路径下(用户主目录路径名称统一格式为 /home/<username>) ，依赖的内部库和第三方库在 /usr/lib, 系统库在 /lib 下， 数据文件一般就在用户主目录下。 如果指定安装目录，那么所有内部库和可执行程序，全局配置文件，会在 <安装路径> 下的 bin, lib, etc 子目录下，其它文件一般和默认情况相同。卸载程序之时，只需在对应目录中，将可执行文件、内部库、配置文件、数据文件删除即可，基本没有不确定是否遗留垃圾文件的问题。这些都是大多数应用程序安装的和访问的默认策略，就像是不成文的业界标准，不排除有个别程序不安装这种策略部署应用，但是 Linux 用户带来 “麻烦“ 的应用，早晚也会被淘汰，不可能会流行在 Linux 系统中，这样，自然的，好的应用都保存在 Linux 系统中并逐渐流行起来，还不会破坏系统结构。
+
+Linux 上面的虚拟文件系统目录组织(常用的重要目录)
+
+/boot 引导程序，内核等存放的目录
+
+这个目录，包括了在引导过程中所必需的文件，引导程序的相关文件（例如 grub ， lilo 以及相应的配置文件）以及 Linux 操作系统内核相关文件（例如 vmlinuz 等）一般都存放在这里。在最开始的启动阶段，通过引导程序将内核加载到内存，完成内核的启动（这个时候， 虚拟文件系统还不存在，加载的内核虽然是从硬盘读取的，但是没经过 Linux 的 虚拟文件系统，这是比较底层的东西来实现的）。然后内核自己创建好 虚拟文件系统，并且从 虚拟文件系统的其他子目录中（例如 /sbin 和 /etc ）加载需要在开机启动的其他程序或者服务或者特定的动作（部分可以由用户自己在相应的目录中修改相应的文件来配制）。如果我们的机器中包含多个操作系统，那么可以通过修改这个目录中的某个配置文件（例如 grub.conf ）来调整启动的默认操作系统，系统启动的择菜单，以及启动延迟等参数。
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+Linux下没有盘符的概念，而是将各分区通过挂载到目录（挂载点）来访问实际的磁盘分区，有时候我们想知道某个文件或文件夹是在哪个分区上，
+有如下几种方法：
+
+1、最简单的，直接 df  <文件(夹)路径>
+2、用df 或 fdisk -l查看分区挂载情况，直接输入mount或者也可以用cat /etc/mtab，然后pwd找最接近的挂载点信息
+3、cat /proc/partitions
+4、硬盘分区（2种方式）
+  1) fdisk  /dev/sdx
+  2) 可以输入m来看查看各种操作指令，如下：
+     这里介绍几种常见的参数：
+     d     删除分区
+     l     列出分区类型
+     m     列出help
+     n     添加分区
+     p     列出分区
+     q     不保存退出
+     t     改变分区类型
+     w     保存后退出
+  也可是使用parted分区
+  1) parted /dev/sda
+  2) 输入print free查看剩余空间
+  3) 输入p,查看目前的分区情况
+  4) 再输入mkpart开始分区
+  5) Partition name：按顺序即可；File system type：默认；Start：上一个分区的End(单位支持:K,M,G,T)；End：在start的基础上增加这个分区的大小(单位支持:K,M,G,T)
+  6) 再输入p,查看新增分区是否成功
+  7) 然后输入：ll -ls /dev/sda 通过联想功能看新追加的分区是否成功
+  8) 如果需要删除分区则输入：rm
+5、格式化分区（df -T 可以查看已经挂载的分区和文件系统类型。）
+  分区完成后，紧接着就要给每个分区分配一种文件系统，这里介绍较为常见的命令mkfs，命令格式如下：
+  mkfs  [-V]  [-t  fstype]  [-options]  device
+  -V：详细显示模式
+  -t fstype：选择一种文件系统，Linux的预设值为ext2，可以指定为ext2,ext3,ext4,msdos,fat32,vfat等等
+  -options：其他一些参数，
+    如-c表示格式化过程中检查磁盘坏轨情况，-l bad_blocks_file表示将坏轨的block信息添加到bad_blocks_file文件中
+  device：硬盘分区，如/dev/sda1
+  例如：mkfs -t ext4 /dev/sda1
+  例如：mkfs -t xfs /dev/sda1
+  这句命令可写成mkfs.ext4 /dev/sda1或者mkfs.xfs /dev/sda1
+6、挂载文件系统
+  输入:mount /dev/sdb1    /mnt(把sdb1主分区挂载到mnt上)
+  输入:mount /dev/sdb5    /mnt(把sdb5逻辑分区挂载到mnt上)
+
+设置开机自动挂载
+1、分区生成uuid，加入到/etc/fstab中：
+[root@localhost home]# blkid /dev/sda4
+/dev/sda4: UUID="5fb53eeb-e4cb-4283-b8c7-4c0121068a26" TYPE="xfs" PARTUUID="cc8233fc-4e5c-4e4c-89da-85f62e896583"
+[root@localhost home]# blkid /dev/sda5
+/dev/sda5: UUID="4bef8961-c90e-45f0-811d-8fd1e82a5691" TYPE="xfs" PARTUUID="e07d1e26-9373-4ff0-aebc-e5c15a05a3a2"
+2、vi /etc/fstab追加两行
+UUID=5fb53eeb-e4cb-4283-b8c7-4c0121068a26 /home xfs defaults,noatime,nodiratime 1 0
+UUID=4bef8961-c90e-45f0-811d-8fd1e82a5691 /app xfs defaults,noatime,nodiratime 1 0
+3、将/etc/fstab的所有内容重新加载
+mount -a
+
+Linux系统分区的三个简单案例
+一个系统分区通常需要三个分区就可以了。1、一个/boot引导分区进行系统启动的引导操作。2、一个swap虚拟内存交换分区，数值为物理机实际内存的1.5倍，如果物理内存大于16G时，该分区最大设置为16G或者不设置该分区都是没问题的。3、一个/分区也就是根分区。
+给出几个经常使用的系统分区方案供参考：
+案例一：服务器集群架构中的节点服务器
+/boot: 200M。----------------------------引导分区200MB完全够用。
+swap: 物理内存的1.5倍。------------------当内存大于8G时，常配置在8-16G之间，大于16G就太浪费
+/: 剩余硬盘空间大小。----------------------只作为服务节点不再单独分出一个数据分区，将数据放在根分区下可以充分利用资源
+案例二: 存放数据库及存储角色的服务器
+/boot: 200M。 ---------------------------通常都是这个数值。
+/: 50~200G。-----------------------------只存放系统相关文件，网站等业务数据不放在这里。
+swap: 物理内存的1.5倍。---------------当内存大于或等于8G时，配置为8-16G。
+/data: 剩余硬盘空间大小。--------------单独分出一个数据分区便于对数据进行管理操作。
+案例三: 作为大型网站或门户网站的服务器
+/boot: 200M。--------------------------通常都是这个数值。
+/:50~200G。----------------------------只存放系统相关文件，网站等业务数据不放在这里。
+swap: 物理内存的1.5倍。---------------当内存大于或等于8G时，配置为8~16G即可。
+保留剩余的磁盘空间，可根据今后的需求再进行具体分配。
+/*******************************************************linux 文件系统*******************************************************
+
+/*******************************************************linux应用程序******************************************************
+如果说，你是想用yum来安装别的应用程序的话，就使用yum install 软件包名。
+但是，不是每个linux系统操作系统都用yum来管理应用程序。比如ubuntu用的是apt-get，suse用的是zypper. 你如果是想提linux下的问题。最好说明是哪个发行版，然后还有版本号。
+/*******************************************************linux应用程序******************************************************
+
+/*******************************************************curl命令******************************************************
+curl是基于URL语法在命令行方式下工作的文件传输工具，它支持FTP，FTPS，HTTP，HTTPS，GOPHER，TELNET，DICT，FILE及LDAP等协议。curl支持HTTPS认证，并且支持HTTP的POST,PUT等方法，FTP上传，kerberos认证，HTTP上传，代理服务器，cookies，用户名/密码认证，通过http代理服务器上传文件到FTP服务器等等，功能十分强大。
+
+下载单个文件，默认将输出打印到标准输出中(STDOUT)中
+curl http://www.centos.org
+
+通过-o/-O选项保存下载的文件到指定的文件中：
+-o：将文件保存为命令行中指定的文件名的文件中
+-O：使用URL中默认的文件名保存文件到本地（后面的url要具体到某个文件，不然抓不下来。我们还可以用正则来抓取东西）
+# 将文件下载到本地并命名为mygettext.html
+curl -o mygettext.html http://www.gnu.org/software/gettext/manual/gettext.html
+# 将文件保存到本地并命名为gettext.html
+curl -O http://www.gnu.org/software/gettext/manual/gettext.html
+同样可以使用转向字符">"对输出进行转向输出
+
+同时获取多个文件
+curl -O URL1 -O URL2
+若同时从同一站点下载多个文件时，curl会尝试重用链接(connection)。
+
+通过-L选项进行重定向
+默认情况下CURL不会发送HTTP Location headers(重定向).当一个被请求页面移动到另一个站点时，会发送一个HTTP Loaction header作为请求，然后将请求重定向到新的地址上。
+例如：访问google.com时，会自动将地址重定向到google.com.hk上。
+curl http://www.google.com
+<HTML>
+	<HEAD>
+		<meta http-equiv="content-type" content="text/html;charset=utf-8">
+		<TITLE>302 Moved</TITLE>
+	</HEAD>
+	<BODY>
+		<H1>302 Moved</H1>
+		The document has moved
+		<A HREF="http://www.google.com.hk/url?sa=p&amp;hl=zh-CN&amp;pref=hkredirect&amp;pval=yes&amp;q=http://www.google.com.hk/&amp;ust=1379402837567135amp;usg=AFQjCNF3o7umf3jyJpNDPuF7KTibavE4aA">here</A>.
+	</BODY>
+</HTML>
+上述输出说明所请求的档案被转移到了http://www.google.com.hk。
+这是可以通过使用-L选项进行强制重定向
+# 让curl使用地址重定向，此时会查询google.com.hk站点
+curl -L http://www.google.com
+
+-I选项，只获得对方的响应首部信息；-i选项，显示完整的http response的头信息
+
+-v选项，显示一次的http请求的通信过程
+
+模拟POST请求：
+curl -X POST -H "Content-type:application/json" --data '{"Body":{"question":"如何续卡"}}' http://182.180.31.104:8085/inference
+/*******************************************************curl命令******************************************************
+
+/*******************************************在Linux系统下，cat正常，vim打开乱码*******************************************
+解决方法： 
+方法一： 
+在文件中设定
+
+在vim的退出模式下  :set encoding=utf8
+
+方法二： 
+直接写入/etc/vim/vimrc文件,在/etc/vim/vimrc文件末尾加上
+
+set fileencodings=utf-8,ucs-bom,gb18030,gbk,gb2312,cp936
+set termencoding=utf-8
+set encoding=utf-8
+
+【vim知识扩展】 
+一、存在3个变量：
+
+1 encoding----该选项使用于缓冲的文本(你正在编辑的文件)，寄存器，Vim 脚本文件等等。\
+2 这事可以把 'encoding' 选项当作是对 Vim 内部运行机制的设定。
+3 fileencoding----该选项是vim写入文件时采用的编码类型。
+4 termencoding----该选项代表输出到客户终端（Term）采用的编码类型。
+
+二、此3个变量的默认值：
+
+1 encoding----与系统当前locale相同，所以编辑文件的时候要考虑当前locale，否则要设置的东西就比较多了。
+2 fileencoding----vim打开文件时自动辨认其编码，fileencoding就为辨认的值。\
+3 为空则保存文件时采用encoding的编码，如果没有修改encoding，那值就是系统当前locale了。
+4 termencoding----默认空值，也就是输出到终端不进行编码转换。
+/*******************************************在Linux系统下，cat正常，vim打开乱码*******************************************
+
+##########################################################【linux】升级glibc##############################################
+https://blog.csdn.net/levy_cui/article/details/51251095
+http://zrq.org.cn/?p=251
+安装xz
+linux 解压xz包
+1.下载xz包
+http://tukaani.org/xz/xz-4.999.9beta.tar.bz2
+ 
+2.解压安装包
+$tar -jxvf xz-4.999.9beta.tar.bz2
+ 
+3.配置&安装
+$./configure --prefix=/usr/local/xz
+$make
+$sudo make install
+$ln -s /usr/local/xz/bin/xz /bin/xz
+ 
+4.解压xz包
+$xz -d ***.tar.xz
+ 
+5.解压tar包
+$tar -xvf  ***.tar
+
+ImportError: /lib64/libc.so.6: version `GLIBC_2.17' not found
+1) yum install gcc
+2) 升级glibc至2.17
+    wget http://ftp.gnu.org/pub/gnu/glibc/glibc-2.17.tar.xz
+    xz -d glibc-2.17.tar.xz
+	tar -xvf glibc-2.17.tar
+	cd glibc-2.17
+	mkdir build
+	cd build
+	../configure --prefix=/usr --disable-profile --enable-add-ons --with-headers=/usr/include --with-binutils=/usr/bin
+	make && make install
+3) 输入strings /lib64/libc.so.6|grep GLIBC发现已经更新 
+GLIBC_2.2.5
+GLIBC_2.2.6
+GLIBC_2.3
+GLIBC_2.3.2
+GLIBC_2.3.3
+GLIBC_2.3.4
+GLIBC_2.4
+GLIBC_2.5
+GLIBC_2.6
+GLIBC_2.7
+GLIBC_2.8
+GLIBC_2.9
+GLIBC_2.10
+GLIBC_2.11
+GLIBC_2.12
+GLIBC_2.13
+GLIBC_2.14
+GLIBC_2.15
+GLIBC_2.16
+GLIBC_2.17
+GLIBC_PRIVATE
+
+ImportError: /usr/lib64/libstdc++.so.6: version `GLIBCXX_3.4.14' not found
+没有GLIBCXX_3.4.14版本支持，继续安装(注意：libstdc++6_4.7.2-5_amd64.deb这是64位，libstdc++6_4.7.2-5_i386.deb这个是32位)
+1) wget http://ftp.de.debian.org/debian/pool/main/g/gcc-4.7/libstdc++6_4.7.2-5_amd64.deb
+2) ar -x libstdc++6_4.7.2-5_amd64.deb && tar xvf data.tar.gz
+3) cd /apps/usr/lib/x86_64-linux-gnu （进入解压文件的目录中，我这里是下/apps目录下解压的）
+4) ll 
+    lrwxrwxrwx 1 root root     19 Mar 24 23:01 libstdc++.so.6 -> libstdc++.so.6.0.17
+    -rw-r--r-- 1 root root 991600 Jan  6  2013 libstdc++.so.6.0.17
+5) find / -name libstdc++.so.6
+    /usr/lib64/libstdc++.so.6
+    /apps/usr/lib/x86_64-linux-gnu/libstdc++.so.6
+6) mv /usr/lib64/libstdc++.so.6 /usr/lib64/libstdc++.so.6.bak
+7) cp /apps/usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.17 /usr/lib64/
+9) cd /usr/lib64/
+    chmod +x libstdc++.so.6.0.17
+	ln -s libstdc++.so.6.0.17 libstdc++.so.6
+10) strings /usr/lib64/libstdc++.so.6 | grep GLIBCXX
+GLIBCXX_3.4
+GLIBCXX_3.4.1
+GLIBCXX_3.4.2
+GLIBCXX_3.4.3
+GLIBCXX_3.4.4
+GLIBCXX_3.4.5
+GLIBCXX_3.4.6
+GLIBCXX_3.4.7
+GLIBCXX_3.4.8
+GLIBCXX_3.4.9
+GLIBCXX_3.4.10
+GLIBCXX_3.4.11
+GLIBCXX_3.4.12
+GLIBCXX_3.4.13
+GLIBCXX_3.4.14
+GLIBCXX_3.4.15
+GLIBCXX_3.4.16
+GLIBCXX_3.4.17
+GLIBCXX_DEBUG_MESSAGE_LENGTH
+
+ImportError: /usr/lib/libstdc++.so.6: version `GLIBCXX_3.4.20′ not found
+1) wget http://ftp.de.debian.org/debian/pool/main/g/gcc-4.9/libstdc++6_4.9.2-10_amd64.deb
+2) ar -x libstdc++6_4.9.2-10_amd64.deb && tar xvf data.tar.xz
+3) cd /apps/usr/lib/x86_64-linux-gnu （进入解压文件的目录中，我这里是下/apps目录下解压的）
+4) cp /apps/usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.20 /usr/lib64/
+5) rm libstdc++.so.6 （删除原来的链接）
+6) ln -s libstdc++.so.6.0.20 libstdc++.so.6
+7) strings /usr/lib64/libstdc++.so.6 | grep GLIBCXX
+GLIBCXX_3.4
+GLIBCXX_3.4.1
+GLIBCXX_3.4.2
+GLIBCXX_3.4.3
+GLIBCXX_3.4.4
+GLIBCXX_3.4.5
+GLIBCXX_3.4.6
+GLIBCXX_3.4.7
+GLIBCXX_3.4.8
+GLIBCXX_3.4.9
+GLIBCXX_3.4.10
+GLIBCXX_3.4.11
+GLIBCXX_3.4.12
+GLIBCXX_3.4.13
+GLIBCXX_3.4.14
+GLIBCXX_3.4.15
+GLIBCXX_3.4.16
+GLIBCXX_3.4.17
+GLIBCXX_3.4.18
+GLIBCXX_3.4.19
+GLIBCXX_3.4.20
+GLIBCXX_FORCE_NEW
+GLIBCXX_DEBUG_MESSAGE_LENGTH
+
+cd /home/tensorflow-models/chinese-ocr
+/usr/local/python2/bin/python2.7 demo.py
+
+opencv
+/usr/local/python2/bin/pip install opencv-python
+如报错：ImportError: libSM.so.6: cannot open shared object file: No such file or directory
+报错原因： 缺少共享库
+使用如下命令查看缺少得共享库
+yum whatprovides libSM.so.6
+[root@host chinese-ocr]# yum whatprovides libSM.so.6
+Loaded plugins: fastestmirror
+Loading mirror speeds from cached hostfile
+ * base: mirrors.vpsie.com
+ * elrepo-kernel: repos.lax-noc.com
+ * extras: repos.lax.quadranet.com
+ * updates: mirror.pac-12.org
+libSM-1.2.1-2.el6.i686 : X.Org X11 SM runtime library
+Repo        : base
+Matched from:
+Other       : libSM.so.6
+使用以下命令解决：
+yum install libSM-1.2.1-2.el6.i686 --setopt=protected_multilib=false
+yum install libSM-1.2.1-2.el6.x86_64 --setopt=protected_multilib=false
+
+如果报错
+ImportError: libXrender.so.1: cannot open shared object file: No such file or directory
+报错原因： 缺少共享库
+使用如下命令查看缺少得共享库
+yum whatprovides libXrender.so.1
+[root@host chinese-ocr]# yum whatprovides libXrender.so.1
+Loaded plugins: fastestmirror
+Loading mirror speeds from cached hostfile
+ * base: mirrors.vpsie.com
+ * elrepo-kernel: repos.lax-noc.com
+ * extras: repos.lax.quadranet.com
+ * updates: mirror.pac-12.org
+libXrender-0.9.10-1.el6.i686 : X.Org X11 libXrender runtime library
+Repo        : base
+Matched from:
+Other       : libXrender.so.1
+libXrender-0.9.10-1.el6.i686 : X.Org X11 libXrender runtime library
+Repo        : installed
+Matched from:
+Other       : Provides-match: libXrender.so.1
+使用以下命令解决：
+yum install libXrender-0.9.10-1.el6.i686 --setopt=protected_multilib=false
+yum install libXrender-0.9.10-1.el6.x86_64 --setopt=protected_multilib=false
+
+如果报错
+ImportError: libXext.so.6: cannot open shared object file: No such file or directory
+报错原因： 缺少共享库
+使用如下命令查看缺少得共享库
+yum whatprovides libXext.so.6
+[root@host chinese-ocr]# yum whatprovides libXext.so.6
+Loaded plugins: fastestmirror
+Loading mirror speeds from cached hostfile
+ * base: mirrors.vpsie.com
+ * elrepo-kernel: repos.lax-noc.com
+ * extras: repos.lax.quadranet.com
+ * updates: mirror.pac-12.org
+libXext-1.3.3-1.el6.i686 : X.Org X11 libXext runtime library
+Repo        : base
+Matched from:
+Other       : libXext.so.6
+使用以下命令解决：
+yum install libXext-1.3.3-1.el6.i686 --setopt=protected_multilib=false
+yum install libXext-1.3.3-1.el6.x86_64 --setopt=protected_multilib=false
+
+ImportError: No module named PIL
+/usr/local/python2/bin/pip install pillow
+
+ImportError: No module named keras.layers
+/usr/local/python2/bin/pip install keras
+
+ImportError: No module named torch
+http://pytorch.org/
+##########################################################【linux】升级glibc##############################################
+
+##########################################################【linux】升级glibc##############################################
+shell常见通配符
+字符 	含义 	实例
+* 	匹配 0 或多个字符 	a*b  a与b之间可以有任意长度的任意字符, 也可以一个也没有, 如aabcb, axyzb, a012b, ab。
+? 	匹配任意一个字符 	a?b  a与b之间必须也只能有一个字符, 可以是任意字符, 如aab, abb, acb, a0b。
+[list]  	匹配 list 中的任意单一字符 	a[xyz]b a与b之间必须也只能有一个字符, 但只能是 x 或 y 或 z, 如: axb, ayb, azb。
+[!list]  	匹配 除list 中的任意单一字符 	a[!0-9]b  a与b之间必须也只能有一个字符, 但不能是阿拉伯数字, 如axb, aab, a-b。
+[c1-c2] 	匹配 c1-c2 中的任意单一字符 如：[0-9] [a-z] 	a[0-9]b  0与9之间必须也只能有一个字符 如a0b, a1b... a9b。
+{string1,string2,...} 	匹配 sring1 或 string2 (或更多)其一字符串 	a{abc,xyz,123}b    a与b之间只能是abc或xyz或123这三个字符串之一。
+shell元字符（特殊字符 Meta）
+shell 除了有通配符之外，由shell 负责预先先解析后，将处理结果传给命令行之外，shell还有一系列自己的其他特殊字符。
+字符 	说明
+IFS 	由 <space> 或 <tab> 或 <enter> 三者之一组成(我们常用 space )。
+CR 	    由 <enter> 产生。
+= 	    设定变量。
+$ 	    作变量或运算替换(请不要与 shell prompt 搞混了)。
+> 	    重导向 stdout。 *
+< 	    重导向 stdin。 *
+| 	    命令管线。 *
+& 	    重导向 file descriptor ，或将命令置于背境执行。 *
+( ) 	将其内的命令置于 nested subshell 执行，或用于运算或命令替换。 *
+{ } 	将其内的命令置于 non-named function 中执行，或用在变量替换的界定范围。
+; 	    在前一个命令结束时，而忽略其返回值，继续执行下一个命令。 *
+&& 	    在前一个命令结束时，若返回值为 true，继续执行下一个命令。 *
+|| 	    在前一个命令结束时，若返回值为 false，继续执行下一个命令。 *
+! 	    执行 history 列表中的命令。*
+
+shell转义符
+有时候，我们想让通配符，或者元字符变成普通字符，不需要使用它。那么这里我们就需要用到转义符了。 shell提供转义符有三种。
+字符 	    说明
+‘’(单引号) 	又叫硬转义，其内部所有的shell 元字符、通配符都会被关掉。注意，硬转义中不允许出现’(单引号)。
+“”(双引号) 	又叫软转义，其内部只允许出现特定的shell 元字符：$用于参数代换 `用于命令代替
+\(反斜杠) 	又叫转义，去除其后紧跟的元字符或通配符的特殊意义。
+
+实例:
+
+[chengmo@localhost ~/shell]$ls \*.txt
+ls: 无法访问 *.txt: 没有那个文件或目录
+[chengmo@localhost ~/shell]$ls '*.txt'
+ls: 无法访问 *.txt: 没有那个文件或目录
+[chengmo@localhost ~/shell]$ls 'a.txt'
+a.txt
+[chengmo@localhost ~/shell]$ls *.txt
+a.txt  b.txt
+可以看到，加入了转义符 “*”已经失去了通配符意义了
+
+例如： name= hello
+       echo "$name"
+       输出:hello
+	   
+       name=hello
+       echo '$name'
+       输出:$name
+
+但是如果是正则表达式中的转义字符使用单引号或者双引号是不行的，比如 grep "1*" test
+这里会搜索1,11,111等模式串，如果要想搜索模式串为1*的行，则需要如下 grep "1\*" test
+这里才是搜索模式串1*
+
+linux 中grep匹配制表符和换行符的命令
+[root@dhcp-9-79 ~]# ls
+anaconda-ks.cfg log.txt mno.txt original-ks.cfg
+[root@dhcp-9-79 ~]# cat log.txt 
+  ok
+[root@dhcp-9-79 ~]# grep $'\n' log.txt 
+  ok
+[root@dhcp-9-79 ~]# grep $'\t' log.txt 
+  ok
+##########################################################【linux】升级glibc##############################################
+
+##############################################################【linux】网络####################################################
+Linux系统中可以使用netstat -tlnp命令查看端口号占用情况
+netstat命令的4个选项t、l、n、p分别表示查看tcp协议、查看监听服务、不解析名称以及显示进程名和PID。
+
+lsof -i:$PORT查看应用该端口的程序（$PORT指对应的端口号）。或者你也可以查看文件/etc/services，从里面可以找出端口所对应的服务。
+
+centos7查看防火墙状态
+systemctl status firewalld.service
+
+开放本机的web服务（80）
+iptables -I INPUT -p tcp --dport 80 -j ACCEPT
+
+开放本机的web服务（80）、FTP(20、21、20450-20480)，放行外部主机发往服务器其它端口的应答数据包，将其他入站数据包均予以丢弃处理。
+iptables -I INPUT -p tcp -m multiport --dport 20,21,80 -j ACCEPT 
+iptables -I INPUT -p tcp --dport 20450:20480 -j ACCEPT 
+
+上述操作只是临时生效并没有保存，系统重启或iptables服务重启后会恢复原来的规则，如需保存到防火墙规则中，则执行以下命令：
+service iptables save
+执行这个命令的时候有时候可能会报错：The service command supports only basic LSB actions (start, stop, restart, try-restart, reload, force-reload, status). For other actions, please try to use systemctl.
+这是因为没有安装iptables服务，直接使用yum安装iptables服务即可.
+yum install iptables-services
+安装完成后，重新执行 service iptables save 命令即可保存成功。
+保存后重启依然没有生效，需要设置iptables开机自启才可使配置生效。
+执行如下命令（老版本命令为：service iptables on），设置iptables开机自启
+systemctl enable iptables.service
+
+netstat命令是一个监控TCP/IP网络的非常有用的工具，它可以显示路由表、实际的网络连接以及每一个网络接口设备的状态信息。
+-a或--all：显示所有连线中的Socket（所有状态）； 
+-A<网络类型>或--<网络类型>：列出该网络类型连线中的相关地址； 
+-c或--continuous：持续列出网络状态； 
+-C或--cache：显示路由器配置的快取信息； 
+-e或--extend：显示网络其他相关信息； 
+-F或--fib：显示FIB； 
+-g或--groups：显示多重广播功能群组组员名单； 
+-h或--help：在线帮助； 
+-i或--interfaces：显示网络界面信息表单； 
+-l或--listening：显示监控中的服务器的Socket； 
+-M或--masquerade：显示伪装的网络连线； 
+-n或--numeric：直接使用ip地址，而不通过域名服务器； 
+-N或--netlink或--symbolic：显示网络硬件外围设备的符号连接名称； 
+-o或--timers：显示计时器； 
+-p或--programs：显示正在使用Socket的程序识别码和程序名称； 
+-r或--route：显示Routing Table； 
+-s或--statistice：显示网络工作信息统计表； 
+-t或--tcp：显示TCP传输协议的连线状况； 
+-u或--udp：显示UDP传输协议的连线状况； 
+-v或--verbose：显示指令执行过程； 
+-V或--version：显示版本信息； 
+-w或--raw：显示RAW传输协议的连线状况； 
+-x或--unix：此参数的效果和指定"-A unix"参数相同； 
+--ip或--inet：此参数的效果和指定"-A inet"参数相同。
+
+netstat -nat|grep -i "80"|wc -l
+netstat -an会打印系统当前网络链接状态，而grep -i "80"是用来提取与80端口有关的连接的，wc -l进行连接数统计。最终返回的数字就是当前所有80端口的请求总数。
+watch -n 1 -d 'netstat -an | grep "21" | wc -l'
+
+ss简介
+ss是Socker-Statistics的缩写，是一款非常适用、快速、跟踪显示的网络套接字的新工具。它和netstat显示的内容类似，但它比netstat更加强大。当服务器的socket连接数量变得非常大时，无论是使用netstat命令还是直接cat/proc/net/tcp，执行速度都会很慢。而用ss可以快速、有效的执行并得到结果。ss利用到了TCP协议栈中tcp_diag。tcp_diag是一个用于分析统计的模块，可以获得Linux内核中第一手的信息，这就确保了ss的快捷高效。当然，如果你的系统中没有tcp_diag，ss也可以正常运行，只是效率会变得稍慢。
+
+yum install iproute iproute-doc
+
+语法格式
+ss [OPTION]... [FILTER]
+
+常用选项
+-t: tcp协议相关；
+-u: udp协议相关；
+-w: 裸套接字相关；
+-x： unix sock相关；
+-l: listen状态的连接；
+-a: 显示所有sockets信息；
+-n: 数字格式；
+-p: 相关的程序及PID；
+-e: 扩展的信息；
+-m：内存用量；
+-o：计时器信息；
+-s：显示当前sockets的统计信息的摘要；
+-i：显示系统内部tcp连接；
+-r：解析主机名；
+-4：仅显示IPv4的sockets连接；
+-6：仅显示IPv6的sockets连接；
+
+常用选项示例
+[root@CentOS7.3 ~]#ss -an               #列出所有的sockets连接。   
+[root@CentOS7.3 ~]#ss -tnl              #列出和tcp相关的sockets连接。
+[root@CentOS7.3 ~]#ss -unl              #列出和udp相关的sockets连接。
+
+匹配过滤本机ip地址和端口
+[root@centos7.3 ~]#ss src :22               #匹配本机端口为22的连接
+Netid State      Recv-Q Send-Q  Local Address:Port                   Peer Address:Port                
+tcp   ESTAB      0      0      192.168.xxx.xxx:ssh                   192.168.166.1:63892                
+tcp   ESTAB      0      52     192.168.xxx.xxx:ssh                   192.168.166.1:63076  
+[root@centos7.3 ~]#ss src :ssh              #匹配所有ssh协议的连接
+Netid State      Recv-Q Send-Q  Local Address:Port                   Peer Address:Port                
+tcp   ESTAB      0      0      192.168.166.137:ssh                   192.168.166.1:63892                
+tcp   ESTAB      0      52     192.168.166.137:ssh                   192.168.166.1:63076                
+[root@centos7.4-1 ~]#ss src 192.168.1.2:ssh     #匹配单个IP地址的ssh协议连接
+Netid State      Recv-Q Send-Q  Local Address:Port                   Peer Address:Port                
+tcp   ESTAB      0      0      192.168.166.137:ssh                   192.168.166.1:63892                
+tcp   ESTAB      0      52     192.168.166.137:ssh                   192.168.166.1:63076 
+
+匹配过滤远程ip地址和端口
+[root@centos7.4-1 ~]#ss dst 119.75.213.61           #匹配单个远程IP的所有连接
+Netid State      Recv-Q Send-Q  Local Address:Port                   Peer Address:Port                
+tcp   ESTAB      0      0        192.168.0.25:59484                 119.75.213.61:http                 
+[root@centos7.4-1 ~]#ss dst 119.75.213.61:80        #只匹配单个IP地址的80端口
+Netid State      Recv-Q Send-Q  Local Address:Port                   Peer Address:Port                
+tcp   ESTAB      0      0        192.168.0.25:59484                 119.75.213.61:http
+
+将本地或者远程端口和一个数比较
+[root@centos7.3 ~]# ss  sport = :http 
+[root@centos7.3 ~]# ss  dport = :http 
+[root@centos7.3 ~]# ss  dport \> :1024 
+[root@centos7.3 ~]# ss  sport \> :1024 
+[root@centos7.3 ~]# ss sport \< :32000 
+[root@centos7.3 ~]# ss  sport eq :22 
+[root@centos7.3 ~]# ss  dport != :22 
+
+使用state 过滤sockets信息
+显示所有状态为established的http连接
+[root@CentOS7.3 ~]#ss -o state established '( dport = :smtp or sport = :http )' 
+Netid Recv-Q Send-Q       Local Address:Port                        Peer Address:Port 
+显示处于 FIN-WAIT-1状态的源端口为 80或者 443，目标网络为 192.168.1/24所有 tcp套接字
+ss -o state fin-wait-1 '( sport = :http or sport = :https )' dst 192.168.1/24
+使用tcp连接的状态进行过滤
+ss -4 state FILTER-NAME-HERE
+ss -6 state FILTER-NAME-HERE
+FILTER-NAME-HERE 可用状态：
+established
+syn-sent
+syn-recv
+fin-wait-1
+fin-wait-2
+time-wait
+closed
+close-wait
+last-ack
+closing
+all             #所有以上状态。
+connected       #除了listen and closed的所有状态。
+synchronized    #所有已连接的状态除了syn-sent。
+bucket          #显示状态为maintained as minisockets,如：time-wait和syn-recv。
+big             #和bucket相反。
+[root@CentOS7.3 ~]#ss -4 state closed
+Netid Recv-Q Send-Q       Local Address:Port                        Peer Address:Port                
+udp   0      0                        *:mdns                                   *:*                    
+udp   0      0                        *:25506                                  *:*                    
+udp   0      0            192.168.xxx.1:domain                                 *:*                    
+udp   0      0                 *%virbr0:bootps                                 *:*                    
+udp   0      0                        *:bootpc                                 *:*                    
+udp   0      0                        *:53379                                  *:*
+
+注意：
+如果不添加选项 ss 命令默认输出所有建立的连接(不包含监听的端口)，包括 tcp, udp, and unix socket 三种类型的连接：
+显示一个所有的有效连接信息列表，包括已建立的连接（ESTABLISHED），也包括监听连接请求（LISTENING）的那些连接。
+LISTEN和LISTENING的状态只有用 -a 或者 -l 才能看到
+显示所有已建立的有效连接。命令：netstat -n、或者ss -n（-n,--numeric 不解析服务名称，ss -t和ss -nt显示的结果应该完全一致：）
+ss -t：解析服务名称：显示的结果中以【IP:服务名】的形式展示；
+ss -nt：不解析服务名称：显示的结果中以【IP:Port】的形式展示；
+显示所有已建立的所有连接。命令：netstat -a、或者ss -a
+参数组合说明：
+显示当前TCP连接状况。命令：netstat -nt、或者ss -nt
+列出所有TCP端口。命令：netstat -at、或者ss -at
+-t、-u显示的是已建立的TCP或者UDP连接（即State为ESTAB的连接）
+
+
+linux查看某一个进程的socket连接数
+ls /proc/18709/fd -l | grep socket: | wc -l     18709是进程ID
+
+linux中， 每一个进程在内核中，都对应有一个“打开文件”数组，存放指向文件对象的指针，而 fd是这个数组的下标。我们对文件进行操作时，系统调用，将fd传入内核，内核通过fd找到文件，对文件进行操作。
+既然是数组下标，fd的类型为int， < 0 为非法值， >=0 为合法值。
+在linux中，一个进程默认可以打开的文件数为1024个，fd的范围为0~1023。可以通过设置，改变最大值。在linux中，值为0、1、2的fd，分别代表标准输入、标准输出、标准错误输出。在上一篇文章中，使用重定向 2>/dev/null 就是把标准错误输出重定向到位桶中去，不显示出来。因为 0 1 2已经被linux使用了，通常在程序中打开的fd，是从3开始的。但我们在判断一个fd是否合法时，依然要使用>=0的判断标准。fd的分配原则，是从小到大，找到第一个不用的进行分配。除了open之外， socket编程的socket()/accept()等函数，也会返回一个fd值。
+    1）Linux系统下，所有进程允许打开的最大fd数量。查询语句：
+        /proc/sys/fs/file-max
+    2）Linux系统下，所有进程已经打开的fd数量及允许的最大数量。查询语句：
+        /proc/sys/fs/file-nr
+    3）单个进程允许打开的最大fd数量.查询语句：
+        ulimit -n
+    4)单个进程（例如进程id为5454）已经打开的fd.查询语句：
+        ls -l /proc/5454/fd/
+Linux的文件机制就相当于面向对象里面的多态，拿到一个文件描述符都可以进行read或者write。但是具体的read和write却跟对应文件描述符的具体实现不同。比如socket的就是走网络，普通文件的就是走磁盘IO。
+##############################################################【linux】网络####################################################
+
+##############################################################【linux】lsof####################################################
+lsof（list open files）是一个列出当前系统打开文件的工具。在linux环境下，任何事物都以文件的形式存在，通过文件不仅仅可以访问常规数据，还可以访问网络连接和硬件,所以如传输控制协议(TCP)和用户数据报协议(UDP)套接字等，系统在后台都为该应用程序分配了一个文件描述符，无论这个文件的本质如何，该文件描述符为应用程序与基础操作系统之间的交互提供了通用接口。因为应用程序打开文件的描述符列表提供了大量关于这个应用程序本身的信息，因此通过lsof工具能够查看这个列表对系统监测以及排错将是很有帮助的。
+
+1．命令格式：
+lsof [参数][文件]
+
+2．命令功能：
+用于查看你进程开打的文件，打开文件的进程，进程打开的端口(TCP、UDP)。找回/恢复删除的文件。是十分方便的系统监视工具，因为 lsof 需要访问核心内存和各种文件，所以需要root用户执行。
+lsof打开的文件可以是：
+1.普通文件
+2.目录
+3.网络文件系统的文件
+4.字符或设备文件
+5.(函数)共享库
+6.管道，命名管道
+7.符号链接
+8.网络文件（例如：NFS file、网络socket，unix域名socket）
+9.还有其它类型的文件，等等
+3．命令参数：
+-a 列出打开文件存在的进程
+-c<进程名> 列出指定进程所打开的文件
+-g  列出GID号进程详情
+-d<文件号> 列出占用该文件号的进程
++d<目录>  列出目录下被打开的文件
++D<目录>  递归列出目录下被打开的文件
+-n<目录>  列出使用NFS的文件
+-i<条件>  列出符合条件的进程。（4、6、协议、:端口、 @ip ）
+-p<进程号> 列出指定进程号所打开的文件
+-u  列出UID号进程详情
+-h 显示帮助信息
+-v 显示版本信息
+##############################################################【linux】lsof####################################################
+
+######################################################【linux】大文件切割命令split############################################
+按照行数分割，如下：
+split -l 10000 test.txt test
+会在test.txt当前目录下生成以test前缀的一系列文件
+按照字节数分割，如下：
+split -b 100m test.txt test
+如果要切割文件指定命名，参考如下：
+split -l 2000 test.txt -d -a 2 lim_
+-l：按行分割，上面表示将urls.txt文件按2000行一个文件分割为多个文件
+-d：添加数字后缀，如00、01、02
+-a 2：表示用两位数据来顺序命名
+lim_：用来定义分割后的文件名前面的部分。
+######################################################【linux】大文件切割命令split############################################
+
+######################################################【linux】vmstat############################################
+1.说明
+vmstat命令是最常见的Linux/Unix监控工具，属于sysstat包。可以展现给定时间间隔的服务器的状态值,包括服务器的CPU使用率，内存使用，虚拟内存交换情况,IO读写情况。这个命令是我查看Linux/Unix最喜爱的命令，一个是Linux/Unix都支持，二是相比top，我可以看到整个机器的CPU,内存,IO的使用情况，而不是单单看到各个进程的CPU使用率和内存使用率(使用场景不一样)。
+2.安装
+yum install -y sysstat
+
+一般vmstat工具的使用是通过两个数字参数来完成的，第一个参数是采样的时间间隔数，单位是秒，第二个参数是采样的次数，如:
+root@local:~# vmstat 2 1
+procs -----------memory---------- ---swap-- -----io---- -system-- ----cpu----
+ r  b   swpd   free   buff  cache   si   so    bi    bo   in   cs us sy id wa
+ 1  0      0 3498472 315836 3819540    0    0     0     1    2    0  0  0 100  0
+2表示每个两秒采集一次服务器状态，1表示只采集一次。
+
+实际上，在应用过程中，我们会在一段时间内一直监控，不想监控直接结束vmstat就行了,例如:
+root@local:~# vmstat 2  
+procs -----------memory---------- ---swap-- -----io---- -system-- ----cpu----
+ r  b   swpd   free   buff  cache   si   so    bi    bo   in   cs us sy id wa
+ 1  0      0 3499840 315836 3819660    0    0     0     1    2    0  0  0 100  0
+ 0  0      0 3499584 315836 3819660    0    0     0     0   88  158  0  0 100  0
+ 0  0      0 3499708 315836 3819660    0    0     0     2   86  162  0  0 100  0
+ 0  0      0 3499708 315836 3819660    0    0     0    10   81  151  0  0 100  0
+ 1  0      0 3499732 315836 3819660    0    0     0     2   83  154  0  0 100  0
+这表示vmstat每2秒采集数据，一直采集，直到我结束程序，这里采集了5次数据我就结束了程序。
+
+3.字段含义说明：
+Procs（进程）
+r:等待执行的任务数
+展示了正在执行和等待cpu资源的任务个数。当这个值超过了cpu个数，就会出现cpu瓶颈。
+b:等待IO的进程数量
+Memory(内存)
+swpd:正在使用虚拟的内存大小，单位k
+free:空闲内存大小
+如free的值很低，基于接近于0，也不一定就是系统内存已经耗尽，还需要结合buffer和cache的使用量，如果buffer和cache占用了很多内存资源，则代表没有问题，说明系统把空闲的内存都用于缓存，反而是提升了I/O性能，当系统需要内存时，buffer和cache可以随时被回收回来。
+buff:已用的buff大小，对块设备的读写进行缓冲
+cache:已用的cache大小，文件系统的cache
+如果cache的值比较大，则说明系统缓存了比较多的磁盘数据，有利于磁盘I/O性能的提升，此时，bi会相对较小，因为很多读写磁盘的操作都由cache来承担了。
+inact:非活跃内存大小，即被标明可回收的内存，区别于free和active（当使用-a选项时显示）
+active:活跃的内存大小（当使用-a选项时显示）
+Swap
+si:每秒从交换区写入内存的大小（单位：kb/s）
+so:每秒从内存写到交换区的大小
+si和so则代表读写SWAP的数量，这两个值如果长期大于0，则表示系统需要经常读写交换分区，这样会消耗CPU资源和磁盘I/O性能。如能确定物理内存存在瓶颈，则需要进行扩容或迁移了。
+IO
+bi:每秒读取的块数（读磁盘）
+bo:每秒写入的块数（写磁盘）
+如果bi和bo值很大，则说明系统正在进行大量的磁盘读写操作。如果是用户正在进行的操作，则没有问题，否则需要进行排查哪个设备或分区在进行大量读写操作。
+system
+in:每秒中断数，包括时钟中断
+cs:每秒上下文切换数
+这两个值越大，会看到由内核消耗的cpu时间sy会越。
+秒上下文切换次数：例如我们调用系统函数，就要进行上下文切换，线程的切换，也要进程上下文切换，这个值要越小越好，太大了，要考虑调低线程或者进程的数目
+CPU（以百分比表示）
+us:用户进程执行消耗cpu时间(user time)
+sy:系统进程消耗cpu时间(system time)
+Id:空闲时间(包括IO等待时间)一般来说 us+sy+id=100
+wa:等待IO时间
+us的值比较高时，说明用户进程消耗的cpu时间多，但是如果长期超过50%的使用，那么我们就该考虑优化程序算法或其他措施了
+sys的值过高时，说明系统内核消耗的cpu资源多，这个不是良性的表现，我们应该检查原因。这里us + sy的参考值为80%，如果us+sy 大于 80%说明可能存在CPU不足
+wa过高时，说明io等待比较严重，这可能是由于磁盘大量随机访问造成的，也有可能是磁盘的带宽出现瓶颈。
+
+在Linux系统中，为了提高文件系统性能，内核利用一部分物理内存分配出缓冲区，用于缓存系统操作和数据文件，当内核收到读写的请求时，内核先去缓存区找是否有请求的数据，有就直接返回，如果没有则通过驱动程序直接操作磁盘。
+缓存机制优点：减少系统调用次数，降低CPU上下文切换和磁盘访问频率。
+CPU上下文切换：CPU给每个进程一定的服务时间，当时间片用完后，内核从正在运行的进程中收回处理器，同时把进程当前运行状态保存下来，然后加载下一个任务，这个过程叫做上下文切换。实质上就是被终止运行进程与待运行进程的进程切换。
+Swap用途：Swap意思是交换分区，通常我们说的虚拟内存，是从硬盘中划分出的一个分区。当物理内存不够用的时候，内核就会释放缓存区（buffers/cache）里一些长时间不用的程序，然后将这些程序临时放到Swap中，也就是说如果物理内存和缓存区内存不够用的时候，才会用到Swap。
+
+buffers和cached解释
+cached是cpu与内存间的，buffer是内存与磁盘间的；两者都是RAM中的数据，buffer是即将要被写入磁盘的，而cache是被从磁盘中读出来的。
+缓存（cached）是把读取过的数据保存起来，重新读取时若命中（找到需要的数据）就不要去读硬盘了，若没有命中就读硬盘。其中的数据会根据读取频率进行组织，把最频繁读取的内容放在最容易找到的位置，把不再读的内容不断往后排，直至从中删除
+缓冲（buffers）是根据磁盘的读写设计的，把分散的写操作集中进行，减少磁盘碎片和硬盘的反复寻道，从而提高系统性能。linux有一个守护进程定期 清空缓冲内容（即写入磁盘），也可以通过sync命令手动清空缓冲。
+
+Cache（缓存），为了调高CPU和内存之间数据交换而设计，Buffer（缓冲）为了提高内存和硬盘（或其他I/O设备的数据交换而设计）。
+CPU ---> Cache ---> 内存 ---> Buffer ---> 硬盘
+Cache：缓冲区，高速缓存，是位于CPU与主内存间的一种容量较小但速度很高的存储器。由于CPU的速度远高于主内存，CPU直接从内存中存取数据要等待一定时间周期，Cache中保存着CPU刚用过或循环使用的一部分数据，当CPU再次使用该部分数据时可从Cache中直接调用,这样就减少了CPU的等待时间,提高了系统的效率。Cache又分为一级Cache(L1 Cache)和二级Cache(L2 Cache)，L1 Cache集成在CPU内部，L2 Cache早期一般是焊在主板上,现在也都集成在CPU内部，常见的容量有256KB或512KB L2 Cache。它是根据程序的局部性原理而设计的，就是cpu执行的指令和访问的数据往往在集中的某一块，所以把这块内容放入cache后，cpu就不用在访问内存了，这就提高了访问速度。当然若cache中没有cpu所需要的内容，还是要访问内存的。从内存读取与磁盘读取角度考虑，cache可以理解为操作系统为了更高的读取效率，更多的使用内存来缓存可能被再次访问的数据。Cache并不是缓存文件的，而是缓存块的(块是I/O读写最小的单元)；Cache一般会用在I/O请求上，如果多个进程要访问某个文件，可以把此文件读入Cache中，这样下一个进程获取CPU控制权并访问此文件直接从Cache读取，提高系统性能。
+Buffer：缓冲区，一个用于存储速度不同步的设备或优先级不同的设备之间传输数据的区域。通过buffer可以减少进程间通信需要等待的时间，当存储速度快的设备与存储速度慢的设备进行通信时，存储慢的数据先把数据存放到buffer，达到一定程度存储快的设备再读取buffer的数据，在此期间存储快的设备CPU可以干其他的事情。Buffer：一般是用在写入磁盘的，例如：某个进程要求多个字段被读入，当所有要求的字段被读入之前已经读入的字段会先放到buffer中。Buffer是根据磁盘的读写设计的，把分散的写操作集中进行，减少磁盘碎片和硬盘的反复寻道，从而提高系统性能。linux有一个守护进程定期清空缓冲内容（即写入磁盘），也可以通过sync命令手动清空缓冲。
+cache是高速缓存，用于CPU和内存之间的缓冲；
+buffer是I/O缓存，用于内存和硬盘的缓冲
+######################################################【linux】vmstat############################################
+
+######################################################【linux】tmpfs############################################
+linux下面VM的大小由RM(Real Memory)和swap组成,RM的大小就是物理内存的大小，而Swap的大小是由你自己决定的。
+swap空间是由磁盘空间转换成虚拟内存空间的，
+tmpfs是由虚拟内存空间转换成文件系统使用的，正如这个定义它最大的特点就是它的存储空间在VM里面，所以tmpfs最大的存储空间可达（The size of RM + The size of Swap）
+默认的Linux发行版中的内核配置都会开启tmpfs，映射到了/dev/下的shm目录。可以通过df命令查看结果。/dev/shm/是linux下一个非常有用的目录，因为这个目录不在硬盘上，而是在内存里。
+tmpfs有以下特点：
+1。动态文件系统的大小，/dev/shm/需要注意的一个是容量问题，在linux下，它默认最大为内存的一半大小，使用df -h命令可以看到。但它并不会真正的占用这块内存，如果/dev/shm/下没有任何文件，它占用的内存实际上就是0字节；如果它最大为1G，里头放有 100M文件，那剩余的900M仍然可为其它应用程序所使用，但它所占用的100M内存，是绝不会被系统回收重新划分的
+2。tmpfs 的另一个主要的好处是它闪电般的速度。因为典型的 tmpfs 文件系统会完全驻留在RAM中，读写几乎可以是瞬间的。
+3。tmpfs 数据在重新启动之后不会保留，因为虚拟内存本质上就是易失的。所以有必要做一些脚本做诸如加载，绑定的操作。
+
+总结：
+看出来/dev/shm是一个设备文件, 可以把/dev/shm看作是系统内存的入口, 可以把它看做是一块物理存储设备，一个tmp filesystem, 你可以通过这个设备向内存中读写文件, 以加快某些I/O高的操作，比如对一个大型文件频繁的open, write, read，
+据说oracle就利用了/dev/shm(shitou没用过oracle), 可以通过mount命令列出当前的/dev/shm的挂载的文件系统,
+你可以直接对/dev/shm进行读写操作, 例如:
+#touch /dev/shm/file1
+既然是基于内存的文件系统，系统重启后/dev/shm下的文件就不存在了。Linux默认(CentOS)/dev/shm分区的大小是系统物理内存的50%, 虽说使用/dev/shm对文件操作的效率会高很多。但是目前各发行软件中却很少有使用它的(除了前面提到的Oracle), 可以通过ls /dev/shm查看下面是否有文件, 如果没有就说明当前系统并没有使用该设备。
+######################################################【linux】tmpfs############################################
+
+######################################################【linux】lvm############################################
+一、基础概念
+使用df -hl命令看到/dev/mapper/vg_*-lv_*这样的一些挂载点映射，
+LVM是Logical Volume Manager(逻辑卷管理)的简写，是Linux环境下对磁盘分区进行管理的一种机制度，LVM将一个或多个硬盘的分区在逻辑上集合，相当于一个大硬盘来使 用，当硬盘的空间不够使用的时候，可以继续将其它的硬盘的分区加入其中，这样可以实现磁盘空间的动态管理，相对于普通的磁盘分区有很大的灵活性。
+在使用LVM对磁盘进行动态管理以后，我们是以逻辑卷的方式呈现给上层的服务的,完整过程是：磁盘物理分区-物理卷-卷组-逻辑卷-挂载到目录
+物理拓展(Physical Extend，PE)：卷的最小单位，可配置，默认4M大小，就像我们的数据是以页的形式存储一样，类比为raid的chunk，文件系统的block，卷就是以PE的形式存储。
+物理卷（Physical Volume,PV）：物理卷，如果要使用逻辑卷，首先第一步操作就是将磁盘格式化成PV，从上图可以看出PV是保护PE的，PV内PE的数量取决于这块磁盘的容量/4M。
+卷组（Volume Group,VG）：VG就是将很多PE组合在一起生成一个卷组，当然PE是可以跨磁盘的，如果当前服务器磁盘空间不足就可以增加一个新磁盘对当前系统不会产生任何影响。
+      1、可动态扩展或缩减VG中PV的数量
+      2、类似于扩展分区，不能直接格式化使用
+      3、PE只有在VG创建后才会出现在PV中，其大小由创建时指定。默认为4M
+逻辑卷（Logical Volume,LV）：逻辑卷最终是给用户使用的，前面几个都是为创建逻辑卷做的准备，创建逻辑卷的大小只要不超过VG剩余空间就可以。
+    　1、可动态扩展或缩减LV的大小，或 LV中PE的数量，即可跨越多个PV。
+    　2、可以直接格式化并挂载使用。
+      3、LE只有在LV创建后才会出现在VG中，其大小由创建时指定。默认为1280
+
+二、创建LVM
+2.1 pv管理（物理卷管理）
+pvcreate    # 创建pv
+pvscan      # 扫描并列出所有的pv
+pvs         # 显示与pvscan相似
+pvdisplay   # 列出pv属性信息
+pvremove    # 移除pv
+pvmove      # 移除pv中的数据
+pvcreate  /dev/sdc1 /dev/sdd1  /dev/sdb1  /dev/sdc2  -y  # 对已经划分好的几块分区创建pv；-y选项用于自动回答yes
+  Wiping ext4 signature on /dev/sdc1.
+  Physical volume "/dev/sdc1" successfully created.
+  Physical volume "/dev/sdd1" successfully created.
+  Physical volume "/dev/sdb1" successfully created.
+  Physical volume "/dev/sdc2" successfully created.
+
+pvscan  # 扫描并列出所有的pv
+  PV /dev/sdc2                      lvm2 [10.00 GiB]
+  PV /dev/sdd1                      lvm2 [15.00 GiB]
+  PV /dev/sdb1                      lvm2 [15.00 GiB]
+  PV /dev/sdc1                      lvm2 [15.00 GiB]
+  Total: 4 [55.00 GiB] / in use: 0 [0   ] / in no VG: 4 [55.00 GiB]   # 
+
+pvs   
+  PV         VG Fmt  Attr PSize  PFree 
+  /dev/sdb1     lvm2 ---  15.00g 15.00g
+  /dev/sdc1     lvm2 ---  15.00g 15.00g
+  /dev/sdc2     lvm2 ---  10.00g 10.00g
+  /dev/sdd1     lvm2 ---  15.00g 15.00g
+
+pvdisplay /dev/sdb1  # pvdisplay 可以列出更详细的pv信息
+  "/dev/sdb1" is a new physical volume of "15.00 GiB"
+  --- NEW Physical volume ---
+  PV Name               /dev/sdb1
+  VG Name               
+  PV Size               15.00 GiB
+  Allocatable           NO
+  PE Size               0   
+  Total PE              0
+  Free PE               0
+  Allocated PE          0
+  PV UUID               OBSoTj-YcyL-XPGh-wsTt-9zcj-qXSp-YC9YZY
+
+2.2 管理vg
+vgcreate       # 创建VG
+vgscan         # 扫描并列出所有的vg
+vgdisplay      # 列出vg属性信息
+vgremove       # 移除vg，即删除vg
+vgreduce       # 从vg中移除pv，vg减小
+vgextend       # 将pv添加到vg中,vg扩容
+vgchange       # 修改vg属性，
+
+vgcreate -s 6M  vggroup  /dev/sdb1 /dev/sdc1 /dev/sdc2 /dev/sdd1   # -s设定pe大小，默认为4M；vggroup为设置的vg名称；后边跟的4个文件为要创建vg的组员
+  Volume group "vggroup" successfully created  
+
+[root@CentOS7 ~]#vgscan 
+  Reading volume groups from cache.
+  Found volume group "vggroup" using metadata type lvm2
+
+[root@CentOS7 ~]#vgdisplay 
+  --- Volume group ---
+  VG Name               vggroup
+  System ID             
+  Format                lvm2   # 格式分为lvm1 和lvm2
+  Metadata Areas        4
+  Metadata Sequence No  1
+  VG Access             read/write
+  VG Status             resizable
+  MAX LV                0
+  Cur LV                0
+  Open LV               0
+  Max PV                0
+  Cur PV                4
+  Act PV                4
+  VG Size               <54.98 GiB
+  PE Size               6.00 MiB
+  Total PE              9383
+  Alloc PE / Size       0 / 0   
+  Free  PE / Size       9383 / <54.98 GiB
+  VG UUID               flmx2S-0LT9-hgCZ-HcfL-TT6n-jkna-jSIWbp
+
+[root@CentOS7 ~]#vgreduce vggroup  /dev/sdd1
+  Removed "/dev/sdd1" from volume group "vggroup"
+
+[root@CentOS7 ~]#vgdisplay 
+  --- Volume group ---
+  VG Name               vggroup
+  System ID             
+  Format                lvm2
+  Metadata Areas        3
+  Metadata Sequence No  2
+  VG Access             read/write
+  VG Status             resizable
+  MAX LV                0
+  Cur LV                0
+  Open LV               0
+  Max PV                0
+  Cur PV                3
+  Act PV                3
+  VG Size               39.98 GiB
+  PE Size               6.00 MiB
+  Total PE              6824
+  Alloc PE / Size       0 / 0   
+  Free  PE / Size       6824 / 39.98 GiB
+  VG UUID               flmx2S-0LT9-hgCZ-HcfL-TT6n-jkna-jSIWbp
+
+# 可见，减掉sdd1后vg里的数量变为3，容量也减少了；
+[root@CentOS7 ~]#vgextend vggroup  /dev/sdd1  # 在vggroup中再添加一块pv；
+  Volume group "vggroup" successfully extended
+
+vgchange用于设置卷组的活动状态，卷组的激活状态主要影响的是lv。使用-a选项来设置。
+vgchange -a  y  vggroup  # 将vggroup设置为活动状态(active yes)
+vgchange -a  y  vggroup  # 将vggroup设置为非激活状态(active no)
+
+2.3 管理lv
+lvcreate   # 创建lv
+lvscan     # 扫描并列出所有的lv
+lvdisplay  # 列出lv属性信息
+lvremove   # 移除lv，即删除lv
+lvreduce(lvresize)  # 缩小lv容量
+lvextend(lvresize)  # 增大lv容量
+lvresize   # 改变lv容量
+
+格式：lvcreate {-L size(M/G)  |  -l PEnum}  -n  lv_name  vg_name
+选项说明：
+-L：根据大小来创建lv，即分配多大空间给此lv
+-l：根据PE的数量来创建lv，即分配多少个pe给此lv
+-n：指定lv的名称
+示例：
+[root@CentOS7 ~]#lvcreate -L 20G -n lv1 vggroup   
+  Rounding up size to full physical extent 20.00 GiB
+  Logical volume "lv1" created.
+
+[root@CentOS7 ~]#lvscan 
+  ACTIVE            '/dev/vggroup/lv1' [20.00 GiB] inherit
+
+[root@CentOS7 ~]#lvdisplay   # 一般后边跟lv1的绝对流经，/dev/vggroup/lv1
+  --- Logical volume ---
+  LV Path                /dev/vggroup/lv1
+  LV Name                lv1
+  VG Name                vggroup
+  LV UUID                4Wnt9z-T8OP-cJL3-ViL8-QIAE-2vMC-UzNaOf
+  LV Write Access        read/write
+  LV Creation host, time CentOS7.songtai, 2018-12-19 18:41:23 +0800
+  LV Status              available
+  # open                 0
+  LV Size                20.00 GiB
+  Current LE             3414
+  Segments               2
+  Allocation             inherit
+  Read ahead sectors     auto
+  - currently set to     8192
+  Block device           253:0
+ 
+注意：创建lv后，将在/dev/vggroup目录中创建对应lv名称的软链接文件，同时也在/dev/mapper目录下创建链接文件，它们都指向/dev/dm设备。
+[root@CentOS7 ~]#ll /dev/vggroup/lv1  /dev/mapper/vggroup-lv1 
+lrwxrwxrwx. 1 root root 7 Dec 19 18:41 /dev/mapper/vggroup-lv1 -> ../dm-0
+lrwxrwxrwx. 1 root root 7 Dec 19 18:41 /dev/vggroup/lv1 -> ../dm-0
+
+[root@CentOS7 ~]#ll -d /dev/dm-0 
+brw-rw----. 1 root disk 253, 0 Dec 19 18:41 /dev/dm-0
+
+2.4 格式化lv；挂载
+mke2fs -t ext4 /dev/vggroup/lv1 
+mount /dev/vggroup/lv1   /data/lvmnt/       # 也可以
+mount /dev/mapper/vggroup-lv1  /data/lvmnt
+
+三、扩容lvm
+在对LV(逻辑卷)进行容量扩充之前先查看VG（卷组）中剩余空间有多少，扩充的大小不能超过VG剩余的空间大小；即使vg中没有空余的空间，也可以往vg中添加pv来扩容。
+扩容的两个关键步骤如下：
+(1).使用lvextend或者lvresize添加更多的pe或容量到lv中
+(2).使用resize2fs命令(xfs则使用xfs_growfs)将lv增加后的容量增加到对应的文件系统中(此过程是修改文件系统而非LVM内容)
+注意：扩容前须将挂载的逻辑卷卸载再进行扩容！
+扩容前先看看还有多少空心啊的pe可以扩充：
+vgdisplay    # 查看有多少空闲空间或空闲pe
+vgdisplay | grep  -i pe    # 精确查找
+  PE Size               4.00 MiB
+  Total PE              15364
+  Alloc PE / Size       6400 / 25.00 GiB
+  Free  PE / Size       8964 / 35.02 GiB                            # 还有8964个pe，35.02G的空间未使用
+lvextend  -L +10g  /dev/vg1/lv1    #  按大小扩容10G
+lvextend  -l +2500  /dev/vg1/lv1   # 按pe数量扩容2500个pe
+lvresize  -L +10G /dev/vg1/lv1 
+lvreduce  -L -10G /dev/vg1/lv1      # 缩小容量
+lvresize  -L -10G /dev/vg1/lv1
+
+将扩容好的lv重新挂载后，df -h 发现容量并未变化，还需要resize2fs工具来改变ext文件系统的大小.(xfs_growfs)
+resize2fs  /dev/vg1/lv1 
+df -h
+Filesystem           Size  Used Avail Use% Mounted on
+/dev/sda2             48G  4.9G   41G  11% /
+/dev/sda1            976M   40M  886M   5% /boot
+/dev/sda3             29G  113M   28G   1% /data
+/dev/mapper/vg1-lv1   34G   48M   32G   1% /data/lvmnt    # 总容量已变化
+
+实验：不卸载直接扩容全部剩余空间
+lvresize  -l  +100%FREE  /dev/vg1/lv1  # 将vg1剩余的全部pe扩容至lv1
+vgdisplay  | grep -i pe
+  Open LV               1
+  PE Size               4.00 MiB
+  Total PE              15364
+  Alloc PE / Size       15364 / 60.02 GiB
+  Free  PE / Size       0 / 0                    # 已全部扩容，无空闲空间
+resize2fs  /dev/vg1/lv1 
+df -h
+Filesystem           Size  Used Avail Use% Mounted on
+/dev/sda2             48G  4.9G   41G  11% /
+/dev/sda1            976M   40M  886M   5% /boot
+/dev/sda3             29G  113M   28G   1% /data
+/dev/mapper/vg1-lv1   59G   52M   56G   1% /data/lvmnt    # 在未卸载逻辑卷的情况下，resize2fs这个命令也成功了
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+创建：pv
+pvcreate /dev/sda4 /dev/sdb1
+将pv添加到vg中，vg扩容
+vgextend cl /dev/sda4 /dev/sdb1
+
+增大lv容量
+lvextend /dev/cl/root -L 500G
+将lv增加后的容量增加到对应的文件系统中
+xfs_growfs /dev/mapper/cl-root
+
+lvextend  /dev/vg0/lv_root -L 200G /dev/sda3
+resize2fs /dev/mapper/vg0-lv_root (xfs则使用xfs_growfs)
+lvextend  /dev/vg0/lv_var -L 500G /dev/sda3
+resize2fs /dev/mapper/vg0-lv_var  (xfs则使用xfs_growfs)
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+四、缩减lvm
+与扩容的步骤相反，我们倒着来一步一步操作，先卸载挂载点，具体全部操作如下：
+umount  /data/lvmnt   # 卸载挂载点
+[root@CentOS6 ~]#resize2fs   /dev/vg1/lv1  45G  # 现将文件系统直接缩减至45G，但提示要先e2fsck 检查
+resize2fs 1.41.12 (17-May-2010)
+Please run 'e2fsck -f /dev/vg1/lv1' first.               # 提示 先运行 'e2fsck -f /dev/vg1/lv1'  保障数据安全完整
+[root@CentOS6 ~]#e2fsck -f /dev/vg1/lv1        
+e2fsck 1.41.12 (17-May-2010)
+Pass 1: Checking inodes, blocks, and sizes
+Pass 2: Checking directory structure
+Pass 3: Checking directory connectivity
+Pass 4: Checking reference counts
+Pass 5: Checking group summary information
+/dev/vg1/lv1: 11/3940352 files (0.0% non-contiguous), 293333/15732736 blocks
+resize2fs   /dev/vg1/lv1  45G      
+resize2fs 1.41.12 (17-May-2010)
+Resizing the filesystem on /dev/vg1/lv1 to 11796480 (4k) blocks.
+The filesystem on /dev/vg1/lv1 is now 11796480 blocks long.        # 成功将lvm的文件系统的容量缩减至45G
+lvresize -L 45G /dev/vg1/lv1           # 将lv的容量缩减至45G
+  WARNING: Reducing active logical volume to 45.00 GiB.
+  THIS MAY DESTROY YOUR DATA (filesystem etc.)
+Do you really want to reduce vg1/lv1? [y/n]: y
+  Size of logical volume vg1/lv1 changed from 60.02 GiB (15364 extents) to 45.00 GiB (11520 extents).
+  Logical volume lv1 successfully resized.                                # 会有提示减少lvm容量会摧毁数据，y 同意缩减。
+
+此时已经成功将lvm由60G缩减至45G ，至于减少的这15G是属于哪块设备的，我们通过检查pv来判断，毕竟PE --> PV --> VG --> LV ,哪些PE空闲直接查看PV即可。
+[root@CentOS6 ~]#pvdisplay 
+  --- Physical volume ---
+  PV Name               /dev/sdd1
+  VG Name               vg1
+  PV Size               15.01 GiB / not usable 2.83 MiB
+  Allocatable           yes 
+  PE Size               4.00 MiB
+  Total PE              3841
+  Free PE               3
+  Allocated PE          3838
+  PV UUID               7xbtSO-sJ5P-F8h3-xPcd-FT5d-D9Zt-bHGp34
+  --- Physical volume ---
+  PV Name               /dev/sde1
+  VG Name               vg1
+  PV Size               15.01 GiB / not usable 2.83 MiB
+  Allocatable           yes 
+  PE Size               4.00 MiB
+  Total PE              3841
+  Free PE               3841
+  Allocated PE          0
+  PV UUID               bZsiMZ-ZhbM-szh1-EDBZ-YyOP-xfQX-S12UDH
+# 可见 dev/sde1这块设备是完全空闲的,sdd1上空闲3个PE
+补充：如果lvm有dev/sd{a,b,c,d,e}5块磁盘组成，我们在缩减容量是要指定空出sdb磁盘，怎么操作？
+上面的操作完成后，已经空出了一块sde，那么我们只需将sdb中的数据（即PE）全部挪进sde即可，操作如下
+pvdisplay   /dev/sdb           # 可见全部的PE都占用了
+ PV Name               /dev/sdb1
+  VG Name               vg1
+  PV Size               15.01 GiB / not usable 2.83 MiB
+  Allocatable           yes (but full)
+  PE Size               4.00 MiB
+  Total PE              3841
+  Free PE               0
+  Allocated PE          3841
+  PV UUID               mdC964-Odex-JZKg-AiV0-4l2u-I3e4-ixWvtR
+pvmove  /dev/sdb1:0-3841   /dev/sde     # 将/dev/sdb上0-3841编号的PE全部移动到/dev/sde
+然后，再将这个空出的pv从vg中移出，最后再移出该pv即可，操作如下：
+vgreduce  vg1 /dev/sde1   # 从vg1 中移出/dev/sde1;注意不是vgremove，该命令是删除vg的。
+pvremove  /dev/sde1  # 移出该pv
+pvdisplay   # 列表中已经没有了/dev/sde1
+######################################################【linux】lvm############################################
+
+######################################################【linux】DNS############################################
+bind-utils是bind软件提供的一组DNS工具包，里面有一些DNS相关的工具。主要：dig，host，nslookup，nsupdate。使用这些工具可以进行域名解析和DNS调试工作。
+yum install -y bind-utils
+######################################################【linux】DNS############################################
+
+######################################################【linux】性能监控工具############################################
+sysstat提供了Linux性能监控的工具集，包括sar、sadf、mpstat、iostat、pidstat等，这些工具可以监控系统性能和使用情况
+yum install -y sysstat
+######################################################【linux】性能监控工具############################################
+
+######################################################【linux】sysctl命令############################################
+Linux系统中sysctl命令详解
+sysctl命令用于运行时配置内核参数，这些参数位于/proc/sys目录下。sysctl配置与显示在/proc/sys目录中的内核参数．可以用sysctl来设置或重新设置联网功能，如IP转发、IP碎片去除以及源路由检查等。用户只需要编辑/etc/sysctl.conf文件，即可手工或自动执行由sysctl控制的功能。
+
+命令格式：
+sysctl [-n] [-e] -w variable=value
+sysctl [-n] [-e] -p <filename> (default /etc/sysctl.conf)
+sysctl [-n] [-e] -a
+
+常用参数的意义：
+-w   临时改变某个指定参数的值，如
+	sysctl -w net.ipv4.ip_forward=1
+-a   显示所有的系统参数
+-p   从指定的文件加载系统参数，如不指定即从/etc/sysctl.conf中加载
+
+如果仅仅是想临时改变某个系统参数的值，可以用两种方法来实现,例如想启用IP路由转发功能：
+1) #echo 1 > /proc/sys/net/ipv4/ip_forward
+2) #sysctl -w net.ipv4.ip_forward=1
+以上两种方法都可能立即开启路由功能，但如果系统重启，或执行了 service network restart命令，所设置的值即会丢失，
+
+如果想永久保留配置，可以修改/etc/sysctl.conf文件
+ 将 net.ipv4.ip_forward=0改为net.ipv4.ip_forward=1 
+ #重新加载系统参数
+ sysctl -p  
+######################################################【linux】sysctl命令############################################
+
+####################################################【linux】CPU频率控制####################################################
+Linux内部共有五种对频率的管理策略userspace，conservative，ondemand，powersave和performance。
+1)performance：CPU会固定工作在其支持的最高运行频率上；
+2)powersave：CPU会固定工作在其支持的最低运行频率上。因此这两种governors都属于静态governor，即在使用它们时CPU的运行频率不会根据系统运行时负载的变化动态作出调整。这两种governors对应的是两种极端的应用场景，使用performancegovernor体现的是对系统高性能的最大追求，而使用powersavegovernor则是对系统低功耗的最大追求。
+3)Userspace：最早的cpufreq子系统通过userspacegovernor为用户提供了这种灵活性。系统将变频策略的决策权交给了用户态应用程序，并提供了相应的接口供用户态应用程序调节CPU运行频率使用。（可以使用Dominik等人开发了cpufrequtils工具包）
+4)ondemand：userspace是内核态的检测，效率低。而ondemand正是人们长期以来希望看到的一个完全在内核态下工作并且能够以更加细粒度的时间间隔对系统负载情况进行采样分析的governor。
+5)conservative：ondemandgovernor的最初实现是在可选的频率范围内调低至下一个可用频率。这种降频策略的主导思想是尽量减小对系统性能的负面影响，从而不会使得系统性能在短时间内迅速降低以影响用户体验。但是在ondemandgovernor的这种最初实现版本在社区发布后，大量用户的使用结果表明这种担心实际上是多余的，ondemandgovernor在降频时对于目标频率的选择完全可以更加激进。因此最新的ondemandgovernor在降频时会在所有可选频率中一次性选择出可以保证CPU工作在80%以上负荷的频率，当然如果没有任何一个可选频率满足要求的话则会选择CPU支持的最低运行频率。大量用户的测试结果表明这种新的算法可以在不影响系统性能的前提下做到更高效的节能。在算法改进后，ondemandgovernor的名字并没有改变，而ondemandgovernor最初的实现也保存了下来，并且由于其算法的保守性而得名conservative。Ondemand降频更加激进，conservative降频比较缓慢保守，事实使用ondemand的效果也是比较好的。
+
+查看所有cpu的频率管理策略
+cpupower -c all  frequency-info
+
+设置所有cpu的频率管理策略为performance模式
+cpupower -c all frequency-set -g performance
+禁用所有空闲状态，其延迟等于或等于<LATENCY>（因为此处的LATENCY为0，所以CPU会一直处于performance状态）
+cpupower idle-set -D 0
+
+查看运行的cpu的主频
+cat /proc/cupinfo | grep MHz
+####################################################【linux】CPU频率控制####################################################
+
+####################################################【linux】超线程####################################################
+linux查看是否开启超线程
+在linux系统中，我们不能直接查看到是否开启了超线程，但是可以通过几个相关参数来判断。他们分别是，物理CPU数，每个CPU的逻辑核数，CPU线程数。
+物理CPU数
+$ cat /proc/cpuinfo | grep "physical id" | sort | uniq
+physical id : 0
+physical id : 1
+以上输出信息，代表当前的机器拥有两个物理CPU
+单个CPU的逻辑核心数量
+$ cat /proc/cpuinfo | fgrep "cores" | uniq
+cpu cores       : 6
+以上输出信息，代表当前机器的每个CPU拥有6个逻辑核心，如果物理CPU的逻辑核心数量不同，则会显示多行
+系统CPU线程数
+$ cat /proc/cpuinfo | grep "processor" | wc -l
+12
+以上输出信息，代表当前机器拥有12个CPU线程
+通过综合以上信息，可以发现，这台机器拥有2和物理CPU，每个CPU有6个逻辑核心，系统一共拥有12个CPU线程。显然没有开启超线程
+####################################################【linux】超线程####################################################
+
+###############################################【linux】通过PID查看进程完整信息###############################################
+通过ps及top命令查看进程信息时，只能查到相对路径，查不到的进程的详细信息，如绝对路径等。
+这时，我们需要通过以下的方法来查看进程的详细信息：
+Linux在启动一个进程时，系统会在/proc下创建一个以PID命名的文件夹，在该文件夹下会有我们的进程的信息，其中包括一个名为exe的文件即记录了绝对路径，通过ll或ls –l命令即可查看。
+ll /proc/PID
+cwd符号链接的是进程运行目录；
+exe符号连接就是执行程序的绝对路径；
+cmdline就是程序运行时输入的命令行命令；
+environ记录了进程运行时的环境变量；
+fd目录下是进程打开或使用的文件的符号连接。
+###############################################【linux】通过PID查看进程完整信息###############################################
+
+
+###############################################【linux】yum本地源创建###############################################
+1) 修改/etc/yum.conf文件，将keepcache设置为1 (修改完之后通过yum install安装的rpm包将放在yum.conf文件中cachedir指向的目录)
+2) yum install createrepo (createrepo 命令用于创建yum源（软件仓库），即为存放于本地特定位置的众多rpm包建立索引，描述各包所需依赖信息，并形成元数据。)
+3) 将cachedir目录下，base和updates目录下packages里面的rpm包统一复制至指定文件夹
+查找并删除*.so文件
+find . -name "*.so" | xargs rm
+查找并拷贝*.so文件
+find . -name "*.so" | xargs -i cp {} ./tmp/
+拷贝当前目录下所有*.so文件到./tmp/下
+ls *.so | xargs -i cp {} ./tmp/
+4) 通过：createrepo /rpm依赖包集合创建索引
+
+显示历史版本
+yum --showduplicates list nfs-utils
+
+非root用户使用docker
+https://yeasy.gitbooks.io/docker_practice/install/fedora.html
+
+https://docs.docker.com/install/linux/docker-ce/centos/
+yum install -y yum-utils device-mapper-persistent-data lvm2
+yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+yum-config-manager --enable docker-ce-nightly
+yum-config-manager --enable docker-ce-test
+Install the latest version of Docker Engine - Community and containerd, or go to the next step to install a specific version:
+yum install docker-ce docker-ce-cli containerd.io
+
+To install a specific version of Docker Engine - Community, list the available versions in the repo, then select and install:
+a. List and sort the versions available in your repo. This example sorts results by version number, highest to lowest, and is truncated:
+$ yum list docker-ce --showduplicates | sort -r
+
+docker-ce.x86_64  3:18.09.1-3.el7                     docker-ce-stable
+docker-ce.x86_64  3:18.09.0-3.el7                     docker-ce-stable
+docker-ce.x86_64  18.06.1.ce-3.el7                    docker-ce-stable
+docker-ce.x86_64  18.06.0.ce-3.el7                    docker-ce-stable
+
+$ yum list docker-ce-cli --showduplicates | sort -r
+
+The list returned depends on which repositories are enabled, and is specific to your version of CentOS (indicated by the .el7 suffix in this example).
+b. Install a specific version by its fully qualified package name, which is the package name (docker-ce) plus the version string (2nd column) starting at the first colon (:), up to the first hyphen, separated by a hyphen (-). For example, docker-ce-18.09.1.
+$ sudo yum install docker-ce-<VERSION_STRING> docker-ce-cli-<VERSION_STRING> containerd.io
+$ sudo yum install docker-ce-18.09.0 docker-ce-cli-18.09.6 containerd.io-1.2.5
+Docker is installed but not started. The docker group is created, but no users are added to the group.
+
+https://github.com/NVIDIA/nvidia-docker
+https://github.com/NVIDIA/nvidia-docker/wiki/Installation-(version-2.0)
+distribution=$(. /etc/os-release;echo $ID$VERSION_ID)
+curl -s -L https://nvidia.github.io/nvidia-docker/$distribution/nvidia-docker.repo | sudo tee /etc/yum.repos.d/nvidia-docker.repo
+
+# Install nvidia-docker2 and reload the Docker daemon configuration
+yum install -y nvidia-docker2
+pkill -SIGHUP dockerd
+
+Older versions of Docker
+You must pin the versions of both nvidia-docker2 and nvidia-container-runtime when installing, for instance:
+sudo apt-get install -y nvidia-docker2=2.0.1+docker1.12.6-1 nvidia-container-runtime=1.1.0+docker1.12.6-1
+Use apt-cache madison nvidia-docker2 nvidia-container-runtime or yum search --showduplicates nvidia-docker2 nvidia-container-runtime to list the available versions.
+yum install nvidia-docker2-2.0.3-1.docker18.09.0.ce.noarch nvidia-container-runtime-2.0.0-1.docker18.09.0.x86_64
+
+[root@aistation003 ~]# rpm -qa | grep nvidia-docker2
+nvidia-docker2-2.0.3-1.docker18.09.0.ce.noarch
+[root@aistation003 ~]# rpm -qa | grep nvidia-container-runtime
+nvidia-container-runtime-hook-1.4.0-2.x86_64
+nvidia-container-runtime-2.0.0-1.docker18.09.0.x86_64
+
+
+nvidia-cuda镜像
+https://gitlab.com/nvidia/container-images/cuda/tree/master/dist/centos7/10.1
+
+docker build -t cuda:10.1.243 -f /home/10.1/base/Dockerfile /home/10.1/base/
+docker build -t cuda_nvml:10.1.243 -f /home/10.1/devel/Dockerfile /home/10.1/devel/
+docker build -t cuda:10.1.243-devel-centos7 -f /home/10.1/devel/cudnn7/Dockerfile /home/10.1/devel/cudnn7
+
+注意在nvidia-cuda镜像制作过程中设置了如下一些链接和环境变量
+ENV CUDA_VERSION 10.1.243
+ENV CUDA_PKG_VERSION 10-1-$CUDA_VERSION-1
+ln -s cuda-10.1 /usr/local/cuda
+# nvidia-docker 1.0
+RUN echo "/usr/local/nvidia/lib" >> /etc/ld.so.conf.d/nvidia.conf && \
+    echo "/usr/local/nvidia/lib64" >> /etc/ld.so.conf.d/nvidia.conf
+ENV PATH /usr/local/nvidia/bin:/usr/local/cuda/bin:${PATH}
+ENV LD_LIBRARY_PATH /usr/local/nvidia/lib:/usr/local/nvidia/lib64
+# nvidia-container-runtime
+ENV NVIDIA_VISIBLE_DEVICES all
+ENV NVIDIA_DRIVER_CAPABILITIES compute,utility
+ENV NVIDIA_REQUIRE_CUDA "cuda>=10.1 brand=tesla,driver>=384,driver<385 brand=tesla,driver>=396,driver<397 brand=tesla,driver>=410,driver<411"
+ENV LIBRARY_PATH /usr/local/cuda/lib64/stubs
+ENV CUDNN_VERSION 7.6.4.38
+###############################################【linux】yum本地源创建###############################################
+
+###############################################【linux】xargs###############################################
+find ./source_folder / -name '*.txt' | xargs -i cp {} ./res_folder/
+###############################################【linux】xargs###############################################
+
+linux使用vi中文乱码的解决办法 在~/.vimrc文件中添加如下两行即：
+set encoding=utf-8
+set fileencoding=utf-8
+/etc/vim/vimrc
+/usr/share/vim/vimrc
+
+/bin/bash^M: 坏的解释器: 没有那个文件或目录
+执行shell脚本是报错：/bin/bash^M: 坏的解释器: 没有那个文件或目录
+是因为该文件在windows系统上打开过，关闭后其中的空格符号和Linux的不同，导致这个报错，我们可以通过sed命令与正则的配合将文件中的空格符号替换成linux的空格：
+sed -i 's/\r$//' mocha.sh
+
+在CentOS的最小化安装中，默认是不会安装lspci工具的，需要自己手动安装。
+安装步骤：1、yum  whatprovides lspci /*查找lspci是通过哪个安装包来提供的
+          2、yum install pciutils
+完成安装！

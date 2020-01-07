@@ -86,6 +86,18 @@ objects 标识的区域为 Git 的对象库，实际位于 ".git/objects" 目录
 当执行 "git checkout HEAD ." 或者 "git checkout HEAD <file>" 命令时，会用 HEAD 指向的 master 分支中的全部或者部分文件替换暂存区和以及工作区中的文件。这个命令也是极具危险性的，因为不但会清除工作区中未提交的改动，也会清除暂存区中未提交的改动。
 
 
+                        checkout 
+   ---------------------------------------------------
+   |                                                 |
+   |                    rm-cached                    |
+   |          add                    commit          |
+工作区  -------------->  暂存区  -------------->  版本库
+   |    <--------------     |    <--------------     |
+   |	  checkout          |     reset/checkout     |
+   |                        |                        |
+   ∨                        ∨                        ∨
+   ---------------------------------------------------
+                     status\relog\rm
 ###################################################Git 工作区、暂存区和版本库###################################################
 
 ##########################################################Git 创建仓库##########################################################
@@ -110,33 +122,58 @@ git add .提交（某些版本中）无法提交删除的东西；必须使用gi
 git remote
 添加远程库：要添加一个新的远程仓库，可以指定一个简单的名字，以便将来引用,命令格式如下：
 git remote add [shortname] [url]
-本例以Github为例作为远程仓库
-# 提交到 Github
-$ git remote add origin git@github.com:gentleduo/memo-repository.git
-$ git push -u origin master
-查看当前的远程库
-要查看当前配置有哪些远程仓库，可以用命令：
-git remote
+要查看当前配置有哪些远程仓库，可以用命令（执行时加上 -v 参数，你还可以看到每个别名的实际链接地址。）：
 $ git remote
 origin
 $ git remote -v
 origin    git@github.com:tianqixin/runoob-git-test.git (fetch)
 origin    git@github.com:tianqixin/runoob-git-test.git (push)
-执行时加上 -v 参数，你还可以看到每个别名的实际链接地址。
+
+git pull
+使用git pull来从远程仓库"同步"代码，通常有三种方式；
+git pull <远程主机名> <远程分支名>:<本地分支名>
+git pull origin <remote_branch>：<local_branch>
+git pull origin <remote_branch>
+git pull
+1.git pull origin <remote_branch>：<local_branch>
+这种用法写起来最为繁琐，但最好理解：
+场景：当本地的当前分支不是local_branch；
+作用：将远程分支拉取到指定本地分支；
+例如：当前分支是dev，但是你想把远程master”同步”到本地master，但又不想使checkout切换到master分支；
+这时你就可以使用git pull origin master：master
+2.git pull origin <remote_branch>
+有了上面的例子，这种使用方法的场景和作用就好理解了：
+场景：在当前分支上进行同步操作；
+作用：将指定远程分支同步到当前本地分支；
+3.git pull
+这种写法最简单，也最常用，但是隐含的知识也是最多的；
+场景：本地分支已经和想要拉取的分支建立了“关联”关系；
+作用：拉取所有远程分支的新版本"坐标"，并同步当前分支的本地代码(具体根据关联分支而定)
 
 git push
+使用push时，我们要特别注意分支的名称和”关联分支"对于操作的影响
+git push
+git push origin <remote_branch>
+git push origin <local_branch>：<remote_branch>
+git push <远程主机名> <本地分支名>:<远程分支名>
+1.git push
+场景：当前分支已经有关联分支，并且关联分支与当前分支同名；
+作用：将当前分支代码同步到远程同名分支；
+2.git push origin <remote_branch>
+场景：同步指定分支(非当前分支)到远程分支,如果是当前分支则<local_branch>可以省略
+作用："同步"指定的本地分支到远程关联同名分支；
+3.git push origin <local_branch>：<remote_branch>
+场景：将本地分支推送到远程不同名的分支；
+作用：将指定的本地分支推送到指定的远程分支；（这两个分支并没有建立关联关系，且可以不同名）
 首先git作为支持分布式版本管理的工具，它管理的库（repository）分为本地库、远程库。
+
+注：
 git commit操作的是本地库，git push操作的是远程库。
 git commit是将本地修改过的文件提交到本地库中。
-git  push是将本地库中的最新信息发送给远程库。
+git push是将本地库中的最新信息发送给远程库。
 区分本地commit和服务器的push的原因:
 因为如果本地不commit的话，修改的纪录可能会丢失。
 而有些修改当前是不需要同步至服务器的，所以什么时候同步过去由用户自己选择。什么时候需要同步再push到服务器
-git push的一般形式为 git push <远程主机名> <本地分支名>  <远程分支名> ，
-例如 git push origin master：refs/for/master ，即是将本地的master分支推送到远程主机origin上的对应master分支， origin 是远程主机名，
-
-git pull
-git pull origin <remote_branch>：<local_branch>
 
 git clone
 我们使用 git clone 从现有 Git 仓库中拷贝项目（类似 svn checkout）。
@@ -153,16 +190,53 @@ $ git clone git://github.com/schacon/grit.git
 如果要自己定义要新建的项目目录名称，可以在上面的命令末尾指定新的名字：
 $ git clone git://github.com/schacon/grit.git mygrit
 
-Git 非快进方式合并没有共同历史的远程分支
-git pull origin master --allow-unrelated-histories --no-ff
+##########################################################Git 创建仓库##########################################################
 
+##########################################################关联远程仓库##########################################################
+什么是"关联"分支?
+首先我们先使用git branch -vv 查看一下目前分支的“关联”情况；
+$ git branch -vv
+* dev    1a1b215 [origin/dev] Merge branch 'master' of https://github.com/jinxintang/gitTest into dev
+  master a09fdc4 [origin/master] create pull 
+可以看到我们的本地的dev关联的是远程(origin)的dev，本地的master关联的是远程(origin)的master;那么这种关联是如何建立、是否可以修改呢；
+配置本地分支与远程分支的三种方法：
+1.检出时建立关联关系：git checkout -b dev origin/dev
+当我们检查时，git会自动为我们检出的分支和远程分支建立关联关系；
+2.提交时配置关联关系：git push -u origin <remote_branch>或git push --set-upstream origin <remote_branch>
+  方法一：
+  1. 到github上在仓库Clone or download下拉列表中找到以git@github.com:开头的仓库SSH地址并复制（因为HTTPS较慢，一般用SSH地址）
+  2. 在本地执行命令：
+  git remote add origin 你复制的地址
+  注意：如果远程仓库中有文件，本地第一次push之前需要执行：git pull origin master
+  3. 执行关联命令：
+  git push -u origin master
+  注意：如果需要重新关联一个origin需要执行命令：
+  git remote rm orgin
+  git remote add origin xxxxx
+  git push -u origin master
+  方法二：
+  1. 到github上在仓库Clone or download下拉列表中找到以git@github.com:开头的仓库SSH地址并复制（因为HTTPS较慢，一般用SSH地址）
+  2. 在本地执行命令：
+  git clone 你复制的地址
+  该方法比较省力，省去了执行命令git remote add origin和git push -u origin master
+  但如果重新关联的话还是要用到上面2条命令的
+3.更改git/config文件：git branch --set-upstream-to=<remote_branch>
+无论使用上述那种方法，本地分支和远程分支的“关联”最终都会写到config文件；注：本项目的配置信息存放目录：项目所在目录/.git/config
+关联分支：在git中表现为upstream,无论是使用push -u 或是 git branch --set-upstream-to方法，均会将这种对应关系写入.git/config配置文件，
+如果一个本地分支没有关联分支，则无法执行git push或git pull指令；（但是可以使用git pull origin <remote_branch>、git push origin <remote_branch>等）
+没有"关联"分支的情况下，使用push会先让你设置一个upstream branch.
+##########################################################关联远程仓库##########################################################
+
+##############################################非快进方式合并没有共同历史的远程分支##############################################
+方法一：
+git pull origin master --allow-unrelated-histories --no-ff
+方法二：
 git配置过程中fatal:拒绝合并无关的历史
 首先将远程仓库和本地仓库关联起来：
 git branch --set-upstream-to=origin/master master
 然后使用git pull整合远程仓库和本地仓库，
 git pull --allow-unrelated-histories    (忽略版本不同造成的影响)
-
-##########################################################Git 创建仓库##########################################################
+##############################################非快进方式合并没有共同历史的远程分支##############################################
 
 ##########################################################Git 基本操作##########################################################
 基本快照

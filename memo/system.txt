@@ -1,0 +1,28 @@
+/*************************************************beyond compare 4你的30天评估期到期*************************************************
+第一种方法：
+1  找到beyond Compare 4文件夹下面的BCUnrar.dll，将其删掉或者重命名，再重新打开接着使用
+
+第二种方法：
+1  不用着急，打开C:\Users\（自己的用户名）\AppData\Roaming，找到BeyondCompare文件夹
+我的目录为：C:\Users\gentl\AppData\Roaming\BeyondCompare
+2  点开BeyondCompare文件夹，看到里面有一个BeyondCompare419.ini的文件，这个文件就是BeyondCompare的配置文件，
+这个文件里面记录着你第一次打开BeyondCompare的时间
+3  将这个文件删除，之后再次打开BeyondCompare软件 发现又可以使用了，点击继续，我们熟悉的界面又回来了
+4  完美解决问题，以后每次30天到期，只要重复以上步骤就可以了，免费试用软件的感觉真是太爽了
+附：取时间戳的JS方法：
+<html>
+	<head>
+		<script>
+			// 获取当前时间戳(以s为单位)
+			var timestamp = Date.parse(new Date());
+			timestamp = timestamp / 1000;
+			//当前时间戳为：1403149534
+			//console.log("当前时间戳为：" + timestamp);
+			alert(timestamp)
+		</script>
+	</head>
+	<body>
+	</body>
+</html>
+/*************************************************beyond compare 4你的30天评估期到期*************************************************
+

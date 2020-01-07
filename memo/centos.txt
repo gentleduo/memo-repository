@@ -1,0 +1,195 @@
+*******************************************centos 7 网络设置******************************************
+vim /etc/sysconfig/network-scripts/ifcfg-ens11f0
+全部内容如下
+TYPE=Ethernet
+BOOTPROTO=static
+DEFROUTE=yes
+PEERDNS=yes
+PEERROUTES=yes
+IPV4_FAILURE_FATAL=no
+IPV6INIT=yes
+IPV6_AUTOCONF=yes
+IPV6_DEFROUTE=yes
+IPV6_PEERDNS=yes
+IPV6_PEERROUTES=yes
+IPV6_FAILURE_FATAL=no
+IPV6_ADDR_GEN_MODE=stable-privacy
+NAME=ens11f0
+UUID=6dc414c9-6fb4-4d11-bb9d-ef56599f8e8e
+DEVICE=ens11f0
+ONBOOT=yes
+IPADDR=182.180.196.192
+NETMASK=255.255.255.0
+GATEWAY=182.180.196.254
+
+需要修改如下内容
+BOOTPROTO="static" #dhcp改为static   
+ONBOOT="yes" #开机启用本配置  
+IPADDR=192.168.7.106 #静态IP  
+GATEWAY=192.168.7.1 #默认网关  
+NETMASK=255.255.255.0 #子网掩码  
+
+重启下网络服务
+service network restart
+或者
+ifup ens11f0
+*******************************************centos 7 网络设置******************************************
+
+*******************************************centos 7 本地源制作******************************************
+1) 挂载iso
+mount /home/CentOS-7-x86_64-DVD-1611.iso /media -o loop
+
+2) 创建本地源
+mv /etc/yum.repos.d/CentOS-Base.repo /etc/yum.repos.d/CentOS-Base.repo_bak
+vim media.repo
+[InstallMedia]
+name=RedHat Enterprise Linux 7.0
+mediaid=1359576196.686790
+metadata_expire=-1
+gpgcheck=0
+cost=500
+baseurl=file:///media
+enabled=1
+*******************************************centos 7 本地源制作******************************************
+
+***************************************安装VBoxAdditions增强功能、与主机实现文件共享***************************************
+创建挂载目录
+mkdir -p /media/VirtualBoxGuestAdditions
+
+VBoxGuestAdditions.iso位于VirtualBox的安装目录下
+D:\oracle\VirtualBox\VBoxGuestAdditions.iso
+将VBoxGuestAdditions.iso上传至虚拟机上 然后mount iso
+mount -t iso9660 -o loop /installation/VBoxGuestAdditions.iso /media/VirtualBoxGuestAdditions/
+
+安装VBoxAdditions增强功能
+/media/VirtualBoxGuestAdditions/VBoxLinuxAdditions.run
+
+使用vboxsf格式将分区：extend_folder挂载到/extend_folder/目录下
+mount -t vboxsf extend_folder /extend_folder/
+
+卸载
+umount -f /media/VirtualBoxGuestAdditions/
+***************************************安装VBoxAdditions增强功能、与主机实现文件共享***************************************
+
+****************************************************opencv安装****************************************************
+pip3 --default-timeout=600 install opencv-python -i https://pypi.douban.com/simple --trusted-host=pypi.douban.com
+安装完opencv可能会出现如下错误
+
+报错：
+ImportError: libSM.so.6: cannot open shared object file: No such file or directory
+
+报错原因： 缺少共享库
+
+使用如下命令查看缺少得共享库
+yum whatprovides libSM.so.6
+
+使用以下命令解决：
+yum install libSM-1.2.2-2.el7.x86_64 --setopt=protected_multilib=false
+
+报错：
+ImportError: libXrender.so.1: cannot open shared object file: No such file or directory
+
+报错原因： 缺少共享库
+
+使用如下命令查看缺少得共享库
+yum whatprovides libXrender.so.1
+
+使用以下命令解决：
+yum install libXrender-0.9.10-1.el7.x86_64 --setopt=protected_multilib=false
+
+报错：
+ImportError: libXext.so.6: cannot open shared object file: No such file or directory
+
+报错原因： 缺少共享库
+
+使用如下命令查看缺少得共享库
+yum whatprovides libXext.so.6
+
+使用以下命令解决：
+yum install libXext-1.3.3-3.el7.x86_64 --setopt=protected_multilib=false
+****************************************************opencv安装****************************************************
+
+****************************************************matplotlib安装****************************************************
+pip3 --default-timeout=600 install matplotlib -i https://pypi.douban.com/simple --trusted-host=pypi.douban.com
+****************************************************matplotlib安装****************************************************
+
+************************************CentOS7中systemctl的使用与CentOS6中service的区别************************************
+从CentOS 7.x开始，CentOS开始使用systemd服务来代替daemon，
+
+原来管理系统启动和管理系统服务的相关命令全部由systemctl命令来代替。
+1、原来的 service 命令与 systemctl 命令对比
+daemon命令 	            systemctl命令 	                说明
+service [服务] start 	systemctl start [unit type] 	启动服务
+service [服务] stop 	systemctl stop [unit type] 	    停止服务
+service [服务] restart 	systemctl restart [unit type] 	重启服务
+此外还是二个systemctl参数没有与service命令参数对应
+    status：参数来查看服务运行情况
+    reload：重新加载服务，加载更新后的配置文件（并不是所有服务都支持这个参数，比如network.service）
+应用举例：
+#启动网络服务
+systemctl start network.service
+#停止网络服务
+systemctl stop network.service
+#重启网络服务
+systemctl restart network.service
+#查看网络服务状态
+systemctl status network.serivce
+
+2、原来的chkconfig 命令与 systemctl 命令对比
+2.1、设置开机启动/不启动
+daemon命令 	            systemctl命令 	                说明
+chkconfig [服务] on 	systemctl enable [unit type] 	设置服务开机启动
+chkconfig [服务] off 	systemctl disable [unit type] 	设备服务禁止开机启动
+应用举例：
+#停止cup电源管理服务
+systemctl stop cups.service
+#禁止cups服务开机启动
+systemctl disable cups.service
+#查看cups服务状态
+systemctl status cups.service
+#重新设置cups服务开机启动
+systemctl enable cups.service
+
+2.2、查看系统上上所有的服务
+命令格式：
+systemctl [command] [–type=TYPE] [–all]
+参数详解：
+
+command – list-units：依据unit列出所有启动的unit。加上 –all 才会列出没启动的unit; – list-unit-files:依据/usr/lib/systemd/system/ 内的启动文件，列出启动文件列表
+
+–type=TYPE – 为unit type, 主要有service, socket, target
+
+应用举例：
+systemctl命令 	                                      说明
+systemctl 	                                          列出所有的系统服务
+systemctl list-units 	                              列出所有启动unit
+systemctl list-unit-files 	                          列出所有启动文件
+systemctl list-units –type=service –all 	          列出所有service类型的unit
+systemctl list-units –type=service –all grep cpu 	  列出cpu电源管理机制的服务
+systemctl list-units –type=target –all 	              列出所有target
+
+3、systemctl特殊的用法
+systemctl命令 	                    说明
+systemctl is-active [unit type] 	查看服务是否运行
+systemctl is-enable [unit type] 	查看服务是否设置为开机启动
+systemctl mask [unit type] 	        注销指定服务
+systemctl unmask [unit type] 	    取消注销指定服务
+应用举例：
+#查看网络服务是否启动
+systemctl is-active network.service
+#检查网络服务是否设置为开机启动
+systemctl is-enable network.service
+#停止cups服务
+systemctl stop cups.service
+#注销cups服务
+systemctl mask cups.service
+#查看cups服务状态
+systemctl status cups.service
+#取消注销cups服务
+systemctl unmask cups.service
+
+4、关闭防火墙firewall
+Centos 7.x 中取消了iptables, 用firewall取而代之。要关闭防火墙并禁止开机启动服务使用下面的命令:
+systemctl stop firewalld.service
+systemctl disable firewalld.service
+************************************CentOS7中systemctl的使用与CentOS6中service的区别************************************

@@ -1,0 +1,1146 @@
+docker二进制离线安装
+https://download.docker.com/linux/static/stable/x86_64/
+
+例：
+1. 下载解压docker
+wget https://download.docker.com/linux/static/stable/x86_64/docker-17.03.2-ce.tgz
+2. 拷贝文件至bin下
+chmod +x docker/*
+cp docker/* /usr/local/bin
+3. 创建服务文件
+cat > /usr/lib/systemd/system/docker.service <<"EOF"
+[Unit]
+Description=Docker Application Container Engine
+Documentation=https://docs.docker.com
+After=network-online.target firewalld.service
+Wants=network-online.target
+
+[Service]
+Type=notify
+# the default is not to use systemd for cgroups because the delegate issues stil                                                                                        l
+# exists and systemd currently does not support the cgroup feature set required
+# for containers run by docker
+ExecStart=/usr/bin/dockerd
+ExecReload=/bin/kill -s HUP $MAINPID
+# Having non-zero Limit*s causes performance problems due to accounting overhead
+# in the kernel. We recommend using cgroups to do container-local accounting.
+LimitNOFILE=infinity
+LimitNPROC=infinity
+LimitCORE=infinity
+# Uncomment TasksMax if your systemd version supports it.
+# Only systemd 226 and above support this version.
+#TasksMax=infinity
+TimeoutStartSec=0
+# set delegate yes so that systemd does not reset the cgroups of docker containe                                                                                        rs
+Delegate=yes
+# kill only the docker process, not all processes in the cgroup
+KillMode=process
+# restart the docker process if it exits prematurely
+Restart=on-failure
+StartLimitBurst=3
+StartLimitInterval=60s
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+4. 修改docker挂载路径，默认为/var/lib/docker，建议选择比较大的数据盘
+修改文件为/etc/docker/daemon.json
+
+5. 启动docker：
+systemctl daemon-reload
+systemctl restart docker
+
+6. 设置开机启动：
+systemctl enable docker
+
+7. 检验是否启动：
+systemctl status docker
+docker info
+
+若为running状态，docker info不报错即正常
+
+注意：
+cat > file << EOF 的用法
+cat> 文件名<<eof  
+用来创建文件
+在这之后输入任何东西 都是在 文件里的
+输入完成之后EOF结尾  代表结束
+比如
+cat > 1.txt <<eof
+1
+2
+3
+4
+5
+eof
+就是创建1.txt这个文件里面内容是 1 2 3 4 5
+
+docker安装：https://docs.docker.com/install/linux/docker-ce/centos/#install-using-the-repository
+yum install -y yum-utils   device-mapper-persistent-data   lvm2
+yum-config-manager     --add-repo     https://download.docker.com/linux/centos/docker-ce.repo
+yum-config-manager --enable docker-ce-edge
+yum-config-manager --enable docker-ce-test
+yum-config-manager --disable docker-ce-edge
+yum install docker-ce
+
+测试docker
+systemctl start docker
+docker run hello-world
+docker ps
+
+docker-compose安装：https://docs.docker.com/compose/install/#install-compose
+下载最新版的docker-compose文件 
+curl -L https://github.com/docker/compose/releases/download/1.21.2/docker-compose-$(uname -s)-$(uname -m) -o /usr/local/bin/docker-compose
+添加可执行权限 
+chmod +x /usr/local/bin/docker-compose
+测试安装结果 
+docker-compose --version 
+
+﻿从主机复制到容器sudo docker cp host_path containerID:container_path
+从容器复制到主机sudo docker cp containerID:container_path host_path
+
+方法一：如果要正常退出不关闭容器，请按Ctrl+P+Q进行退出容器
+方法二：如果使用exit退出，那么在退出之后会关闭容器，可以使用下面的流程进行恢复
+    使用docker restart命令重启容器
+    使用docker attach命令进入容器
+
+
+########################################################Dockerfile########################################################
+FROM 基于哪个镜像
+
+MAINTAINER 镜像创建者
+
+COPY 格式为 COPY <src> <dest> 。
+复制本地主机的 <src> （为Dockerfile所在目录的相对路径）到容器中的 <dest>（如果目标路径不存在，则会自动创建目标路径）
+从上面的定义中可获知，src可以是Dockerfile所在目录的一个相对路径，但在实际操作中，只有与Dockerfile文件在同一目录的文件或目录可以成功的使用ADD <src> <dest>，如：（ADD ./test /data/code/nginx）
+如果文件或目录不与Dockerfile在同一目录会提示 no such file or directory，如：（ADD ../test2 /data/code/nginx），从Dockerfile所在目录通过 cd ../test2可以到达test2
+
+WORKDIR 切换目录用，可以多次切换(相当于cd命令)，对RUN,CMD,ENTRYPOINT生效
+
+RUN 安装软件用
+构建指令，RUN可以运行任何被基础image支持的命令。如基础image选择了ubuntu，那么软件管理部分只能使用ubuntu的命令。
+该指令有两种格式：
+RUN <command> (the command is run in a shell - `/bin/sh -c`)  
+RUN ["executable", "param1", "param2" ... ]  (exec form) 
+
+CMD 设置container启动时执行的操作
+设置指令，用于container启动时指定的操作。该操作可以是执行自定义脚本，也可以是执行系统命令。该指令只能在文件中存在一次，如果有多个，则只执行最后一条。
+该指令有三种格式
+CMD ["executable","param1","param2"] (like an exec, this is the preferred form)  
+CMD command param1 param2 (as a shell)  
+当Dockerfile指定了ENTRYPOINT，那么使用下面的格式：
+CMD ["param1","param2"] (as default parameters to ENTRYPOINT) 
+ENTRYPOINT指定的是一个可执行的脚本或者程序的路径，该指定的脚本或者程序将会以param1和param2作为参数执行。所以如果CMD指令使用上面的形式，那么Dockerfile中必须要有配套的ENTRYPOINT。
+
+ENTRYPOINT 设置container启动时执行的操作
+设置指令，指定容器启动时执行的命令，可以多次设置，但是只有最后一个有效。
+两种格式:
+ENTRYPOINT ["executable", "param1", "param2"] (like an exec, the preferred form)  
+ENTRYPOINT command param1 param2 (as a shell)  
+该指令的使用分为两种情况，一种是独自使用，另一种和CMD指令配合使用。
+当独自使用时，如果你还使用了CMD命令且CMD是一个完整的可执行的命令，那么CMD指令和ENTRYPOINT会互相覆盖只有最后一个CMD或者ENTRYPOINT有效。
+# CMD指令将不会被执行，只有ENTRYPOINT指令被执行  
+CMD echo "Hello, World!"  
+ENTRYPOINT ls -l  
+另一种用法和CMD指令配合使用来指定ENTRYPOINT的默认参数，这时CMD指令不是一个完整的可执行命令，仅仅是参数部分；ENTRYPOINT指令只能使用JSON方式指定执行命令，而不能指定参数。
+FROM ubuntu  
+CMD ["-l"]  
+ENTRYPOINT ["/usr/bin/ls"]
+########################################################Dockerfile########################################################
+
+########################################################Docker容器使用########################################################
+运行一个web应用
+docker run -d -P training/webapp python app.py
+参数说明:
+-d:让容器在后台运行。
+-P:将容器内部使用的网络端口映射到我们使用的主机上
+使用 docker ps 来查看我们正在运行的容器
+docker ps
+这里多了端口信息。
+PORTS
+0.0.0.0:32769->5000/tcp
+Docker 开放了 5000 端口（默认 Python Flask 端口）映射到主机端口 32769 上。
+我们也可以通过 -p 参数来设置不一样的端口：
+docker run -d -p ip:hostPort:containerPort training/webapp python app.py
+使用-p参数  会分配宿主机的端口映射到虚拟机。 
+IP表示主机的IP地址。
+hostPort表示宿主机的端口。
+containerPort表示虚拟机的端口。
+支持的格式有三种：
+ip:hostPort:containerPort：映射指定地址的指定端口到虚拟机的指定端口（不常用） 
+如：127.0.0.1:3306:3306，映射本机的3306端口到虚拟机的3306端口。 
+ip::containerPort：映射指定地址的任意端口到虚拟机的指定端口。（不常用） 
+如：127.0.0.1::3306，映射本机的3306端口到虚拟机的3306端口。 
+hostPort:containerPort：映射本机的指定端口到虚拟机的指定端口。（常用） 
+如：3306:3306，映射本机的3306端口到虚拟机的3306端口。
+
+Format 格式化显示
+如果想自定义显示容器字段，可以用格式化选项 --format 。
+基于 Go template（https://golang.org/pkg/html/template/）语法，可用的占位符如下：
+占位符        描述
+.ID           Container ID
+.Image        Image ID
+.Command      Quoted command
+.CreatedAt    Time when the container was created
+.RunningFor   Elapsed time since the container war started
+.Ports        Exposed ports
+.Status       Container status
+.Size         Container disk size
+.Names        Container names
+.Labels       All labels assigned to the container
+.Label        Value of a specific label for this container  For example'{{.Label "com.docker.swarm.cpu"}}'
+.Mounts       Names of the volumes mounted in this container
+.Networks     Names of the networks attached to this container     
+1. 当使用了 --format 选项，那么 ps 命令只会输出 template 中指定的内容：
+$ docker ps --format "{{.ID}}: {{.Command}}"
+2. 如果想带上表格列头，需要再 template 中加上 table 指令
+$ docker ps --format "table {{.ID}}: {{.Command}}"
+
+docker run -d -p 5000:5000 training/webapp python app.py
+docker ps查看正在运行的容器
+容器内部的 5000 端口映射到我们本地主机的 5000 端口上。
+-P和-p两种方式的区别是:
+    -P :是容器内部端口随机映射到主机的端口。
+    -p :是容器内部端口绑定到指定的主机端口。
+
+网络端口的快捷方式
+通过docker ps 命令可以查看到容器的端口映射，docker还提供了另一个快捷方式：docker port,使用 docker port 可以查看指定 （ID或者名字）容器的某个确定端口映射到宿主机的端口号。
+上面我们创建的web应用容器ID为:7a38a1ad55c6 名字为：determined_swanson
+可以使用docker port 7a38a1ad55c6 或docker port determined_swanson来查看容器端口的映射情况
+runoob@runoob:~$ docker port 7a38a1ad55c6
+5000/tcp -> 0.0.0.0:5000
+runoob@runoob:~$ docker port determined_swanson
+5000/tcp -> 0.0.0.0:5000
+可是使用docker port adoring_stonebraker 5000来查看容器端口映射到的是哪个宿主机端口
+runoob@runoob:~$ docker port adoring_stonebraker 5000
+127.0.0.1:5001
+
+docker: 为运行的container增加多个端口
+docker run -p 8080:8080 -p 80:80 -td test02
+
+docker run ubuntu:15.10 /bin/echo "Hello world"
+各个参数解析：
+docker: Docker 的二进制执行文件。
+run:与前面的 docker 组合来运行一个容器。
+ubuntu:15.10指定要运行的镜像，Docker首先从本地主机上查找镜像是否存在，如果不存在，Docker 就会从镜像仓库 Docker Hub 下载公共镜像。
+/bin/echo "Hello world": 在启动的容器里执行的命
+以上命令完整的意思可以解释为：Docker 以 ubuntu15.10 镜像创建一个新容器，然后在容器里执行 bin/echo "Hello world"，然后输出结果。
+
+运行交互式的容器
+我们通过docker的两个参数 -i -t，让docker运行的容器实现"对话"的能力
+docker run -i -t ubuntu:15.10 /bin/bash
+各个参数解析：
+-t:在新容器内指定一个伪终端或终端。
+-i:允许你对容器内的标准输入 (STDIN) 进行交互
+
+启动容器（后台模式）
+使用以下命令创建一个以进程方式运行的容器
+docker run -d ubuntu:15.10 /bin/sh -c "while true; do echo hello world; sleep 1; done"
+在输出中，我们没有看到期望的"hello world"，而是一串长字符
+2b1b7a428627c51ab8810d541d759f072b4fc75487eed05812646b8534a2fe63
+这个长字符串叫做容器ID，对每个容器来说都是唯一的，我们可以通过容器ID来查看对应的容器发生了什么。
+首先，我们需要确认容器有在运行，可以通过 docker ps 来查看
+docker ps
+CONTAINER ID:容器ID
+NAMES:自动分配的容器名称
+在容器内使用docker logs命令，查看容器内的标准输出
+docker logs 2b1b7a428627
+
+退出容器
+如果使用exit，命令退出，则容器的状态处于Exit，而不是后台运行。如果想让容器一直运行，而不是停止，可以使用快捷键 ctrl+p ctrl+q 退出，此时容器的状态为Up。
+看到当前有一个ID为aa97ba3292ce的容器
+启动、停止、重启容器aa97ba3292ce的命令：
+~$ docker start aa97ba3292ce
+~$ docker stop aa97ba3292ce
+~$ docker restart aa97ba3292ce
+后台启动一个容器后，如果想进入到这个容器，可以使用attach或者exec命令：
+~$ docker attach aa97ba3292ce
+~$ docker exec -it 775c7c9ee1e1 /bin/bash
+两种方式的区别
+docker attach方式进入的话。当多个窗口同时使用该命令进入该容器时，所有的窗口都会同步显示。如果有一个窗口阻塞了，那么其他窗口也无法再进行操作。
+docker attach方式进入的话。如果从这个stdin中exit，会导致容器的停止。
+
+删除容器或者镜像
+如果想删除容器或者镜像，可以使用rm命令，注意：删除镜像前必须先删除以此镜像为基础的容器（哪怕是已经停止的容器），否则无法删除该镜像，会报错Failed to remove image (e4415b714b62): Error response from daemon: conflict: unable to delete e4415b714b62 (cannot be forced) - image has dependent child images类似这种
+~$ docker rm container_id
+~$ docker rmi image_id
+有的时候尽管删除了全部容器，镜像还是无法删除，这时点击mac顶栏中的docker logo，选择restart，然后再试一次rmi，应该就没问题了。
+
+列出所有的容器 ID
+docker ps -aq
+
+停止所有的容器
+docker stop $(docker ps -aq)
+
+删除所有的容器
+docker rm $(docker ps -aq)
+
+删除所有的镜像
+docker rmi $(docker images -q)
+########################################################Docker容器使用########################################################
+
+#########################################################Docker 镜像使用#######################################################
+创建镜像
+当我们从docker镜像仓库中下载的镜像不能满足我们的需求时，我们可以通过以下两种方式对镜像进行更改。
+1.从已经创建的容器中更新镜像，并且提交这个镜像
+2.使用 Dockerfile 指令来创建一个新的镜像
+更新镜像
+更新镜像之前，我们需要使用镜像来创建一个容器。 
+runoob@runoob:~$ docker run -t -i ubuntu:15.10 /bin/bash
+root@e218edb10161:/# 
+在运行的容器内使用 apt-get update 命令进行更新。在完成操作之后，输入 exit命令来退出这个容器。
+此时ID为e218edb10161的容器，是按我们的需求更改的容器。我们可以通过命令 docker commit来提交容器副本。
+runoob@runoob:~$ docker commit -m="has update" -a="runoob" e218edb10161 runoob/ubuntu:v2
+sha256:70bf1840fd7c0d2d8ef0a42a817eb29f854c1af8f7c59fc03ac7bdee9545aff8
+各个参数说明：
+    -m:提交的描述信息
+    -a:指定镜像作者
+    e218edb10161：容器ID
+    runoob/ubuntu:v2:指定要创建的目标镜像名
+
+构建镜像
+我们使用命令 docker build ， 从零开始来创建一个新的镜像。为此，我们需要创建一个 Dockerfile 文件，其中包含一组指令来告诉 Docker 如何构建我们的镜像。
+runoob@runoob:~$ cat Dockerfile 
+FROM    centos:6.7
+MAINTAINER      Fisher "fisher@sudops.com"
+
+RUN     /bin/echo 'root:123456' |chpasswd
+RUN     useradd runoob
+RUN     /bin/echo 'runoob:123456' |chpasswd
+RUN     /bin/echo -e "LANG=\"en_US.UTF-8\"" >/etc/default/local
+EXPOSE  22
+EXPOSE  80
+CMD     /usr/sbin/sshd -D
+每一个指令都会在镜像上创建一个新的层，每一个指令的前缀都必须是大写的。第一条FROM，指定使用哪个镜像源；RUN 指令告诉docker 在镜像内执行命令，安装了什么。。。
+然后，我们使用 Dockerfile 文件，通过 docker build 命令来构建一个镜像。
+使用本地目录的Dockerfile创建镜像。
+--file, -f，Dockerfile的完整路径
+--tag, -t，镜像的名字及tag，通常name:tag或者name格式；可以在一次构建中为一个镜像设置多个tag
+docker build -t composetest3:latest -f /home/composetest_3/Dockerfile /home/composetest_3/
+
+使用URL github.com/creack/docker-firefox 的 Dockerfile 创建镜像。
+docker build github.com/creack/docker-firefox
+runoob@runoob:~$ docker build -t runoob/centos:6.7 .
+Sending build context to Docker daemon 17.92 kB
+Step 1 : FROM centos:6.7
+ ---&gt; d95b5ca17cc3
+Step 2 : MAINTAINER Fisher "fisher@sudops.com"
+ ---&gt; Using cache
+ ---&gt; 0c92299c6f03
+Step 3 : RUN /bin/echo 'root:123456' |chpasswd
+ ---&gt; Using cache
+ ---&gt; 0397ce2fbd0a
+Step 4 : RUN useradd runoob
+......
+参数说明：
+-t ：指定要创建的目标镜像名
+.  ：环境目录（.表示当前目录）
+docker build需要传入一个目录作为参数，这个目录是docker build的context，也就是在构建过程中的环境目录，对于ADD一类命令在使用相对的宿主机目录时，都是以此目录为基准的。
+如果我们没有传入-f去定义Dockerfile的位置，也会默认在这个目录中查询。但并不是传入了-f，就能省略这个定义环境目录参数的。
+
+设置镜像标签
+使用 docker tag 命令，为镜像添加一个新的标签
+runoob@runoob:~$ docker tag 860c279d2fec runoob/centos:dev
+docker tag 镜像ID，这里是 860c279d2fec ,用户名称、镜像源名(repository name)和新的标签名(tag)。
+
+
+保存镜像为文件
+docker save -o 要保存的文件名 要保存的镜像
+docker save -o centos.tar mycentos:dev
+从文件载入镜像
+docker load < 文件名
+
+docker rmi报错Error response from daemon
+ocker commit了一个镜像之后想删除旧的镜像，出现以下报错
+Error response from daemon: conflict: unable to delete 6f8214d56bfc (cannot be forced) - image has dependent child images
+解决思路：
+docker save -o 要保存的文件名 要保存的镜像
+docker images
+docker save REPOSITORY > XX.tar
+删除镜像容器
+docker ps -a
+docker rm CONTAINER ID
+docker images
+docker rmi IMAGE ID
+最后再导入回去
+docker load < XX.tar
+#########################################################Docker 镜像使用#######################################################
+
+###############################################Docker NetWork###############################################
+当你安装Docker后，它会自动创建三个network，你可以使用命令：docker network ls 列出它们：
+从历史上看，这三个network是Docker实现的一部分。当你运行一个container时，你可以用--net标志去指定这个container运行在哪一种network上。这三种network你都可以使用。
+
+这个bridge network 代表所有安装了Docker的主机的docker0 network。除非使用docker run --set=<NETWORK>选项指定一个其它的network，否则Docker daemon会默认使用这个network连接contrainer。你可以使用系统的ifconfig命令查看主机的network stack中的docker0
+
+这个nonenetwork 会将容器添加到一个 container-specific 的 network stack。这个容器缺少一个network interface。如果你想连接这个容器并查看它的stack，你可以这样：
+docker attach nonenetcontainer
+
+这个hostnetwork，将container添加到主机的network stack。你会发现这个container的网络配置与主机是一致的。
+除了bridgenetwork，你可能不需要其他的默认network。虽然你可以列出并查看这些network，但是你不能删除它们。这些是Docker所需要的。然而你可以添加属于你的自定义network，当你不再需要这些network的时候你可以删除它们。在你了解更多关于创建属于你自己的network之前，默认的bridgenetwork还是值得你看看的。
+
+brigde network
+这个默认的bridgenetwork存在于所有的Docker主机。docker network inspect命令可以返回关于network的信息：
+docker network inspect bridge
+Docker Engine 会自动创建一个 Subnet和Gateway在这个network。docker run命令自动添加一个新的container到这个network：
+在启动两个新的container之后，查看一下bridge网络。这两个容器的id会出现在 Containers这个字段中：
+
+上面是 docker network inspect命令根据给定的network回显的这个network已连接的容器和它的一些网络资源。在这个默认的network中的container可以利用IP地址相互通信。在默认的bridgenetwork中Docker不支持自动的服务发现。如果你的container想要通过其他container的name在这个默认的bridgenetwork中通行，你必须通过docker run --linke选项来实现。
+
+###############################################Docker NetWork###############################################
+
+###############################################Docker 配置HTTP、HTTPS代理服务器###############################################
+1 创建目录
+mkdir -p /etc/systemd/system/docker.service.d
+================================HTTP代理================================
+2.1 创建文件/etc/systemd/system/docker.service.d/http-proxy.conf，内容如下：
+[Service]
+Environment="HTTP_PROXY=127.0.0.1:8118/" "NO_PROXY=localhost,172.16.0.0/16,192.168.0.0/16.,127.0.0.1,10.10.0.0/16"
+================================HTTP代理================================
+================================HTTPS代理================================
+2.2 创建文件/etc/systemd/system/docker.service.d/https-proxy.conf，内容如下：
+[Service]
+Environment="HTTPS_PROXY=127.0.0.1:8118/" "NO_PROXY=localhost,172.16.0.0/16,192.168.0.0/16.,127.0.0.1,10.10.0.0/16"
+================================HTTPS代理================================
+3 重启docker
+systemctl daemon-reload
+systemctl restart docker
+4 验证docker代理是否设置成功
+systemctl show --property=Environment docker　　
+显示如下结果说明设置成功
+Environment=HTTP_PROXY=127.0.0.1:8118/ NO_PROXY=localhost,172.16.0.0/16,192.168.0.0/16.,127.0.0.1,10.10.0.0/16 HTTPS_PROXY=127.0.0.1:8118/
+
+###############################################Docker 配置HTTP代理服务器###############################################
+
+###############################################Get started with Docker Compose###############################################
+https://docs.docker.com/compose/gettingstarted/
+https://www.cnblogs.com/52fhy/p/5991344.html
+
+docker-compose.yml
+每个docker-compose.yml必须定义image或者build中的一个，其它的是可选的。
+image
+指定镜像tag或者ID。示例：
+image: redis
+image: ubuntu:14.04
+image: tutum/influxdb
+image: example-registry.com:4000/postgresql
+image: a4bc65fd
+注意，在version 1里同时使用image和build是不允许的，version 2则可以，如果同时指定了两者，会将build出来的镜像打上名为image标签。
+build
+用来指定一个包含Dockerfile文件的路径。一般是当前目录.。Fig将build并生成一个随机命名的镜像。
+注意，在version 1里bulid仅支持值为字符串。version 2里支持对象格式。
+build: ./dir
+# build后可直接接Dockerfile所在目录，该目录必须存在Dockerfile
+
+build:
+  #指定Dockerfile所在的目录
+  context: ./dir
+  #当Dockerfile文件名不是默认名称时，使用dockerfile参数指定Dockerfile的文件名
+  dockerfile: Dockerfile-alternate
+  args:
+    buildno: 1
+context为路径，dockerfile为需要替换默认docker-compose的文件名，args为构建(build)过程中的环境变量，用于替换Dockerfile里定义的ARG参数，容器中不可用。
+
+container_name
+Compose 的容器名称格式是：<项目名称><服务名称><序号>
+虽然可以自定义项目名称、服务名称，但是如果你想完全控制容器的命名，可以使用这个标签指定：
+container_name: app
+这样容器的名字就指定为 app 了。
+
+depends_on
+在使用Compose时，最大的好处就是少打启动命令，但是一般项目容器启动的顺序是有要求的，如果直接从上到下启动容器，必然会因为容器依赖问题而启动失败。例如在没启动数据库容器的时候启动了应用容器，这时候应用容器会因为找不到数据库而退出，为了避免这种情况我们需要加入一个标签，就是 depends_on，这个标签解决了容器的依赖、启动先后的问题。
+例如下面容器会先启动 redis 和 db 两个服务，最后才启动 web 服务：
+version: '2'
+services:
+  web:
+    build: .
+    depends_on:
+      - db
+      - redis
+  redis:
+    image: redis
+  db:
+    image: postgres
+注意的是，默认情况下使用 docker-compose up web 这样的方式启动 web 服务时，也会启动 redis 和 db 两个服务，因为在配置文件中定义了依赖关系。
+
+links
+depends_on标签解决的是启动顺序问题，这个标签解决的是容器连接问题，与Docker client的--link一样效果，会连接到其它服务中的容器。
+格式如下：
+links:
+ - db
+ - db:database
+ - redis
+使用的别名将会自动在服务容器中的/etc/hosts里创建。（links解决的是服务之间通过别名可以进行相互通信）例如： 
+172.12.2.186  db
+172.12.2.186  database
+172.12.2.187  redis
+相应的环境变量也将被创建。
+例如：
+同一个宿主机上的多个docker容器之间如果想进行通信，可以通过使用容器的ip地址来通信，也可以通过宿主机的ip加上容器暴露出的端口号来通信，前者会导致ip地址的硬编码，不方便迁移，并且容器重启后ip地址会改变，除非使用固定的ip，后者的通信方式比较单一，只能依靠监听在暴露出的端口的进程来进行有限的通信。通过docker的link机制可以通过一个name来和另一个容器通信，link机制方便了容器去发现其它的容器并且可以安全的传递一些连接信息给其它的容器。其使用方式如下:
+1.运行一个容器,通过–name指定一个便于记忆的名字,这个容器被称为source container，也就是要连接的容器
+docker run --name db -e MYSQL_ROOT_PASSWORD=server -d mysql
+上面通过传递环境变量MYSQL_ROOT_PASSWORD=server，来设置mysql服务的密码为server
+2.运行另外一个容器，并link到上面启动的容器，这个容器被称为received container
+sudo docker run -d --name web --link db:aliasdb nginx
+上面通过--link连接名为db的容器，并为其设置了别名aliasdb 
+完成了上面的两个步骤后，在nginx的容器中就可以使用db或者aliasdb作为连接地址来连接mysql服务，即使容器重启了，地址发生了变化，不会影响两个容器之间的连接。
+
+networks
+加入指定网络，格式如下：
+services:
+  some-service:
+    networks:
+     - some-network
+     - other-network
+关于这个标签还有一个特别的子标签aliases，这是一个用来设置服务别名的标签，例如：
+services:
+  some-service:
+    networks:
+      some-network:
+        aliases:
+         - alias1
+         - alias3
+      other-network:
+        aliases:
+         - alias2
+相同的服务可以在不同的网络有不同的别名。
+
+示例：
+Dockerfile:
+
+ARG buildno
+ARG password
+
+RUN echo "Build number: $buildno"
+RUN script-requiring-password.sh "$password"
+
+docker-compose.yml:
+build:
+  context: .
+  args:
+    buildno: 1
+    password: secret
+build:
+  context: .
+  args:
+    - buildno=1
+    - password=secret
+
+docker-compose -f /home/composetest_2/docker-compose.yml build
+docker-compose -f /home/composetest_2/docker-compose.yml run web /bin/bash
+
+Docker-compose命令详解
+Define and run multi-container applications with Docker.
+
+Usage:
+  docker-compose [-f=<arg>...] [options] [COMMAND] [ARGS...]
+  docker-compose -h|--help
+
+Options:
+  -f, --file FILE             Specify an alternate compose file (default: docker-compose.yml)
+  -p, --project-name NAME     Specify an alternate project name (default: directory name)
+  --verbose                   Show more output
+  -v, --version               Print version and exit
+  -H, --host HOST             Daemon socket to connect to
+
+  --tls                       Use TLS; implied by --tlsverify
+  --tlscacert CA_PATH         Trust certs signed only by this CA
+  --tlscert CLIENT_CERT_PATH  Path to TLS certificate file
+  --tlskey TLS_KEY_PATH       Path to TLS key file
+  --tlsverify                 Use TLS and verify the remote
+  --skip-hostname-check       Don't check the daemon's hostname against the name specified
+                              in the client certificate (for example if your docker host
+                              is an IP address)
+
+Commands:
+  build              Build or rebuild services
+  config             Validate and view the compose file
+  create             Create services
+  down               Stop and remove containers, networks, images, and volumes
+  events             Receive real time events from containers
+  help               Get help on a command
+  kill               Kill containers
+  logs               View output from containers
+  pause              Pause services
+  port               Print the public port for a port binding
+  ps                 List containers
+  pull               Pulls service images
+  restart            Restart services
+  rm                 Remove stopped containers
+  run                Run a one-off command
+  scale              Set number of containers for a service
+  start              Start services
+  stop               Stop services
+  unpause            Unpause services
+  up                 Create and start containers
+  version            Show the Docker-Compose version information
+  
+-f   指定docker-compose.xml文件，默认是 docker-compose.xml  ，  当一条命令有多个-f参数时，会做替换操作
+-p  指定docker-compose的项目目录，也就是docker-compose.xml文件的存储目录
+###############################################Get started with Docker Compose###############################################
+
+##################################################dockerfile 中 ARG与ENV的区别################################################
+ARG只是在build构建过程中使用，构建完成后，变量将会消失和ENV有着明显的区别
+ARG标签的变量仅用在构建过程中。而environment和Dockerfile中的ENV指令一样会把变量一直保存在镜像、容器中，类似 docker run -e 的效果。
+https://docs.docker.com/compose/environment-variables/
+
+The ARG instruction defines a variable that users can pass at build-time to the builder with the docker build command using the --build-arg <varname>=<value> flag.ARG指令定义了用户可以在编译时或者运行时传递的变量，如使用如下命令：--build-arg <varname>=<value>
+The ENV instruction sets the environment variable <key> to the value <value>. The environment variables set using ENV will persist when a container is run from the resulting image.ENV指令是在dockerfile里面设置环境变量，不能在编译时或运行时传递。
+
+以下是ARG和ENV的有效结合:
+    ARG var
+    ENV var=${var}
+You can then either build an image with a specific var value at build-time (docker build --build-arg var=xxx), or run a container with a specific runtime value (docker run -e var=yyy)
+
+ARG <name>[=<default value>]
+ARG指令定义了一个变量，能让用户可以在构建期间使用docker build命令和其参数–build-arg =对这个变量赋值。
+如果用户指定了一个构建参数没有定义在Dockerfile的话，将输出错误。
+
+docker build --build-arg kerneldevel=kernel-devel-3.10.0-514.el7.x86_64.rpm --build-arg  kernelheaders=kernel-headers-3.10.0-514.el7.x86_64.rpm --build-arg pythonversion=Python-3.6.8.tgz -t testimage -f /home/athena_training_py3/Dockerfile /home/athena_training_py3/
+
+Dockerfile作者可以指定ARG一次定义一个变量，或者指定ARG多次定义多个变量。例如：
+FROM busybox
+ARG user1
+ARG buildno
+Dockerfile作者也可以为这个变量指定一个默认值
+FROM busybox
+ARG user1=someuser
+ARG buildno=1
+如果ARG指定了一个默认值并且在构建期间没有传递值过去，那么就使用默认值。
+ARG变量定义从在Dockerfile定义的行生效，而不是从在命令行参数的使用或其它地方。
+例如下面的Dockerfile:
+FROM busybox
+USER ${user:-some_user}
+ARG user
+USER $user
+使用如下命令构建：
+$ docker build --build-arg user=what_user Dockerfile
+第2行的USER的值为some_user，因为user变量在第3行才定义。第4行的USER值为what_user，
+因为user变量在它之前定义了并且在命令行给user变量赋值为what_user。在ARG指令定义变量之前引用这个变量的得，都会得到空值。
+
+可以使用ARG或ENV指令指定可用于RUN指令的变量。使用ENV定义的环境变量始终会覆盖同一名称的ARG指令定义的变量。例如：
+FROM ubuntu
+ARG CONT_IMG_VER
+ENV CONT_IMG_VER v1.0.0
+RUN echo $CONT_IMG_VER
+然后使用如下命令构建镜像：
+$ docker build --build-arg CONT_IMG_VER=v2.0.1 Dockerfile
+在这种情况中，RUN指令解析CONT_IMG_VER变量的值为v1.0.0而不是ARG设置并由用户传递过来的v2.0.1。
+使用上面的示例，但不一样的ENV定义可以在ARG和ENV指令之前创建更有用的交互：
+FROM ubuntu
+ARG CONT_IMG_VER
+ENV CONT_IMG_VER ${CONT_IMG_VER:-v1.0.0}
+RUN echo $CONT_IMG_VER
+不像ARG指令，ENV的值始终会存在于镜像中。使用如下不带–build-arg构建镜像：
+$ docker build Dockerfile
+使用这个Dockerfile示例，CONT_IMG_VER仍然会存在于镜像中，不过它的值会是默认的v1.0.0，当然你也可以在命令行中更改它。
+
+- env_file，environment中定义的环境变量是传给container用的，不是给在docker-compose.yml文件中的引用的环境变量用的
+- docker-compose.yml中的环境变量${VARIABLE:-default}引用的是在.env中定义的或者同个shell export出来的
+The ".env" file
+You can set default values for any environment variables referenced in the Compose file, or used to configure Compose, in an environment file named .env:（您可以在名为.env的环境文件中为Compose文件中引用的任何环境变量设置默认值，或者用于配置Compose：）
+$ cat .env
+TAG=v1.5
+
+$ cat docker-compose.yml
+version: '3'
+services:
+  web:
+    image: "webapp:${TAG}"
+When you run docker-compose up, the web service defined above uses the image webapp:v1.5. You can verify this with the config command, which prints your resolved application config to the terminal:（当您运行docker-compose时，上面定义的Web服务使用image webapp：v1.5。 您可以使用config命令验证此问题，该命令会将已解析的应用程序配置打印到终端：）
+$ docker-compose config
+version: '3'
+services:
+  web:
+    image: 'webapp:v1.5'
+Values in the shell take precedence over those specified in the .env file. If you set TAG to a different value in your shell, the substitution in image uses that instead:（shell中的值优先于.env文件中指定的值。 如果在外壳中将TAG设置为不同的值，则图像中的替换将使用该值：）
+$ export TAG=v2.0
+$ docker-compose config
+version: '3'
+services:
+  web:
+    image: 'webapp:v2.0'
+When you set the same environment variable in multiple files, here’s the priority used by Compose to choose which value to use:
+（当您在多个文件中设置相同的环境变量时，以下是Compose用于选择要使用的值的优先级：）
+1.Compose file,
+2.Environment file,
+3.Dockerfile,
+4.Variable is not defined.
+In the example below, we set the same environment variable on an Environment file, and the Compose file:
+（在下面的例子中，我们在Environment文件和Compose文件上设置了相同的环境变量：）
+$ cat ./Docker/api/api.env
+NODE_ENV=test
+
+$ cat docker-compose.yml
+version: '3'
+services:
+  api:
+    image: 'node:6-alpine'
+    env_file:
+     - ./Docker/api/api.env
+    environment:
+     - NODE_ENV=production
+
+When you run the container, the environment variable defined in the Compose file takes precedence.
+（运行容器时，在撰写文件中定义的环境变量优先。）
+$ docker-compose exec api node
+
+> process.env.NODE_ENV
+'production'
+
+Having any ARG or ENV setting in a Dockerfile evaluates only if there is no Docker Compose entry for environment or env_file.
+（只有在环境或env_file没有Docker Compose条目时，Dockerfile中的任何ARG或ENV设置才会评估）
+
+#####################################################
+########.env、env-file、environment区别的实例########
+#####################################################
+docker-compose中的环境变量
+使用docker-compose部署一个MySQL server. mysq serverl的数据库文件存放在/var/lib/mysql目录下，为了重启mysql server不至于丢失创建的数据库数据，我们需要mount一个目录到mysql server容器的/var/lib/mysql。用docker-compose创建一个mysql instance大概如下：
+version: '2'
+services:
+  mysql:
+    image:mysql
+    volumes:
+      - ${MYSQL_DATA_DIR}:/var/lib/mysql
+MYSQL_DATA_DIR是我用到的环境变量，希望配置到一个文件中，不同的MySQL instance用不同的目录，所以用到了环境变量。
+粗粗的浏览了一下docker-compose参考文档，好像变量可以定义到一个文件中,如定义到mysql,.env中，这样mysql服务的定义就改为了：
+version: '2'
+services:
+  mysql:
+    image:mysql
+   env-file:
+      - ./mysql.env
+    volumes:
+      - ${MYSQL_DATA_DIR}:/var/lib/mysql
+mysql.env的内容如下：
+$ cat mysql.env
+MYSQL_DATA_DIR=/my/sql/data-dir
+然后启动mysql:
+$ docker-compose up -d
+docker-composegeic给出警告：
+WARNING: The MYSQL_DATA_DIR variable is not set. Defaulting to a blank string.
+奇怪，定义在MYSQL_DATA_DIR中的环境变量不起作用。环境变量也可以定义在environment中，不从文件中读取环境变量了，直接定义在environment中有如何。docker-compose.yml改为：
+version: '2'
+services:
+  mysql:
+    image:mysql
+    environment:
+      - MYSQL_DATA_DIR=/my/sql/data-dir
+    volumes:
+      - ${MYSQL_DATA_DIR}:/var/lib/mysql
+用docker-compose启动mysql:
+$docker-compose up -d
+得到一样的错误。什么原因？文档上不是说可以用环境变量并且可以把环境变量定义在env_file和environment中吗。为什么就不工作呢？google一把，有人问同样的问题，看了几个回到，终于有人说到了点子上：
+- env_file，environment中定义的环境变量是穿给container用的不是在docker-compose.yml中的环境变量用的
+- docker-compose.yml中的环境变量${VARIABLE:-default}引用的是在.env中定义的或者同个shell export出来的
+原来如此，把MYSQL_DATA_DIR定义在.env中试试：
+$ cat .env
+MYSQL_DATA_DIR=/my/sql/data-dir
+然后重新启动mysql:
+$ docker-compose up -d
+这次没有任何错误了，一切工作正常。
+
+
+##################################################dockerfile 中 ARG与ENV的区别################################################
+
+######################################################RUN CMD ENTRYPOINT#####################################################
+RUN是在building image时会运行的指令, 在Dockerfile中可以写多条RUN指令.
+CMD和ENTRYPOINT则是在运行container 时会运行的指令, 都只能写一条, 如果写了多条, 则最后一条生效.
+######################################################RUN CMD ENTRYPOINT#####################################################
+
+#########################################################CMD ENTRYPOINT########################################################
+The CMD instruction has three forms:
+CMD ["executable","param1","param2"] (exec form, this is the preferred form)
+CMD ["param1","param2"] (as default parameters to ENTRYPOINT)
+CMD command param1 param2 (shell form)
+
+用法1：带有中括号的形式。这时，命令没有在任何shell终端环境下，如果我们要执行shell，必须把shell加入到中括号的参数中。这种用法就像一个c语言的exec函数，意思是我们要执行一个进程。比如：
+FROM centos
+CMD ["/bin/bash", "-c", "echo 'hello cmd!'"]
+需要注意，采用中括号形式，那么第一个参数必须是命令的全路径才行。而且，一个dockerfile至多只能有一个cmd，如果有多个，只有最后一个生效。
+官网推荐采用这种方法。
+以上都是体现了cmd的"默认"行为。如果我们在run时指定了命令或者有 ，那么cmd就会被覆盖。例：
+docker run -it --rm centos:latest '/bin/bash' '-c' 'echo $0' 11111
+docker run -it --rm centos:latest 'echo' '11111'
+
+用法2：
+作为ENTRYPOINT 的默认参数
+如果dockerfile中同时指定了ENTRYPOINT和CMD，CMD将作为ENTRYPOINT的默认参数，这里两个指令都指的是exec 格式，都将解析为JSON数组，所以只能用双引号。
+
+用法3：shell form，即没有中括号的形式。那么命令command默认是在"/bin/sh -c"下执行的。比如下面的dockerfile：
+FROM centos
+CMD echo "hello cmd!"
+
+ENTRYPOINT has two forms: 
+ENTRYPOINT ["executable", "param1", "param2"] (exec form, preferred)
+ENTRYPOINT command param1 param2 (shell form)
+
+用法1：命令行模式，也就是带中括号的。和cmd的中括号形式是一致的，但是这里貌似是在shell的环境下执行的，与cmd有区别。如果run命令后面有东西，那么后面的全部都会作为entrypoint的参数。如果run后面没有额外的东西，但是cmd有，那么cmd的全部内容会作为entrypoint的参数，这同时是cmd的第二种用法。
+例：
+dockerfile为：
+FROM centos
+CMD ["p in cmd"]
+ENTRYPOINT ["echo"]
+如果run不带参数：docker run cfcc 则输出为：p in cmd、如果run带参数：docker run cfcc p in run 则输出为：p in run。
+而且，确实entrypoint的中括号形式下，command是在shell环境下运行的，否则这里的echo是无法被执行的。
+
+用法2：shell模式。在这种模式下，任何run和cmd的参数都无法被传入到entrypoint里。官网推荐第一种用法。例：
+FROM centos
+CMD ["p in cmd"]
+ENTRYPOINT echo
+docker run 949a cmd中的参数没有被打印
+
+用docker run中的--entrypoint替换dockerfile的ENTRYPOINT
+docker run -it --entrypoint=/bin/bash athena:1.0
+
+docker run -it --rm --entrypoint=ls centos:latest '-lh'
+docker run -it --rm --entrypoint=/bin/bash centos:latest '-c' 'ls -lh'
+docker run -it --rm --entrypoint=/bin/bash centos:latest '-c' 'echo $0' 11111
+
+一、 ENTRYPOINT指令
+
+ENTRYPOINT 的两种格式：
+• ENTRYPOINT ["executable", "param1", "param2"] (exec格式，推荐使用此格式)
+• ENTRYPOINT command param1 param2 (shell 格式)
+
+ENTRYPOINT的目的和CMD一样，都是指定容器的启动程序及参数。ENTRYPOINT在运行时也可以通过docker run的参数--entrypoint来替代镜像中默认的ENTRYPOINT，通过--entrypoint传的必须是可执行的二进制程序，即不会以sh -c形式执行。
+当指定了ENTRYPOINT（exec格式）后，CMD的含义就发生了改变，不再是直接运行的命令，而是将CMD的内容作为参数传给ENTRYPOINT指令，换句话说实际执行时，将变为：<ENTRYPOINT> "<CMD>"
+通过docker run <image>启动容器时的命令行参数将作为ENTRYPOINT的参数追加到其已有的参数后面，此时所有的CMD参数将无效，被命令行参数覆盖；
+CMD作为ENTRYPOINT的参数时需要是exec格式，如果是shell格式将转化成/bin/sh -c 式的exec格式，作为参数传给 ENTRYPOINT 时可能会出错；
+当指定了ENTRYPOINT 为shell格式，CMD将无效，即dockerfile里的CMD和启动容器时传的命令行参数都将无效，此时ENTRYPOINT将以/bin/sh –c的形式启动，即作为sh的子命令来执行，这种形式下ENTRYPOINT的执行程序不能通过Unix信号控制，因进程号不是容器的PID 1 （sh的进程PID为1），也就不能以docker stop <container> 的形式来优雅地停止（接收SIGTERM信号）ENTRYPOINT的执行程序 ，因为这时docker stop <container>会在超时时间后通过发送SIGKILL信号给sh 强制停止容器，这会导致stop时间加长，为避免这种缺点，在shell命令前加exec，以这种方式运行即可，如：ENTRYPOINT exec <shell command>。
+和shell格式不同，当ENTRYPOINT是exec格式时不会调用shell，通常的shell变量将不会被解析执行，ENTRYPOINT [ "echo", "$HOME" ] 中的$HOME不会被替换，如果需要变量替换，则可以用shell格式的ENTRYPOINT。
+
+二、 CMD指令
+
+启动容器的时候，需要指定所运行的程序及参数。CMD 指令就是用于指定默认的容器主进程的启动命令的。
+CMD指令有三种格式：
+• CMD ["executable","param1","param2"] (exec 格式，推荐用此格式)
+• CMD ["param1","param2"] (作为ENTRYPOINT 的默认参数)
+• CMD command param1 param2 (shell 格式)
+
+在dockerfile中只能有1个CMD指令，如有多个，最后一个生效。CMD的目的是提供默认的执行程序或执行程序的参数给容器，如果是参数，需要有ENTRYPOINT提供执行程序。
+如果dockerfile中同时指定了ENTRYPOINT和CMD，CMD将作为ENTRYPOINT的默认参数，这里两个指令都指的是exec 格式，都将解析为JSON数组，所以只能用双引号；
+exec格式不会解析shell环境变量，如CMD [ "echo", "$HOME" ] 将无法解析变量HOME变量，dockerfile里如果CMD用shell格式，在实际执行时将以 /bin/sh -c 执行，如：
+CMD echo $HOME
+在实际执行时将变成CMD [ "sh", "-c", "echo $HOME" ] 也就会解析出HOME变量。
+CMD用exec格式执行系统的命令时，需要命令的全路径和JSON数组格式，就是得使用双引号，每个参数单独分别地追加在数组中，如下用法：
+CMD ["/usr/bin/wc", "--help"]
+
+三、 理解和结合使用CMD和ENTRYPOINT
+• Dockerfile 应该至少指定CMD或ENTRYPOINT其中的1个；
+• 容器用作可执行的程序应用时应该用ENTRYPOINT；
+• CMD应该用作ENTRYPOINT的默认参数来使用，或是在容器中执行临时的命令；
+• 启动容器时如果传递参数将覆盖dockerfile中指定的CMD参数；
+#########################################################CMD ENTRYPOINT########################################################
+
+#############################################在ubuntu16.04镜像上安装GPU显卡驱动############################################
+linux查看系统已安装内核:
+version = uname -r
+
+ubuntu的话apt-get install如下两个模块
+linux-headers-4.4.0-21
+linux-headers-4.4.0-21-generic
+
+apt-get install -y linux-headers-${version}
+apt-get install -y linux-headers-${version}-generic
+
+docker build --build-arg version=3.10.0-514.el7.x86_64 -t athena-gpu:1.0.0.20180917_base -f /home/robot_env_gpu/Dockerfile /home/robot_env_gpu/
+
+docker build -t athena-training:1.2.20181010_release --build-arg version=3.10.0-514.el7.x86_64 -f /home/athena_training/Dockerfile /home/athena_training/
+
+docker build -t athena-training:1.0.20181013_release -f /home/athena_training/Dockerfile /home/athena_training/
+
+docker build -t athena-inference:1.0.20181013_release -f /home/athena_inference/Dockerfile /home/athena_inference/
+
+docker run -it --privileged=true ubuntu:container /bin/bash
+#############################################在ubuntu16.04镜像上安装GPU显卡驱动############################################
+
+#########################################Centos7 安装docker-18.03.1-ce（离线安装）########################################
+一、引言
+为了实现离线安装docker-18.03.1-ce这个想法，我遍寻网络，什么 RPM 搜索大法啦，yum localinstall 方法啦，都是复杂到不行。
+
+二、终极解决
+直接上网址： Install Docker CE from binaries (官方文档：通过二进制包安装 docker 社区版)
+https://docs.docker.com/install/linux/docker-ce/binaries/#install-static-binaries
+友情提示：访问该网页需要科学上网：）
+这里，我把当前最新（2018-05-24）的 docker-18.03.1-ce 上传到了百度云，以方便大家下载使用： docker-18.03.1-ce 百度云密码：pah1
+
+1. 通过 FileZilla 等文件传输工具将 docker-18.03.1-ce.tar 放到用户目录下，并移动到该目录执行下述命令解压二进制包
+$ tar xzvf docker-18.03.1-ce.tar
+
+2. 将解压出来的 docker 文件所有内容移动到 /usr/bin/ 目录下
+$ sudo cp docker/* /usr/bin/
+ 
+3. 开启 docker 守护进程（这个与常规安装方式不一样）
+$ sudo dockerd &
+
+4. 现在你可以尝试着打印下版本号，试着看看 images，看看 info，看看容器了
+$ sudo docker images $ sudo docker ps -a $ sudo docker --version $ sudo docker info
+都没有问题，则表示安装成功：）
+#########################################Centos7 安装docker-18.03.1-ce（离线安装）########################################
+
+#########################################service endpoint with name xxx already exists.#########################################
+使用Docker时，在启动一个容器时，有时会遇到如下问题：
+docker: Error response from daemon: service endpoint with name xxx already exists.
+说明此端口已经被名为xxx的容器占用了。
+我这里遇到的是问题是，在启动mysql时出现问题：
+root@iZuf6axmuekh1n14dwcufmZ:~# docker restart mysql1 
+Error response from daemon: Cannot restart container mysql1: service endpoint with name mysql1 already exists
+
+解决方法：
+1.停止所有的容器
+docker stop $(docker ps -q)
+
+2.强制移除此容器
+docker rm -f mysql1
+
+3.清理此容器的网络占用
+格式：docker network disconnect --force 网络模式 容器名称
+示例：docker network disconnect --force bridge mysql1
+
+4.简查是否还有同名容器占用
+格式：docker network inspect 网络模式
+示例：docker network inspect bridge
+#########################################service endpoint with name xxx already exists.#########################################
+
+#########################################docker inspect工具#########################################
+docker inspect : 获取容器/镜像的元数据。
+
+语法
+docker inspect [OPTIONS] NAME|ID [NAME|ID...]
+OPTIONS说明：
+    -f :指定返回值的模板文件。
+    -s :显示总的文件大小。
+    --type :为指定类型返回JSON。
+docker inspect -f "{{.Mounts}}" d2cc496561d6
+等价于
+docker inspect --format="{{.Mounts}}" d2cc496561d6
+
+docker inspect --format='{{ XXX }}' $(docker ps -aq)
+一级属性{{.属性}} 二级属性 {{.属性.属性}} 三级属性 {{.属性.属性.属性}}
+
+获取容器的名字
+[root@i-ifgwrq7g ~]# docker inspect --format='{{.Name}}' $(docker ps -aq)
+/app
+
+获取容器的 pid
+[root@i-ifgwrq7g ~]# docker  inspect  -f='{{ .State.Pid }} {{ .Id }}' $(docker ps -aq)
+21613 73bbdbc9b8b243244b82c9538bddc06c9a217b43d0e001f462ba644b4a36070b
+
+#########################################docker inspect工具#########################################
+
+#########################################docker nsenter工具#########################################
+nsenter使用
+在使用nsenter命令之前需要获取到docker容器的进程，然后再使用nsenter工具进去到docker容器中，具体的使用方法如下
+$ docker inspect -f {{.State.Pid}} 容器名或者容器id   #每一个容器都有.State.Pid，所以这个命令除了容器的id需要我们根据docker ps -a去查找，其他的全部为固定的格式
+$ nsenter --target 上面查到的进程id --mount --uts --ipc --net --pid  #输入该命令便进入到容器中
+
+解释nsenter指令中进程id之后的参数的含义： 
+* –mount参数是进去到mount namespace中 
+* –uts参数是进入到uts namespace中 
+* –ipc参数是进入到System V IPC namaspace中 
+* –net参数是进入到network namespace中 
+* –pid参数是进入到pid namespace中 
+* –user参数是进入到user namespace中
+
+在Linux中，最爱简单的查看指定命令参数含义的办法是在终端中输入：
+$ nsenter --help  #会回显所有与该命令有关的参数
+$ man nsenter  #能查到更加详细的使用示例和参数说明
+
+由于使用DOCKER的时候，ESTABLISHED连接不会出现在netstat中，在运行中的docker容器中列出打开的套接字的方法
+查找docker的进程号 ：
+docker inspect -f '{{.State.Pid}}' <containerid>   
+$ docker inspect -f '{{.State.Pid}}' 1746bf8c10aa  
+1829
+
+查看连接： 
+sudo nsenter -t <pid> -n netstat | grep ESTABLISHED  
+$ nsenter -t 1829 -n netstat |grep ESTABLISHED  
+tcp        0      0 localhost:60353         localhost:epmd          ESTABLISHED
+tcp        0      0 localhost:epmd          localhost:60353         ESTABLISHED
+tcp        0      0 localhost.localdo:15672 192.168.56.1:59679      ESTABLISHED
+tcp6       0      0 172.17.0.2:amqp         192.168.56.1:59898      ESTABLISHED
+tcp6      21      0 172.17.0.2:amqp         192.168.56.1:59571      ESTABLISHED 
+#########################################docker nsenter工具#########################################
+
+
+#########################################docker打开api remote接口设置#########################################
+1、查看配置文件位于哪里
+systemctl show --property=FragmentPath docker 
+FragmentPath=/usr/lib/systemd/system/docker.service
+2、编辑配置文件内容，接收所有ip请求
+vim  /usr/lib/systemd/system/docker.service 
+ExecStart=/usr/bin/dockerd -H unix:///var/run/docker.sock -H tcp://0.0.0.0:5678 -g /opt/docker
+-g, --graph=""修改docker默认的镜像安装目录
+3、重新加载配置文件，重启docker daemon
+systemctl daemon-reload 
+systemctl restart docker
+4、测试
+最后用docker info命令查看Docker的镜像及容器的存放目录（Docker Root Dir）
+docker -H 192.168.56.110:5678 images
+
+import docker
+client = docker.api.APIClient(base_url='http://192.168.56.111:5678')
+#拉取镜像
+image = client.pull('192.168.56.110:5000/athena-inference-py3:1.0.20190628_release')
+#创建容器：返回字典类型{'Id': '0e61c28a56a33de782194b9797043d3247d65a678e87d9bce600aeccccdf48a8', 'Warnings': None}
+container = client.create_container('192.168.56.110:5000/athena-inference-py3:1.0.20190628_release',entrypoint='/bin/bash',detach=True)
+#启动容器：
+client.start('0e61c28a56a33de782194b9797043d3247d65a678e87d9bce600aeccccdf48a8')
+#停止容器
+client.stop('0e61c28a56a33de782194b9797043d3247d65a678e87d9bce600aeccccdf48a8')
+#删除容器
+client.remove_container('0e61c28a56a33de782194b9797043d3247d65a678e87d9bce600aeccccdf48a8')
+
+container = client.create_container('192.168.56.110:5000/athena-inference-py3:1.0.20190628_release',volumes={'/home/docker-remote-api/entrypoint.d/':{'bind':'/entrypoint.d/','mode':'rw'},'/home/docker-remote-api/app/':{'bind':'/athena/','mode':'rw'}},detach=True)
+
+client = docker.DockerClient(base_url='http://192.168.56.111:5678')
+#拉取镜像
+image = client.api.pull('192.168.56.110:5000/athena-inference-py3:1.0.20190628_release')
+#创建容器：返回Container对象<Container: 3962704a42>，可以调用name、id获取容器的名字和id，也可通过调用stop方法停止容器
+container = client.containers.run('192.168.56.110:5000/athena-inference-py3:1.0.20190628_release',volumes={'/home/docker-remote-api/entrypoint.d/':{'bind':'/entrypoint.d/','mode':'rw'},'/home/docker-remote-api/app/':{'bind':'/athena/','mode':'rw'}},privileged =True,remove=True,detach=True)
+print('name=%s,id=%s' % (container.name,container.id)) #获取容器的名字和ID
+container.stop()                                       #停止容器 
+#停止容器
+client.api.stop('271d7b97eb')
+#删除容器
+client.api.remove_container('271d7b97eb')
+
+#阻塞直到容器停止，并且返回exit code
+exit_dict = container.wait()
+error = res_dict['Error']
+exit_code = res_dict['StatusCode'] #0:正常;1:异常
+
+#获取当前存活的容器
+client.containers.list()
+#获取指定容器（当容器不存在会抛docker.errors.NotFound: 404 Client Error: Not Found ("No such container: 容器ID")）
+client.containers.get(container.id)
+try:
+    client.containers.get('1111')
+except docker.errors.NotFound:
+    print('')
+#########################################docker打开api remote接口设置#########################################
+
+#########################################centos7 Docker私有仓库搭建及删除镜像#########################################
+环境：两个装有Docker 18.05.0-ce 的centos7虚拟机 
+虚拟机一：192.168.56.111 用户开发机 
+虚拟机二：192.168.56.110 用作私有仓库
+
+在110机器上下载registry镜像
+docker pull registry
+
+启动容器前注意两个事项：
+默认情况下，会将仓库存放于容器内的/tmp/registry目录下，这样如果容器被删除，则存放于容器中的镜像也会丢失，所以我们一般情况下会指定本地一个目录挂载到容器内的/tmp/registry下，
+不过具体的情况还是要到容器里去看
+先启动容器
+docker run -d -p 5000:5000 -v /opt/data/registry:/tmp/registry registry 
+b4c21ca8cf8a23ea72e0471909742541ffc312ea5cf492486b5bdc3130179864
+可以看到容器存放位置不在/tmp 下
+我们接着来查找下，挂载位置到底在哪里
+可以看到registry 挂载目录是 在 /var/lib/registry 下
+
+将容器内的config.yml复制到宿主机下
+docker cp 57164a1347ab:/etc/docker/registry/config.yml /opt/data/config.yml
+按下面的要求修改config.yml
+config.yml 这个是什么呢？我们在下面删除仓库镜像介绍
+这里需要说明一点，在启动仓库时，需在配置文件中的storage配置中增加delete=true配置项，允许删除镜像。默认的镜像是没有这个参数
+cat config.yml
+version: 0.1
+log:
+  fields:
+    service: registry
+storage:
+  delete:
+    enabled: true
+  cache:
+    blobdescriptor: inmemory
+  filesystem:
+    rootdirectory: /var/lib/registry
+http:
+  addr: :5000
+  headers:
+    X-Content-Type-Options: [nosniff]
+health:
+  storagedriver:
+    enabled: true
+    interval: 10s
+    threshold: 3
+
+我们重新启动下 registry
+docker run -d -p 5000:5000 -v /opt/data/registry:/var/lib/registry -v /opt/data/config.yml:/etc/docker/registry/config.yml registry
+
+配置https权限支持
+Docker从1.3.X之后，与docker registry交互默认使用的是https，然而此处搭建的私有仓库只提供http服务，所以当与私有仓库交互时就会报错。为了解决这个问题需要在启动docker server时增加启动参数为默认使用http访问。修改docker启动配置文件：
+vim /etc/docker/daemon.json
+添加：{"insecure-registries":["192.168.56.110:5000"]}
+service docker restart
+insecure-registry 192.168.56.110:5000，表示开启5000端口的非安全模式，也就是http模式
+重启docker
+systemctl daemon-reload
+systemctl restart docker
+
+测试
+操作把一个本地镜像push到私有仓库中。首先在110机器下pull一个比较小的镜像来测试（此处使用的是busybox）。
+docker pull busybox
+接下来修改一下该镜像的tag。（在镜像前面加上了运行私有registry的ip:port，这是必须的）
+docker tag busybox 192.168.56.110:5000/busybox:1.0.20190802_release
+其中192.168.56.110:5000/busybox为REPOSITORY，1.0.20190802_release为TAG
+接下来把打了tag的镜像上传到私有仓库。
+docker push 192.168.56.110:5000/busybox:1.0.20190802_release
+
+拉取镜像
+docker pull 192.168.56.110:5000/busybox:1.0.20190802_release
+
+私有Docker Registry删除镜像
+curl -I -X DELETE http://192.168.0.153:5000/v2/<name>/manifests/<reference>
+name:镜像名称
+reference: 镜像对应sha256值
+
+name:镜像名称
+reference: 镜像对应sha256值
+在私有registry上查看镜像
+curl -X 'GET' http://192.168.56.110:5000/v2/_catalog
+{"repositories":["busybox"]}
+
+获取镜像所有标签（取镜像的名称）
+curl -X 'GET' http://192.168.56.110:5000/v2/busybox/tags/list
+{"name":"busybox","tags":["1.0.20190802_release"]}
+
+获取标签对应的digest（取镜像对应sha256值）
+curl -i -X 'GET' -H 'Accept:application/vnd.docker.distribution.manifest.v2+json' http://192.168.56.110:5000/v2/busybox/manifests/1.0.20190802_release
+注意：必须配置 Header Accept:application/vnd.docker.distribution.manifest.v2+json，否则获取的值不对。
+HTTP/1.1 200 OK
+Content-Length: 527
+Content-Type: application/vnd.docker.distribution.manifest.v2+json
+Docker-Content-Digest: sha256:895ab622e92e18d6b461d671081757af7dbaa3b00e3e28e12505af7817f73649
+Docker-Distribution-Api-Version: registry/2.0
+Etag: "sha256:895ab622e92e18d6b461d671081757af7dbaa3b00e3e28e12505af7817f73649"
+X-Content-Type-Options: nosniff
+注意看前面操作返回值的Header，使用Docker-Content-Digest的完整值，包含sha256:前缀
+
+删除镜像索引（只删除了元数据，数据大小没有变化）
+curl -I -X 'DELETE' http://192.168.56.110:5000/v2/busybox/manifests/sha256:895ab622e92e18d6b461d671081757af7dbaa3b00e3e28e12505af7817f73649
+
+进入容器执行垃圾回收命令
+docker exec -it registry /bin/sh
+registry garbage-collect /etc/docker/registry/config.yml
+
+#########################################centos7 Docker私有仓库搭建及删除镜像#########################################
+
+创建用于挂载的目录
+sudo mkdir /my/mysql/datadir #用于挂载mysql数据文件
+sudo mkdir /my/mysql/conf.d #用于挂载mysql配置文件
+
+使用镜像创建容器
+docker run --name mysql5.7 -p 12345:3306 -v /home/mysql/datadir:/var/lib/mysql -v /home/mysql/mysql.conf.d:/etc/mysql/mysql.conf.d -e MYSQL_ROOT_PASSWORD=123456 -d mysql:5.7
+
+docker run --name mysql5.7 -p 12345:3306 -v /home/mysql/datadir:/var/lib/mysql -e MYSQL_ROOT_PASSWORD=123456 -d mysql:5.7
+
+docker run --name mysql5.7 -p 12345:3306 -e MYSQL_ROOT_PASSWORD=123456 -d mysql:5.7
+
+命令解析：
+--name：容器名
+--p：映射宿主主机端口
+-v：挂载宿主目录到容器目录
+-e：设置环境变量，此处指定root密码
+-d：后台运行容器

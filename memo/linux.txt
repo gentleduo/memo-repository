@@ -698,21 +698,17 @@ service network restart
 /***************************************************CentOS 7网络配置*******************************************************
 
 /****************************************************************免密登陆*****************************************************
-[root@server01 .ssh]# ssh root@server02 (在server01中以server02中的用户root登陆服务器:server02)
-scp test.txt root@192.168.56.111:/home/admin/
-
-server01的用户root想免密登陆server02则 需要先在server01中生成用户root用户的密钥对
-生成密钥对:ssh-keygen(提示时，不用输入任何东西 直接回车即可)
-然后再将生成的root用户的自己的公钥拷贝并追加到server02的授权列表文件authorized_keys中(拷贝和追加用一条命令即可完成:ssh-copy-id)
-授权(authorized_keys):ssh-copy-id 192.168.56.111
-
-查看更新完的授权列表
-cat /root/.ssh/authorized_keys
-
-由于上面的ssh-copy-id命令是将server01的root用户的公钥仅仅拷贝并且追加到了/root/.ssh/authorized_keys中
-所以只是 ssh root@server02的时候免密码，而如果ssh admin@server02的时候还是需要输入密码的
-要想在server01中用server02的用户admin登陆的时候也实现免密登陆则需要将server01的root用户的公钥拷贝并且追加到/home/admin/.ssh/authorized_keys中
-scp /root/.ssh/id_rsa.pub admin@server02:/home/admin/.ssh/authorized_keys
+一、概述
+1、就是为了让两个linux机器之间使用ssh不需要用户名和密码。采用了数字签名RSA或者DSA来完成这个操作
+2、模型分析：假设A为客户机器，B为目标机；要达到的目的：A机器ssh登录B机器无需输入密码；加密方式选 rsa|dsa均可以，默认dsa
+二、具体操作流程
+单向登陆的操作过程（能满足上边的目的）：
+1、登录A机器 
+2、ssh-keygen -t [rsa|dsa]，将会生成密钥文件和私钥文件id_rsa,id_rsa.pub或id_dsa,id_dsa.pub
+3、将.pub文件复制到B机器的.ssh目录，并cat id_dsa.pub >> /root/.ssh/authorized_keys
+4、.ssh目录的权限必须是700，chmod 700 .ssh；授权列表authorized_keys的权限必须是600，chmod 600 authorized_keys 
+5、大功告成，从A机器登录B机器的目标账户，不再需要密码了；（直接运行 #ssh B机器的IP ）
+上面只将公钥拷贝并且追加到了/root/.ssh/authorized_keys中所以只是在A机器中用root用户登陆B机器时免密，而其他B机器的用户（如：admin）从A机器登陆B机器的时候还是需要密码，要想在A机器用B机器的用户admin登陆的时候也实现免密登陆则需要将A机器生成的公钥也拷贝追加到/home/admin/.ssh/authorized_keys中
 /****************************************************************免密登陆*****************************************************
 
 /********************************************************vi文本编辑器********************************************************

@@ -1,31 +1,42 @@
 github账号:gentleduo@163.com
 github密码:lzd830319
 
-生成SSH Key：
-ssh-keygen -t rsa -b 2048 -C "gentleduo@163.com"
-回车后输出如下:
-Generating public/private rsa key pair. 
-Enter file in which to save the key (/Users/your_user_name/.ssh/id_rsa):
-直接回车，会将key保存到默认文件中。
-接着会输出：
-Enter passphrase (empty for no passphrase): 
-Enter same passphrase again: 
-这两步是让你输入一个密码，以及确认密码，这个密码在你提交代码到Github时会用到【注意：记住这个密码，最简单的方式就是设置的和github账户登入密码一样，容易记住】
-回车后就提示成功了：
-Your identification has been saved in /Users/your_user_name/.ssh/id_rsa. 
-Your public key has been saved in /Users/your_user_name/.ssh/id_rsa.pub. 
-The key fingerprint is: 
-01:0f:f4:3b:ca:85:d6:17:a1:7d:f0:68:9d:f0:a2:db your_email@example.com 
-到这一步，你会发现/Users/your_user_name/.ssh/id_rsa.pub文件已经生成了
-
+生成SSH Key：（实际上就是配置免密登陆）
+ssh-keygen -t [rsa|dsa]，将会生成密钥文件和私钥文件id_rsa,id_rsa.pub或id_dsa,id_dsa.pub（按三次回车，完成生成私钥和公钥）
 成功的话会在~/下生成.ssh文件夹，进去，打开id_rsa.pub，复制里面的key。回到github上，进入Account=>Settings（账户配置）
 左边选择SSH and GPG keys，然后点击New SSH key按钮,title设置标题，可以随便填，粘贴在你电脑上生成的key。
+（1.rsa和dsa为两种加密方式，一般用rsa；2.生成的秘钥文件Windows位于/Users/your_user_name/.ssh/目录下、linux系统的话为：/root/.ssh/目录下）
 
-把ssh添加到keychain中
-这个时候如果去git clone代码，会让你输入密码。解决方法就是添加到keychain中：
-ssh-add -K /Users/youre_user_name/.ssh/id_rsa 
-
-git@github.com:gentleduo/source-repository.git
+Git中https和ssh相互切换方法
+The git remote set-url command takes two arguments:
+An existing remote name, for example, origin
+A new URL for the remote, for example:
+    1.https://github.com/USERNAME/REPOSITORY_2.git if you’re updating to use HTTPS
+    2.git@github.com:USER/REPOSITORY_2.git if you’re updating to use SSH
+Switching remote URLs from SSH to HTTPS
+List your existing remotes in order to get the name of the remote you want to change.
+$ git remote -v
+#origin git@github.com:USERNAME/REPOSITORY.git (fetch)
+#origin git@github.com:USERNAME/REPOSITORY.git (push)
+Change your remote’s URL from SSH to HTTPS with the remote set-url command.
+$ git remote set-url origin https://github.com/USERNAME/REPOSITORY_2.git
+Verify that the remote URL has changed.
+$ git remote -v
+#Verify new remote URL
+#origin https://github.com/USERNAME/REPOSITORY2.git (fetch)
+#origin https://github.com/USERNAME/REPOSITORY2.git (push)
+Switching remote URLs from HTTPS to SSH
+List your existing remotes in order to get the name of the remote you want to change.
+$ git remote -v
+#origin https://github.com/USERNAME/REPOSITORY.git (fetch)
+#origin https://github.com/USERNAME/REPOSITORY.git (push)
+Change your remote’s URL from HTTPS to SSH with the remote set-url command.
+$ git remote set-url origin git@github.com:USERNAME/REPOSITORY2.git
+Verify that the remote URL has changed.
+$ git remote -v
+#Verify new remote URL
+#origin git@github.com:USERNAME/REPOSITORY2.git (fetch)
+#origin git@github.com:USERNAME/REPOSITORY2.git (push)
 
 ############################################################Git 配置############################################################
 Git 提供了一个叫做 git config 的工具，专门用来配置或读取相应的工作环境变量。
@@ -159,7 +170,7 @@ git push <远程主机名> <本地分支名>:<远程分支名>
 1.git push
 场景：当前分支已经有关联分支，并且关联分支与当前分支同名；
 作用：将当前分支代码同步到远程同名分支；
-2.git push origin <remote_branch>
+2.git push origin <local_branch>
 场景：同步指定分支(非当前分支)到远程分支,如果是当前分支则<local_branch>可以省略
 作用："同步"指定的本地分支到远程关联同名分支；
 3.git push origin <local_branch>：<remote_branch>
@@ -200,9 +211,11 @@ $ git branch -vv
   master a09fdc4 [origin/master] create pull 
 可以看到我们的本地的dev关联的是远程(origin)的dev，本地的master关联的是远程(origin)的master;那么这种关联是如何建立、是否可以修改呢；
 配置本地分支与远程分支的三种方法：
-1.检出时建立关联关系：git checkout -b dev origin/dev
-当我们检查时，git会自动为我们检出的分支和远程分支建立关联关系；
-2.提交时配置关联关系：git push -u origin <remote_branch>或git push --set-upstream origin <remote_branch>
+1.检出时建立关联关系：从服务器上拉取特定分支的时候，可以建立关联关系。git checkout -b dev origin/dev 检出的分支会自动关联到该远程分支
+这种使用的前提：检出的本地分支必须和远程分支同名；
+如：git checkout -b dev origin/dev 这时会建立关联关系
+但：git checkout -b dev origin/master 就不会建立关联关系；
+2.push时配置关联关系：只使用git push后并不会建立本地分支和远程分支的关联关系。如果想要在push时建立关联关系，需要添加参数“--set-upstream”例如：git push --set-upstream origin dev 推送到远程dev分支并建立关联关系;或者使用简写git push -u origin dev
   方法一：
   1. 到github上在仓库Clone or download下拉列表中找到以git@github.com:开头的仓库SSH地址并复制（因为HTTPS较慢，一般用SSH地址）
   2. 在本地执行命令：
@@ -227,7 +240,30 @@ $ git branch -vv
 没有"关联"分支的情况下，使用push会先让你设置一个upstream branch.
 ##########################################################关联远程仓库##########################################################
 
-##############################################非快进方式合并没有共同历史的远程分支##############################################
+#################################################删除git（gitlab，github）的分支#################################################
+原理：推送一个空分支到远程分支，其实就相当于删除远程分支
+方式一：通过代码删除
+命令：$ git push origin 【空格】【冒号】【需要删除的分支名字】
+比如我github上有master和feature分支，我现在想着删除feature分支，命令如下：
+$ git push origin :feature
+方式二：通过客户端删除（点击右边的删除按钮即可）
+#################################################删除git（gitlab，github）的分支#################################################
+
+########################################(non-fast-forward)pull、push没有共同历史的远程分支########################################
+从字面上理解"non-fast-forward"，可以认为是"不能快速前进"。可以这样理解这个问题就是：别人上传到远程仓库后，你没有及时的同步（、拉取）到本地，但是你同时又添加了一些内容（提交），以致于你在提交时，它会检测到你之前从远程仓库拉取的时候的仓库状态和现在的不一样。于是，它为了安全起见拒绝了你的提交（然后就报了这个错误）。
+push时报：non-fast-forward的解决问题
+方法一：
+先合并之前的历史，再进行提交——提倡使用
+先把git的东西fetch到你本地然后merge后再push
+$ git fetch origin master
+$ git merge origin FETCH_HEAD 
+先抓取远程仓库的更新到本地，然后与你的本地仓库合并，（如果有冲突就要解决冲突后再合并，冲突问题比较复杂，这里就不详细说了），这样就可以使远程仓库和你本地仓库一致了，然后就可以提交修改了。
+方法二：
+丢弃之前的历史，强推——谨慎使用
+强推，即利用强覆盖方式用你本地的代码替代git仓库内的内容
+$ git push -f  或者 $ git push --force
+官方文档提示：This flag disables these checks, and can cause the remote repository to lose commits; use it with care.（即：此标志禁用这些检查，并可能导致远程存储库丢失提交；小心使用。）
+pull时报：non-fast-forward的解决问题
 方法一：
 git pull origin master --allow-unrelated-histories --no-ff
 方法二：
@@ -236,7 +272,7 @@ git配置过程中fatal:拒绝合并无关的历史
 git branch --set-upstream-to=origin/master master
 然后使用git pull整合远程仓库和本地仓库，
 git pull --allow-unrelated-histories    (忽略版本不同造成的影响)
-##############################################非快进方式合并没有共同历史的远程分支##############################################
+########################################(non-fast-forward)pull、push没有共同历史的远程分支########################################
 
 ##########################################################Git 基本操作##########################################################
 基本快照
@@ -330,76 +366,54 @@ git mv命令用于移动或重命名一个文件、目录、软连接。
 
 ##########################################################Git 分支管理##########################################################
 分支意味着你可以从开发主线上分离开来，然后在不影响主线的同时继续工作。
+
 创建分支命令：
 git branch (branchname)
+
 切换分支命令:（当你切换分支的时候，Git会用该分支的最后提交的快照替换你的工作目录的内容，所以多个分支不需要多个目录。）
 git checkout (branchname)
+git checkout -b (branchname)命令来创建新分支并立即切换到该分支下，从而在该分支中操作
+
+列出分支基本命令：
+没有参数时，git branch 会列出你在本地的分支。
+git branch
+加上-a参数可以查看远程分支
+git branch -r
+加上-a参数可以查看本地分支和远程分支，远程分支会用红色表示出来（如果你开了颜色支持的话）
+git branch -a
+
+git checkout (branch)
+切换到我们要修改的分支。
+
+重命名当前分支
+git branch -m dev_zhangcz dev
+dev_zhangcz ===> dev
+
+删除本地分支
+git branch -d dev
+删除分支时报：error: The branch 'dev' is not fully merged.
+原因：XXX分支有没有合并到当前分支的内容
+解决方法：使用大写的D 强制删除 git branch -D XXX
+
+删除远程分支
+git push origin :<branchName>
+git push origin --delete dev（在git v1.7.0之后的另一种远程删除方式）
+
 合并分支命令:
 git merge 
 
-列出分支基本命令：
-git branch
-没有参数时，git branch 会列出你在本地的分支。
-$ git branch
-* master
-此例的意思就是，我们有一个叫做master的分支，并且该分支是当前分支。
-当你执行git init的时候，缺省情况下Git就会为你创建master分支。
-如果我们要手动创建一个分支。执行git branch (branchname)即可。 
-$ git branch testing
-$ git branch
-* master
-  testing
-现在可以看到，有了一个新分支testing。此时testing分支的内容跟master分支内容一致
-当以此方式在上次提交更新之后创建了新分支，如果后来又有更新提交，然后又切换到了testing分支，Git 将还原你的工作目录到你创建分支时候的样子。 
-接下来我们将演示如何切换分支，我们用git checkout (branch)切换到我们要修改的分支。
-$ ls
-README
-$ echo 'runoob.com' > test.txt
-$ git add .
-$ git commit -m 'add test.txt'
-[master 3e92c19] add test.txt
- 1 file changed, 1 insertion(+)
- create mode 100644 test.txt
-$ ls
-README        test.txt
-$ git checkout testing
-Switched to branch 'testing'
-$ ls
-README
-当我们切换到testing分支的时候，我们添加的新文件test.txt 被移除了。切换回master分支的时候，它们有重新出现了。
-$ git checkout master
-Switched to branch 'master'
-$ ls
-README        test.txt
-也可以使用git checkout -b (branchname)命令来创建新分支并立即切换到该分支下，从而在该分支中操作。
-
-删除分支
-删除分支命令：git branch -d (branchname)
-
-分支合并
-一旦某分支有了独立内容，你终究会希望将它合并回到你的主分支。 你可以使用以下命令将任何分支合并到当前分支中去：
-$ git branch
-* master
-  newtest
-$ ls
-README        test.txt
-$ git merge newtest
-Updating 3e92c19..c1501a2
-Fast-forward
- runoob.php | 0
- test.txt   | 1 -
- 2 files changed, 1 deletion(-)
- create mode 100644 runoob.php
- delete mode 100644 test.txt
-$ ls
-README        runoob.php
-以上实例中我们将newtest分支合并到主分支去，test.txt文件被删除。
-合并完后就可以删除分支:
-$ git branch -d newtest
-Deleted branch newtest (was c1501a2).
-删除后， 就只剩下 master 分支了：
-$ git branch
-* master
+查看冲突文件：
+git status（输出的命令很详细，但有些繁琐）
+git status -s（以精简的方式显示文件状态）
+git status -s 的状态返回值总结：
+A: 你本地新增的文件（服务器上没有）
+C: 文件的一个新拷贝
+D: 你本地删除的文件（服务器上还在）
+M: 文件的内容或者mode被修改了
+R: 文件名被修改了
+T: 文件的类型被修改了
+U: 文件没有被合并(你需要完成合并才能进行提交)
+X: 未知状态
 ##########################################################Git 分支管理##########################################################
 
 ##########################################################Git 提交历史##########################################################
@@ -428,15 +442,53 @@ $ git log --oneline --before={3.weeks.ago} --after={2010-04-18} --no-merges
 ##########################################################Git 提交历史##########################################################
 
 ############################################################Git 标签############################################################
-指定标签信息命令：
-git tag -a <tagname> -m "runoob.com标签" 
-例如：给提交0f315d5追加标签"v1.0"
-git tag -a v1.0 -m "追加标签" 0f315d5
-执行 git log --decorate 时，我们可以看到我们的标签了： 
+列出标签
+$ git tag
+如果只对特定的标签感兴趣，可以使用模式匹配查找，如：
+$ git tag -l 'v1.8.5*'
+
+打轻量标签（打轻量标签很简单，只需要一个标签名字，而不需要任何额外的信息）
+$ git tag v1.4-lw
+
+打附注标签（创建附注标签，则需要增加-a参数表明它是一个附注标签，还需要增加-m参数指定信息）
+$ git tag -a v1.4 -m 'version 1.4'
+
+查看此版本所修改的内容
+$ git show v1.4
+
+后期打标签（如果不想对当前提交节点打标签，而是想对过去提交节点打标签，那么就可以使用后期打标签功能。）
+假设我们现在的提交历史是这样子的：
+$ git log --pretty=oneline
+15027957951b64cf874c3557a0f3547bd83b3ff6 Merge branch 'experiment'
+a6b4c97498bd301d84096da251c98a07c7723e65 beginning write support
+0d52aaab4479697da7686c15f77a3d64d9165190 one more thing
+6d52a271eda8725415634dd79daabbc4d9b6008e Merge branch 'experiment'
+0b7434d86859cc7b8c3d5e1dddfed66ff742fcbc added a commit function
+4682c3261057305bdd616e23b64b0857d832627b added a todo file
+166ae0c4d3f420721acbb115cc33848dfcc2121a started write support
+9fceb02d0ae598e95dc970b74767f19372d61af8 updated rakefile
+964f16d36dfccde844893cac5b347e7b3d44abbc commit the todo
+8a5cbc430f1a9c3d00faaeffd07798508422908a updated readme
+我们想要对updated rakefile这次提交打标签，那么我们可以记录下它的commit-hash，即为：9fceb02d0ae598e95dc970b74767f19372d61af8
+然后，使用如下这种语法：
+$ git tag -a v1.2 9fceb02d0ae598e95dc970b74767f19372d61af8
+即可成功为那次提交创建标签了
+
+共享标签（只针对当前分支里面的标签）
+默认情况下，本地打的标签是包含推送到远程服务器上的，如果需要推送到远程服务器上，则需要使用：
+$ git push origin <TagName>
+如：git push origin v1.5，如果希望以此推送多个标签，则可以使用：
+$ git push origin --tags
+这样子它就会将远程服务器上不存在的本地标签都推送到远程服务器中
+
+删除标签
+如果要删除一个标签，则可以使用命令git tag -d <TagName>，如：
+$ git tag -d v1.4-lw
+但是，这不会删除远程服务器中的标签，如果希望这种删除同步到远程服务器中，则需要使用git push <remote> :refs/tags/<TagName>这种语法，示例如下：
+$ git push origin :refs/tags/v1.4-lw
 
 检出标签:
 git checkout <tagName> -b <branchName>
-
 根据commitid检出代码:
 git checkout <commitid> -b <branchName>
 注意：如果通过标签或者commitid检出代码不指定branchName的话就会使HEAD处于detached状态（游离状态）。
@@ -445,11 +497,8 @@ git checkout <commitid> -b <branchName>
 ################################################You are in 'detached HEAD' state################################################
 什么是 HEAD
 Git中的HEAD可以理解为一个指针，我们可以在命令行中输入cat .git/HEAD 查看当前HEAD 指向哪儿，一般它指向当前工作目录所在分支的最新提交。
-
 当使用git checkout < branch_name>切换分支时，HEAD会移动到指定分支。
-
 但是如果使用的是git checkout<commit id>，即切换到指定的某一次提交，HEAD就会处于detached状态（游离状态）
-
 HEAD 游离状态的利与弊
 HEAD 处于游离状态时，我们可以很方便地在历史版本之间互相切换，比如需要回到某次提交，直接checkout对应的commit id或者tag名即可。
 它的弊端就是：在这个基础上的提交会新开一个匿名分支！
@@ -459,3 +508,20 @@ HEAD 处于游离状态时，我们可以很方便地在历史版本之间互相
 
 https://www.jianshu.com/p/55b6720264ee
 https://blog.csdn.net/luoweile/article/details/89792133
+https://blog.csdn.net/weixin_41287260/article/details/89742151
+
+
+
+git pull和git fetch的区别：
+https://blog.csdn.net/weixin_41975655/article/details/82887273
+git：FETCH_HEAD
+FETCH_HEAD： 是一个版本链接，记录在本地的一个文件中，指向着目前已经从远程仓库取下来的分支的末端版本。
+
+举例说明：将远程origin仓库的xx分支合并到本地的yy分支。
+git fetch origin xx
+git checkout yy
+git merge FETCH_HEAD
+https://blog.csdn.net/weixin_33910434/article/details/86200097
+
+
+https://ruphi.cn/archives/382/

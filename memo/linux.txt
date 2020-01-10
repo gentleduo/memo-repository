@@ -704,7 +704,7 @@ service network restart
 二、具体操作流程
 单向登陆的操作过程（能满足上边的目的）：
 1、登录A机器 
-2、ssh-keygen -t [rsa|dsa]，将会生成密钥文件和私钥文件id_rsa,id_rsa.pub或id_dsa,id_dsa.pub
+2、ssh-keygen -t [rsa|dsa]，将会生成密钥文件和私钥文件id_rsa,id_rsa.pub或id_dsa,id_dsa.pub（一路回车，既可完成生成私钥和公钥）
 3、将.pub文件复制到B机器的.ssh目录，并cat id_dsa.pub >> /root/.ssh/authorized_keys
 4、.ssh目录的权限必须是700，chmod 700 .ssh；授权列表authorized_keys的权限必须是600，chmod 600 authorized_keys 
 5、大功告成，从A机器登录B机器的目标账户，不再需要密码了；（直接运行 #ssh B机器的IP ）

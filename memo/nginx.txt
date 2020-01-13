@@ -534,3 +534,15 @@ Nginx的负载均衡检查模块的特点：
 1)Nginx只有当有访问时后，才发起对后端节点探测
 2)两个节点都可用的情况下，突然有一个节点挂掉，客户端请求过来后哪怕刚好轮询到了不可用的节点，此次请求也不会失败，因为Nginx会把此次请求转发到另外一个可用节点，再把结果返回给客户端。
 #############################################fail_timeout和max_fails#############################################
+
+环境调试确认：
+两项安装
+yum -y install gcc gcc-c++ autoconf pcre pcre-devel make automake
+yum -y install wget httpd-tools vim
+一次初始化
+cd /opt;mkdir app download logs work backup
+
+http://nginx.org/
+Mainline version - 开发版本
+Stable version - 稳定版
+Legacy version - 历史版

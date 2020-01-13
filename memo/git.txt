@@ -309,6 +309,17 @@ $ git status -s
 A  README
 A  hello.php
 当你要将你的修改包含在即将提交的快照里的时候，需要执行git add。
+git add 添加错文件的撤销方法
+撤销操作
+git status 先看一下add 中的文件 
+git reset HEAD 如果后面什么都不跟的话 就是上一次add 里面的全部撤销了 
+git reset HEAD XXX.html 就是对某个文件进行撤销了
+git add .报错 warning: LF will be replaced by CRLF in 文件 ....
+windows中的换行符为 CRLF，而在Linux下的换行符为LF
+工作区的文件都应该用 CRLF 来换行。如果
+改动文件时引入了 LF,提交改动时，git 会警告你哪些文件不是纯 CRLF 文件，但 git 不会擅自修改工作区的那些文件，而是对暂存区（我们对工作区的改动）进行修改。也因此，当我们进行 git add 的操作时，只要 git 发现改动的内容里有 LF 换行符，就还会出现这个警告。
+解决方法：
+git config --global core.autocrlf false //禁用自动转换
 
 git status
 git status 以查看在你上次提交之后是否有修改。
@@ -343,12 +354,38 @@ nothing to commit (working directory clean)
 如果觉得git add提交缓存的流程太过繁琐，Git也允许你用-a选项跳过这一步。命令格式如下：
 git commit -a 例如：先修改文件内容；再执行以下命令：git commit -am '修改文件'
 
+Git 修改已提交的commit注释
+修改最后一次注释
+如果你只想修改最后一次注释（就是最新的一次提交），那好办：
+git commit --amend
+出现有注释的界面（你的注释应该显示在第一行）， 输入i进入修改模式，修改好注释后，按Esc键 退出编辑模式，输入:wq保存并退出。ok，修改完成。
+修改之前的注释
+修改之前的某次注释
+1.输入：git rebase -i HEAD~2
+最后的数字2指的是显示到倒数第几次 比如这个输入的2就会显示倒数的两次注释（最上面两行）
+2.你想修改哪条注释 就把哪条注释前面的pick换成edit。方法就是上面说的编辑方式：i---编辑，把pick换成edit---Esc---:wq.
+3.然后：（接下来的步骤Terminal会提示）git commit --amend
+4.修改注释，保存并退出后，输入：git rebase --continue
+其实这个原理我的理解就是先版本回退到你想修改的某次版本，然后修改当前的commit注释，然后再回到本地最新的版本
+
 git reset HEAD
 git reset HEAD 命令用于取消已缓存的内容。
 例如：git reset HEAD hello.php  取消hello.php文件的缓存
 现在执行git commit，只会将hello.php文件以为的文件的改动提交。
 如要提交hello.php的修改可以使用如下命令：git commit -am '修改 hello.php 文件'
 简而言之，执行git reset HEAD用来取消之前git add添加的但不希望包含在下一提交快照中的缓存。
+git commit时报错：
+Your branch is ahead of 'origin/master' by 3 commits.
+git push origin：
+If you work in another way and your local changes should be pushed then just git push origin assuming origin is your remote
+git reset --hard origin/master：
+If your local changes are bad then just remove them or reset your local master to the state on remote git reset --hard origin/master
+git reset --hard origin/master
+表示回退至远程分支中的最新版本
+git reset --hard origin/master~1
+表示回退至远程分支中的倒数第二个版本
+git reset --hard origin/master~2
+表示回退至远程分支中的倒数第二个版本
 
 git rm
 如果只是简单地从工作目录中手工删除文件，运行git status时就会在Changes not staged for commit的提示。
@@ -522,6 +559,7 @@ git fetch origin xx
 git checkout yy
 git merge FETCH_HEAD
 https://blog.csdn.net/weixin_33910434/article/details/86200097
-
-
 https://ruphi.cn/archives/382/
+
+
+

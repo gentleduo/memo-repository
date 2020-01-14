@@ -200,6 +200,9 @@ $ git clone git://github.com/schacon/grit.git
 执行该命令后，会在当前目录下创建一个名为grit的目录，其中包含一个 .git 的目录，用于保存下载下来的所有版本记录。
 如果要自己定义要新建的项目目录名称，可以在上面的命令末尾指定新的名字：
 $ git clone git://github.com/schacon/grit.git mygrit
+git clone -b 分支名称 git远程仓库地址
+如果不指定，默认克隆master的代码到本地仓库。
+
 
 ##########################################################Git 创建仓库##########################################################
 
@@ -386,6 +389,8 @@ git reset --hard origin/master~1
 表示回退至远程分支中的倒数第二个版本
 git reset --hard origin/master~2
 表示回退至远程分支中的倒数第二个版本
+当远程仓库的代码的版本比本地仓库代码的版本要新的时候，通过git pull后者git fetch更新代码
+当本地仓库的代码的版本比远程仓库代码的版本要新的时候，可以通过git reset --hard origin/master命令将本地仓库的版本回退至远程分支中的某一个版本
 
 git rm
 如果只是简单地从工作目录中手工删除文件，运行git status时就会在Changes not staged for commit的提示。
@@ -562,4 +567,10 @@ https://blog.csdn.net/weixin_33910434/article/details/86200097
 https://ruphi.cn/archives/382/
 
 
-
+初学git，请问各位大虾，为啥有的github上连接可以直接git clone下来 但是有的就要把ssh key添加到git管理里才能git clone呢？  github上的不都是开源的吗？  能详细解释吗
+https://www.oschina.net/question/2461808_2164598
+我想，你是不是想用ssh的方式clone别人的项目；这个时候报
+Permission denied (publickey).
+fatal: Could not read from remote repository.
+之类的错误，这是因为git clone相当于在本地建一个仓库，同时把这个仓库与远程仓库绑定起来，这个时候就需要校验你对于远程仓库是否有写权限，而ssh是基于密钥验证的，所以就会报错，
+所以如果你想clone别人的项目，1、要么fork一份到自己的账户中，这样就可以用ssh的方式clone项目到本地（前提是ssh密钥需要存到自己账户中），2、要么就用https的方式clone吧

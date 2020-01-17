@@ -172,7 +172,7 @@ location /uri/ 可通过使用不同的前缀，表达不同的含义。对这�
 
 普通location匹配完后，还会继续匹配正则location；但是nginx允许你阻止这种行为，方法很简单，只需要在普通location前加“^~”或“=”。
 
-实验证明：下面的说法不正确
+实验证明：下面的说法不正确（实际情况是只有为严格精确匹配的时候才会阻止正则搜索，其他的情况都会进行后面的正则搜索）
 但其实还有一种“隐含”的方式来阻止正则location的搜索，这种隐含的方式就是：当“最大前缀”匹配恰好就是一个“严格精确（exact match）”匹配，照样会停止后面的搜索。原文字面意思是：只要遇到“精确匹配exact match”，即使普通location没有带“=”或“^~”前缀，也一样会终止后面的匹配。
 
 案例
@@ -254,94 +254,32 @@ add_header  Content-Type 'text/html; charset=utf-8';
 #############################################nginx配置中location匹配规则详解#############################################
 
 #############################################nginx配置中proxy_pass匹配规则详解#############################################
-proxy_pass 后面有没有带上 / ，差别很大。官方文档上有说明，但是可能没有注意，就会出问题的时候莫名其妙。
- 
-A request URI is passed to the server as follows:
-If the proxy_pass directive is specified with a URI, then when a request is passed to the server, the part of a normalized request URI matching the location is replaced by a URI specified in the directive:
-location /name/ {
-	proxy_pass http://127.0.0.1/remote/;
+在nginx中配置proxy_pass代理转发时，如果在proxy_pass后面的url加/，表示绝对根路径；如果没有/，表示相对路径，把匹配的路径部分也给代理走。
+假设下面两种种情况分别用 http://server02/app/api001进行访问：（proxy_pass不包含URI）
+第一种：
+location /app/ {
+    proxy_pass http://server01:8085/;
 }
-
-If proxy_pass is specified without a URI, the request URI is passed to the server in the same form as sent by a client when the original request is processed, or the full normalized request URI is passed when processing the changed URI:
-location /some/path/ {
-	proxy_pass http://127.0.0.1;
+代理到URL：http://server01:8085/api001
+第二种（相对于第一种，最后少一个/）
+location /app/ {
+    proxy_pass http://server01:8085;
 }
-Before version 1.1.12, if proxy_pass is specified without a URI, the original request URI might be passed instead of the changed URI in some cases.
+代理到URL：http://server01:8085/app/api001
 
-举个例子，上面的配置，如果一个请求 http://ai-platform.arganzheng.life/api/hello
-如果配置是：
-location /api/ {
-    proxy_pass http://portal;
+反向代理proxy_pass的语法结构为proxy_pass URL，其中，URL为要设置的被代理服务器的地址，包含传输协议、主机名称或IP地址加端口号、URI等要素。
+proxy_pass URL ,URL中是否含有URI，如果不包含，nginx服务器不会改变原地址的URI；如果包含了URI，则nginx服务器会使用新的URI替换原来的URI。
+假设下面两种种情况分别用http://server02:81/proxy/api001进行访问：（proxy_pass包含URI）
+第一种：
+location /proxy/ {
+    proxy_pass http://server01:8085/app;
 }
-那么转发给 upstream 的URL将会是: http://10.21.12.88:8080/api/hello ，如果配置的是:
-location /api/ {
-    proxy_pass http://portal/;
+代理到URL：http://server01:8085/appapi001
+第二种（相对于第一种，最后少一个/）
+location /proxy/ {
+    proxy_pass http://server01:8085/app/;
 }
-那么转发给 upstream 的URL将会是: http://10.21.12.88:8080/hello 。 
-
-举例：
-server {
-    listen      80;
-    server_name www.test.com;
-
-    # 情形A
-    # 访问 http://www.test.com/testa/aaaa
-    # 后端的request_uri为: /testa/aaaa
-    location ^~ /testa/ {
-        proxy_pass http://127.0.0.1:8801;
-    }
-    
-    # 情形B
-    # 访问 http://www.test.com/testb/bbbb
-    # 后端的request_uri为: /bbbb
-    location ^~ /testb/ {
-        proxy_pass http://127.0.0.1:8801/;
-    }
-
-    # 情形C
-    # 下面这段location是正确的
-    location ~ /testc {
-        proxy_pass http://127.0.0.1:8801;
-    }
-
-    # 情形D
-    # 下面这段location是错误的
-    #
-    # nginx -t 时，会报如下错误: 
-    #
-    # nginx: [emerg] "proxy_pass" cannot have URI part in location given by regular 
-    # expression, or inside named location, or inside "if" statement, or inside 
-    # "limit_except" block in /opt/app/nginx/conf/vhost/test.conf:17
-    # 
-    # 当location为正则表达式时，proxy_pass 不能包含URI部分。本例中包含了"/"
-    location ~ /testd {
-        proxy_pass http://127.0.0.1:8801/;   # 记住，location为正则表达式时，不能这样写！！！
-    }
-
-    # 情形E
-    # 访问 http://www.test.com/ccc/bbbb
-    # 后端的request_uri为: /aaa/ccc/bbbb
-    location /ccc/ {
-        proxy_pass http://127.0.0.1:8801/aaa$request_uri;
-    }
-
-    # 情形F
-    # 访问 http://www.test.com/namea/ddd
-    # 后端的request_uri为: /yongfu?namea=ddd
-    location /namea/ {
-        rewrite    /namea/([^/]+) /yongfu?namea=$1 break;
-        proxy_pass http://127.0.0.1:8801;
-    }
-
-    # 情形G
-    # 访问 http://www.test.com/nameb/eee
-    # 后端的request_uri为: /yongfu?nameb=eee
-    location /nameb/ {
-        rewrite    /nameb/([^/]+) /yongfu?nameb=$1 break;
-        proxy_pass http://127.0.0.1:8801/;
-    }
-    access_log /data/logs/www/www.test.com.log;
-}
+代理到URL：http://server01:8085/app/api001
 #############################################nginx配置中proxy_pass匹配规则详解#############################################
 
 #############################################详解proxy_pass、upstream与resolver#############################################

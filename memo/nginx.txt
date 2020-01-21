@@ -497,14 +497,71 @@ Nginx的负载均衡检查模块的特点：
 2)两个节点都可用的情况下，突然有一个节点挂掉，客户端请求过来后哪怕刚好轮询到了不可用的节点，此次请求也不会失败，因为Nginx会把此次请求转发到另外一个可用节点，再把结果返回给客户端。
 #############################################fail_timeout和max_fails#############################################
 
+#############################################yum install nginx#############################################
 环境调试确认：
 两项安装
 yum -y install gcc gcc-c++ autoconf pcre pcre-devel make automake
 yum -y install wget httpd-tools vim
-一次初始化
-cd /opt;mkdir app download logs work backup
 
-http://nginx.org/
+安装方法见官网：
+http://nginx.org/en/linux_packages.html
+1 配置nginx的yum源仓库：
+创建/etc/yum.repos.d/nginx.repo，内容如下：
+[nginx-stable]
+name=nginx stable repo
+baseurl=http://nginx.org/packages/centos/$releasever/$basearch/
+gpgcheck=1
+enabled=1
+gpgkey=https://nginx.org/keys/nginx_signing.key
+module_hotfixes=true
+根据所使用的分配，将"OS"替换为"centos"，对于5.x，6.x或7.x，请将"OSRELEASE"替换为"5"，"6"或"7" 版本，
+例如：系统是centos7,所以上面的baseurl就是：baseurl=http://nginx.org/packages/centos/7/$basearch/
+注意：$basearch这个就是一个变量，不需要替换。
 Mainline version - 开发版本
 Stable version - 稳定版
 Legacy version - 历史版
+
+yum安装下的nginx，如何添加模块，和添加第三方模块
+1、查看nginx版本模块
+nginx -V
+2、下载一个同版本的可编译的nginx
+cd /home/ngadm
+wget http://nginx.org/download/nginx-1.16.1.tar.gz
+tar zxvf nginx-1.12.2.tar.gz && cd nginx-1.16.1
+3、备份、备份、备份
+备份文件
+mv /usr/sbin/nginx /usr/sbin/nginx_BAK
+cp -r /etc/nginx /etc/nginx_BAK
+4、检查模块是否支持，比如这次添加limit限流模块 和stream模块：
+./configure –-help | grep limit
+注：--without-http_limit_conn_module disable 表示已有该模块，编译时，不需要添加
+./configure –-help | grep stream
+注：–-with-stream enable 表示不支持，编译时要自己添加该模块
+根据第一步查到已有的模块，加上本次需新增的模块，那么最终结果如下：（例本次追加ngx_http_proxy_connect_module模块）
+./configure --prefix=/etc/nginx --sbin-path=/usr/sbin/nginx --modules-path=/usr/lib64/nginx/modules --conf-path=/etc/nginx/nginx.conf --error-log-path=/var/log/nginx/error.log --http-log-path=/var/log/nginx/access.log --pid-path=/var/run/nginx.pid --lock-path=/var/run/nginx.lock --http-client-body-temp-path=/var/cache/nginx/client_temp --http-proxy-temp-path=/var/cache/nginx/proxy_temp --http-fastcgi-temp-path=/var/cache/nginx/fastcgi_temp --http-uwsgi-temp-path=/var/cache/nginx/uwsgi_temp --http-scgi-temp-path=/var/cache/nginx/scgi_temp --user=nginx --group=nginx --with-compat --with-file-aio --with-threads --with-http_addition_module --with-http_auth_request_module --with-http_dav_module --with-http_flv_module --with-http_gunzip_module --with-http_gzip_static_module --with-http_mp4_module --with-http_random_index_module --with-http_realip_module --with-http_secure_link_module --with-http_slice_module --with-http_ssl_module --with-http_stub_status_module --with-http_sub_module --with-http_v2_module --with-mail --with-mail_ssl_module --with-stream --with-stream_realip_module --with-stream_ssl_module --with-stream_ssl_preread_module --with-cc-opt='-O2 -g -pipe -Wall -Wp,-D_FORTIFY_SOURCE=2 -fexceptions -fstack-protector --param=ssp-buffer-size=4 -m64 -mtune=generic -fPIC' --with-ld-opt='-Wl,-z,relro -Wl,-z,now -pie' --add-module=/opt/ngx_http_proxy_connect_module
+以上编译时，如出现缺少依赖，一般需要安装以下模块，安装完再次编译：
+yum -y install libxml2 libxml2-dev libxslt-devel
+yum -y install gd-devel
+yum -y install perl-devel perl-ExtUtils-Embed
+yum -y install GeoIP GeoIP-devel GeoIP-data
+5、编译通过，继续验证
+继续输入：make -j2
+禁止：千万不要继续输入“make install”，以免现在的nginx出现问题
+以上完成后，会在objs目录下生成一个nginx文件，先验证：
+objs/nginx -t
+objs/nginx -V
+6、文件替换，并重启
+以上成功后：
+cp objs/nginx /usr/sbin/
+nginx -s reload
+
+nginx增加ngx_http_proxy_connect_module之前需要使用patch命令修补文件，在使用patch命令前一定要先进入解压后的nginx的根目录
+patch -p1命令会忽略掉补丁文件中第1个”/”之前的内容，认为原始文件是 ./A，这样就正确了。
+wget http://nginx.org/download/nginx-1.9.2.tar.gz
+tar -xzvf nginx-1.9.2.tar.gz
+cd nginx-1.9.2/
+patch -p1 < /path/to/ngx_http_proxy_connect_module/patch/proxy_connect.patch
+./configure --add-module=/path/to/ngx_http_proxy_connect_module
+make && make install
+
+#############################################yum install nginx#############################################

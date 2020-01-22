@@ -140,6 +140,110 @@ nginx -t -c /xxxx/nginx.conf  #检测特定目录下的Nginx配置文件是否�
 nginx -v                   # 显示版本信息
 nginx -V                   # 显示版本信息和编译选项
 
+############################################################nginx-root,alias,index############################################################
+1. root
+root模块就是用来指定访问资源的document_root，nginx会将root的值和location的值进行拼接，然后再拼接上url剩余的部分及index指定的值，举例：
+location /a/{
+    root    /usr/local;
+    index    1.html;
+}
+访问结果如下：
+/a --> /usr/local/a/1.html
+/a/b --> /usr/local/a/b/1.html
+
+2. alias
+alias模块也是用来指定访问资源的document_root，但是nginx会将alias的值替换location的值，然后再拼接上url剩余的部分及index指定的值，举例：
+location /a/{
+    alias    /usr/local;
+    index    1.html;
+}
+访问结果如下：
+/a --> /usr/local/1.html
+/a/b --> /usr/local/b/1.html
+alias模块有点需要注意：alias指定的是document_root，不能直接指定到具体的文件，否则会500，例如：
+location /a/{
+    alias    /usr/local/1.html;
+    #index    1.html;
+}
+这种配置会让nginx报出500
+3. index
+通过上面的两个例子，我们知道index就是用来指定具体的资源的名字的，index可以指定多个资源的名字，第一个匹配不到，就会匹配第二个，直到匹配到为止。
+但是location使用严格匹配的时候，不能使用index，否则会导致root失效，如：
+location =/a/{
+    root    /usr/local/;
+    index    1.html;
+}
+当访问的url为/a/时，实际访问的资源为：nginx的默认document_root/a/1.html，使得root失效，值得注意的是nginx的默认document_root和我们root指定的是不一样的，所以最后会404
+############################################################nginx-root,alias,index############################################################
+
+##################################################################server_name#################################################################
+第一步：在客户端配置hosts（C:\Windows\System32\drivers\etc\hosts）
+192.168.56.201 www.test201.com
+192.168.56.202 www.test202.com
+192.168.56.203 www.test203.com
+第二步：给虚拟机（服务端）配置另外三个ip
+ifconfig enp0s8:1 192.168.56.201/24 up
+ifconfig enp0s8:2 192.168.56.202/24 up
+ifconfig enp0s8:3 192.168.56.203/24 up
+再次执行：ifconfig、可以看到多了三个ip
+第三步：建立相关的nginx的文件
+1.建立虚拟主机存放网页的根目录，并创建首页文件index.html
+mkdir -p /opt/app/www
+cd /opt/app/www
+mkdir 201
+mkdir 202
+mkdir 203
+echo "192.168.56.201" > 201/index.html; echo "192.168.56.201" > 202/index.html;echo "192.168.56.201" > 203/index.html
+2.修改nginx.conf，将虚拟主机配置文件包含进主文件
+    #通过ip配置
+    server {
+            listen       192.168.56.201:80;
+            #server_name  www.test201.com;
+
+            access_log   /opt/app/www/logs/www.test201.com.log main;
+            error_log    /opt/app/www/logs/www.test201.com.error.log;
+
+            location / {
+                root   /opt/app/www/201;
+                index  index.html index.htm;
+            }
+    }
+    server {
+            listen       192.168.56.202:80;
+            #server_name  www.test202.com;
+
+            access_log   /opt/app/www/logs/www.test202.com.log main;
+            error_log    /opt/app/www/logs/www.test202.com.error.log;
+
+            location / {
+                root   /opt/app/www/202;
+                index  index.html index.htm;
+            }
+    }
+    server {
+            listen       192.168.56.203:80;
+            #server_name  www.test203.com;
+
+            access_log   /opt/app/www/logs/www.test203.com.log main;
+            error_log    /opt/app/www/logs/www.test203.com.error.log;
+
+            location / {
+                root   /opt/app/www/203;
+                index  index.html index.htm;
+            }
+    }
+可以使用ip和域名访问。
+3.把server中的ip都删除，把server_name的注释都解开。重启nginx。在访问，发现用域名能访问到对应的资源。
+使用ip就只会出现192.168.56.201的资源
+这是因为通过其他ip也能请求到nginx，但是匹配不到相应的server，这个时候就会使用第一个server。
+4.将server_name=www.test203.com的server的listen加上ip 192.168.56.202:80,重启nginx。
+这个时候使用www.test202.com，进行访问就可以得到server_name=www.test202.com的资源。而使用192.168.56.202进行访问就可以得到server_name= www.test203.com的资源。
+但是使用www.test203.com访问的到的是192.168.56.201的资源。
+
+结论：客户端通过域名访问服务器时会将域名与被解析的ip一同放在请求中。当请求到了nginx中时。nginx会先去匹配server_name，如果server_name中没有找到，就会通过listen中的ip进行匹配，匹配成功以后，再匹配端口。当这三步完成，就会找到对应的server的location对应的资源。
+##################################################################server_name#################################################################
+
+
 //location、proxy_pass、upstream与resolver
 #############################################nginx配置中location匹配规则详解#############################################
 1、 location 的匹配顺序其实是“先匹配普通，再匹配正则”。
@@ -282,7 +386,7 @@ location /proxy/ {
 代理到URL：http://server01:8085/app/api001
 #############################################nginx配置中proxy_pass匹配规则详解#############################################
 
-#############################################nginx配置中Rewrite用法总结#############################################
+##########################################################nginx配置中Rewrite用法总结##########################################################
 1.rewrite的定义
 rewrite功能就是使用nginx提供的全局变量或自己设置的变量，结合正则表达式和标志位实现url重写以及重定向
 rewrite只能放在 server{}, location{}, if{}中，并且只能对域名后边的除去传递的参数外的字符串起作用。
@@ -300,11 +404,236 @@ flag标志位
     break : 停止执行当前虚拟主机的后续rewrite指令集
     redirect : 返回302临时重定向，地址栏会显示跳转后的地址
     permanent : 返回301永久重定向，地址栏会显示跳转后的地址
-因为301和302不能简单的只返回状态码，还必须有重定向的URL，这就是return指令无法返回301,302的原因了。这里 last 和 break 区别有点难以理解：
+因为301和302不能简单的只返回状态码，还必须有重定向的URL，这就是return指令无法返回301,302的原因了。这里last和break区别有点难以理解：
     last一般写在server和if中，而break一般使用在location中
     last不终止重写后的url匹配，即新的url会再从server走一遍匹配流程，而break终止重写后的匹配
-    break和last都能组织继续执行后面的rewrite指令
-#############################################nginx配置中Rewrite用法总结#############################################
+    break和last都能阻止继续执行后面的rewrite指令
+rewrite在if中的用法
+格式：if (条件判断) { 具体的rewrite规则 }
+if条件判断语句由Nginx内置变量、逻辑判断符号和目标字符串三部分组成。
+其中，内置变量是Nginx固定的非自定义的变量，如，$request_method, $request_uri等。
+逻辑判断符号，有=, !=, ~, ~*, !~, !~*
+!表示相反的意思，~为匹配符号，它右侧为正则表达式，区分大小写，而~*为不区分大小写匹配。
+目标字符串可以是正则表达式，通常不用加引号，但表达式中有特殊符号时，比如空格、花括号、分号等，需要用单引号引起来。
+示例1：当http请求方法为post时，返回403状态码
+if ($request_method = POST)
+{
+    return 403; 
+}
+示例2：通过浏览器标识匹配关键字，禁止IE浏览器访问
+if ($http_user_agent ~* MSIE) 
+{
+    return 403;
+}
+限制多个浏览器：
+if ($http_user_agent ~* "MSIE|firefox|Chrome")
+{
+    return 403;
+}
+示例3：当请求的文件不存在时，进行重定向或return状态码等处理操作
+if(!-f $request_filename)
+{
+    rewrite 语句;
+}
+示例4：判断uri中某个参数的内容
+if($request_uri ~* 'gid=\d{6,8}/') 
+{
+    rewrite 语句;
+}
+#\d表示数字，{6,8}表示数字出现的次数是6到8次，当uri中gid参数的值包含6-8个数字那么执行rewrite语句
+
+rewrite中break和last的用法
+两个指令用法相同，但含义不同，需要放到rewrite规则的末尾，用来控制重写后的链接是否继续被nginx配置执行(主要是rewrite、return指令)。
+1.break和last在location{}外部时
+测试示例：
+server{
+    listen 80; 
+    server_name test.com;
+    root /data/wwwroot/test.com;
+
+    rewrite /1.html /2.html;
+    rewrite /2.html /3.html;
+}
+#请求1.html文件时，会被重定向到2.html，然后被重定向到3.html，最后返回的文件为3.html
+示例1：在rewrite 指令后面添加break
+server{
+    listen 80; 
+    server_name test.com;
+    root /data/wwwroot/test.com;
+
+    rewrite /1.html /2.html break;
+    rewrite /2.html /3.html;
+}
+#请求1.html文件时，会被重定向到2.html，然后直接返回2.html，break在此处的作用就是当匹配第一个rewrite指令成功时，不执行后面的rewrite指令
+示例2：当break后面还有location{}的情况
+server{
+    listen 80; 
+    server_name test.com;
+    root /data/wwwroot/test.com;
+
+    rewrite /1.html /2.html break;
+    rewrite /2.html /3.html;
+    location /2.html {
+        return 403;
+    }
+}
+#请求1.html文件时，会返回403状态码，这是因为当1.html被重定向到2.html时，break不会匹配后面的rewrite规则，但条件2.html匹配location{}定义的文件2.html，所以会执行return 403
+#以上两个示例中，将break换成last效果一样
+
+2.break和last在location{}内部时
+测试示例：
+server{
+    listen 80; 
+    server_name test.com;
+    root /data/wwwroot/test.com;
+    
+    location / {
+        rewrite /1.html /2.html;
+        rewrite /2.html /3.html;
+    }
+    location /2.html
+    {
+        rewrite /2.html /a.html;
+    }
+    location /3.html
+    {
+        rewrite /3.html /b.html;
+    }
+}
+#请求1.html，会经过两次重定向到3.html，3.html又刚好匹配location /3.html{}，所以返回b.html，当请求2.html时，会直接返回a.html，因为location /2.html {} 更精准，优先匹配
+示例1：在rewrite后面添加break
+server{
+    listen 80; 
+    server_name test.com;
+    root /data/wwwroot/test.com;
+    
+    location / {
+        rewrite /1.html /2.html break;
+        rewrite /2.html /3.html;
+    }
+    location /2.html
+    {
+        rewrite /2.html /a.html;
+    }
+    location /3.html
+    {
+        rewrite /3.html /b.html;
+    }
+}
+#请求1.html，会返回2.html，不会返回a.html，当break再location {} 内部时，遇到break后，当前location{} 以及后面的location{} 的指令都不再执行
+示例2：在rewrite后面添加last
+server{
+    listen 80; 
+    server_name test.com;
+    root /data/wwwroot/test.com;
+    
+    location / {
+        rewrite /1.html /2.html last;
+        rewrite /2.html /3.html;
+    }
+    location /2.html
+    {
+        rewrite /2.html /a.html;
+    }
+    location /3.html
+    {
+        rewrite /3.html /b.html;
+    }
+}
+#请求1.html时，会返回a.html，在location {} 内部遇到last，当前location {}中剩下的指令不会再执行，但被重定向的url会重新匹配一遍location {}
+3.break和last用法总结
+1.当rewrite规则在location{}外，break和last作用一样，遇到break或last后，其后续的rewrite/return语句不再执行。但后续有location{}的话，还会近一步执行location{}里面的语句,前提是请求能匹配该location
+2.当rewrite规则在location{}里，遇到break后，本location{}与其他location{}的所有rewrite/return规则都不再执行
+3.当rewrite规则在location{}里，遇到last后，本location{}里后续rewrite/return规则不执行，但重写后的url再次从头匹配所有location
+
+return的用法
+该指令一般用于对请求的客户端直接返回响应状态码。在该作用域内return后面的所有nginx配置都是无效的，可以使用在server、location以及if配置中，除了支持跟状态码，还可以跟字符串或者url链接。
+示例1：直接返回状态码
+server{
+    listen 80;
+    server_name www.test.com;
+    return 403;
+    rewrite www.test.net;  
+}
+#访问时，直接返回403状态码，return返回内容后，后面的配置rewrite不会执行
+示例2：当return在if 判断中时
+server {
+.....
+
+if ($request_uri ~ "\.password|\.bak")
+{
+    return 404;
+    rewrite /(.*) /index.html;  
+}
+.....
+}
+#请求的文件包含.password或.bak时，直接返回404，rewrite不会执行，但if {}外的配置会继续执行，return只在当前作用域中生效
+示例3：返回字符串
+server{
+    listen 80;
+    server_name www.test.com;
+    return 200 "hello";
+}
+#返回字符串必须加上状态码，否则会报错
+示例4：返回nginx变量
+location /1.html {
+    return 200 "$host $request_uri";
+}
+示例5：返回url
+server{
+    listen 80;
+    server_name www.test.com;
+    return http://www.test.com/index2.html;
+}
+#返回url时，必须以http://或https://开头
+示例6：返回html代码
+if ($http_referer ~ 'baidu.com') 
+{
+    return 200 "<html><script>window.location.href='//$host$request_uri';</script></html>";
+}
+#当网站被黑了的时候，从百度点进网站是链接都会跳转到其他网站，可以使用该方法暂时处理
+#注意：return http://$host$request_uri; 在浏览器中会提示"重定向的次数过多"
+
+rewrite应用实例
+1.域名跳转（域名重定向）
+单个域名的情况：
+server{
+    listen 80;
+    server_name www.test.com;
+    rewrite /(.*) http://www.test.net/$1 permanent;    
+}
+多个域名的情况：
+server{
+    listen 80;
+    server_name www.test.com www.test.net;
+    if ($host != 'www.test.net')
+    {
+        rewrite /(.*) http://www.test.net/$1 permanent;
+    }
+}
+2.http跳转https
+server{
+    listen 80;
+    server_name www.test.com;
+    rewrite /(.*) https://www.test.com/$1 permanent;
+}
+3.跳转二级目录
+server{
+    listen 80;
+    server_name bbs.test.com;
+    rewrite /(.*) http://www.test.com/bbs/$1 last;
+}
+4.动静态请求分离
+server{
+    listen 80;
+    server_name www.test.com;
+    location ~* .*\.(jpg|jpeg|gif|css|png|js)$
+    {
+        rewrite /(.*) http://img.test.com/$1 permanent;
+    }
+}
+#假设www.test.com的服务器在国外，访问速度较慢，img.test.com的服务器在国内，访问速度正常，可以将访问www.test.com静态文件的请求重定向到img.test.com，提高文件返回速度
+##########################################################nginx配置中Rewrite用法总结##########################################################
 
 #############################################详解proxy_pass、upstream与resolver#############################################
 列举几个应用场景，针对这几个场景并结合代码进行分析。

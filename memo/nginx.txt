@@ -145,27 +145,36 @@ nginx -V                   # 显示版本信息和编译选项
 root模块就是用来指定访问资源的document_root，nginx会将root的值和location的值进行拼接，然后再拼接上url剩余的部分及index指定的值，举例：
 location /a/{
     root    /usr/local;
-    index    1.html;
+    index   1.html;
 }
 访问结果如下：
-/a --> /usr/local/a/1.html
+/a/  --> /usr/local/a/1.html
 /a/b --> /usr/local/a/b/1.html
-
+如果在location中不加index，只需要在请求的URI中指定好资源，也可访问成功，举例：
+location /a/{
+    root    /usr/local;
+}
+访问结果如下：
+/a/1.html   --> /usr/local/a/1.html
+/a/b/1.html --> /usr/local/a/b/1.html
 2. alias
 alias模块也是用来指定访问资源的document_root，但是nginx会将alias的值替换location的值，然后再拼接上url剩余的部分及index指定的值，举例：
 location /a/{
-    alias    /usr/local;
+    alias    /usr/local/;
     index    1.html;
 }
 访问结果如下：
 /a --> /usr/local/1.html
 /a/b --> /usr/local/b/1.html
-alias模块有点需要注意：alias指定的是document_root，不能直接指定到具体的文件，否则会500，例如：
+alias模块有点需要注意：
+alias指定的是document_root，不能直接指定到具体的文件，否则会500，例如：
 location /a/{
     alias    /usr/local/1.html;
     #index    1.html;
 }
 这种配置会让nginx报出500
+使用alias时，目录后面一定要加"/"。（root目录配置中，location匹配的path目录后面带不带"/"，都不会影响访问。）
+alias只能位于location块中。（root可以不放在location中）
 3. index
 通过上面的两个例子，我们知道index就是用来指定具体的资源的名字的，index可以指定多个资源的名字，第一个匹配不到，就会匹配第二个，直到匹配到为止。
 但是location使用严格匹配的时候，不能使用index，否则会导致root失效，如：
@@ -374,6 +383,7 @@ location /app/ {
 
 反向代理proxy_pass的语法结构为proxy_pass URL，其中，URL为要设置的被代理服务器的地址，包含传输协议、主机名称或IP地址加端口号、URI等要素。
 proxy_pass URL ,URL中是否含有URI，如果不包含，nginx服务器不会改变原地址的URI；如果包含了URI，则nginx服务器会使用新的URI替换原来的URI。
+（nginx服务器会使用新的URI然后再拼接上和location匹配之后剩余的部分组成新的URL）
 假设下面两种种情况分别用http://server02:81/proxy/api001进行访问：（proxy_pass包含URI）
 第一种：
 location /proxy/ {

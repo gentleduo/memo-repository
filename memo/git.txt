@@ -1,6 +1,8 @@
 github账号:gentleduo@163.com
 github密码:lzd830319
 
+在管理Git项目上，很多时候都是直接使用https url克隆到本地，当然也有有些人使用SSH url克隆到本地。这两种方式的主要区别在于：使用https url克隆对初学者来说会比较方便，复制https url然后到git Bash里面直接用clone命令克隆到本地就好了，但是每次fetch和push代码都需要输入账号和密码，这也是https方式的麻烦之处。而使用SSH url克隆却需要在克隆之前先配置和添加好SSH key，因此，如果你想要使用SSH url克隆的话，你必须是这个项目的拥有者。否则你是无法添加SSH key的，另外ssh默认是每次fetch和push代码都不需要输入账号和密码，如果你想要每次都输入账号密码才能进行fetch和push也可以另外进行设置。
+
 生成SSH Key：（实际上就是配置免密登陆）
 ssh-keygen -t [rsa|dsa]，将会生成密钥文件和私钥文件id_rsa,id_rsa.pub或id_dsa,id_dsa.pub（按三次回车，完成生成私钥和公钥）
 成功的话会在~/下生成.ssh文件夹，进去，打开id_rsa.pub，复制里面的key。回到github上，进入Account=>Settings（账户配置）
@@ -109,6 +111,74 @@ objects 标识的区域为 Git 的对象库，实际位于 ".git/objects" 目录
    ∨                        ∨                        ∨
    ---------------------------------------------------
                      status\relog\rm
+					 
+（一）暂存区是什么
+所谓的暂存区实际只是一个简单的索引文件，即 .git文件夹下的index文件。
+那么index文件中保存了什么东西？直接打开会显示乱码，我们可以使用 git ls-files --stage 命令来查看index文件中内容。
+$ git ls-files --stage
+100644 c72ce18a0fe9a7de2ecb956a7d2030367ddd9db2 0       README.md
+100644 90b451628d8449f4c47e627eb1392672e5ccec98 0       test
+从上图可以看到，index文件中保存了两行记录。每一条记录保存了当前暂存区管理的文件名、文件快照的HASH值。
+
+第二列长度为40的HASH值对应 .git/objects文件夹中的文件，git使用前两位作为文件夹，后38位作为文件名。
+我们可以先使用git cat-file -p查看一下文件中保存了什么内容？
+$ git cat-file -p 90b451
+aaaaaa
+里面保存的就是test中的内容。
+
+（二）.git/objects文件夹中都保存了什么？
+.git/objects实际就是git的对象仓库。在这个目录下，git将文件分为四种类型，blob类型、tree类型、commit类型和tag类型。
+blob类型的文件仅仅存储文件内容，不包含文件创建时间、访问权限等信息，相同的内容对应同一个blob文件。
+当更改了test文件中的内容时，会在objects目录下新生成一个Blob文件，并更新index索引。查看新的blob文件内容会发现，test中的内容已经更改为新的内容。
+$ git ls-files --stage
+100644 c72ce18a0fe9a7de2ecb956a7d2030367ddd9db2 0       README.md
+100644 90b451628d8449f4c47e627eb1392672e5ccec98 0       test
+$ git cat-file -p 90b451
+aaaaaa
+然后更改test中内容为：aaaaaa-update；再执行git add .
+$ git add .
+$ git ls-files --stage
+100644 c72ce18a0fe9a7de2ecb956a7d2030367ddd9db2 0       README.md
+100644 6fbe097a071654cab5ad2943c9f71e912abcf0c5 0       test
+$ git cat-file -p 6fbe09
+aaaaaa-update
+
+假设现在新建一个文件test_add，文件中的内容为aaaaaa,即test更改前的内容一致，看看index索引会发生什么
+$ git ls-files --stage
+100644 c72ce18a0fe9a7de2ecb956a7d2030367ddd9db2 0       README.md
+100644 6fbe097a071654cab5ad2943c9f71e912abcf0c5 0       test
+100644 90b451628d8449f4c47e627eb1392672e5ccec98 0       test_add
+$ git cat-file -p 90b451
+aaaaaa
+会发现，objects目录下并没有生成新的文件。而index索引重新指向了90b451这个blob文件--原来test指向的文件。这里可以看出blob文件只和内容相关，相同的内容使用同一个blob文件。注意，blob文件大小都不是很大，那是因为git在生成blob文件的时候使用了zlib对文件进行了压缩。
+小结：git add添加文件进暂存区时，会根据文件的内容计算出HASH值，如果HASH值存在，说明该内容已在git仓库中存在，只需要更新index索引即可。
+如果HASH不存在，则在objects目录下新建一个blob文件，文件夹取HASH值前两位，文件名取后38位，然后更新index索引。
+
+（三）git commit命令做了什么？
+当使用git commit命令将暂存区的内容保存到本地仓库会发生什么？
+$ git commit -m 'update test file'
+[master 91f3227] update test file
+ 2 files changed, 2 insertions(+), 1 deletion(-)
+ create mode 100644 test_add
+上图可以看到生成了一个HASH 91f3227，下面我们来查看这个序列对应什么文件.
+$ git cat-file -t 91f3227
+commit
+$ git cat-file -p 91f3227
+tree 4ca079b25514e05ccc705dca2ae60b92b25b8492
+parent 05bd9b358a825656eb9f0417df2243c93e86fed8
+author gentleduo <gentleduo@163.com> 1581396649 +0800
+committer gentleduo <gentleduo@163.com> 1581396649 +0800
+
+update test file
+从上图看到，使用git commit命令，会生成一个commit类型的文件，该文件内容包含了：目录树、上一次提交、作者信息、和提交信息。
+继续查看目录中中的内容：
+$ git cat-file -p 4ca079
+100644 blob c72ce18a0fe9a7de2ecb956a7d2030367ddd9db2    README.md
+100644 blob 6fbe097a071654cab5ad2943c9f71e912abcf0c5    test
+100644 blob 90b451628d8449f4c47e627eb1392672e5ccec98    test_add
+可以看出，目录树中记录了所有的子目录和文件信息。
+小结：使用git commit命令时，git会在objects目录下生成一个commit类型的文件和多个tree类型的文件（取决于tree类型是否已存在）。
+commit文件中保存了当前版本的所有的文件状态，并有一个索引指向上一次提交。以此类推。
 ###################################################Git 工作区、暂存区和版本库###################################################
 
 ##########################################################Git 创建仓库##########################################################
@@ -164,7 +234,7 @@ git pull
 git push
 使用push时，我们要特别注意分支的名称和”关联分支"对于操作的影响
 git push
-git push origin <remote_branch>
+git push origin <local_branch>
 git push origin <local_branch>：<remote_branch>
 git push <远程主机名> <本地分支名>:<远程分支名>
 1.git push
@@ -259,7 +329,7 @@ push时报：non-fast-forward的解决问题
 先合并之前的历史，再进行提交——提倡使用
 先把git的东西fetch到你本地然后merge后再push
 $ git fetch origin master
-$ git merge origin FETCH_HEAD 
+$ git merge FETCH_HEAD 
 先抓取远程仓库的更新到本地，然后与你的本地仓库合并，（如果有冲突就要解决冲突后再合并，冲突问题比较复杂，这里就不详细说了），这样就可以使远程仓库和你本地仓库一致了，然后就可以提交修改了。
 方法二：
 丢弃之前的历史，强推——谨慎使用
@@ -323,6 +393,10 @@ windows中的换行符为 CRLF，而在Linux下的换行符为LF
 改动文件时引入了 LF,提交改动时，git 会警告你哪些文件不是纯 CRLF 文件，但 git 不会擅自修改工作区的那些文件，而是对暂存区（我们对工作区的改动）进行修改。也因此，当我们进行 git add 的操作时，只要 git 发现改动的内容里有 LF 换行符，就还会出现这个警告。
 解决方法：
 git config --global core.autocrlf false //禁用自动转换
+回车符就是回到一行的开头，用符号r表示，十进制ASCII代码是13，十六进制代码为0x0D，回车（return）
+换行符就是另起一行，用n符号表示，ASCII代码是10，十六制为0x0A，换行（newline）
+LF: Line Feed换行
+CRLF: Carriage Return Line Feed 回车换行
 
 git status
 git status 以查看在你上次提交之后是否有修改。
@@ -388,7 +462,7 @@ git reset --hard origin/master
 git reset --hard origin/master~1
 表示回退至远程分支中的倒数第二个版本
 git reset --hard origin/master~2
-表示回退至远程分支中的倒数第二个版本
+表示回退至远程分支中的倒数第三个版本
 当远程仓库的代码的版本比本地仓库代码的版本要新的时候，通过git pull后者git fetch更新代码
 当本地仓库的代码的版本比远程仓库代码的版本要新的时候，可以通过git reset --hard origin/master命令将本地仓库的版本回退至远程分支中的某一个版本
 

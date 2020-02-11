@@ -514,8 +514,9 @@ git branch -d dev
 删除远程分支
 git push origin :<branchName>
 git push origin --delete dev（在git v1.7.0之后的另一种远程删除方式）
-
-合并分支命令:
+                                                                          
+合并分支命令:（-–no-ff：不使用fast-forward方式合并，保留分支的commit历史；--squash：使用squash方式合并，把多次分支commit历史压缩为一次）
+注意：--squash选项的含义是：本地文件内容与不使用该选项的合并结果相同，但是不提交、不移动HEAD，因此需要一条额外的commit命令。其效果相当于将another分支上的多个commit合并成一个，放在当前分支上，原来的commit历史则没有拿过来。
 git merge 
 
 查看冲突文件：

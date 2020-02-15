@@ -1,0 +1,149 @@
+./git/config文件下可修改连接方式：
+[remote "origin"]
+        url = git@github.com:gentleduo/source-repository.git
+        fetch = +refs/heads/*:refs/remotes/origin/*
+		
+要检查已有的配置信息，可以使用 git config --list 命令：
+$ git config --list
+
+为你的每一个提交都记录你的名字与电子邮箱地址
+$ git config --global user.name "gentleduo"
+$ git config --global user.email gentleduo@163.com
+
+要从Git中移除某个文件，就必须要从已跟踪文件清单中移除，然后提交。可以用以下命令完成此项工作
+$ git rm <file>
+如果删除之前修改过并且已经放到暂存区域的话，则必须要用强制删除选项 -f
+$ git rm -f <file>
+直接从暂存区删除文件，工作区则不做出改变
+$ git rm --cached <file>
+master分支指向的目录树所替换暂存区的目录树，工作区不受影响
+$ git reset master
+用暂存区全部或指定的文件替换工作区的文件。这个操作很危险，会清除工作区中未添加到暂存区的改动
+$ git checkout .
+$ git checkout -- <file>
+用master分支中的全部或者部分文件替换暂存区和以及工作区中的文件。这个命令不但会清除工作区中未提交的改动，也会清除暂存区中未提交的改动。
+$ git checkout master .
+$ git checkout master <file>
+表示回退至远程分支中的最新版本
+$ git reset --hard origin/master
+表示回退至远程分支中的倒数第二个版本
+$ git reset --hard origin/master~1
+表示回退至远程分支中的倒数第三个版本
+$ git reset --hard origin/master~2
+
+初始化一个Git仓库，可以在任何时候、任何目录中这么做，完全是本地化的。
+$ git init
+git add命令告诉Git开始对这些文件进行跟踪（git add .命名无法提交删除的东西；必须使用git add --all）
+$ git add .
+git commit是将本地修改过的文件提交到本地库中。
+$ git commit -m '初始化项目版本'
+
+使用git clone会在当前目录下创建一个名为directory的目录，保存从远程仓库：repo中克隆下来的指定分支：branch
+$ git clone -b <branch> <repo> <directory>
+添加一个新的远程仓库，可以指定一个简单的名字，以便将来引用
+$ git remote add [shortname] [url]
+使用git pull来从远程仓库"同步"代码
+$ git pull origin <remote_branch>：<local_branch>
+使用git push将本地库中的最新信息发送给远程库（建立本地分支和远程分支的关联关系：git push -u origin master）
+$ git push origin <local_branch>：<remote_branch>
+
+通过git fetch更新代码。举例说明：将远程origin仓库的xx分支合并到本地的yy分支。
+$ git fetch origin xx
+$ git checkout yy
+$ git merge FETCH_HEAD
+说明：git fetch命令会更新.git/FETCH_HEAD和.git/refs/remotes/origin/xx中的commit ID；
+执行git merge FETCH_HEAD命令的意思是：将FETCH_HEAD文件中的远程分支对应的版本的内容merge到该本地分支上
+因为FETCH_HEAD文件是所有branch共享的，所以切换至任意分支后执行git merge FETCH_HEAD都是将同一远程分支的同一版本的内容合并到该本地分支上
+
+创建分支命令：
+$ git branch (branchname)
+切换分支命令: （git checkout -b (branchname)命令来创建新分支并立即切换到该分支下）
+$ git checkout (branchname)
+列出分支基本命令：（只看远程分支：git branch -r；查看本地分支和远程分支：git branch -a）
+$ git branch
+查看关联分支：
+$ git branch -vv
+重命名当前分支：（dev_zhangcz ===> dev）
+git branch -m dev_zhangcz dev
+删除本地分支
+$ git branch -d dev
+删除远程分支
+$ git push origin :<branchName>
+$ git push origin --delete dev（在git v1.7.0之后的另一种远程删除方式）
+
+合并分支命令:
+$ git merge
+-–no-ff：不使用fast-forward方式合并，保留分支的commit历史；
+--squash：使用squash方式合并，把多次分支commit历史压缩为一次
+注意：--squash选项的含义是：本地文件内容与不使用该选项的合并结果相同，但是不提交、不移动HEAD，因此需要一条额外的commit命令。其效果相当于将another分支上的多个commit合并成一个，放在当前分支上，原来的commit历史则没有拿过来。
+例：
+$ git checkout master  //切换至master分支
+$ git merge --no-ff dev  //把dev的修改merge到master。注意：建议merge的时候总是用 --no-ff 选项
+$ git push origin master:master //push到远程，如果远程有新的修改，
+
+查看冲突文件：
+git status（输出的命令很详细，但有些繁琐）
+git status -s（以精简的方式显示文件状态）
+git status -s 的状态返回值总结：
+A: 你本地新增的文件（服务器上没有）
+C: 文件的一个新拷贝
+D: 你本地删除的文件（服务器上还在）
+M: 文件的内容或者mode被修改了
+R: 文件名被修改了
+T: 文件的类型被修改了
+U: 文件没有被合并(你需要完成合并才能进行提交)
+X: 未知状态
+
+git log命令列出历史提交记录。
+$ git log
+可以用 --oneline选项来查看历史记录的简洁的版本。
+$ git log --oneline
+还可以用 --graph 选项，查看历史中什么时候出现了分支、合并。以下为相同的命令，开启了拓扑图选项：
+$ git log --oneline --graph
+也可以用 --reverse 参数来逆向显示所有日志。
+$ git log --reverse --oneline
+如果只想查找指定用户的提交日志可以使用命令：git log --author,例如，比方说我们要找Git源码中Linus提交的部分：
+$ git log --author=Linus --oneline -5
+如果你要指定日期，可以执行几个选项：--since和--before，但是你也可以用--until和--after。
+例如，如果我要看Git项目中三周前且在四月十八日之后的所有提交，我可以执行这个（我还用了--no-merges选项以隐藏合并提交）： 
+$ git log --oneline --before={3.weeks.ago} --after={2010-04-18} --no-merges
+
+列出标签
+$ git tag
+如果只对特定的标签感兴趣，可以使用模式匹配查找，如：
+$ git tag -l 'v1.8.5*'
+打轻量标签（打轻量标签很简单，只需要一个标签名字，而不需要任何额外的信息）
+$ git tag v1.4-lw
+打附注标签（创建附注标签，则需要增加-a参数表明它是一个附注标签，还需要增加-m参数指定信息）
+$ git tag -a v1.4 -m 'version 1.4'
+查看此版本所修改的内容
+$ git show v1.4
+后期打标签（如果不想对当前提交节点打标签，而是想对过去提交节点打标签，那么就可以使用后期打标签功能。）
+假设我们现在的提交历史是这样子的：
+$ git log --pretty=oneline
+15027957951b64cf874c3557a0f3547bd83b3ff6 Merge branch 'experiment'
+a6b4c97498bd301d84096da251c98a07c7723e65 beginning write support
+0d52aaab4479697da7686c15f77a3d64d9165190 one more thing
+6d52a271eda8725415634dd79daabbc4d9b6008e Merge branch 'experiment'
+0b7434d86859cc7b8c3d5e1dddfed66ff742fcbc added a commit function
+4682c3261057305bdd616e23b64b0857d832627b added a todo file
+166ae0c4d3f420721acbb115cc33848dfcc2121a started write support
+9fceb02d0ae598e95dc970b74767f19372d61af8 updated rakefile
+964f16d36dfccde844893cac5b347e7b3d44abbc commit the todo
+8a5cbc430f1a9c3d00faaeffd07798508422908a updated readme
+想要对updated rakefile这次提交打标签，那么可以记录下它的commit-hash，即为：9fceb02d0ae598e95dc970b74767f19372d61af8然后，使用如下这种语法：
+$ git tag -a v1.2 9fceb02d0ae598e95dc970b74767f19372d61af8
+共享标签（只针对当前分支里面的标签）
+默认情况下，git push命令并不会推送标签到远程，必须显式推送，如果要推送某个标签到远程，使用命令git push origin [tag name]：：
+$ git push origin <TagName>
+一次性推送全部尚未推送到远程的本地标签：
+$ git push origin --tags
+删除标签，如果要删除一个标签，则可以使用命令git tag -d <TagName>，如：
+$ git tag -d v1.4-lw
+但是，这不会删除远程服务器中的标签，如果希望这种删除同步到远程服务器中，则需要使用git push <remote> :refs/tags/<TagName>这种语法，示例如下：
+$ git push origin :refs/tags/v1.4-lw
+检出标签:
+git checkout <tagName> -b <branchName>
+根据commitid检出代码:
+git checkout <commitid> -b <branchName>
+注意：如果通过标签或者commitid检出代码不指定branchName的话就会使HEAD处于detached状态（游离状态）。

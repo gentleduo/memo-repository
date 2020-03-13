@@ -556,6 +556,7 @@ server{
 1.当rewrite规则在location{}外，break和last作用一样，遇到break或last后，其后续的rewrite/return语句不再执行。但后续有location{}的话，还会近一步执行location{}里面的语句,前提是请求能匹配该location
 2.当rewrite规则在location{}里，遇到break后，本location{}与其他location{}的所有rewrite/return规则都不再执行
 3.当rewrite规则在location{}里，遇到last后，本location{}里后续rewrite/return规则不执行，但重写后的url再次从头匹配所有location
+4.在server块下，会优先执行rewrite部分，然后才会去匹配location块
 
 return的用法
 该指令一般用于对请求的客户端直接返回响应状态码。在该作用域内return后面的所有nginx配置都是无效的，可以使用在server、location以及if配置中，除了支持跟状态码，还可以跟字符串或者url链接。
@@ -925,3 +926,21 @@ wget https://github.com/openresty/lua-nginx-module/archive/v0.10.9rc7.tar.gz
 4、重新编译编译Nginx
 ./configure --prefix=/etc/nginx --sbin-path=/usr/sbin/nginx --modules-path=/usr/lib64/nginx/modules --conf-path=/etc/nginx/nginx.conf --error-log-path=/var/log/nginx/error.log --http-log-path=/var/log/nginx/access.log --pid-path=/var/run/nginx.pid --lock-path=/var/run/nginx.lock --http-client-body-temp-path=/var/cache/nginx/client_temp --http-proxy-temp-path=/var/cache/nginx/proxy_temp --http-fastcgi-temp-path=/var/cache/nginx/fastcgi_temp --http-uwsgi-temp-path=/var/cache/nginx/uwsgi_temp --http-scgi-temp-path=/var/cache/nginx/scgi_temp --user=nginx --group=nginx --with-compat --with-file-aio --with-threads --with-http_addition_module --with-http_auth_request_module --with-http_dav_module --with-http_flv_module --with-http_gunzip_module --with-http_gzip_static_module --with-http_mp4_module --with-http_random_index_module --with-http_realip_module --with-http_secure_link_module --with-http_slice_module --with-http_ssl_module --with-http_stub_status_module --with-http_sub_module --with-http_v2_module --with-mail --with-mail_ssl_module --with-stream --with-stream_realip_module --with-stream_ssl_module --with-stream_ssl_preread_module --with-cc-opt='-O2 -g -pipe -Wall -Wp,-D_FORTIFY_SOURCE=2 -fexceptions -fstack-protector-strong --param=ssp-buffer-size=4 -grecord-gcc-switches -m64 -mtune=generic -fPIC' --with-ld-opt='-Wl,-z,relro -Wl,-z,now -pie' --add-module=/home/nginx-sticky-module-ng --add-module=/home/ngx_devel_kit-0.3.0 --add-module=/home/lua-nginx-module-0.10.9rc7
 #############################################Nginx编译安装Lua模块#############################################
+
+#############################################luajit安装cjson模块#############################################
+从cjson官网（https://www.kyne.com.au/~mark/software/lua-cjson.php）下载源码 解压，编辑Makefile，修改:
+PREFIX = /usr/local/LuaJIT
+LUA_INCLUDE_DIR = $(PREFIX)/include/luajit-2.0
+make && make install
+
+mkdir -p /usr/local/LuaJIT/lib/lua/5.1
+cp cjson.so /usr/local/LuaJIT/lib/lua/5.1
+chmod 755 /usr/local/LuaJIT/lib/lua/5.1/cjson.so
+#############################################luajit安装cjson模块#############################################
+
+#############################################安装lua-resty-redis#############################################
+从https://github.com/openresty/lua-resty-redis.git下载lua-resty-redis后解压
+cd lua-resty-redis
+make && make install
+安装完成之后在/usr/local/lib/lua/resty里面会有redis.lua
+#############################################安装lua-resty-redis#############################################

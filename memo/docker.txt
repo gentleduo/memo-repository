@@ -819,7 +819,7 @@ CMD指令有三种格式：
 • CMD command param1 param2 (shell 格式)
 
 在dockerfile中只能有1个CMD指令，如有多个，最后一个生效。CMD的目的是提供默认的执行程序或执行程序的参数给容器，如果是参数，需要有ENTRYPOINT提供执行程序。
-如果dockerfile中同时指定了ENTRYPOINT和CMD，CMD将作为ENTRYPOINT的默认参数，这里两个指令都指的是exec 格式，都将解析为JSON数组，所以只能用双引号；
+如果dockerfile中同时指定了ENTRYPOINT和CMD，CMD将作为ENTRYPOINT的默认参数，这里两个指令都指的是exec格式，都将解析为JSON数组，所以只能用双引号；
 exec格式不会解析shell环境变量，如CMD [ "echo", "$HOME" ] 将无法解析变量HOME变量，dockerfile里如果CMD用shell格式，在实际执行时将以 /bin/sh -c 执行，如：
 CMD echo $HOME
 在实际执行时将变成CMD [ "sh", "-c", "echo $HOME" ] 也就会解析出HOME变量。

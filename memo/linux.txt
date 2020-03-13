@@ -16,20 +16,10 @@ shell脚本的第一行一般会写有以下字样：#!/bin/bash或者#!/bin/sh�
 第一行的内容指定了shell脚本解释器的路径，而且这个指定路径只能放在文件的第一行。第一行写错或者不写时，系统会有一个默认的解释器进行解释。
 只有当Shell脚本的第一行的内容以#!开头才认为是指定脚本解释器的路径。（如果不写，或者以#开头的话系统会有一个默认的解释器，但是如果以#!开头然后没有正确指定解释器的路径的话执行脚本就会报错）
 
-为什么.sh脚本必须在前面加上./*****.sh才能执行
-Linux不像DOS，默认的先搜索当前路径，而Linux一般情况下是按$PATH变量去搜索的，
-用户的当前路径是不包含在此变量中的，所以要执行当前路径下的start.sh（必须是有可执行属性）文件,需要明示其路径，用相对路径如./start.sh或绝对路径
+为什么.sh脚本必须在前面加上./*****.sh才能执行（运行其它二进制的程序也一样）
+Linux不像DOS，默认的先搜索当前路径，而Linux一般情况下是按$PATH变量去寻找可执行程序，你的当前目录通常不在PATH里，所以写成start.sh是会找不到命令的。再根据linux下"."表示当前目录,所以在命令之前加上"./"便可以很自然的理解为在当前目录下寻找程序。
 
-/bin/bash -c
--c string 
-If the -c option is present, then commands are read from  string.   If  there  are  arguments  after  the string, they are assigned to the positional parameters, starting with $0.
-如果-c 选项存在，命令就从字符串中读取。如果字符串后有参数，他们将会被分配到参数的位置上，从$0开始。
-
-例如： 
-/bin/bash -c 'temp=111111;echo ${temp}'
-/bin/bash -c 'echo $0$1' "111111" "222222"
-
-bash -c "cmd string"
+/bin/bash -c "cmd string"
 If the -c option is present, then commands are read from the first non-option argument command_string. If there are arguments after the command_string, they are assigned to the positional parameters, starting with $0.
 大致意思就是，如果用-c 那么bash 会从第一个非选项参数后面的字符串中读取命令，如果字符串有多个空格，第一个空格前面的字符串是要执行的命令，也就是$0, 后面的是参数，即$1, $2....
 例子
@@ -44,8 +34,20 @@ world
 个人理解bash -c "./atest hello world"实际上和./atest hello world等价
 bash -c "./atest hello world"和./atest hello world等价，那具体有没有什么区别呢？ 是有的，上面的介绍是直接在终端中运行命令。那当我们在代码中要运行上面的脚本的时候，比如fork + exec的时候，这种情况下一般就使用bash -c
 
-/bin/bash -c "echo $0" 'parm1'
-/bin/bash -c 'echo $0' 'parm1'
+/bin/bash -c "echo $0" 'parm1' 输出:/bin/bash
+/bin/bash -c 'echo $0' 'parm1' 输出:parm1
+原因如下：
+/bin/bash -c相当于执行两步
+第一步；将-c后面的cmd string做一次解析（相当于执行一次Shell命令）
+由于第一条命令中使用双引号变量会被展开，因此解析的结果为：echo /bin/bash
+为啥第一条命令中的$0为被解析为/bin/bash呢？例：
+shell.sh的内容为echo $0。运行./shell.sh 输出的结果为：shell.sh，因为在shell里面$0相当于你要执行的命令，在这里你要执行的命令是shell.sh
+同样的道理运行/bin/bash -c也是执行一次Shell命令，这里你执行的命令是/bin/bash；因此$0就是/bin/bash 
+（/bin/bash -c "echo $0"就相当在linux终端里直接输入echo $0；两者的输出一样，都是输出：/bin/bash）
+由于第二条命令中使用单引号变量不再展开，因此解析的结果为：echo %0 'parm1'
+第二步；在执行第一步解析完后的结果。
+第一条命令输出:/bin/bash
+第二条命令输出:parm1
 
 在bash里，这两个都是引号，用来表明字符串，区别是，双引号中的变量会被展开，而单引号中不再展开。
 例子：
@@ -2282,6 +2284,20 @@ ENV CUDNN_VERSION 7.6.4.38
 ###############################################【linux】xargs###############################################
 find ./source_folder / -name '*.txt' | xargs -i cp {} ./res_folder/
 ###############################################【linux】xargs###############################################
+
+###############################################【linux】软链接的创建、删除、修改###############################################
+一、软链接创建
+ln -s 【目标目录】 【软链接地址】
+1、【目标目录】指软连接指向的目标目录下，【软链接地址】指“快捷键”文件名称，该文件是被指令创建的。
+2、软链接创建需要同级目录下没有同名的文件。就像你在windows系统桌面创建快捷键时，不能有同名的文件。
+
+二、删除
+rm -rf 【软链接地址】
+1、上述指令中，软链接地址最后不能含有“/”，当含有“/”时，删除的是软链接目标目录下的资源，而不是软链接本身。
+
+三、修改
+ln -snf 【新目标目录】 【软链接地址】
+###############################################【linux】软链接的创建、删除、修改###############################################
 
 linux使用vi中文乱码的解决办法 在~/.vimrc文件中添加如下两行即：
 set encoding=utf-8

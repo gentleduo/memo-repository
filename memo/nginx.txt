@@ -140,6 +140,88 @@ nginx -t -c /xxxx/nginx.conf  #检测特定目录下的Nginx配置文件是否�
 nginx -v                   # 显示版本信息
 nginx -V                   # 显示版本信息和编译选项
 
+#####################################################worker_processes、worker_connections#####################################################
+worker_processes 2; 
+worker_rlimit_nofile 65535;
+pid logs/nginx.pid; 
+events { 
+   worker_connections 65535; 
+}
+
+worker_processes，工作进程数
+1.默认：worker_processes: 1
+2.调大：worker_processes: CPU核心数，(双核4线程，可以设置为4)
+
+worker_connections，单个工作进程可以允许同时建立外部连接的数量（数字越大，能同时处理的连接越多）
+1.默认：worker_connections: 1024
+2.调大：worker_connections: 100000，（调大到10万连接）
+
+worker_connections解析
+1.connections不是随便设置的，而是与两个指标有重要关联，一是内存，二是操作系统级别的“进程最大可打开文件数”。
+2.内存：每个连接数分别对应一个read_event、一个write_event事件，一个连接数大概占用232字节，2个事件总占用96字节，那么一个连接总共占用328字节，通过数学公式可以算出100000个连接数大概会占用 31M = 100000 * 328 / 1024 / 1024，当然这只是nginx启动时，connections连接数所占用的内存。
+3.进程最大可打开文件数：进程最大可打开文件数受限于操作系统，可通过 ulimit -n 命令查询，以前是1024，现在是65535,
+nginx提供了worker_rlimit_nofile指令，这是除了ulimit的一种设置可用的描述符的方式。该指令与使用ulimit对用户的设置是同样的效果。此指令的值将覆盖ulimit的值，如：worker_rlimit_nofile 20960;设置ulimits：ulimit -SHn 65535
+#####################################################worker_processes、worker_connections#####################################################
+
+###############################################################nginx mime.types###############################################################
+MIME-type和Content-Type的关系：
+当web服务器收到静态的资源文件请求时，依据请求文件的后缀名在服务器的MIME配置文件中找到对应的MIME Type，再根据MIME Type设置HTTP Response的Content-Type，然后浏览器根据Content-Type的值处理文件。
+
+什么是MIME-TYPE：
+在浏览器中显示的内容有 HTML、有 XML、有 GIF、还有 Flash ...
+那么，浏览器是如何区分它们，绝对什么内容用什么形式来显示呢？答案是 MIME Type，也就是该资源的媒体类型。
+媒体类型通常是通过HTTP协议，由Web服务器告知浏览器的，更准确地说，是通过Content-Type来表示的，
+例如:Content-Type: text/HTML表示内容是 text/HTML 类型，也就是超文本文件。
+
+application/octet-stream
+浏览器检测文件类型，有两种响应：第一种是MIME（多功能Internet 邮件扩充服务，最早用于邮件系统，后来拓展到浏览器中）；
+另一种，当浏览器无法确定文件类型时，就是application/octet-stream类型。
+###############################################################nginx mime.types###############################################################
+
+#################################################################nginx日志设置#################################################################
+日志类型：access_log（访问日志） error_log（错误日志）rewrite_log
+访问日志：通过访问日志我们可以得到用户的IP地址、浏览器的信息，请求的处理时间等信息
+错误日志：记录了访问出错的信息，可以帮助我们定位错误的原因
+重写日志：rewrite_log on;它将发送所有的rewrite相关的日志信息到error_log中，error_log的级别必须设置为notice。随后可以在error_log查看rewrite信息
+
+access_log
+access_log path [format [buffer=size] [gzip[=level]] [flush=time] [if=condition]]; # 设置访问日志
+access_log off; # 关闭访问日志
+path 指定日志的存放位置。
+format 指定日志的格式。默认使用预定义的combined（这个参数是通过log_format定义的日志格式的名字）。
+buffer 用来指定日志写入时的缓存大小。默认是64k。
+gzip 日志写入前先进行压缩。压缩率可以指定，从1到9数值越大压缩比越高，同时压缩的速度也越慢。默认是1。
+flush 设置缓存的有效时间。如果超过flush指定的时间，缓存中的内容将被清空。
+if 条件判断。如果指定的条件计算为0或空字符串，那么该请求不会写入日志。
+作用域
+可以应用access_log指令的作用域分别有http，server，location，limit_except。也就是说，在这几个作用域外使用该指令，Nginx会报错。
+例：access_log /var/logs/nginx-access.log buffer=32k gzip flush=1m
+该例子指定日志的写入路径为/var/logs/nginx-access.log，日志格式使用默认的combined，指定日志的缓存大小为32k，日志写入前启用gzip进行压缩，压缩比使用默认值1，缓存数据有效时间为1分钟。
+
+使用log_format自定义日志格式
+Nginx预定义了名为combined日志格式，如果没有明确指定日志格式默认使用该格式：
+log_format combined '$remote_addr - $remote_user [$time_local] '
+                    '"$request" $status $body_bytes_sent '
+                    '"$http_referer" "$http_user_agent"';
+如果不想使用Nginx预定义的格式，可以通过log_format指令来自定义。
+语法
+log_format name [escape=default|json] string ...;
+name 格式名称。在access_log指令中引用。
+escape 设置变量中的字符编码方式是json还是default，默认是default。
+string 要定义的日志格式内容。该参数可以有多个。参数中可以使用Nginx变量。
+
+error_log
+错误日志在Nginx中是通过error_log指令实现的。该指令记录服务器和请求处理过程中的错误信息。
+语法
+配置错误日志文件的路径和日志级别。
+error_log file [level];
+Default:	
+error_log logs/error.log error;
+第一个参数指定日志的写入位置。
+第二个参数指定日志的级别。level可以是debug, info, notice, warn, error, crit, alert,emerg中的任意值。可以看到其取值范围是按紧急程度从低到高排列的。只有日志的错误级别等于或高于level指定的值才会写入错误日志中。默认值是error。
+
+#################################################################nginx日志设置#################################################################
+
 ############################################################nginx-root,alias,index############################################################
 1. root
 root模块就是用来指定访问资源的document_root，nginx会将root的值和location的值进行拼接，然后再拼接上url剩余的部分及index指定的值，举例：
@@ -645,6 +727,13 @@ server{
     }
 }
 #假设www.test.com的服务器在国外，访问速度较慢，img.test.com的服务器在国内，访问速度正常，可以将访问www.test.com静态文件的请求重定向到img.test.com，提高文件返回速度
+
+error_page和rewrite的区别
+(1) error_page指令的作用是：当出现指定的错误时，指定需要跳转的页面。这里的错误指的是http响应行中，响应码非200的相应码。比如400， 404， 500等。
+例如：error_page 502 503 /50x.html；这样实际上产生了一个内部跳转(internal redirect)，当访问出现502、503的时候就能返回50x.html中的内容。
+例如：error_page 502 503 =200 /50x.html；意思是访问产生502 、503的时候给用户的返回状态是200，内容是50x.html。
+(2) rewrite 指令的作用是：根据rewrite指令中的匹配规则和替换规则去修改一个url。通常我们称之为url的路由（跳转）规则。
+例如：rewrite "/a.html" /a.php break；把/a.html路由为/a.php，然后去执行a.php，最后把执行结果返回用户。
 ##########################################################nginx配置中Rewrite用法总结##########################################################
 
 #############################################详解proxy_pass、upstream与resolver#############################################

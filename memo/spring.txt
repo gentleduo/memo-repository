@@ -78,6 +78,14 @@ Spring是一个容器，springmvc也是一个容器。他们两者之间是父�
 2、<context:component-scan>
 <context:component-scan>做了<context:annotation-config>要做的事情，还额外支持@Component，@Repository，@Service，@Controller注解.并且<context:component-scan>扫描base-package并且在applicationcontext中注册扫描的beans.
 所以配置<context:component-scan>就不需要配置<context:annotation- config/>
+<context:component-scan>的扫描顺序：
+1)首先根据<context:component-scan>的use-default-filters属性(默认为true)：如果为true则会自动注册对@Component、@ManagedBean、@Named注解的Bean进行扫描，如果不要默认扫描，则设置use-default-filters为false；
+2) 然后会通过include-filter/exclude-filter来判断你的Bean类是否是合法的：首先通过exclude-filter进行黑名单过滤，然后通过include-filter 进行白名单过滤，否则默认排除。
+例如：在spring-mvc.xml中进行如下配置：
+<context:component-scan base-package="com.gentleduo"> 
+     <context:include-filter type="annotation" expression="org.springframework.stereotype.Controller"/> 
+</context:component-scan>
+则SpringMVC容器不仅仅扫描并注册了"com.gentleduo"包下带有@Controller注解的Bean，而且还扫描并注册了带有@Component的子注解@Service、@Reposity的Bean。因为use-default-filters默认为true。所以如果不需要默认的，则use-default-filters="false"禁用掉。当进行上面的配置时，SpringMVC容器会把service、dao层的bean重新加载，从而造成新加载的bean覆盖了老的bean，但事务的AOP代理没有配置在spring-mvc.xml配置文件中，造成事务失效。解决办法是：在spring-mvc.xml配置文件中的context:component-scan标签中使用use-default-filters=“false”禁用掉默认的行为。
 
 3、<mvc:annotation-driven/>
 主要是用来向工厂中注册了如下几个bean
@@ -162,7 +170,6 @@ public class Demo2Servlet extends HttpServlet {
 而<mvc:annotation-driven/>是告知Spring，我们启用注解驱动，为WEB 应用服务(我们就可以使用该标签注册的几个bean的功能)。然后Spring会自动为我们注册上面说到的几个Bean到工厂中，来处理我们的请求。换句话说，<context
 比如请求一个URL，我要知道这个URL匹配哪个controller中的哪个方法。哪个Controller就需要<context:component-scan/>注解，如何匹配，匹配哪个方法就需要<mvc:annotation-driven/>注解。
 
-<context:include-filter type="annotation" expression="org.springframework.stereotype.Controller"/>
 #############################<context:annotation-config/>、<context:component-scan>和<mvc:annotation-driven/>#############################
 
 ##########################################################SpringMVC JSON&POJO转换##########################################################

@@ -930,7 +930,7 @@ Nginx的负载均衡检查模块的特点：
 #############################################yum install nginx#############################################
 环境调试确认：
 两项安装
-yum -y install gcc gcc-c++ autoconf pcre pcre-devel make automake
+yum -y install gcc gcc-c++ autoconf pcre pcre-devel make automake openssl openssl-devel
 yum -y install wget httpd-tools vim
 
 安装方法见官网：
@@ -1033,3 +1033,21 @@ cd lua-resty-redis
 make && make install
 安装完成之后在/usr/local/lib/lua/resty里面会有redis.lua
 #############################################安装lua-resty-redis#############################################
+
+#############################################安装openresty#############################################
+下载地址：https://github.com/openresty/openresty/releases
+例：wget https://github.com/openresty/openresty/releases/download/v1.13.6.1/openresty-1.15.8.3.tar.gz
+
+安装openresty
+tar -xvf openresty-1.15.8.3.tar.gz
+cd ./openresty-1.15.8.3
+./configure -j2
+gmake
+gmake install
+
+安装lua
+在下载openresty安装包的时候，里面其实已经依赖了lua了，只需要安装就好了
+cd ./bundle/LuaJIT-2.1-20190507
+make
+make install
+#############################################安装openresty#############################################

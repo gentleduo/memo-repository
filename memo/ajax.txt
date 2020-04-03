@@ -73,8 +73,8 @@ delete myObj.sites.site1;
 实例
 delete myObj.sites["site1"]
 
-JSON 数组
-数组作为 JSON 对象
+JSON数组
+数组作为JSON对象
 实例
 [ "Google", "Runoob", "Taobao" ]
 JSON 数组在中括号中书写。

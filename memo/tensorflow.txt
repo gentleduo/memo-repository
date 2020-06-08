@@ -49,6 +49,7 @@ H(X)=−∫x∈Xp(x)logp(x)dx
 https://www.zhihu.com/question/20700829/answer/119314862
 https://www.cnblogs.com/alexanderkun/p/6922428.html
 https://www.jianshu.com/p/70487abdf96b
+https://www.sohu.com/a/272568277_814235
 
 //tensorflow variable
 http://zhangzhenyuan163.blog.163.com/blog/static/858193892017313102658544

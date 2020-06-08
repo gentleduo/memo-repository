@@ -2,6 +2,8 @@
 1) 配置文件修改
 
 	第一个：slaves
+	    <!-- slaves文件中的内容只是给sbin中的start-all.sh、stop-all.sh、start-dfs.sh、stop-dfs.sh、start-yarn.sh、stop-yarn.sh 脚本用的，用于使用ssh方式远程启动节点中的服务，例如:ssh server02 hadoop-daemon.sh start namenode-->
+		<!-- slaves就算不配置也可以通过单节点(hadoop-daemon.sh)启动方式将集群启动起来-->
 		把slave的主机名都配上去
 
 	第二个：hadoop-env.sh
@@ -9,6 +11,7 @@
 
 	第三个：core-site.xml
 		<!-- 指定HADOOP所使用的文件系统schema（URI），HDFS的老大（NameNode）的地址 -->
+		<!-- HADOOP也可以使用其他的文件系统，例如：Local:fs.LocalFileSystem、HFTP:hdfs.HftpFileSystem等 -->
 		<property>
 			<name>fs.defaultFS</name>
 			<value>hdfs://server01:9000</value>
@@ -30,7 +33,7 @@
 		</property>
 		<!--
 		这个参数用于确定将HDFS文件系统的元信息保存在什么目录下。
-		如果这个参数设置为多个目录，那么这些目录下都保存着元信息的多个备份。
+		如果这个参数设置为用逗号分隔的目录列表，那么这些目录下都保存着元信息的多个备份。
 		默认：${hadoop.tmp.dir}/dfs/name
 		-->
 		<property>
@@ -39,8 +42,7 @@
 			<value>file://${hadoop.tmp.dir}/dfs/name</value>
 		</property>
 		<!--
-		这个参数用于确定将HDFS文件系统的数据保存在什么目录下。
-		我们可以将这个参数设置为多个分区上目录，即可将HDFS建立在不同分区上。
+		确定DFS数据节点应在本地文件系统上的哪个位置存储其块。 如果这是逗号分隔的目录列表，则数据将存储在所有命名的目录中，通常在不同的设备(硬盘)上。
 		默认：${hadoop.tmp.dir}/dfs/data
 		-->
 		<property>
@@ -226,10 +228,14 @@
 		
 		集群启动：
 		先启动HDFS
-		sbin/start-dfs.sh
+		etc/start-dfs.sh
+		
 		
 		再启动YARN
-		sbin/start-yarn.sh
+		etc/start-yarn.sh
+		
+		mr-jobhistory-daemon.sh start historyserver
+		mr-jobhistory-daemon.sh stop historyserver
 		
 	验证是否启动成功
 		使用jps命令验证
@@ -240,9 +246,16 @@
 		27803 ResourceManager
 		27512 DataNode
 	
-		http://192.168.1.101:50070 （HDFS管理界面）
-		http://192.168.1.101:8088 （MR管理界面）
+		http://server01:50070 （HDFS管理界面）
+		http://server01:8088 （MR管理界面）
+
+Hadoop Shell命令
+http://hadoop.apache.org/docs/r1.0.4/cn/hdfs_shell.html
 /*************************************************************hadoop安装*************************************************************
+
+hadoop jar wordcount.jar cn.itcast.bigdata.mrsimple.WordCountDriver inputpath outputpath
+java -jar xxx.jar args[0] args[1] .....
+java -cp xxx.jar xxx.com.MainClass args[0] args[1] .....
 
 /***********************************************************************spark参数调优***********************************************************************
 1.num-executors

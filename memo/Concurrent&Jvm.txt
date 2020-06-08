@@ -33,7 +33,7 @@ http://www.2cto.com/kf/201305/208332.html
 //classloader
 http://blog.chinaunix.net/uid-21227800-id-65879.html
 
-#######################################################Ô­×ÓÐÔ£¬¿É¼ûÐÔ£¬ÓÐÐòÐÔ#######################################################
+###################################################Ô­×ÓÐÔ£¬¿É¼ûÐÔ£¬ÓÐÐòÐÔ###################################################
 ÄÚ´æ  ======> ¸ßËÙ»º´æ(javaµÄ»°¸öÈËÀí½â¾ÍÊÇÏß³ÌÕ») ======> CPU¼Ä´æÆ÷
 ¸öÈËÀí½âÔ­×ÓÐÔÊÇÕë¶Ô¸ßËÙ»º´æµ½CPU¼Ä´æÆ÷£¬¿É¼ûÐÔÊÇÕë¶ÔÄÚ´æµ½¸ßËÙ»º´æ
 
@@ -100,9 +100,23 @@ private volatile boolean flag = false;
 
 volatileÊÇ±£Ö¤Ïß³Ì¼ä±äÁ¿µÄ¿É¼ûÐÔµ«ÊÇ²»ÄÜ±£Ö¤Ô­×ÓÐÔ
 ¸÷Ïß³ÌµÄ¹¤×÷ÄÚ´æ¼ä±Ë´Ë¶ÀÁ¢¡¢»¥²»¿É¼û£¬ÔÚÏß³ÌÆô¶¯µÄÊ±ºò£¬ÐéÄâ»úÎªÃ¿¸öÄÚ´æ·ÖÅäÒ»¿é¹¤×÷ÄÚ´æ£¬²»½ö°üº¬ÁËÏß³ÌÄÚ²¿¶¨ÒåµÄ¾Ö²¿±äÁ¿£¬Ò²°üº¬ÁËÏß³ÌËùÐèÒªÊ¹ÓÃµÄ¹²Ïí±äÁ¿(·ÇÏß³ÌÄÚ¹¹ÔìµÄ¶ÔÏó)µÄ¸±±¾£¬¼´ÎªÁËÌá¸ßÖ´ÐÐÐ§ÂÊ
-¹¤×÷ÄÚ´æ¿ÉÒÔËµÊÇÖ÷ÄÚ´æµÄÒ»·Ý»º´æ£¬ÎªÁË±ÜÃâ»º´æµÄ²»Ò»ÖÂÐÔ£¬ËùÒÔvolatileÐèÒª·ÏÆú´Ë»º´æ¡£µ«³ýÁËÄÚ´æ»º´æÖ®Íâ£¬ÔÚCPUÓ²¼þ¼¶±ðÒ²ÊÇÓÐ»º´æµÄ£¬¼´¼Ä´æÆ÷¡£¼ÙÈçÏß³ÌA½«±äÁ¿XÓÉ0ÐÞ¸ÄÎª1µÄÊ±ºò£¬CPUÊÇÔÚÆä»º´æÄÚ²Ù×÷£¬Ã»ÓÐ¼°Ê±»ØÐ´µ½ÄÚ´æ£¬ÄÇÃ´JVMÊÇÎÞ·¨X=1ÊÇÄÜ¼°Ê±±»Ö®ºóÖ´ÐÐµÄÏß³ÌB¿´µ½µÄ£¬ËùÒÔÎÒ¾õµÃJVMÔÚ´¦Àívolatile±äÁ¿µÄÊ±ºò£¬Ò²Í¬ÑùÓÃÁËÓ²¼þ¼¶±ðµÄ»º´æÒ»ÖÂÐÔÔ­Ôò
+¹¤×÷ÄÚ´æ¿ÉÒÔËµÊÇÖ÷ÄÚ´æµÄÒ»·Ý»º´æ£¬ÎªÁË±ÜÃâ»º´æµÄ²»Ò»ÖÂÐÔ£¬ËùÒÔvolatileÐèÒª·ÏÆú´Ë»º´æ¡£µ«³ýÁËÄÚ´æ»º´æÖ®Íâ£¬ÔÚCPUÓ²¼þ¼¶±ðÒ²ÊÇÓÐ»º´æµÄ£¬¼´¼Ä´æÆ÷¡£¼ÙÈçÏß³ÌA½«±äÁ¿XÓÉ0ÐÞ¸ÄÎª1µÄÊ±ºò£¬CPUÊÇÔÚÆä»º´æÄÚ²Ù×÷£¬Ã»ÓÐ¼°Ê±»ØÐ´µ½ÄÚ´æ£¬ÄÇÃ´X=1Õâ¸ö²Ù×÷JVMÊÇÎÞ·¨¼°Ê±±»Ö®ºóÖ´ÐÐµÄÏß³ÌB¿´µ½µÄ£¬ËùÒÔÎÒ¾õµÃJVMÔÚ´¦Àívolatile±äÁ¿µÄÊ±ºò£¬Ò²Í¬ÑùÓÃÁËÓ²¼þ¼¶±ðµÄ»º´æÒ»ÖÂÐÔÔ­Ôò
 ¡°¸÷Ïß³ÌµÄ¹¤×÷ÄÚ´æ¼ä±Ë´Ë¶ÀÁ¢¡¢»¥²»¿É¼û£¬ÔÚÏß³ÌÆô¶¯µÄÊ±ºò£¬ÐéÄâ»úÎªÃ¿¸öÄÚ´æ·ÖÅäÒ»¿é¹¤×÷ÄÚ´æ£¬²»½ö°üº¬ÁËÏß³ÌÄÚ²¿¶¨ÒåµÄ¾Ö²¿±äÁ¿£¬Ò²°üº¬ÁËÏß³ÌËùÐèÒªÊ¹ÓÃµÄ¹²Ïí±äÁ¿(·ÇÏß³ÌÄÚ¹¹ÔìµÄ¶ÔÏó)µÄ¸±±¾£¬¼´ÎªÁËÌá¸ßÖ´ÐÐÐ§ÂÊ¡±²¢²»×¼È·¡£Èç½ñµÄvolatileµÄÀý×ÓÒÑ¾­ÊÇºÜÄÑÖØÏÖ£¬Èç±¾Àý¿ªÍ·Ê±Ö»ÓÐÔÚwhileËÀÑ­»·Ê±²ÅÌåÏÖ³övolatileµÄ×÷ÓÃ£¬ÄÄÅÂÖ»ÊÇ¼ÓÁËSystem.out.println(1)ÕâÃ´Ò»Ð¡¶Î£¬ÆÕÍ¨±äÁ¿Ò²ÄÜ´ïµ½volatileµÄÐ§¹û£¬ÕâÊÇÊ²Ã´Ô­ÒòÄØ£¿Ô­À´Ö»ÓÐÔÚ¶Ô±äÁ¿¶ÁÈ¡ÆµÂÊºÜ¸ßµÄÇé¿öÏÂ£¬ÐéÄâ»ú²Å²»»á¼°Ê±»ØÐ´Ö÷ÄÚ´æ£¬¶øµ±ÆµÂÊÃ»ÓÐ´ïµ½ÐéÄâ»úÈÏÎªµÄ¸ßÆµÂÊÊ±£¬ÆÕÍ¨±äÁ¿ºÍvolatileÊÇÍ¬ÑùµÄ´¦ÀíÂß¼­¡£ÈçÔÚÃ¿¸öÑ­»·ÖÐÖ´ÐÐSystem.out.println(1)¼Ó´óÁË¶ÁÈ¡±äÁ¿µÄÊ±¼ä¼ä¸ô£¬Ê¹ÐéÄâ»úÈÏÎª¶ÁÈ¡ÆµÂÊ²¢²»ÄÇÃ´¸ß£¬ËùÒÔÊµÏÖÁËºÍvolatileµÄÐ§¹û¡£volatileµÄÐ§¹ûÔÚjdk1.2¼°Ö®Ç°ºÜÈÝÒ×ÖØÏÖ£¬µ«Ëæ×ÅÐéÄâ»úµÄ²»¶ÏÓÅ»¯£¬Èç½ñµÄÆÕÍ¨±äÁ¿µÄ¿É¼ûÐÔÒÑ¾­²»ÊÇÄÇÃ´ÑÏÖØµÄÎÊÌâÁË£¬ÕâÒ²ÊÇvolatileÈç½ñÈ·Êµ²»Ì«ÓÐÊ¹ÓÃ³¡¾°µÄÔ­Òò°É¡£
-#######################################################Ô­×ÓÐÔ£¬¿É¼ûÐÔ£¬ÓÐÐòÐÔ#######################################################
+###################################################Ô­×ÓÐÔ£¬¿É¼ûÐÔ£¬ÓÐÐòÐÔ###################################################
+
+###################################################ThreadµÄÖÐ¶Ï»úÖÆ###################################################
+public static boolean interrupted     ÅÐ¶ÏÄ³¸öÏß³ÌÊÇ·ñÒÑ±»·¢ËÍ¹ýÖÐ¶ÏÇëÇó¡££¨¸Ã·½·¨µ÷ÓÃºó»á½«ÖÐ¶Ï±êÊ¾Î»Çå³ý£¬¼´ÖØÐÂÉèÖÃÎªfalse£©
+public boolean isInterrupted()        ÅÐ¶ÏÄ³¸öÏß³ÌÊÇ·ñÒÑ±»·¢ËÍ¹ýÖÐ¶ÏÇëÇó¡££¨Ïß³ÌµÄÖÐ¶Ï×´Ì¬²»ÊÜ¸Ã·½·¨µÄÓ°Ïì£©
+public void interrupt()               ÖÐ¶ÏÏß³Ì£¬½«»áÉèÖÃ¸ÃÏß³ÌµÄÖÐ¶Ï×´Ì¬Î»£¬¼´ÉèÖÃÎªtrue£¬     
+JavaµÄÖÐ¶ÏÊÇÒ»ÖÖÐ­×÷»úÖÆ¡£Ò²¾ÍÊÇËµµ÷ÓÃÏß³Ì¶ÔÏóµÄinterrupt·½·¨²¢²»Ò»¶¨¾ÍÖÐ¶ÏÁËÕýÔÚÔËÐÐµÄÏß³Ì£¬ËüÖ»ÊÇÒªÇóÏß³Ì×Ô¼ºÔÚºÏÊÊµÄÊ±»úÖÐ¶Ï×Ô¼º¡£Ã¿¸öÏß³Ì¶¼ÓÐÒ»¸öbooleanµÄÖÐ¶Ï×´Ì¬£¨Õâ¸ö×´Ì¬²»ÔÚThreadµÄÊôÐÔÉÏ£©£¬interrupt·½·¨½ö½öÖ»ÊÇ½«¸Ã×´Ì¬ÖÃÎªtrue¡£¶ÔÕý³£ÔËÐÐµÄÏß³Ìµ÷ÓÃinterrupt()²¢²»ÄÜÖÕÖ¹Ëû£¬Ö»ÊÇ¸Ä±äÁËinterrupt±êÊ¾·û¡£
+Ò»°ãËµÀ´£¬Èç¹ûÒ»¸ö·½·¨ÉùÃ÷Å×³öInterruptedException£¬±íÊ¾¸Ã·½·¨ÊÇ¿ÉÖÐ¶ÏµÄ,±ÈÈçwait,sleep,join£¬Ò²¾ÍÊÇËµ¿ÉÖÐ¶Ï·½·¨»á¶Ôinterruptµ÷ÓÃ×ö³öÏìÓ¦£¨ÀýÈçsleepÏìÓ¦interruptµÄ²Ù×÷°üÀ¨Çå³ýÖÐ¶Ï×´Ì¬£¬Å×³öInterruptedException£©,Òì³£¶¼ÊÇÓÉ¿ÉÖÐ¶Ï·½·¨×Ô¼ºÅ×³öÀ´µÄ£¬²¢²»ÊÇÖ±½ÓÓÉinterrupt·½·¨Ö±½ÓÒýÆðµÄ¡£
+Object.wait,Thread.sleepµÈ·½·¨»á²»¶ÏµÄÂÖÑ¯¼àÌýinterrupted±êÖ¾Î»£¬·¢ÏÖÆäÉèÖÃÎªtrueºó£¬»áÍ£Ö¹×èÈû²¢Å×³öInterruptedExceptionÒì³£¡£
+Ò»¡¢Ã»ÓÐÈÎºÎÓïÑÔ·½ÃæµÄÐèÇóÒ»¸ö±»ÖÐ¶ÏµÄÏß³ÌÓ¦¸ÃÖÕÖ¹¡£ÖÐ¶ÏÒ»¸öÏß³ÌÖ»ÊÇÎªÁËÒýÆð¸ÃÏß³ÌµÄ×¢Òâ£¬±»ÖÐ¶ÏÏß³Ì¿ÉÒÔ¾ö¶¨ÈçºÎÓ¦¶ÔÖÐ¶Ï¡£
+¶þ¡¢¶ÔÓÚ´¦ÓÚsleep£¬joinµÈ²Ù×÷µÄÏß³Ì£¬Èç¹û±»µ÷ÓÃinterrupt()ºó£¬»áÅ×³öInterruptedException£¬È»ºóÏß³ÌµÄÖÐ¶Ï±êÖ¾Î»»áÓÉtrueÖØÖÃÎªfalse£¬ÒòÎªÏß³ÌÎªÁË´¦ÀíÒì³£ÒÑ¾­ÖØÐÂ´¦ÓÚ¾ÍÐ÷×´Ì¬¡£
+Èý¡¢²»¿ÉÖÐ¶ÏµÄ²Ù×÷£¬°üÀ¨½øÈësynchronized¶ÎÒÔ¼°Lock.lock()£¬inputSteam.read()µÈ£¬µ÷ÓÃinterrupt()¶ÔÓÚÕâ¼¸¸öÎÊÌâÎÞÐ§£¬ÒòÎªËüÃÇ¶¼²»Å×³öÖÐ¶ÏÒì³£¡£Èç¹ûÄÃ²»µ½×ÊÔ´£¬ËüÃÇ»áÎÞÏÞÆÚ×èÈûÏÂÈ¥¡£
+¶ÔÓÚLock.lock()£¬¿ÉÒÔ¸ÄÓÃLock.lockInterruptibly()£¬¿É±»ÖÐ¶ÏµÄ¼ÓËø²Ù×÷£¬Ëü¿ÉÒÔÅ×³öÖÐ¶ÏÒì³£¡£µÈÍ¬ÓÚµÈ´ýÊ±¼äÎÞÏÞ³¤µÄLock.tryLock(long time, TimeUnit unit)¡£
+¶ÔÓÚinputStreamµÈ×ÊÔ´£¬ÓÐÐ©(ÊµÏÖÁËinterruptibleChannel½Ó¿Ú)¿ÉÒÔÍ¨¹ýclose()·½·¨½«×ÊÔ´¹Ø±Õ£¬¶ÔÓ¦µÄ×èÈûÒ²»á±»·Å¿ª¡£
+###################################################ThreadµÄÖÐ¶Ï»úÖÆ###################################################
 
 Í¬²½£¨synchronous£©ºÍÒì²½£¨asynchronous£©
 
@@ -140,13 +154,30 @@ while (!atomicVar.compareAndSet(localVar, localVar+1)) { localVar = atomicVar.ge
 ¨CÒªÇóËùÓÐµÄÏß³Ì¶¼±ØÐëÔÚÓÐÏÞ²½ÄÚÍê³É
 ¨CÎÞ¼¢¶öµÄ
 
-//******************************************************Thread sleep,yield,wait******************************************************
+
+############################################JavaÏß³ÌµÄ5ÖÖ×´Ì¬¼°ÇÐ»»############################################
+1. ÐÂ½¨(NEW)£ºÐÂ´´½¨ÁËÒ»¸öÏß³Ì¶ÔÏó¡£
+2. ¿ÉÔËÐÐ(RUNNABLE)£ºÏß³Ì¶ÔÏó´´½¨ºó£¬ÆäËûÏß³Ì(±ÈÈçmainÏß³Ì£©µ÷ÓÃÁË¸Ã¶ÔÏóµÄstart()·½·¨¡£¸Ã×´Ì¬µÄÏß³ÌÎ»ÓÚ¿ÉÔËÐÐÏß³Ì³ØÖÐ£¬µÈ´ý±»Ïß³Ìµ÷¶ÈÑ¡ÖÐ£¬»ñÈ¡cpu µÄÊ¹ÓÃÈ¨ ¡£
+    (Ò»). ¿ÉÔËÐÐ×´Ì¬Ö»ÊÇËµÄã×Ê¸ñÔËÐÐ£¬µ÷¶È³ÌÐòÃ»ÓÐÌôÑ¡µ½Äã£¬Äã¾ÍÓÀÔ¶ÊÇ¿ÉÔËÐÐ×´Ì¬¡£
+    (¶þ). µ÷ÓÃÏß³ÌµÄstart()·½·¨£¬´ËÏß³Ì½øÈë¿ÉÔËÐÐ×´Ì¬¡£
+    (Èý). µ±Ç°Ïß³Ìsleep()·½·¨½áÊø£¬ÆäËûÏß³Ìjoin()½áÊø£¬µÈ´ýÓÃ»§ÊäÈëÍê±Ï£¬Ä³¸öÏß³ÌÄÃµ½¶ÔÏóËø£¬ÕâÐ©Ïß³ÌÒ²½«½øÈë¿ÉÔËÐÐ×´Ì¬¡£
+    (ËÄ). µ±Ç°Ïß³ÌÊ±¼äÆ¬ÓÃÍêÁË£¬µ÷ÓÃµ±Ç°Ïß³ÌµÄyield()·½·¨£¬µ±Ç°Ïß³Ì½øÈë¿ÉÔËÐÐ×´Ì¬¡£
+    (Îå). Ëø³ØÀïµÄÏß³ÌÄÃµ½¶ÔÏóËøºó£¬½øÈë¿ÉÔËÐÐ×´Ì¬¡£
+3. ÔËÐÐ(RUNNING)£º¿ÉÔËÐÐ×´Ì¬(runnable)µÄÏß³Ì»ñµÃÁËcpu Ê±¼äÆ¬£¨timeslice£© £¬Ö´ÐÐ³ÌÐò´úÂë¡£
+4. ×èÈû(BLOCKED)£º×èÈû×´Ì¬ÊÇÖ¸Ïß³ÌÒòÎªÄ³ÖÖÔ­Òò·ÅÆúÁËcpu Ê¹ÓÃÈ¨£¬Ò²¼´ÈÃ³öÁËcpu timeslice£¬ÔÝÊ±Í£Ö¹ÔËÐÐ¡£Ö±µ½Ïß³Ì½øÈë¿ÉÔËÐÐ(runnable)×´Ì¬£¬²ÅÓÐ»ú»áÔÙ´Î»ñµÃcpu timeslice ×ªµ½ÔËÐÐ(running)×´Ì¬¡£×èÈûµÄÇé¿ö·ÖÈýÖÖ£º 
+    (Ò»). µÈ´ý×èÈû£ºÔËÐÐ(running)µÄÏß³ÌÖ´ÐÐo.wait()·½·¨£¬JVM»á°Ñ¸ÃÏß³Ì·ÅÈëµÈ´ý¶ÓÁÐ(waitting queue)ÖÐ¡£
+    (¶þ). Í¬²½×èÈû£ºÔËÐÐ(running)µÄÏß³ÌÔÚ»ñÈ¡¶ÔÏóµÄÍ¬²½ËøÊ±£¬Èô¸ÃÍ¬²½Ëø±»±ðµÄÏß³ÌÕ¼ÓÃ£¬ÔòJVM»á°Ñ¸ÃÏß³Ì·ÅÈëËø³Ø(lock pool)ÖÐ¡£
+    (Èý). ÆäËû×èÈû£ºÔËÐÐ(running)µÄÏß³ÌÖ´ÐÐThread.sleep(long ms)»òt.join()·½·¨£¬»òÕß·¢³öÁËI/OÇëÇóÊ±£¬JVM»á°Ñ¸ÃÏß³ÌÖÃÎª×èÈû×´Ì¬¡£µ±sleep()×´Ì¬³¬Ê±¡¢join()µÈ´ýÏß³ÌÖÕÖ¹»òÕß³¬Ê±¡¢»òÕßI/O´¦ÀíÍê±ÏÊ±£¬Ïß³ÌÖØÐÂ×ªÈë¿ÉÔËÐÐ(runnable)×´Ì¬¡£
+5. ËÀÍö(DEAD)£ºÏß³Ìrun()¡¢main() ·½·¨Ö´ÐÐ½áÊø£¬»òÕßÒòÒì³£ÍË³öÁËrun()·½·¨£¬Ôò¸ÃÏß³Ì½áÊøÉúÃüÖÜÆÚ¡£ËÀÍöµÄÏß³Ì²»¿ÉÔÙ´Î¸´Éú¡£
+############################################JavaÏß³ÌµÄ5ÖÖ×´Ì¬¼°ÇÐ»»############################################
+
+//############################################Thread sleep,yield,wait############################################
 1.sleep()·½·¨
 ÔÚÖ¸¶¨Ê±¼äÄÚÈÃµ±Ç°ÕýÔÚÖ´ÐÐµÄÏß³ÌÔÝÍ£Ö´ÐÐ£¬µ«²»»áÊÍ·Å¡°Ëø±êÖ¾¡±¡£²»ÍÆ¼öÊ¹ÓÃ¡£
 sleep()Ê¹µ±Ç°Ïß³Ì½øÈë×èÈû×´Ì¬£¬ÔÚÖ¸¶¨Ê±¼äÄÚ²»»áÖ´ÐÐ¡£sleep¿ÉÊ¹ÓÅÏÈ¼¶µÍµÄÏß³ÌµÃµ½Ö´ÐÐµÄ»ú»á£¬µ±È»Ò²¿ÉÒÔÈÃÍ¬ÓÅÏÈ¼¶ºÍ¸ßÓÅÏÈ¼¶µÄÏß³ÌÓÐÖ´ÐÐµÄ»ú»á
 
 2.yield()·½·¨
-Ö»ÊÇÊ¹µ±Ç°Ïß³ÌÖØÐÂ»Øµ½¿ÉÖ´ÐÐ×´Ì¬£¬ËùÒÔÖ´ÐÐyield()Ïß³ÌÓÐ¿ÉÄÜÔÚ½øÈëµ½¿ÉÖ´ÐÐ×´Ì¬ºóÂíÉÏÓÖ±»Ö´ÐÐ. Ö»ÄÜÊ¹Í¬ÓÅÏÈ¼¶µÄÏß³ÌÓÐÖ´ÐÐµÄ»ú»á¡£Í¬Ñù, yield()Ò²²»»áÊÍ·ÅËø×ÊÔ´.
+Ö»ÊÇÊ¹µ±Ç°Ïß³ÌÖØÐÂ»Øµ½¿ÉÖ´ÐÐ×´Ì¬£¨yield()½«µ¼ÖÂÏß³Ì´ÓÔËÐÐ×´Ì¬×ªµ½¿ÉÔËÐÐ×´Ì¬£©£¬ËùÒÔÖ´ÐÐyield()Ïß³ÌÓÐ¿ÉÄÜÔÚ½øÈëµ½¿ÉÖ´ÐÐ×´Ì¬ºóÂíÉÏÓÖ±»Ö´ÐÐ. Ö»ÄÜÊ¹Í¬ÓÅÏÈ¼¶µÄÏß³ÌÓÐÖ´ÐÐµÄ»ú»á¡£Í¬Ñù, yield()Ò²²»»áÊÍ·ÅËø×ÊÔ´.
 sleepºÍyieldµÄÇø±ðÔÚÓÚ, sleep¿ÉÒÔÊ¹ÓÅÏÈ¼¶µÍµÄÏß³ÌµÃµ½Ö´ÐÐµÄ»ú»á,  ¶øyieldÖ»ÄÜÊ¹Í¬ÓÅÏÈ¼¶µÄÏß³ÌÓÐÖ´ÐÐµÄ»ú»á.
 
 3.wait()·½·¨
@@ -154,7 +185,7 @@ sleepºÍyieldµÄÇø±ðÔÚÓÚ, sleep¿ÉÒÔÊ¹ÓÅÏÈ¼¶µÍµÄÏß³ÌµÃµ½Ö´ÐÐµÄ»ú»á,  ¶øyieldÖ»ÄÜÊ¹Í
 µ±Ç°Ïß³Ì±ØÐëÓµÓÐµ±Ç°¶ÔÏóËø¡£Èç¹ûµ±Ç°Ïß³Ì²»ÊÇ´ËËøµÄÓµÓÐÕß£¬»áÅ×³öIllegalMonitorStateExceptionÒì³£¡£
 »½ÐÑµ±Ç°¶ÔÏóËøµÄµÈ´ýÏß³ÌÊ¹ÓÃnotify»ònotifyAll·½·¨£¬Ò²±ØÐëÓµÓÐÏàÍ¬µÄ¶ÔÏóËø£¬·ñÔòÒ²»áÅ×³öIllegalMonitorStateExceptionÒì³£¡£
 waite()ºÍnotify()±ØÐëÔÚsynchronizedº¯Êý»òsynchronized¡¡blockÖÐ½øÐÐµ÷ÓÃ¡£Èç¹ûÔÚnon-synchronizedº¯Êý»ònon-synchronized¡¡blockÖÐ½øÐÐµ÷ÓÃ£¬ËäÈ»ÄÜ±àÒëÍ¨¹ý£¬µ«ÔÚÔËÐÐÊ±»á·¢ÉúIllegalMonitorStateExceptionµÄÒì³£¡£
-//******************************************************Thread sleep,yield,wait******************************************************
+//############################################Thread sleep,yield,wait############################################
 
 //************************************************************JDK ²¢·¢°ü************************************************************
 1.1. ReentrantLock

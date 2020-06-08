@@ -218,3 +218,81 @@ public void remove() {
 }
 4、每个线程内部有一个名为threadLocals的成员变量，该变量的类型为ThreadLocal.ThreadLocalMap类型（类似于一个HashMap），其中的key为当前定义的ThreadLocal变量的this引用，value为我们使用set方法设置的值。每个线程的本地变量存放在自己的本地内存变量threadLocals中，如果当前线程一直不消亡，那么这些本地变量就会一直存在（所以可能会导致内存溢出），因此使用完毕需要将其remove掉。
 #############################################################java ThreadLocal#############################################################
+
+#####################################################JVM ClassLoader#####################################################
+类装载工作由ClassLoader及其子类负责，ClassLoader是一个重要的Java执行时系统组件，它负责在运行时查找和装入Class字节码文件。JVM在运行时会产生三个ClassLoader：根装载器、ExtClassLoader（扩展类装载器）和AppClassLoader（系统类装载器）。其中，根装载器不是ClassLoader的子类，它使用C++编写，因此我们在Java中看不到它，根装载器负责装载JRE的核心类库，如JRE目标下的rt.jar、charsets.jar等。ExtClassLoader和AppClassLoader都是ClassLoader的子类。其中ExtClassLoader负责装载JRE目录ext中的JAR类包；AppClassLoader负责装载ClassPath路径下的类包。
+启动类加载器（Bootstrap ClassLoader）：这个类加载器负责将存放在<JAVA_HOME>\lib目录中的。启动类加载器无法被Java程序直接引用，用户在编写自定义类加载器时，如果需要把加载请求委派给引导类加载器，那直接使用null代替即可。
+扩展类加载器（Extension ClassLoader）：这个加载器由sun.misc.Launcher$ExtClassLoader实现，它负责加载<JAVA_HOME>\lib\ext目录中的，或者被java.ext.dirs系统变量所指定的路径中的所有类库，开发者可以直接使用扩展类加载器。
+应用程序类加载器（Application ClassLoader）：这个类加载器由sun.misc.Launcher$AppClassLoader实现。由于这个类加载器是ClassLoader中的getSystemClassLoader()方法的返回值，所以一般也称它为系统类加载器。它负责加载用户类路径（ClassPath）上所指定的类库，开发者可以直接使用这个类加载器，如果应用程序中没有自定义自己的类加载器，一般情况下这个就是程序中默认的类加载器。
+#####################################################JVM ClassLoader#####################################################
+
+#############################################################JAR#############################################################
+『JAR file』
+Eclipse中以『JAR file』的形式exportjar包的时候，必须自己定义MANIFEST.MF或者手动修改MANIFEST.MF清单文件，才能通过java -jar运行。
+该文件的“Main-Class”属性指定了程序的主类，“Class-Path”属性则指定了运行主类所依赖的外部类的路径。
+MANIFEST.MF文件定义如下所示：
+Manifest-Version: 1.0
+Main-Class: com.Task
+Class-Path: lib/dom4j-1.6.1.jar lib/jaxen-1.1-beta-7.jar
+注意:
+<1> manifest.mf文件最后一行必须是一个空行。
+<2> lib/dom4j-1.6.1.jar和lib/jaxen-1.1-beta-7.jar之间用一个空格隔开。
+<3>每个冒号后有一个空格。
+具体流程：
+<1>在eclipse中选择你要导出的类或者package，右击，选择Export子选项
+<2>在弹出的对话框中，选择java文件---选择JAR file
+<3>在JAR file后面的文本框中选择你要生成的jar包的位置以及名字
+<4>注意在Export generated class files and resources和Export java source files and resources前面打上勾
+<5>选择Manifest文件 （即：自己定义MANIFEST.MF然后选择Use existing manifest from workspace）
+<6>将生成的jar文件和存放引用包的lib文件夹放在同一个目录下，最后点击生成的jar文件就可以成功运行了（生成的jar文件和依赖的外部类的jar文件分开存放，然后通过MANIFEST.MF文件中Class-Path指定的路径来引用依赖的外部类的路径）
+还需要注意的是，Class-Path属性指定的类或jar包是本地的文件，不可以是远程访问的类或者JAR包文件中的JAR包，即不能是jar in jar；当然也就不能是本jar包中包含的jar包。要实现对jar in jar的引用，需要自定义相关代码来读取它们。『Runnable JAR file』之所以能够运行，就是因为Eclipse为我们提供了jar in jar loader，来帮助我们读取jar in jar。
+注意如果引用的jar太多会，manifest.mf会出现line too long的问题，解决方法：
+Class-Path: A.jar
+  B.jar
+  C.jar
+  D.jar
+  .....
+从第二行起，在每行前面都加两个空格
+
+『Runnable JAR file』
+Extract required libraries into generated jar -> 提取需要的库(以解压的形式)放到生成的jar文件中
+Package required libraries into generated jar -> 将需要的Jar库包放到生成的jar文件中（即：jar in jar的形式）
+Copy required libraries into a sub-folder next to the generated jar -> 将需要的库拷贝到一个子文件夹并放在生成的jar文件旁边
+
+可执行jar的classpath设置
+如果使用了-jar选项，那么环境变量CLASSPATH和在命令行中指定的所有类路径都被JVM所忽略。
+例如：java -jar -cp .:lib/* myjar.jar ；指定-jar后，该-cp参数将被忽略。
+如果myjar.jar调用了其他的jar文件，有下面几种解决方案：
+Java定义了三种级别的class,分别为BootStrap class,Extend Class,User class.
+BootStrap class扩展方案
+Java 命令行提供了如何扩展bootStrap级别class的简单方法.
+-Xbootclasspath:基本核心的Java class搜索路径.不常用,否则要重新写所有Java核心class
+-Xbootclasspath/a:后缀在核心class搜索路径后面 常用.
+-Xbootclasspath/p:前缀在核心class搜索路径前面 不常用,避免引起不必要的冲突
+例： java –Xbootclasspath/a:/d:/myclass/account.jar; -jar yourself.jar(Window用;号隔开)
+例： java –Xbootclasspath/a:/path/myclass/account.jar: -jar yourself.jar(Unix用:号隔开)
+extend class 扩展方案
+Java_extend_class 存放在{Java_home}\jre\lib\ext 目录下.当调用Java时,对扩展class路径的搜索是自动的.总会搜索的.这样,解决的方案就很简单了,将所有要使用的第三方的jar包都复制到ext 目录下.
+User class扩展方案
+当使用-jar执行可执行Jar包时,JVM将Jar包所在目录设置为codebase目录,所有的class搜索都在这个目录下开始.所以如果使用了其他第三方的jar包,一个比较可以接受的可配置方案,就是利用jar包的Manifest扩展机制.步骤如下
+1.将需要的第三方的jar包,复制在同可执行jar所在的目录或某个子目录下.
+比如:jar包在d:\crm\luncher.jar那么你可以把所有jar包复制到d:\crm目录下或d:\crm\lib 子目录下.
+2.修改Manifest文件
+在Manifest.mf文件里加入如下行
+Class-Path:classes12.jar lib/class12.jar
+
+运行jar文件的方法是：
+java -jar xxx.jar
+但是有时，我们希望运行里面的具体某个类，这时可以通过：(注意:java -cp可以运行非Runnable的JAR)
+java -cp xxx.jar xxx.com.xxxx  它会找到这个类的main函数，开始执行
+其中-cp命令是将xxx.jar加入到classpath，这样java class loader就会在这里面查找匹配的类。
+
+总结：
+java -jar运行时：环境变量CLASSPATH和在命令行中指定的所有类路径都被JVM所忽略，所以依赖的jar和Main-Class必须通过MANIFEST.MF配置
+java -cp运行时：直接在-cp参数后面指定依赖的jar，再指定main函数
+
+配置JAVA环境变量中CLASSPATH变量的作用
+结论1：在没有配置CLASSPATH环境变量时，java命令在找class文件时是默认在当前目录下寻找的。
+结论2：配置过CLASSPATH环境后，java命令是按照CLASSPATH变量中的路径来的寻找class文件的，这就是为什么CLASSPATH变量中配置没有当前目录时，即使当前目录中有class文件，java命令仍然不能正常运行的原因。
+
+#############################################################JAR#############################################################

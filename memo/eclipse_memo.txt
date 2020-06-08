@@ -65,3 +65,8 @@ javaw.exe用于启动 GUI程序
 javaws.exe用于web程序。
 #################################################查看Eclipse使用的是哪个jdk版本#################################################
 
+########################Eclipse弹出提示code recommenders cannot download its model repository index########################
+原因是eclipse会联网下载"代码建议器"的东西，有时没网或有代理等情况，会失败，弹出这类提示
+按照下述流程将网络代理设置为Manual（手动方式）：
+Window->Preferences->General->Network Connections将右侧页面中的Active Provider改为Manual
+########################Eclipse弹出提示code recommenders cannot download its model repository index########################

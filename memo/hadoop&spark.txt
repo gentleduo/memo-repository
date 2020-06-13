@@ -251,11 +251,72 @@
 
 Hadoop Shell命令
 http://hadoop.apache.org/docs/r1.0.4/cn/hdfs_shell.html
-/*************************************************************hadoop安装*************************************************************
 
 hadoop jar wordcount.jar cn.itcast.bigdata.mrsimple.WordCountDriver inputpath outputpath
 java -jar xxx.jar args[0] args[1] .....
 java -cp xxx.jar xxx.com.MainClass args[0] args[1] .....
+/*************************************************************hadoop安装*************************************************************
+
+/**********************************************************hive安装**********************************************************
+Hive只在一个节点上安装即可
+
+1.配置hive
+（b）配置元数据库信息   
+vi  hive-site.xml 
+添加如下内容：
+<configuration>
+<property>
+<name>javax.jdo.option.ConnectionURL</name>
+<value>jdbc:mysql://localhost:3306/hive?createDatabaseIfNotExist=true</value>
+<description>JDBC connect string for a JDBC metastore</description>
+</property>
+
+<property>
+<name>javax.jdo.option.ConnectionDriverName</name>
+<value>com.mysql.jdbc.Driver</value>
+<description>Driver class name for a JDBC metastore</description>
+</property>
+
+<property>
+<name>javax.jdo.option.ConnectionUserName</name>
+<value>root</value>
+<description>username to use against metastore database</description>
+</property>
+
+<property>
+<name>javax.jdo.option.ConnectionPassword</name>
+<value>root</value>
+<description>password to use against metastore database</description>
+</property>
+</configuration>
+
+2.安装hive和mysql完成后，将mysql的连接jar包拷贝到$HIVE_HOME/lib目录下
+
+3.Jline包版本不一致的问题，需要拷贝hive的lib目录中jline.2.12.jar的jar包替换掉hadoop中的 
+/home/hadoop/app/hadoop-2.6.4/share/hadoop/yarn/lib/jline-0.9.94.jar
+
+4.启动hive
+bin/hive
+启动hive，提示ls: 无法访问/home/software/spark-2.0.1-bin-hadoop2.7/lib/spark-assembly-*.jar: 没有那个文件或目录
+原因是：spark升级到spark2以后，原有lib目录下的大JAR包被分散成多个小JAR包，原来的spark-assembly-*.jar已经不存在，所以hive没有办法找到这个JAR包。
+解决办法是：修改bin目录下的hive文件
+[root@hadoop03 bin]# vim hive
+找到以下内容：
+# add Spark assembly jar to the classpath
+if [[ -n "$SPARK_HOME" ]]
+then
+  sparkAssemblyPath=`ls ${SPARK_HOME}/lib/spark-assembly-*.jar`
+  CLASSPATH="${CLASSPATH}:${sparkAssemblyPath}"
+fi
+将sparkAssemblyPath=`ls ${SPARK_HOME}/lib/spark-assembly-*.jar`修改为：sparkAssemblyPath=`ls ${SPARK_HOME}/jars/*.jar`  
+
+创建hive数据库
+hive> create database data_info;
+hive> use data_info;
+创建hive表
+hive> create table log_info(id int , name string) row format delimited fields terminated by ',';
+
+/**********************************************************hive安装**********************************************************
 
 /***********************************************************************spark参数调优***********************************************************************
 1.num-executors

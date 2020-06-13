@@ -104,6 +104,21 @@ volatileÊÇ±£Ö¤Ïß³Ì¼ä±äÁ¿µÄ¿É¼ûÐÔµ«ÊÇ²»ÄÜ±£Ö¤Ô­×ÓÐÔ
 ¡°¸÷Ïß³ÌµÄ¹¤×÷ÄÚ´æ¼ä±Ë´Ë¶ÀÁ¢¡¢»¥²»¿É¼û£¬ÔÚÏß³ÌÆô¶¯µÄÊ±ºò£¬ÐéÄâ»úÎªÃ¿¸öÄÚ´æ·ÖÅäÒ»¿é¹¤×÷ÄÚ´æ£¬²»½ö°üº¬ÁËÏß³ÌÄÚ²¿¶¨ÒåµÄ¾Ö²¿±äÁ¿£¬Ò²°üº¬ÁËÏß³ÌËùÐèÒªÊ¹ÓÃµÄ¹²Ïí±äÁ¿(·ÇÏß³ÌÄÚ¹¹ÔìµÄ¶ÔÏó)µÄ¸±±¾£¬¼´ÎªÁËÌá¸ßÖ´ÐÐÐ§ÂÊ¡±²¢²»×¼È·¡£Èç½ñµÄvolatileµÄÀý×ÓÒÑ¾­ÊÇºÜÄÑÖØÏÖ£¬Èç±¾Àý¿ªÍ·Ê±Ö»ÓÐÔÚwhileËÀÑ­»·Ê±²ÅÌåÏÖ³övolatileµÄ×÷ÓÃ£¬ÄÄÅÂÖ»ÊÇ¼ÓÁËSystem.out.println(1)ÕâÃ´Ò»Ð¡¶Î£¬ÆÕÍ¨±äÁ¿Ò²ÄÜ´ïµ½volatileµÄÐ§¹û£¬ÕâÊÇÊ²Ã´Ô­ÒòÄØ£¿Ô­À´Ö»ÓÐÔÚ¶Ô±äÁ¿¶ÁÈ¡ÆµÂÊºÜ¸ßµÄÇé¿öÏÂ£¬ÐéÄâ»ú²Å²»»á¼°Ê±»ØÐ´Ö÷ÄÚ´æ£¬¶øµ±ÆµÂÊÃ»ÓÐ´ïµ½ÐéÄâ»úÈÏÎªµÄ¸ßÆµÂÊÊ±£¬ÆÕÍ¨±äÁ¿ºÍvolatileÊÇÍ¬ÑùµÄ´¦ÀíÂß¼­¡£ÈçÔÚÃ¿¸öÑ­»·ÖÐÖ´ÐÐSystem.out.println(1)¼Ó´óÁË¶ÁÈ¡±äÁ¿µÄÊ±¼ä¼ä¸ô£¬Ê¹ÐéÄâ»úÈÏÎª¶ÁÈ¡ÆµÂÊ²¢²»ÄÇÃ´¸ß£¬ËùÒÔÊµÏÖÁËºÍvolatileµÄÐ§¹û¡£volatileµÄÐ§¹ûÔÚjdk1.2¼°Ö®Ç°ºÜÈÝÒ×ÖØÏÖ£¬µ«Ëæ×ÅÐéÄâ»úµÄ²»¶ÏÓÅ»¯£¬Èç½ñµÄÆÕÍ¨±äÁ¿µÄ¿É¼ûÐÔÒÑ¾­²»ÊÇÄÇÃ´ÑÏÖØµÄÎÊÌâÁË£¬ÕâÒ²ÊÇvolatileÈç½ñÈ·Êµ²»Ì«ÓÐÊ¹ÓÃ³¡¾°µÄÔ­Òò°É¡£
 ###################################################Ô­×ÓÐÔ£¬¿É¼ûÐÔ£¬ÓÐÐòÐÔ###################################################
 
+###################################################Thread¡¢Runnable###################################################
+1.ThreadºÍRunnable¶¼¿ÉÒÔÊµÏÖ¶àÏß³Ì£¨·Ï»°£©
+2.ThreadÊÇÀà£¬¶øRunnableÊÇ½Ó¿Ú£¬Õâ¾ÍÊÇÀàºÍ½Ó¿ÚÇø±ð£¬ÀàÖ»ÄÜ¼Ì³ÐÒ»´Î£¬¶ø½Ó¿Ú¿ÉÒÔÊµÏÖ¶à¸ö½Ó¿Ú¡£
+3.ThreadÊµÏÖRunnable½Ó¿Ú£¬Õâ¸ö¿ÉÒÔ²é¿´ThreadµÄÔ´´úÂë¡£
+4.×îÖØÒªµÄ·ÖÏí×ÊÔ´¹¦ÄÜ£¬Ò»°ãÎÒÃÇÊ¹ÓÃ¶àÏß³Ì¾ÍÊÇ¿ìËÙ½â¾ö×ÊÔ´ÎÊÌâ¡£Runnable¿ÉÒÔÊµÏÖ×ÊÔ´·ÖÏí£¬ÀàÊµÏÖRunnable²¢²»¾ß±¸Ïß³Ì¹¦ÄÜ£¬±ØÐëÍ¨¹ýnew Thread(Runnable×ÓÀà)µ÷ÓÃstart()Æô¶¯Ïß³Ì£¬ËùÒÔÎÒÃÇÍ¨³£newÒ»¸öRunnableµÄ×ÓÀà£¬Æô¶¯¶à¸öÏß³Ì½â¾ö×ÊÔ´ÎÊÌâ¡£ThreadÊÇÀàËùÒÔÎÒÃÇÃ¿´ÎnewÒ»¸ö¶ÔÏóÊ±ºò×ÊÔ´ÒÑ¾­ÊµÀý»¯ÁË£¬²»ÄÜ×ÊÔ´¹²Ïí£¬ThreadÀàÒªÊµÏÖ×ÊÔ´¹²Ïí£¬¿ÉÒÔÉùÃ÷±äÁ¿Îªstatic£¬Àà¹²ÏíµÄ¿ÉÒÔ½â¾ö¡£
+5.Í¨¹ýÒÔÉÏ½¨Òé×îºÃÊµÏÖRunnable½Ó¿Ú ÊµÏÖ¶àÏß³Ì¡£
+
+ThreadµÄÆô¶¯Ïß³ÌµÄÁ÷³Ì£ºThread.start() --> navite start0() --> {Runnable.run() or Thread.run()};
+ThreadÓÐÁ½´óÀà¹¹Ôìº¯Êý£º
+1¡¢public Thread(String name)
+2¡¢public Thread(Runnable target)
+Í¨¹ýstart()Æô¶¯Ïß³ÌµÄÊ±ºò»áµ÷ÓÃrun()£¬runÀï»áÅÐ¶Ïnew ThreadÊ±ÊÇ·ñ´«ÈëÁË²ÎÊýRunnable target£¬Èç¹û´«ÈëÔòµ÷ÓÃRunnableÀïÃæµÄrun·½·¨
+ÒÔ¼Ì³ÐThreadµÄ·½Ê½Æô¶¯Ïß³ÌÊ±£¬×ÓÀà±ØÐëOverrideµôThreadÀàÖÐµÄrun·½·¨£¬ÓÉÓÚÃ»ÓÐ´«ÈëRunnable£¬È»ºóstartµ÷ÓÃµÄ¾ÍÊÇ×ÓÀàÖÐµÄrun·½·¨¡£
+###################################################Thread¡¢Runnable###################################################
+
 ###################################################ThreadµÄÖÐ¶Ï»úÖÆ###################################################
 public static boolean interrupted     ÅÐ¶ÏÄ³¸öÏß³ÌÊÇ·ñÒÑ±»·¢ËÍ¹ýÖÐ¶ÏÇëÇó¡££¨¸Ã·½·¨µ÷ÓÃºó»á½«ÖÐ¶Ï±êÊ¾Î»Çå³ý£¬¼´ÖØÐÂÉèÖÃÎªfalse£©
 public boolean isInterrupted()        ÅÐ¶ÏÄ³¸öÏß³ÌÊÇ·ñÒÑ±»·¢ËÍ¹ýÖÐ¶ÏÇëÇó¡££¨Ïß³ÌµÄÖÐ¶Ï×´Ì¬²»ÊÜ¸Ã·½·¨µÄÓ°Ïì£©
@@ -185,6 +200,9 @@ sleepºÍyieldµÄÇø±ðÔÚÓÚ, sleep¿ÉÒÔÊ¹ÓÅÏÈ¼¶µÍµÄÏß³ÌµÃµ½Ö´ÐÐµÄ»ú»á,  ¶øyieldÖ»ÄÜÊ¹Í
 µ±Ç°Ïß³Ì±ØÐëÓµÓÐµ±Ç°¶ÔÏóËø¡£Èç¹ûµ±Ç°Ïß³Ì²»ÊÇ´ËËøµÄÓµÓÐÕß£¬»áÅ×³öIllegalMonitorStateExceptionÒì³£¡£
 »½ÐÑµ±Ç°¶ÔÏóËøµÄµÈ´ýÏß³ÌÊ¹ÓÃnotify»ònotifyAll·½·¨£¬Ò²±ØÐëÓµÓÐÏàÍ¬µÄ¶ÔÏóËø£¬·ñÔòÒ²»áÅ×³öIllegalMonitorStateExceptionÒì³£¡£
 waite()ºÍnotify()±ØÐëÔÚsynchronizedº¯Êý»òsynchronized¡¡blockÖÐ½øÐÐµ÷ÓÃ¡£Èç¹ûÔÚnon-synchronizedº¯Êý»ònon-synchronized¡¡blockÖÐ½øÐÐµ÷ÓÃ£¬ËäÈ»ÄÜ±àÒëÍ¨¹ý£¬µ«ÔÚÔËÐÐÊ±»á·¢ÉúIllegalMonitorStateExceptionµÄÒì³£¡£
+
+sleepÊÇÏß³Ì±»µ÷ÓÃÊ±£¬Õ¼×ÅcpuÈ¥Ë¯¾õ£¬ÆäËûÏß³Ì²»ÄÜÕ¼ÓÃcpu£¬osÈÏÎª¸ÃÏß³ÌÕýÔÚ¹¤×÷£¬²»»áÈÃ³öÏµÍ³×ÊÔ´£¬waitÊÇ½øÈëµÈ´ý³ØµÈ´ý£¬ÈÃ³öÏµÍ³×ÊÔ´£¬ÆäËûÏß³Ì¿ÉÒÔÕ¼ÓÃcpu£¬Ò»°ãwait²»»á¼ÓÊ±¼äÏÞÖÆ£¬ÒòÎªÈç¹ûwaitµÄÏß³ÌÔËÐÐ×ÊÔ´²»¹»£¬ÔÙ³öÀ´Ò²Ã»ÓÃ£¬ÒªµÈ´ýÆäËûÏß³Ìµ÷ÓÃnotifyall·½·¨»½ÐÑµÈ´ý³ØÖÐµÄËùÓÐÏß³Ì£¬²Å»áÔÚ½øÈë¾ÍÐ÷ÐòÁÐµÈ´ýos·ÖÅäÏµÍ³×ÊÔ´£¬sleepÊÇ¾²Ì¬·½·¨£¬ÊÇË­µôµÄË­È¥Ë¯¾õ£¬¾ÍËãÊÇÔÚmainÏß³ÌÀïµ÷ÓÃÁËÏß³ÌbµÄsleep·½·¨£¬Êµ¼ÊÉÏ»¹ÊÇmainÈ¥Ë¯¾õ£¬ÏëÈÃÏß³ÌbÈ¥Ë¯¾õÒªÔÚbµÄ´úÂëÖÐµôsleep¡£
+leep(100L)ÊÇÕ¼ÓÃcpu£¬Ïß³ÌÐÝÃß100ºÁÃë£¬ÆäËû½ø³Ì²»ÄÜÔÙÕ¼ÓÃcpu×ÊÔ´£¬wait£¨100L£©ÊÇ½øÈëµÈ´ý³ØÖÐµÈ´ý£¬½»³öcpuµÈÏµÍ³×ÊÔ´¹©ÆäËû½ø³ÌÊ¹ÓÃ£¬ÔÚÕâ100ºÁÃëÖÐ£¬¸ÃÏß³Ì¿ÉÒÔ±»ÆäËûÏß³Ìnotify£¬µ«²»Í¬µÄÊÇÆäËûÔÚµÈ´ý³ØÖÐµÄÏß³Ì²»±»notify²»»á³öÀ´£¬µ«Õâ¸öÏß³ÌÔÚµÈ´ý100ºÁÃëºó»á×Ô¶¯½øÈë¾ÍÐ÷¶ÓÁÐµÈ´ýÏµÍ³·ÖÅä×ÊÔ´£¬»»¾ä»°Ëµ£¬sleep£¨100£©ÔÚ100ºÁÃëºó¿Ï¶¨»áÔËÐÐ£¬µ«waitÔÚ100ºÁÃëºó»¹ÓÐµÈ´ýosµ÷ÓÃ·ÖÅä×ÊÔ´£¬ËùÒÔwait100µÄÍ£Ö¹ÔËÐÐÊ±¼äÊÇ²»È·¶¨µÄ£¬µ«ÖÁÉÙÊÇ100ºÁÃë¡£
 //############################################Thread sleep,yield,wait############################################
 
 //************************************************************JDK ²¢·¢°ü************************************************************

@@ -7,3 +7,4 @@ ngc.nvidia.com username:gentleduo@163.com password:Lzd830319
 Docker username:gentleduo password:lzd19830319
 GitHub username:gentleduo@163.com password:lzd830319
 http://cpquery.sipo.gov.cn/ username:18116232979 password:Lzd@830319
+Google username:gentleduo@163.com password:lzd830319

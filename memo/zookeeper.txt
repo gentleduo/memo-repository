@@ -8,10 +8,62 @@ D、虽然说可以提供各种服务，但是zookeeper在底层其实只提供�
 	并为用户程序提供数据节点监听服务；
 #####################################################Zookeeper概念#####################################################
 
+#####################################################zookeeper安装#####################################################
+修改环境变量
+vim /etc/profile
+添加内容：
+export ZOOKEEPER_HOME=/usr/local/zookeeper
+export PATH=$PATH:$ZOOKEEPER_HOME/bin
+source /etc/profile
+
+修改配置文件
+cd /usr/local/zookeeper/conf
+cp zoo_sample.cfg zoo.cfg
+vim zoo.cfg
+添加内容：
+dataDir=/opt/zookeeper/data
+dataLogDir=/opt/zookeeper/log
+server.1=server01:2888:3888
+server.2=server02:2888:3888
+server.3=server03:2888:3888
+配置文件内容讲解：
+tickTime=2000
+心跳时间，用于配置服务器最小时间的单位(默认值2000ms),心跳检测时间通常是该单位的倍数。如客户端与服务端之间的会话超时时间在2tickTime~20tickTime之间。
+initLimit=10
+用于配置leader服务器等待Follewer服务器启动，并完成数据同步的时间，默认为10，表示10*tickTime
+syncLimit=5
+在运行过程中，Leader负责与ZK集群中所有机器进行通信，例如通过一些心跳检测机制，来检测机器的存活状态。如果Leader发出心跳包在syncLimit之后，还没有从Follower那里收到响应，那么就认为这个Follower已经不在线了。默认为5，表示5*tickTime
+server.id=host:port1:port2
+其中id为一个数字，表示zk进程的id，这个id也是dataDir目录下myid文件的内容。
+host是该zk进程所在的IP地址，port1表示follower和leader交换消息所使用的端口，port2表示选举leader所使用的端口。
+
+创建文件夹：
+mkdir -p -m 755 /opt/zookeeper/data
+mkdir -p -m 755 /opt/zookeeper/log
+在data文件夹下新建myid文件，myid的文件内容为：
+cd /opt/zookeeper/data
+vim myid
+添加内容：
+1
+修改其他机器的配置文件
+到server02上：修改myid为：2
+到server03上：修改myid为：3
+
+启动（每台机器）
+zkServer.sh start
+
+查看集群状态
+1、	jps（查看进程）
+2、	zkServer.sh status（查看集群状态，主从信息）
+
+停止（每台机器）
+zkServer.sh stop
+#####################################################zookeeper安装#####################################################
+
 #####################################################zookeeper数据结构#####################################################
-1、层次化的目录结构，命名符合常规文件系统规范(见下图)
+1、层次化的目录结构，命名符合常规文件系统规范
 2、每个节点在zookeeper中叫做znode,并且其有一个唯一的路径标识
-3、节点Znode可以包含数据和子节点（但是EPHEMERAL类型的节点不能有子节点，下一页详细讲解）
+3、节点Znode可以包含数据和子节点
 4、客户端应用可以在节点上设置监视器
 
 1、Znode有两种类型：
@@ -24,5 +76,22 @@ EPHEMERAL
 EPHEMERAL_SEQUENTIAL
 3、创建znode时设置顺序标识，znode名称后会附加一个值，顺序号是一个单调递增的计数器，由父节点维护
 4、在分布式系统中，顺序号可以被用于为所有的事件进行全局排序，这样客户端可以通过顺序号推断事件的顺序
+例：
+create /app1 "url1" 持久 
+create /app2 "url2" 不带序号
+create -e /app1 "url1" 短暂
+create -s /app2 "url2" 带序号
+
+zookeeper-api
+create	               在本地目录树中创建一个节点
+delete	               删除一个节点
+exists	               测试本地是否存在目标节点
+get/set data	       从目标节点上读取/写数据
+get/set ACL	           获取/设置目标节点访问控制列表信息
+get children	       检索一个子节点上的列表
+sync	               等待要被传送的数据
+
+get /app1 watch (监听的事件是：节点数据变化事件)
+ls /app1 watch  (监听的事件是：节点下的子节点增减变化事件)
 
 #####################################################zookeeper数据结构#####################################################

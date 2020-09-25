@@ -194,7 +194,15 @@ __main__
 我们执行 python -m a.b.c，输出结果：
 a
 a.b
+/usr/bin/python3: No module named a.b.c__main__; 'a.b.c' is a package and cannot by directly executed
+但是如果在a/b/c/目录下放入__main__.py文件，文件的内容为：print(__name__)
+则再运行 python -m a.b.c，输出结果：
+a
+a.b
 __main__
+我们可以将python -m a.b.c理解为，导入最后一个[.]之前的模块，再将最后一个模块当作__main__来执行
+即导入：a、a.b；执行；python3 -m a.b.c（如果a/b/c/目录下没有__main__.py，则会报错）
+注意：__main__.py 文件是一个包或者目录的入口程序。不管是用 python package 还是用 python -m package 运行时，__main__.py 文件总是被执行。
 
 python -m
 首先我们需要来看看 python xxx.py 与 python -m xxx.py 的区别。两种运行 Python 程序的方式的不同点在于，一种是直接运行，一种是当做模块来运行。
@@ -1154,9 +1162,9 @@ export DISPLAY=192.168.56.1:0.0
 ######################################pip download/install 下载/离线安装第三方包######################################
 下载第三方包的两种方式
 （1）直接把jieba包下载到/usr/local/download/pip/目录下
-pip download -d /usr/local/download/pip/ jieba
+pip download -i http://pypi.douban.com/simple/ --trusted-host pypi.douban.com -d /usr/local/download/pip/ jieba
 （2）建一个requirement.txt文件里面一行一行写需要的包，/usr/local/download/pip/是下载目录
-pip download -d /usr/local/download/pip/ -r requirement.txt
+pip download -i http://pypi.douban.com/simple/ --trusted-host pypi.douban.com -d /usr/local/download/pip/ -r requirement.txt
 requirement.txt 一行一行写如下
 alembic==1.0.0            # via flask-migrate
 amqp==2.3.2               # via kombu

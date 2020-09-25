@@ -2026,14 +2026,17 @@ pvcreate /dev/sda4 /dev/sdb1
 vgextend cl /dev/sda4 /dev/sdb1
 
 增大lv容量
-lvextend /dev/cl/root -L 500G
+lvextend /dev/cl/root -L +500G
 将lv增加后的容量增加到对应的文件系统中
 xfs_growfs /dev/mapper/cl-root
 
-lvextend  /dev/vg0/lv_root -L 200G /dev/sda3
+lvextend  /dev/vg0/lv_root -L +200G /dev/sda3
 resize2fs /dev/mapper/vg0-lv_root (xfs则使用xfs_growfs)
-lvextend  /dev/vg0/lv_var -L 500G /dev/sda3
+lvextend  /dev/vg0/lv_var -L +500G /dev/sda3
 resize2fs /dev/mapper/vg0-lv_var  (xfs则使用xfs_growfs)
+
+查看文件系统格式：
+df -T /dev/mapper/cl-root
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 四、缩减lvm
@@ -2106,7 +2109,110 @@ pvdisplay   # 列表中已经没有了/dev/sde1
 ######################################################【linux】DNS############################################
 bind-utils是bind软件提供的一组DNS工具包，里面有一些DNS相关的工具。主要：dig，host，nslookup，nsupdate。使用这些工具可以进行域名解析和DNS调试工作。
 yum install -y bind-utils
+
+nslookup是name server lookup的缩写，顾名思义，nslookup就是用来查询DNS的。假如你想知道www.baidu.com对应的ip的话，就可以使用nslookup命令
+nslookup命令有两种工作模式，一种是交互模式，另一种则是非交互模式。
+交互模式：
+[root@server01 ~]# nslookup
+> www.baidu.com
+Server:         172.20.10.1
+Address:        172.20.10.1#53
+
+Non-authoritative answer:
+www.baidu.com   canonical name = www.a.shifen.com.
+Name:   www.a.shifen.com
+Address: 180.101.49.11
+Name:   www.a.shifen.com
+Address: 180.101.49.12
+非交互模式：
+[root@server01 ~]# nslookup www.baidu.com
+Server:         172.20.10.1
+Address:        172.20.10.1#53
+
+Non-authoritative answer:
+www.baidu.com   canonical name = www.a.shifen.com.
+Name:   www.a.shifen.com
+Address: 180.101.49.11
+Name:   www.a.shifen.com
+Address: 180.101.49.12
+
+也可以指定一个DNS服务器地址，nslookup的第一个参数为域名，第二个参数为要连接的DNS服务器IP地址。
+如果要在交互模式下指定DNS服务只需设置第一个参数为"-"
+交互模式：nslookup - 8.8.8.8
+非交互模式：nslookup www.baidu.com 8.8.8.8
 ######################################################【linux】DNS############################################
+
+######################################################【linux】traceroute############################################
+traceroute指令让你追踪网络数据包的路由途径，预设数据包大小是40Bytes，用户可另行设置。
+traceroute -n -m 5 -q 4 -w 3 www.baidu.com
+说明： -n 显示IP地址，不查主机名，  -m 设置跳数  
+       -q 4每个网关发送4个数据包    -w 把对外发探测包的等待响应时间设置为3秒
+探测包使用的基本UDP端口设置6888
+traceroute -p 6888 www.baidu.com 
+绕过正常的路由表，直接发送到网络相连的主机
+traceroute -r www.baidu.com 
+######################################################【linux】traceroute############################################
+
+######################################################【linux】firewall############################################
+1、开放端口
+firewall-cmd --zone=public --add-port=5672/tcp --permanent   # 开放5672端口 --permanent 是永久配置 机子重启依然有效
+firewall-cmd --zone=public --remove-port=5672/tcp --permanent  #关闭5672端口 --permanent 是永久配置 机子重启依然有效
+firewall-cmd --reload   # 配置立即生效
+ 
+2、查看防火墙所有开放的端口
+firewall-cmd --zone=public --list-ports
+
+3.、关闭防火墙
+如果要开放的端口太多，嫌麻烦，可以关闭防火墙，安全性自行评估
+systemctl stop firewalld.service
+
+4、查看防火墙状态
+firewall-cmd --state
+
+允许或禁止root用户ssh远程登录，修改22端口
+vim /etc/ssh/sshd_config，将PermitRootLogin的值改成no，并保存 #禁止root用户ssh远程登录
+vim /etc/ssh/sshd_config，将Port修改为10022，#默认是22号端口，所以即时被注释依旧可以连接到。
+firewall-cmd --zone=public --add-port=10022/tcp --permanent 
+firewall-cmd --reload 
+重启ssh
+systemctl restart sshd
+
+telnet server01 23
+telnet使用root登陆报“Login incorrect”
+应该修改目标主机/etc/pam.d/目录下的remote文件第一行
+[root@ pam.d]# cat remote 
+#%PAM-1.0
+auth       required     pam_securetty.so
+把第一行给注释掉再试试
+[root@ pam.d]# cat remote 
+#%PAM-1.0
+#auth       required     pam_securetty.so
+
+centos7上通过firewalld配置网关服务器
+使用场景：有多台内网服务器，其中只有一台能够访问外网，但其他内网服务器也希望访问外网
+假设内网网段为：192.168.56.0/24
+可访问外网的内网服务器的内网IP为：192.168.56.111
+可访问外网的内网服务器的内网网络接口为：enp0s3
+
+在可以访问外网的服务器上做如下配置：
+1) 开启ip_forward转发
+# 在/etc/sysctl.conf中添加
+net.ipv4.ip_forward=1
+# 然后让其生效
+sysctl -p
+2) 转发内网段的流量
+执行如下firewalld命令：
+firewall-cmd --permanent --direct --passthrough ipv4 -t nat -I POSTROUTING -o enp0s3 -j MASQUERADE -s 192.168.56.0/24
+firewall-cmd --reload
+//查看规则：
+firewall-cmd --direct --get-all-passthroughs
+//删除规则：
+firewall-cmd --permanent --direct --remove-passthrough ipv4 -t nat -I POSTROUTING -o enp0s3 -j MASQUERADE -s 192.168.56.0/24
+
+之后，在需要访问外网的内网服务器上添加到192.168.56.111的网关即可访问外网了：
+route add default gw 192.168.56.111 dev enp0s8 
+如果希望永久有效，可将网关加到网络的配置文件里(/etc/sysconfig/network-scripts/ifcfg-enp0s8中的GATEWAY)
+######################################################【linux】firewall############################################
 
 ######################################################【linux】性能监控工具############################################
 sysstat提供了Linux性能监控的工具集，包括sar、sadf、mpstat、iostat、pidstat等，这些工具可以监控系统性能和使用情况
@@ -2297,6 +2403,148 @@ rm -rf 【软链接地址】
 三、修改
 ln -snf 【新目标目录】 【软链接地址】
 ###############################################【linux】软链接的创建、删除、修改###############################################
+
+###############################################CentOS7上的系统管理之：Systemd和systemctl###############################################
+早期的CentOS5系统上，使用的init系统是SysVinit。这套系统运行稳定，使用shell脚本的形式，串行地一个个启动进程，当前一个进程启动完毕后，再启动后一个。这种方式带来的缺点是：
+计算机的启动速度很慢，后面的进程必须等待前面的进程依次串行地启动完毕方可启动。
+有的服务可能在启动后很长的一段时间或者几乎不会使用到，例如服务器中的打印服务。
+发展到CentOS6的时候，init系统换成了Upstart，这个系统有效的解决了上述的缺点，实现了并行启动和按需启动。
+而到了CentOS7的时候，则出现了Systemd这套init系统，它更加完善了并行启动和按需启动，使得启动的速度更上一层楼。这里的按需启动，指的是某个服务被设置为开机启动，当开机时该服务并没有真正的启动，只是注册好了socket占用，等待第一次有请求进来的时候，Systemd悬挂该请求然后启动服务，服务启动完毕后就恢复该请求，从而实现按需启动，这种方式也变相加速了系统的启动速度。
+
+Unit
+在Systemd中使用配置文件来进行管理，这些配置文件叫做unit。unit有许许多多的类型，如下。
+Unit        类型 	文件扩展名 	描述
+Service     unit 	.service 	用于管理系统的服务unit，最常用，一般由所安装的服务所提供（httpd、MySQL等）
+Target      unit 	.target 	target unit表示的是期望系统运行于哪个状态下，用户的目标是什么。
+Automount   unit 	.automount 	文件系统自动挂载点。
+Device      unit 	.device 	一个被内核所识别的设备文件。
+Mount       unit 	.mount 	    一个文件系统的挂载点。
+Path        unit 	.path 	    文件系统中的一个文件或目录。
+Scope       unit 	.scope 	    一个外部创建的进程。
+Slice       unit 	.slice 	    一组用于管理系统进程的分层组织的单元。
+Snapshot    unit 	.snapshop 	Systemd管理器所保存的一个状态，因此称之为快照。
+Socket      unit 	.socket 	一个进程间通信（IPC）socket。
+Swap        unit 	.swap 	    一个swap设备或者swap文件。
+Timer       unit    .timer 	    一个Systemd timer。
+
+Unit配置文件
+unit文件存在于三个位置：
+/usr/lib/systemd/system/：软件程序包所提供的unit文件。例如httpd程序包提供了httpd.service文件。
+/run/systemd/system/：运行时所创建的unit文件。优先级高于已安装的服务unit文件所在的目录。
+/etc/systemd/system/：通过systemctl enable所创建的和用于扩展一个服务所添加的unit文件目录。优先级高于运行时unit文件。
+优先级：/etc/systemd/system/ --> /run/systemd/system/ --> /usr/lib/systemd/system/。
+
+管理服务
+在SysVinit和Upstart中，使用【/etc/rc.d/init.d/】下的shell脚本（一般是bash）来管理服务，使用的命令是service和chkconfig。在Systemd中使用service类型的unit文件（.service文件）来管理，使用的命令统一为systemctl。
+由于向后兼容的特性的存在，旧命令依然可用，但是官方并不建议。新旧命令的对应关系如下。
+service命令和systemctl命令对照表，service命令用于管理一个服务的启动和停止。
+service  	             systemctl  	描述 
+service name start 	     systemctl start name.service 	             启动一个服务
+service name stop 	     systemctl stop name.service 	             停止一个服务
+service name restart 	 systemctl restart name.service 	         重启一个服务
+service name condrestart systemctl try-restart name.serivce          只有当服务处于运行状态时才重启服务
+service name reload 	 systemctl reload name.service 	             重载服务，一般用于配置文件的修改后执行
+serivce name status 	 systemctl status name.service               查看服务的运行状态
+                         systemctl is-active name.service
+service --status-all 	 systemctl list-units --type service --all 	 查看所有服务的运行状态
+在书写unit名称的时候，一般是建议写全名，这样比较能顾名思义，例如“httpd.service”。不过简写，不写unit类型后缀，那么systemctl也是可以识别的，如下2个命令的效果是一样的，systemctl会自动识别unit类型。
+~]# systemctl stop nfs-server.service
+~]# systemctl stop nfs-server
+unit的名称如果比较长，可以定义一个简短的别名，想查看别名的话使用如下命令。show子命令可以查看很多unit的信息。
+[root@c7-server ~]# systemctl show httpd.service -p Names
+Names=httpd.service
+
+列出服务
+
+列出所有当前已载入的服务。
+[root@c7-server ~]# systemctl list-units --type service
+  UNIT                               LOAD   ACTIVE SUB     DESCRIPTION
+  abrt-ccpp.service                  loaded active exited  Install ABRT coredump hook
+  abrt-oops.service                  loaded active running ABRT kernel log watcher
+  abrt-xorg.service                  loaded active running ABRT Xorg log watcher
+...
+● kdump.service                      loaded failed failed  Crash recovery kernel arming
+...
+
+显示服务状态
+[root@c7-server ~]# systemctl status httpd.service
+服务处于启动或停止的状态时，有不同的状态信息显示。使用root用户执行此命令，还可以显示日志信息。
+如果仅希望查看服务是否启动，是否开机启动的话，可使用如下命令。
+[root@c7-server ~]# systemctl is-active httpd.service
+active
+[root@c7-server ~]# systemctl is-enabled httpd.service
+disabled
+
+启动、停止和重启等
+~]# systemctl start httpd.service
+~]# systemctl stop httpd.service
+~]# systemctl restart httpd.service
+如果服务原本是停止的状态，则执行restart会启用该服务。如果我们希望只有当服务当前是启动的状态才重启的话，那么应该执行try-restart。
+~]# systemctl try-restart httpd.service
+某些服务支持在不打断运行状态的情况下重载服务从而读取配置文件。
+~]# systemctl reload httpd.service
+如果服务不支持重载的话，服务会忽略systemd的reload操作。为了方便，确保修改的配置文件一定会生效，可以执行如下2个子命令。
+reload-or-restart：尝试reload，如果服务不支持就restart。
+reload-or-try-restart：尝试reload，如果服务不支持就try-restart。如果服务本身没启动，那么再执行了此命令后应该也不会启动，需要手工启动。启动时，服务就会去读取配置文件了。
+~]# systemctl reload-or-restart httpd.service
+~]# systemctl reload-or-try-restart httpd.service
+
+开机启动
+~]# systemctl enable httpd.service
+~]# systemctl disable httpd.service
+当我们设置开机启动的时候，systemd会读取服务的配置文件（/usr/lib/systemd/system/httpd.service）中的[Install]部分。
+[Install]
+WantedBy=multi-user.target
+根据此部分的内容创建字符链接。
+Created symlink from /etc/systemd/system/multi-user.target.wants/httpd.service to /usr/lib/systemd/system/httpd.service.
+如果服务本身是开机启动的，那么再执行一次enable的话并不会创建字符链接文件。想确保其一定创建的话，可使用reenable。
+~]# systemctl reenable httpd.service
+Removed symlink /etc/systemd/system/multi-user.target.wants/httpd.service.
+Created symlink from /etc/systemd/system/multi-user.target.wants/httpd.service to /usr/lib/systemd/system/httpd.service.
+关闭开机启动，就是删除字符链接了。
+~]# systemctl disable httpd.service
+Removed symlink /etc/systemd/system/multi-user.target.wants/httpd.service.
+systemd支持mask操作，如果一个服务被mask了，那么它无法被手动启动或者被其他服务所启动，也无法被设置为开机启动。
+[root@c7-server ~]# systemctl mask httpd.service
+Created symlink from /etc/systemd/system/httpd.service to /dev/null.
+[root@c7-server ~]# systemctl start httpd.service
+Failed to start httpd.service: Unit is masked.
+[root@c7-server ~]# systemctl enable httpd.service
+Failed to execute operation: Cannot send after transport endpoint shutdown
+可使用unmask来取消mask。
+~]# systemctl unmask httpd.service
+Removed symlink /etc/systemd/system/httpd.service.
+
+创建和修改unit文件
+创建和修改unit文件是理解systemd工作的重点和难点，对于服务的开发人员来说，应该是必备的技能。对于我目前的运维阶段来说，只要达到会看即可，因此这里先暂时留白，感兴趣的可以直接看开头参考资料中的红帽文档。
+Unit文件存在于文章开头处提到的三个目录，其中“/etc/systemd/system/”目录是留给管理员自定义的，因此我们自定义的unit文件建议放该目录下。
+Unit文件的文件名：
+unit_name.type_extension
+unit名和类型都是可替换的，合在一起叫做完整（full）的unit文件名。
+例如sshd有两个常见的unit文件：sshd.service和sshd.socket。
+如果我们想对一个unit做选项补充的话，可以新增一个“.d”目录并在其下创建补充的配置文件。例如当我们想为sshd.service增加自定义的配置选项时，可以创建sshd.service.d/custom.conf配置文件。
+另外，还可以存在“sshd.service.wants/”和“sshd.service.requires/”目录，这些目录下都是字符链接文件，链接到其他的unit文件，以此来决定sshd.service的依赖关系。字符链接会自动产生，也可人为创建。
+了解unit文件的结构
+Unit文件由典型的三部分构成：
+    [Unit]：包含通用的选项，不受unit类型所影响。这部分主要提供了unit的简单描述信息，指定其行为，定义其依赖关系。
+    [unit type]：这部分的选项，是和unit类型相关的。即如果是.service类的unit，就有其相关的特定选项。
+    [Install]：在通过systemctl enable或者disable的时候，所涉及到的选项。
+[Unit]和[Install]的选项的完整参考手册，可见systemd.unit(5)；[unit type]的选项，则需要根据unit的类型来确定。可通过以下命令查找对应的man手册。
+~]# man -k systemd
+...
+systemd.scope (5)    - Scope unit configuration
+systemd.service (5)  - Service unit configuration
+systemd.slice (5)    - Slice unit configuration
+systemd.snapshot (5) - Snapshot unit configuration
+systemd.socket (5)   - Socket unit configuration
+...
+systemd.swap (5)     - Swap unit configuration
+systemd.target (5)   - Target unit configuration
+...
+当编辑或者新建了unit的文件，需要使用该命令重载systemd，使其知晓。
+~]# systemctl daemon-reload
+
+###############################################CentOS7上的系统管理之：Systemd和systemctl###############################################
 
 linux使用vi中文乱码的解决办法 在~/.vimrc文件中添加如下两行即：
 set encoding=utf-8

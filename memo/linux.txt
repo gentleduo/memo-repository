@@ -2546,6 +2546,63 @@ systemd.target (5)   - Target unit configuration
 
 ###############################################CentOS7上的系统管理之：Systemd和systemctl###############################################
 
+###############################################CentOS7 sysctl###############################################
+sysctl命令用于运行时配置内核参数。
+vim /etc/sysctl.conf
+
+//-a 显示所有的系统参数
+//error
+sysctl -a | grep kernel.core_pipe_limit
+kernel.core_pipe_limit = 0
+sysctl -a | grep kernel.hung_task_panic
+kernel.hung_task_panic = 1
+sysctl -a | grep kernel.numa_balancing
+kernel.numa_balancing = 1
+sysctl -a | grep kernel.panic
+kernel.panic = 5
+
+//ok
+kernel.core_pipe_limit = 4
+kernel.hung_task_panic = 0
+kernel.numa_balancing = 0
+kernel.panic = 0
+
+//-w 临时改变某个指定参数的值
+sysctl -w kernel.core_pipe_limit=4 无效
+sysctl -w kernel.hung_task_panic=0 无效
+sysctl -w kernel.numa_balancing=0 有效
+sysctl -w kernel.panic=0 无效
+
+//-p 从指定的文件加载系统参数的值，如不指定即从/etc/sysctl.conf中加载
+sysctl -p /etc/sysctl.conf
+sysctl -p命令，所设置的值在系统重启后即会丢失，如果想永久保留配置，可以修改/etc/sysctl.conf文件
+
+numa 总结
+
+离线install numactl
+numactl-libs-2.0.9-6.el7_2.x86_64.rpm
+numactl-2.0.9-6.el7_2.x86_64.rpm
+
+查看numa相关信息，包括每个node内存大小，每个node中的逻辑cpu
+numactl --hardware
+
+验证系统是否支持numa
+dmesg | grep -i numa查看输出结果：
+如果输出结果为：
+No NUMA configuration found
+说明numa为disable，如果不是上面的内容说明numa为enable
+
+查看numa的状态：numastat
+numa_hit是打算在该节点上分配内存，最后从这个节点分配的次数;
+num_miss是打算在该节点分配内存，最后却从其他节点分配的次数;
+num_foregin是打算在其他节点分配内存，最后却从这个节点分配的次数;
+interleave_hit是采用interleave策略最后从该节点分配的次数;
+local_node该节点上的进程在该节点上分配的次数
+other_node是其他节点进程在该节点上分配的次数
+
+
+###############################################CentOS7 sysctl###############################################
+
 linux使用vi中文乱码的解决办法 在~/.vimrc文件中添加如下两行即：
 set encoding=utf-8
 set fileencoding=utf-8

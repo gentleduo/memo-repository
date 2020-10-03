@@ -1127,6 +1127,12 @@ registry garbage-collect /etc/docker/registry/config.yml
 
 #########################################centos7 Docker私有仓库搭建及删除镜像#########################################
 
+##################################################nvidia docker指定显卡启动##################################################
+docker启动参数上加-e NVIDIA_VISIBLE_DEVICES=1(0代表第一块显卡，１代表第二块显卡，不加参数是全部启动)
+docker run -it  --runtime=nvidia -e NVIDIA_VISIBLE_DEVICES=1 需要启动的docker名称 bash
+多显卡机器上，如果显卡０正在被其他程序占用，但是程序指定显卡０，你就可以加这个命令，只启动部分显卡，docker里面看到cuda０编号就是你启动外部１编号．
+##################################################nvidia docker指定显卡启动##################################################
+
 创建用于挂载的目录
 sudo mkdir /my/mysql/datadir #用于挂载mysql数据文件
 sudo mkdir /my/mysql/conf.d #用于挂载mysql配置文件

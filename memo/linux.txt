@@ -2237,11 +2237,21 @@ firewall-cmd --reload   # 配置立即生效
 2、查看防火墙所有开放的端口
 firewall-cmd --zone=public --list-ports
 
-3.、关闭防火墙
+3、开放或限制IP
+firewall-cmd --permanent --add-rich-rule="rule family="ipv4" source address="192.168.56.110" port protocol="tcp" port="80" reject"
+firewall-cmd --permanent --add-rich-rule="rule family="ipv4" source address="192.168.56.110" port protocol="tcp" port="80" accept"
+
+firewall-cmd --permanent --remove-rich-rule="rule family="ipv4" source address="192.168.56.110" port protocol="tcp" port="80" reject"
+firewall-cmd --permanent --remove-rich-rule="rule family="ipv4" source address="192.168.56.110" port protocol="tcp" port="80" accept"
+
+4、查看防火墙所有开放的IP
+firewall-cmd --zone=public --list-rich-rules
+
+5、关闭防火墙
 如果要开放的端口太多，嫌麻烦，可以关闭防火墙，安全性自行评估
 systemctl stop firewalld.service
 
-4、查看防火墙状态
+6、查看防火墙状态
 firewall-cmd --state
 
 允许或禁止root用户ssh远程登录，修改22端口
@@ -2263,7 +2273,7 @@ auth       required     pam_securetty.so
 #%PAM-1.0
 #auth       required     pam_securetty.so
 
-centos7上通过firewalld配置网关服务器
+===============================================>>>centos7上通过firewalld配置网关服务器<<<===============================================
 使用场景：有多台内网服务器，其中只有一台能够访问外网，但其他内网服务器也希望访问外网
 假设内网网段为：192.168.56.0/24
 可访问外网的内网服务器的内网IP为：192.168.56.111
@@ -2283,11 +2293,97 @@ firewall-cmd --reload
 firewall-cmd --direct --get-all-passthroughs
 //删除规则：
 firewall-cmd --permanent --direct --remove-passthrough ipv4 -t nat -I POSTROUTING -o enp0s3 -j MASQUERADE -s 192.168.56.0/24
+//也可以再关闭防火墙的情况下直接添加iptables规则
+iptables -t nat -I POSTROUTING -o enp0s3 -j MASQUERADE -s 192.168.56.0/24
 
 之后，在需要访问外网的内网服务器上添加到192.168.56.111的网关即可访问外网了：
 route add default gw 192.168.56.111 dev enp0s8 
 如果希望永久有效，可将网关加到网络的配置文件里(/etc/sysconfig/network-scripts/ifcfg-enp0s8中的GATEWAY)
+
+在配置网关服务器的时候注意以下几点：
+1) 能ping通ip，ping不通域名。解决方案：
+  a) 在网关服务器上安装named服务：
+    yum install bind-chroot -y
+	yum install bind-utils -y
+  b) 修改配置文件：vim /etc/named.conf，
+    修改listen-on为any，允许监听所有IP；
+	修改localhost为any，允许任何主机查询。
+  c) systemctl restart named   #重启服务
+2) 域名解析正常后使用curl无法访问：
+  a) 现象：
+    源主机上的错误信息：没有到主机的路由，
+    网关服务器上使用tcpdump抓包后发现错误信息：
+    15:35:21.177409 IP 192.168.56.111 > 192.168.56.110: ICMP host 101.226.26.232 unreachable - admin prohibited, length 68
+	192.168.56.110尝试与192.168.56.111建立连接但是192.168.56.111服务器以 ICMP 错误响应。错误代码 (unreachable - admin prohibited) 指出，由于防火墙规则 (-admin prohibited)，无法访问 TCP SYN 网段。
+  b) 解决方案：关闭防火墙，直接通过iptables添加SNAT规则
+    systemctl stop firewalld.service
+	iptables -t nat -I POSTROUTING -o enp0s3 -j MASQUERADE -s 192.168.56.0/24
+
+===============================================>>>centos7上通过firewalld配置网关服务器<<<===============================================
+
 ######################################################【linux】firewall############################################
+
+######################################################【linux】hostname############################################
+hostname 命令获取主机名
+通过man hostname我们看到：
+When called without any arguments, the program displays the current names: 
+hostname will print the name of the system as returned by the gethostname(2) function.
+意思是当我们执行hostname命令时，它会打印出系统主机名，而这个系统主机名是系统的gethostname(2)函数返回的。
+
+hostname 命令临时修改主机名
+这个临时修改实际上是修改了Linux-Kernel中一个同为hostname的内核参数。hostname是Linux系统的一个内核参数，它保存在/proc/sys/kernel/hostname下，它的值是Linux启动时从rc.sysinit读取的。
+
+/etc/sysconfig/network配置文件永久修改主机名
+CentOS 系统在启动时执行/etc/rc.d/rc.sysinit脚本，
+它首先读取/etc/sysconfig/network中HOSTNAME参数，然后将系统主机名配置成获取的HOSTNAME。 脚本中相关代码如下：
+if [ -f /etc/sysconfig/network ]; then
+    . /etc/sysconfig/network
+fi
+if [ -z "$HOSTNAME" -o "$HOSTNAME" = "(none)" ]; then
+    HOSTNAME=localhost
+fi
+结论：
+/etc/sysconfig/network确实是hostname的配置文件，hostname的值跟该配置文件中的HOSTNAME有一定的关联关系，但是没有必然关系，hostname的值来自内核参数/proc/sys/kernel/hostname，
+如果我通过命令sysctl kernel.hostname=Test修改了内核参数，那么hostname就变为了Test了。
+
+hostname与/etc/hosts的关系
+一般来说hostname并不是从/etc/hosts中获取的，而是从/ect/sysconfig/network中获取的，
+但是在/etc/rc.d/rc.sysinit中，有如下逻辑判断，当hostname为localhost或localhost.localdomain时，将会使用接口IP地址对应的hostname来重新设置系统的hostname。
+\# In theory there should be no more than one network interface active
+\# this early in the boot process -- the one we're booting from.
+\# Use the network address to set the hostname of the client.  This
+\# must be done even if we have local storage.
+ipaddr=
+if [ "$HOSTNAME" = "localhost" -o "$HOSTNAME" = "localhost.localdomain" ]; then
+        ipaddr=$(ip addr show to 0.0.0.0/0 scope global | awk '/[[:space:]]inet / { print gensub("/.*","","g",$2) }')
+        for ip in $ipaddr ; do
+                HOSTNAME=
+                eval $(ipcalc -h $ip 2>/dev/null)
+                [ -n "$HOSTNAME" ] && { hostname ${HOSTNAME} ; break; }
+        done
+fi
+上面代码的意思就是如果从/ect/sysconfig/network中获取的HOSTNAME为localhost或localhost.localdomain时，就会获取接口的IP地址，根据这个IP地址在查找/etc/hosts文件对应的主机名（ipcalc命令的作用），然后将其设置为最终的hostname。
+
+HOSTNAME存放的目录根据Linux的版本不同而不同：
+例如Ubuntu、CentoOS 7，主机名存放在/etc/hostname文件中，而Fedora将主机名存放在/etc/sysconfig/network文件中。
+所以，修改主机名时应注意区分是哪种linux发行版。
+
+验证Linux主机名存放的目录（以centos7为例，在centos7中提供了一个新的命令, hostnamectl可以用来修改主机的名字。）：
+# 先查看一个主机名
+cat /etc/hostname
+iz2ze2jkgn61mtv7csy6bgz
+# 永久性的修改主机名后再查看
+hostnamectl set-hostname senlin
+cat /etc/hostname
+senlin
+可以看到通过hostnamectl set-hostname senlin实际上是修改了配置文件/etc/hostname，永久性的修改，需要重新启动服务器才有效果。
+
+关于Hosts与network的异同之处：
+1、hosts文件，路径：/etc/hosts,此文间是在网络上使用的，用于解析计算机名称和IP地址的映射关系，功能相当于windows下面的c:\windows\system32\drivers\etc\hosts文件，如果想使用计算机名称来访问对方的主机，需要把对方计算机的名称和IP地址写到本机的hosts文件中
+
+2、network文件，路径：/etc/sysconfig/network,此文件是针对本计算机的，是给计算机起的一个名字，是计算机的一个标识。可以使用uname -n 命令来查看本地计算机的计算机名称。　/etc/sysconfig/network用于设置HOSTNAME与启动NETWORKING的，主机名称在重启后生效
+
+######################################################【linux】hostname############################################
 
 ######################################################【linux】性能监控工具############################################
 sysstat提供了Linux性能监控的工具集，包括sar、sadf、mpstat、iostat、pidstat等，这些工具可以监控系统性能和使用情况

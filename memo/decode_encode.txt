@@ -218,4 +218,231 @@ s.decode('utf-8')
 5) python3中string可以直接encode成任意编码格式，encode后的类型就是bytes了
 ######################################cmd下或者linux系统下、进入Python交互式命令行中文显示正常的原因(针对于python2.7)######################################
 
+&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&>>>Python中的编码<<<&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
+1. Python源码文件的编码
+Python源码文件的编码格式决定了在该源文件中声明的字符串（str和unicode）的编码格式，例如py源码如下：
+#!/usr/bin/env python
+# coding:utf-8
+
+if __name__ == '__main__':
+    str='中文'
+    print repr(str)
+如果文件保存为utf-8(vim 中用set fileencoding=utf-8来设置)，那么输出如下：
+lxg@lxg-X240:~/station$ python codeset.py
+"\xe4\xb8\xad\xe6\x96\x87"
+如果文件保存为gbk，那么输出如下：
+lxg@lxg-X240:~/station$ python codeset.py
+"\xd6\xd0\xce\xc4"
+对于Python源码文件的编码你就理解成普通文件的编码作用就行，普通文件不同的编码最后保存在硬盘上面对应的字节流是不同的，这个同样适用Python源码文件。虽然Python源码的编码作用和普通文件一样，但是Python源码文件的编码方式结合下面要讲的“编码声明“那么就会有一些特别的效果出来。
+
+2. Python的编码声明
+在Python源码文件的第一或第二行一般会有一个关于编码的声明，称之为魔法注释，如#coding:utf-8。那么这个魔法注释的作用是什么呢？
+1. 声明源文件中将出现非ascii编码，通常也就是中文。如果没有编码声明但是文件中出现了非ascii的字节流那么就会有编译时错误报出。
+2. 在高级的IDE中能够识别声明的编码（如：Emacs），IDE会将你的文件保存成你声明的编码格式，也就是说保持源码文件的编码和声明的编码一致。
+3. 用于Python源码在词法分析/编译阶段的encode、decode的默认编码。下面是The Python Language Reference(https://docs.python.org/2/reference/lexical_analysis.html) 中【词法分析】章节的一段话：
+If an encoding is declared, the encoding name must be recognized by Python. The encoding is used for all lexical analysis, in particular to find the end of a string, and to interpret the contents of Unicode literals. String literals are converted to Unicode for syntactical analysis, then converted back to their original encoding before interpretation starts.
+大致翻译一下如下：
+如果声明了编码，那么编码的名字必须能够被Python识别。编码将用于所有的词法分析，特别是寻找字符串的结束，和解释Unicode字面值的内容。字符串字面值会被转换成Unicode来做语法分析，然后在解释开始之前被转换回它们初始的编码。
+2.1 解释Unicode字面值
+首先我们来看一下这段简单的Python代码：
+#!/usr/bin/env python
+# coding:utf-8
+
+if __name__ == '__main__':
+    str = u'中文'
+    print repr(str)
+如果保存Python源码文件为utf-8那么运行代码准确无误，输出如下：
+lxg@lxg-X240:~/station$ python codeset.py
+u'\u4e2d\u6587'
+如果保存Python源码文件为gbk，那么在编译阶段就会有语法错误，输出如下：
+lxg@lxg-X240:~/station$ python codeset.py
+File "codeset.py", line 5
+str = u'����'
+SyntaxError: (unicode error) 'utf8' codec can't decode byte 0xd6 in position 0: invalid continuation byte这里报错的原因就是上文提到的“and to interpret the contents of Unicode literals”。Python编译器遇到str = '中文'的时候知道这是一个Unicode字符串，但是从源码文件中读取到的是一串字节流（byte stream），那么就需要经过decode把它转换成Unicode，此时选择的编码就是我们声明的编码utf-8。但是我们读取到的字节流本身是gbk编码的，解释器却用utf-8去解码那么就有可能会出错。
+具体到我们这个示例其实就是：
+Python 2.7.3 (default, May 13 2013, 20:04:56)
+[GCC 4.4.5] on linux2
+Type "help", "copyright", "credits" or "license" for more information.
+>>> str = '\xd6\xd0\xce\xc4'
+>>> str.decode('utf-8')
+Traceback (most recent call last):
+File "<stdin>", line 1, in
+File "/opt/nsfocus/python/lib/python2.7/encodings/utf_8.py", line 16, in decode
+return codecs.utf_8_decode(input, errors, True)
+UnicodeDecodeError: 'utf8' codec can't decode byte 0xd6 in position 0: invalid continuation byte
+\xd6\xd0\xce\xc4是变量str = '中文'通过gbk编码保存在硬盘上面的字节流。
+2.2 解释字符串字面值
+在上面The Python Language Reference 中提到了字符串在词法分析、语法分析、编译阶段会要进行decode、encode等转换操作，在PEP 0263 – Defining Python Source Code Encodings(https://www.python.org/dev/peps/pep-0263/)中有更详细的步骤，抄录如下：
+1.read the file
+2.decode it into Unicode assuming a fixed per-file encoding
+3.convert it into a UTF-8 byte string
+4.tokenize the UTF-8 content
+5.compile it, creating Unicode objects from the given Unicode data and creating string objects from the Unicode literal data by first reencoding the UTF-8 data into 8-bit string data using the given file encoding
+下面从Python（2.7.3）源码的视角分析一下编码声明的作用。
+Python在进行词法分析的时候需要先读取源码文件中一行，然后再根据读取到的字符串进行词法分析，Parser/tokenizer.c：decoding_fgets()函数是Python用来读取源码文件的重要函数，下面是decoding_fgets()函数的源码：
+/* Read a line of input from TOK. Determine encoding
+   if necessary.  */
+
+static char *
+decoding_fgets(char *s, int size, struct tok_state *tok)
+{
+    char *line = NULL;
+    int badchar = 0;
+    for (;;) {
+        if (tok->decoding_state < 0) { //part 1
+            /* We already have a codec associated with
+               this input. */
+            line = fp_readl(s, size, tok);
+            break;
+        } else if (tok->decoding_state > 0) { //part 2
+            /* We want a 'raw' read. */
+            line = Py_UniversalNewlineFgets(s, size,
+                                            tok->fp, NULL);
+            break;
+        } else { //part 3
+            /* We have not yet determined the encoding.
+               If an encoding is found, use the file-pointer
+               reader functions from now on. */
+            if (!check_bom(fp_getc, fp_ungetc, fp_setreadl, tok))
+                return error_ret(tok);
+            assert(tok->decoding_state != 0);
+        }
+    }
+    if (line != NULL && tok->lineno < 2 && !tok->read_coding_spec) {
+        if (!check_coding_spec(line, strlen(line), tok, fp_setreadl)) { //part 4
+            return error_ret(tok);
+        }
+    }
+#ifndef PGEN
+    /* The default encoding is ASCII, so make sure we don't have any non-ASCII bytes in it. */
+    if (line && !tok->encoding) { //part 5
+        unsigned char *c;
+        for (c = (unsigned char *)line; *c; c++)
+            if (*c > 127) {
+                badchar = *c;
+                break;
+            }
+    }
+    if (badchar) { //part 6
+        char buf[500];
+        /* Need to add 1 to the line number, since this line
+           has not been counted, yet.  */
+        sprintf(buf,
+            "Non-ASCII character '\\x%.2x' "
+            "in file %.200s on line %i, "
+            "but no encoding declared; "
+            "see http://www.python.org/peps/pep-0263.html for details",
+            badchar, tok->filename, tok->lineno + 1);
+        PyErr_SetString(PyExc_SyntaxError, buf);
+        return error_ret(tok);
+    }
+#endif
+    return line;
+}
+tok->decoding_state有三种取值，-1表示已经读取到了编码声明、0表示初始状态、1表示按照字节流方式来读取。
+1. Python通过tok_new()函数来新建tok_state结构体的时候tok->decoding_state初始化为0，那么当Python第一次读取源码文件的时候转入的分支是part 3，part 3调用check_bom()函数来查看文件是否包含了UTF8_BOM（0xEF0xBB0xBF）。在check_bom()函数中会设置tok->decoding_state = 1，如果包含有UTF8_BOM那么还会设置tok->encoding = new_string("utf-8", 5)。也就是说Python能够识别文件中的UTF8_BOM，UTF8_BOM的效果等同于#coding:utf-8编码声明，不过不太建议使用UTF8_BOM这种方式。
+2. 调用完check_bom()以后tok->decoding_state变成了1，接着循环进入了part 2。Py_UniversalNewlineFgets()函数类似于fgets()函数，读取指定数量的字节数或者读取整行。也就是说Py_UniversalNewlineFgets()函数不涉及到编码的问题，因为它是按照字节流的方式来读取。
+3. 那么什么情况下才会走到part 1呢，也就是说tok->decoding_state什么情况下会变成-1呢？在part 4部分tok->decoding_state可能会变成1，在part 4我们看到如果当前读取的源码行数小于2并且还未读取到编码声明(!tok->read_coding_spec)那么就调用check_coding_spec()函数来识别编码声明，如下是check_coding_spec()源码：
+static int
+check_coding_spec(const char* line, Py_ssize_t size, struct tok_state *tok,
+                  int set_readline(struct tok_state *, const char *))
+{
+    char * cs;
+    int r = 1;
+
+    if (tok->cont_line)
+        /* It's a continuation line, so it can't be a coding spec. */
+        return 1;
+    cs = get_coding_spec(line, size); //sec 1
+    if (cs != NULL) {
+        tok->read_coding_spec = 1;
+        if (tok->encoding == NULL) {
+            assert(tok->decoding_state == 1); /* raw */
+            if (strcmp(cs, "utf-8") == 0 ||
+                strcmp(cs, "iso-8859-1") == 0) { //sec 2
+                tok->encoding = cs;
+            } else { //sec 3
+#ifdef Py_USING_UNICODE
+                r = set_readline(tok, cs);
+                if (r) {
+                    tok->encoding = cs;
+                    tok->decoding_state = -1;
+                }
+                else
+                    PyMem_FREE(cs);
+#else
+                /* Without Unicode support, we cannot
+                   process the coding spec. Since there
+                   won't be any Unicode literals, that
+                   won't matter. */
+                PyMem_FREE(cs);
+#endif
+            }
+        } else {                /* then, compare cs with BOM */
+            r = (strcmp(tok->encoding, cs) == 0);
+            PyMem_FREE(cs);
+        }
+    }
+    if (!r) {
+        cs = tok->encoding;
+        if (!cs)
+            cs = "with BOM";
+        PyErr_Format(PyExc_SyntaxError, "encoding problem: %s", cs);
+    }
+    return r;
+}
+在sec 1部分调用get_coding_spec()来读取、解析编码声明中指定的编码，在sec 2看到如果解析到的是utf-8或iso-8859-1编码那么不会设置tok->decoding_state = 1，也就是说如果我们编码声明中指定的编码为utf-8等同于iso-8859-1，在读取源码文件的时候是使用Py_UniversalNewlineFgets()函数按照字节流的方式来读取，不会有PEP 0263 – Defining Python Source Code Encodings中提到的那decode、encode的系列转换操作。如果编码声明中指定的编码非utf-8、iso-8859-1那么就走到sec 3部分，设置tok->decoding_state = 1并设置tok->encoding = cs为指定的编码。
+当我们成功读取到编码，那么下次再次读取源码文件的时候就会进入part 1部分，调用fp_readl()函数来读取源码文件内容，这个函数的流程就是我们前面PEP 0263 – Defining Python Source Code Encodings中提到的那5步，先根据指定编码格式读取、接着再解码成Unicode、最后再编码成utf-8字符串，有兴趣的可以读一下源码。
+4. part 4和part 5就是处理未声明编码但是源码文件中含有非ascii字符情况，这种情况很多Python新手都遇到过。
+2.3 一个示例
+下面是两段代码：
+#!/bin/env python
+#coding=utf-8
+
+if __name__ == '__main__':
+    str='中文'
+    print repr(str),str
+
+#!/bin/env python
+#coding=gbk
+
+if __name__ == '__main__':
+    str='中文'
+    print repr(str),str
+	
+第一段代码无论把文件编码格式保存为何种都能正常执行，但是第二段代码当我们把源码文件编码格式保存为utf-8的时候就会有语法错误，如下所示：
+lxg@lxg-X240 ~/station $ python codeset2.py
+File"codeset.py", line 5
+SyntaxError: 'gbk' codec can' t decode bytes in position 11-12: illegal multibyte sequence
+在我最开始的理解中第一段代码当保存为gbk编码格式的时候也会有语法错误，但是验证的结果是并没有语法错误报出来，这令我百思不得其解，所以也就有了这篇文章。
+通过上面的文章我们知道当编码声明为utf-8的时候Python是按照字节流来读取文件内容的，不再会有decode、encode这个转换过程，也就不会在编译阶段报出语法错误了，当然在运行时肯定是会有乱码的。下面是第一段代码的运行结果：
+lxg@lxg-X240 ~/station $ python codeset.py
+'\xd6\xd0\xce\xc4' אτ
+3. 运行时默认编码
+首先来看一段代码：
+#!/bin/env python
+#coding=utf-8
+
+if __name__ == '__main__':
+    print '你好' + u"中国"
+运行结果如下：
+lxg@lxg-X240 ~/station $ python codeset3.py
+Traceback (most recent call last):
+    File "codeset3.py", line 5, in
+        print '你好' + u"中国"
+UnicodeDecodeError: 'ascii' codec can't decode byte 0xe4 in position 0: ordinal not in range(128)
+这段代码在编译时没有报错，但是在运行时报错了，问题的原因就出在运行时如果一个字符串和Unicode相加的时候Python默认会把字符串解码成Unicode，解码时默认使用的编码是ascii。如何获取Python运行时的默认编码呢，就是通过sys.getdefaultencoding()方法来获取，可以通过sys.setdefaultencoding()方法来设置运行时的默认编码。上面的代码修改如下就可以运行正常了：
+#!/bin/env python
+#coding=utf-8
+import sys
+reload(sys)
+sys.setdefaultencoding('utf-8')
+
+if __name__ == '__main__':
+    print '你好' + u"中国"
+在这里我们也要注意一下sys.setdefaultencoding()函数中设置的编码，结合上面两个章节如果我们设置默认编码为gbk，那么上面的代码的运行结果会如何呢？ 
+还有经常遇到的另外一个关于默认编码的问题是直接对字符串进行编码操作，'中文'.encode(utf-8)这行代码在运行时也会跟上面codeset3.py一样报UnicodeDecodeError: 'ascii' codec can't decode byte 0xe4 in position 0: ordinal not in range(128)错误，这是因为'中文'.encode(utf-8)等同于'中文'.decode(sys.getdefaultencoding()).encode(utf-8)，也就是说先用默认编码来解码然后再编码，如果默认编码是ascii那么就会解码错误。 
+&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&>>>Python中的编码<<<&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
+
 =========================================================Python编码=========================================================
+

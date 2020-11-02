@@ -169,6 +169,13 @@ systemctl enable rpcbind
 umount.nfs4: /var/nfs: device is busy
 执行fuser -km /var/nfs/，然后再执行umount
 umount -l /home 强行解除挂载
+
+mount.nfs: Stale file handle的解决方法
+[root@lnmp02 ~]# mount -t nfs 192.168.20.6:/data /mnt
+mount.nfs: Stale file handle
+原因是当client端mount上了server端的directory之后，假如server端又将这个directory unshare了或者删除了，那么就会在client端出现这个错误。我前面确实删除过NFS服务端的/data目录，所以在再次挂载的时候出现了这个问题。那么应该怎么做呢？
+解决方法：
+[root@lnmp02 ~]# umount -lf /mnt
 /*********************************************NFS服务和挂载*********************************************
 
 /*********************************************通过yum下载rpm包及其依赖包*********************************************

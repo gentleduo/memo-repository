@@ -63,6 +63,8 @@ Spring是一个容器，springmvc也是一个容器。他们两者之间是父�
 所以结论如下：不可以在service.xml中配置一个全局扫描包来使用。
 了解了父子容器，我们在搭建框架的时候，就会很容易的知道，我要配置什么，配置到哪些地方。就会更深一步的了解框架的原理。
 
+Spring是根容器，SpringMVC是其子容器。子容器的创建依赖于父容器的创建，父容器先于子容器创建。子容器(SpringMVC容器)可以访问父容器(Spring容器)的Bean，父容器(Spring容器)不能访问子容器(SpringMVC容器)的Bean。也就是说，当在SpringMVC容器中getBean时，如果在自己的容器中找不到对应的bean，则会去父容器中去找，这也解释了为什么由SpringMVC容器创建的Controller可以获取到Spring容器创建的Service组件的原因。
+
 #########################################################spring和springmvc父子容器#########################################################
 
 #############################<context:annotation-config/>、<context:component-scan>和<mvc:annotation-driven/>#############################

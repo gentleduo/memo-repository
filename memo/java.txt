@@ -78,7 +78,8 @@ do something before method
 do something after method
 四.机制分析:
 Proxy.newProxyInstance(ClassLoader loader, Class<?>[] interfaces, InvocationHandler h)做了以下几件事.
-(1)根据参数loader和interfaces调用方法getProxyClass(loader, interfaces)创建代理类$Proxy. $Proxy0类实现了interfaces的接口,并继承了Proxy类.
+(1)根据参数loader和interfaces调用方法getProxyClass(loader, interfaces)创建代理类$Proxy. $Proxy0类实现了interfaces的接口,并继承了Proxy类.具体流程如下：
+Proxy静态方法newProxyInstance调用getProxyClass0，getProxyClass中再调用getProxyClass0；getProxyClass0方法里其实直接取proxyClassCache缓存，proxyClassCache是一个代理类的缓存变量，如果这个缓存里有这个代理类，就直接返回代理类，如果没有，就会通过ProxyClassFactory创建代理对象。ProxyClassFactory是Proxy里的一个内部类，用来生成代理类，apply()方法最后调用ProxyGenerator.generateProxyClass()方法来完成生成字节码的操作，
 (2)实例化$Proxy0并在构造方法中把BusinessHandler传过去,接着$Proxy0调用父类java.lang.reflect.Proxy的构造器,为h赋值,如下:
 class Proxy{
 	InvocationHandler h=null;
@@ -167,7 +168,7 @@ ThreadLocal的实现原理
 Thread类中有两个变量threadLocals和inheritableThreadLocals，二者都是ThreadLocal内部类ThreadLocalMap类型的变量，我们通过查看内部内ThreadLocalMap可以发现实际上它类似于一个HashMap。在默认情况下，每个线程中的这两个变量都为null。只有当线程第一次调用ThreadLocal的set或者get方法的时候才会创建他们（后面我们会查看这两个方法的源码）。每个线程的本地变量不是存放在ThreadLocal实例中，而是放在调用线程的ThreadLocals变量里面（前面也说过，该变量是Thread类的变量）。也就是说，ThreadLocal类型的本地变量是存放在具体的线程空间上，其本身相当于一个装载本地变量的工具壳，通过set方法将value添加到调用线程的threadLocals中，当调用线程调用get方法时候能够从它的threadLocals中取出变量。如果调用线程一直不终止，那么这个本地变量将会一直存放在他的threadLocals中，所以不使用本地变量的时候需要调用remove方法将threadLocals中删除不用的本地变量。
 1、set方法源码
 public void set(T value) {
-    //(1)获取当前线程（调用者线程）
+    //(1)获取当前线程（正在运行的线程）
     Thread t = Thread.currentThread();
     //(2)以当前线程作为key值，去查找对应的线程变量，找到对应的map
     ThreadLocalMap map = getMap(t);
@@ -281,7 +282,7 @@ Copy required libraries into a sub-folder next to the generated jar -> 将需要
 Java定义了三种级别的class,分别为BootStrap class,Extend Class,User class.
 BootStrap class扩展方案
 Java 命令行提供了如何扩展bootStrap级别class的简单方法.
--Xbootclasspath:基本核心的Java class搜索路径.不常用,否则要重新写所有Java核心class
+-Xbootclasspath:完全取代基本核心的Java class 搜索路径,不常用,否则要重新写所有Java核心class
 -Xbootclasspath/a:后缀在核心class搜索路径后面 常用.
 -Xbootclasspath/p:前缀在核心class搜索路径前面 不常用,避免引起不必要的冲突
 例： java –Xbootclasspath/a:/d:/myclass/account.jar; -jar yourself.jar(Window用;号隔开)

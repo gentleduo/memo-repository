@@ -1,0 +1,146 @@
+==============================================================消费者分区分配策略==============================================================
+一个consumer group 中有多个consumer，一个topic有多个partition
+
+消费者分区分配策略
+RoundRobin 按组来划分（前提：必须保证消费者组里面的消费者订阅的主题完全一致）
+将当前消费者组里面订阅的所有的topic里面的所有partition全部当作一个整理，然后轮询分配
+比如下面这种情况会有问题：
+consumer group里面有consumer-0，consumer-1
+topic-0里面有partition-0，partition-1，partition-2
+topic-1里面有partition-0，partition-1，partition-2
+然后consumer-0订阅topic-0；consumer-1订阅topic-1；
+如果采用RoundRobin进行分配的话，那么它会将consumer-0和consumer-1订阅的主题topic-0和topic-1里面的所有partition全部当作一个整理来轮询分配：
+那么consumer-0分到的就是：topic-0的partition-0，partition-2和topic-1的partition-1
+那么consumer-1分到的就是：topic-0的partition-1和topic-1的partition-0，partition-2
+Range 以主题划分（按照主题划分的时候，它是先要找到谁订阅了这个主题，然后再考虑组，他不会将分区划分给组里面没有订阅他的消费者）
+consumer group里面有consumer-0，consumer-1
+topic-0里面有partition-0，partition-1，partition-2
+topic-1里面有partition-0，partition-1，partition-2
+然后consumer-0订阅topic-0和topic-1；consumer-1订阅topic-0和topic-1；
+如果采用Range进行分配的话，由于Range以topic划分，所以先会看topic-0被哪几个consumer订阅了，上述的例子中topic-0被2个consumer订阅于是将topic-0的partition数除以consumer的数量（然后将partition-0，partition-1分配给consumer-0；partition-2分给了consumer-1），对于topic-1也是执行同样的处理；最后的分配结果如下：
+consumer-0：partition-0(opic-0)，partition-1(opic-0),partition-0(opic-1)，partition-1(opic-1)
+consumer-1：partition-2(opic-0)，partition-2(opic-1)
+
+考虑一下这种情况：
+topic-0里面有partition-0，partition-1，partition-2
+topic-1里面有partition-0，partition-1，partition-2
+consumer-group-0里面有consumer-a和consumer-b；
+consumer-group-1里面有consumer-c；
+consumer-a、consumer-b、consumer-c都订阅了topic-0；consumer-b还订阅了topic-1；
+如果按照RoundRobin策略划分的话，那会先把consumer-group-0组所订阅的所有topic：topic-0和topic-1里面的所有的partition当作一个整体，然后轮询分配到组里面的两个消费者：consumer-a和consumer-b，那就可能出现将topic-1里面的partition分配给consumer-a的情况；
+如果按照Range划分的话，首先它先找到有哪些消费者订阅了topic-0，它发现有consumer-group-0的consumer-a和consumer-b和consumer-group-1的consumer-c订阅了topic-0，接着他会根据range算法把topic-0的partition-0，partition-1分配给consumer-a，topic-0的partition-2分配给consumer-b，然后把topic-0里面有partition-0，partition-1，partition-2都分配给consumer-group-1的consumer-c；然后找到有哪些消费者订阅了topic-1，它发现只有consumer-group-0的consumer-b订阅了，于是他会将topic-1的所有分区全部划分给consumer-c
+==============================================================消费者分区分配策略==============================================================
+
+==============================================================Partition的数据文件==============================================================
+Kafka中的Message是以topic为基本单位组织的，不同的topic之间是相互独立的。每个topic又可以分成几个不同的partition(每个topic有几个partition是在创建topic时指定的)，每个partition存储一部分Message。
+partition是以文件的形式存储在文件系统中，比如，创建了一个名为page_visits的topic，其有5个partition，那么在Kafka的数据目录中(由配置文件中的log.dirs指定的)中就有这样5个目录:page_visits-0，page_visits-1，page_visits-2，page_visits-3，page_visits-4，其命名规则为<topic_name>-<partition_id>，里面存储的分别就是这5个partition的数据。
+
+log和index文件
+查看一个topic分区目录下的内容，发现有log、index和timeindex三个文件，它有以下几个特点
+（1）log文件名是以文件中第一条message的offset来命名的，实际offset长度是64位，但是这里只使用了20位，应付生产是足够的。可以看出第一个log文件名是以0开头，而第二个log文件是4161281，说明第一log文件保存了offset从0到4161280的消息。
+（2）一组index+log+timeindex文件的名字是一样的，并且log文件默认写满1G后，会进行log rolling形成一个新的组合来记录消息，这个是通过broker端log.segment.bytes=1073741824指定的，可以修改这个值进行调整。
+（3）index和timeindex在刚使用时会分配10M的大小，当进行log rolling后，它会修剪为实际的大小，所以看到前几个索引文件的大小，只有几百K。
+
+Partition中的每条Message由offset来表示它在这个partition中的偏移量，这个offset不是该Message在partition数据文件中的实际存储位置，而是逻辑上一个值，它唯一确定了partition中的一条Message。因此，可以认为offset是partition中Message的id。partition中的每条Message包含了以下三个属性：
+offset
+MessageSize
+data
+其中offset为long型，MessageSize为int32，表示data有多大，data为message的具体内容。
+Partition的数据文件则包含了若干条上述格式的Message，按offset由小到大排列在一起。它的实现类为FileMessageSet，类图如下：
+- file : File
+- channel : FileChannel
+- start : int
+- end : int
+- isSlice : boolean
+------------------------------------------------------------------------
++ read(pos : int, size : int) : FileMessageSet
++ searchFor(targetOffset : long, startingPos : int) : OffsetPosition
++ sizeInBytes() : int
++ append(messages: ByteBufferMessageSet) : void
++ truncateTo(targetSize : int) : int
++ readInto(buffer : ByteBuffer, relativePosition: int) : ByteBuffer
+它的主要方法如下：
+    append: 把给定的ByteBufferMessageSet中的Message写入到这个数据文件中。
+    searchFor: 从指定的startingPosition开始搜索找到第一个Message其offset是大于或者等于指定的offset，并返回其在文件中的位置Position。它的实现方式是从startingPosition开始读取12个字节，分别是当前MessageSet的offset和size。如果当前offset小于指定的offset，那么将position向后移动LogOverHead+MessageSize（其中LogOverHead为offset+messagesize，为12个字节）。
+    read：准确名字应该是slice，它截取其中一部分返回一个新的FileMessageSet。它不保证截取的位置数据的完整性。
+    sizeInBytes: 表示这个FileMessageSet占有了多少字节的空间。
+    truncateTo: 把这个文件截断，这个方法不保证截断位置的Message的完整性。
+    readInto: 从指定的相对位置开始把文件的内容读取到对应的ByteBuffer中。
+我们来思考一下，如果一个partition只有一个数据文件会怎么样？
+    新数据是添加在文件末尾（调用FileMessageSet的append方法），不论文件数据文件有多大，这个操作永远都是O(1)的。
+    查找某个offset的Message（调用FileMessageSet的searchFor方法）是顺序查找的。因此，如果数据文件很大的话，查找的效率就低。
+那Kafka是如何解决查找效率的的问题呢？有两大法宝：1) 分段 2) 索引。
+
+数据文件的分段
+Kafka解决查询效率的手段之一是将数据文件分段，比如有100条Message，它们的offset是从0到99。假设将数据文件分成5段，第一段为0-19，第二段为20-39，以此类推，每段放在一个单独的数据文件里面，数据文件以该段中最小的offset命名。这样在查找指定offset的Message的时候，用二分查找就可以定位到该Message在哪个段中。
+
+为数据文件建索引
+数据文件分段使得可以在一个较小的数据文件中查找对应offset的Message了，但是这依然需要顺序扫描才能找到对应offset的Message。为了进一步提高查找的效率，Kafka为每个分段后的数据文件建立了索引文件，文件名与数据文件的名字是一样的，只是文件扩展名为.index。
+索引文件中包含若干个索引条目，每个条目表示数据文件中一条Message的索引。索引包含两个部分（均为4个字节的数字），分别为相对offset和position。
+相对offset：因为数据文件分段以后，每个数据文件的起始offset不为0，相对offset表示这条Message相对于其所属数据文件中最小的offset的大小。举例，分段后的一个数据文件的offset是从20开始，那么offset为25的Message在index文件中的相对offset就是25-20 = 5。存储相对offset可以减小索引文件占用的空间。
+position，表示该条Message在数据文件中的绝对位置。只要打开文件并移动文件指针到这个position就可以读取对应的Message了。
+
+查看并打印log文件内容
+[root@hadoop01 /home/software/kafka-2/kafka-logs/football-0]# ../../bin/kafka-run-class.sh kafka.tools.DumpLogSegments --files 00000000000000000004.log  --print-data-log
+Dumping 00000000000000000004.log
+Starting offset: 4
+baseOffset: 4 lastOffset: 4 baseSequence: -1 lastSequence: -1 producerId: -1 producerEpoch: -1 partitionLeaderEpoch: 49 isTransactional: false position: 0 CreateTime: 1584368524633 isvalid: true size: 85 magic: 2 compresscodec: NONE crc: 3049289418
+baseOffset: 5 lastOffset: 5 baseSequence: -1 lastSequence: -1 producerId: -1 producerEpoch: -1 partitionLeaderEpoch: 49 isTransactional: false position: 85 CreateTime: 1584368668414 isvalid: true size: 73 magic: 2 compresscodec: NONE crc: 2267711305
+baseOffset: 6 lastOffset: 6 baseSequence: -1 lastSequence: -1 producerId: -1 producerEpoch: -1 partitionLeaderEpoch: 49 isTransactional: false position: 158 CreateTime: 1584368679882 isvalid: true size: 78 magic: 2 compresscodec: NONE crc: 789213838
+baseOffset: 7 lastOffset: 7 baseSequence: -1 lastSequence: -1 producerId: -1 producerEpoch: -1 partitionLeaderEpoch: 49 isTransactional: false position: 236 CreateTime: 1584368695371 isvalid: true size: 95 magic: 2 compresscodec: NONE crc: 703634716
+（1）offset是逐渐增加的整数。
+（2）position是相对外层batch的位置增量，可以理解为消息的字节偏移量。
+（3）CreateTime：时间戳。
+（4）magic：2代表这个消息类型是V2，如果是0则代表是V0类型，1代表V1类型。本机是V2类型的，不过也可以暂时按照上面的V1来参考理解，具体需要看文末书籍里的详细介绍。
+（5）compresscodec：None说明没有指定压缩类型，kafka目前提供了4种可选择，0-None、1-GZIP、2-snappy、3-lz4。
+（6）crc：对所有字段进行校验后的crc值。
+
+index文件中并没有为数据文件中的每条Message建立索引，而是采用了稀疏存储的方式，每隔一定字节的数据建立一条索引。这样避免了索引文件占用过多的空间，从而可以将索引文件保留在内存中。但缺点是没有建立索引的Message也不能一次定位到其在数据文件的位置，从而需要做一次顺序扫描，但是这次顺序扫描的范围就很小了。
+位置索引，保存在index文件中，log日志默认每写入4K（log.index.interval.bytes设定的），会写入一条索引信息到index文件中，因此索引文件是稀疏索引，它不会为每条日志都建立索引信息。
+log文件中的日志，是顺序写入的，由message+实际offset+position组成，索引文件的数据结构则是由相对offset（4byte）+position（4byte）组成，由于保存的是相对第一个消息的相对offset，只需要4byte就可以了，可以节省空间，在实际查找后还需要计算回实际的offset，这对用户是透明的。对于稀疏索引，尽管它的索引密度不高，但是offset是有序的，kafka查找一条offset对应的实际的消息时，可以通过index二分查找，获取到最近的低位offset，然后从低位offset对应的position开始，从实际的log文件中开始往后查找对应的消息。如要查找offset=5的消息，先去索引文件中找到低位的3-4597这条数据，然后通过4597这个字节偏移量，从log文件中从4597个字节开始读取，直到读取到offset=5的这条数据，这比直接从log文件开始读取要节省时间。二分查找的时间复杂度为O(lgN)，如果从头遍历时间复杂度是O(N)。
+
+在Kafka中，索引文件的实现类为OffsetIndex，它的类图如下：
+- file : File
+- baseOffset : long
+- maxIndexSize : int
+------------------------------------------------------------------------
++ append(offset : long, pos : int) : void
++ lookup(targetOffset : long) : OffsetPosition
+主要的方法有：
+    append方法，添加一对offset和position到index文件中，这里的offset将会被转成相对的offset。
+    lookup, 用二分查找的方式去查找小于或等于给定offset的最大的那个offset
+
+时间戳索引文件，它的作用是可以让用户查询某个时间段内的消息，它一条数据的结构是时间戳（8byte）+相对offset（4byte），如果要使用这个索引文件，首先需要通过时间范围，找到对应的相对offset，然后再去对应的index文件找到position信息，然后才能遍历log文件，它也是需要使用上面说的index文件的。但是由于producer生产消息可以指定消息的时间戳，这可能将导致消息的时间戳不一定有先后顺序，因此尽量不要生产消息时指定时间戳。
+
+这套机制是建立在offset是有序的。索引文件被映射到内存中，所以查找的速度还是很快的。
+一句话，Kafka的Message存储采用了分区(partition)，分段(LogSegment)和稀疏索引这几个手段来达到了高效性。
+==============================================================Partition的数据文件==============================================================
+
+==============================================================消费组和coordinator==============================================================
+消费者消费消息时，会记录消费者offset（注意不是分区的offset，不同的上下文环境一定要区分），这个消费者的offset，也是保存在一个特殊的内部分区，叫做__consumer_offsets，它就一个作用，那就是保存消费组里消费者的offset。默认创建时会生成50个分区（offsets.topic.num.partitions设置），一个副本，如果50个分区分布在50台服务器上，将大大缓解消费者提交offset的压力。可以在创建消费者的时候产生这个特殊消费组。
+# 如果只启动了hadoop03一个broker，则所有的50个分区都会在这上面生成
+[root@hadoop03 /home/software/kafka-2/bin]# sh kafka-console-consumer.sh --bootstrap-server hadoop03:9092 --topic football --from-beginning --new-consumer
+那么问题来了，消费者的offset到底保存到哪个分区呢，kafka中是按照消费组group.id来确定的，使用Math.abs(groupId.hashCode())%50，来计算分区号，这样就可以确定一个消费组下的所有的消费者的offset，都会保存到哪个分区了.
+那么问题又来了，既然一个消费组内的所有消费者都把offset提交到了__consumer_offsets下的同一个分区，如何区分不同消费者的offset呢?原来提交到这个分区下的消息，key是groupId+topic+分区号，value是消费者offset。这个key里有分区号，注意这个分区号是消费组里消费者消费topic的分区号。由于实际情况下一个topic下的一个分区，只能被一个消费组里的一个消费者消费，这就不担心offset混乱的问题了。
+实际上，topic下多个分区均匀分布给一个消费组下的消费者消费，是由coordinator来完成的，它会监听消费者，如果有消费者宕机或添加新的消费者，就会rebalance，使用一定的策略让分区重新分配给消费者。如下图所示，消费组会通过offset保存的位置在哪个broker，就选举它作为这个消费组的coordinator，负责监听各个消费者心跳了解其健康状况，并且将topic对应的leader分区，尽可能平均的分给消费组里的消费者，根据消费者的变动，如新增一个消费者，会触发coordinator进行rebalance。
+还有一个细节，消费者组和coordinator之间还进行了什么通信，各个消费者之间是如何做到默契不抢别人的资源？参考前辈整理如下。
+（1）消费组会对选出的coordinator发送join group请求。
+（2）coordinator会在消费组中选一个leader消费者，并且随后把要消费的topic信息返回给这个leader。
+（3）leader消费者会根据topic信息，制定出一套符合自己消费组的消费方案，通过sync group请求返回给coordinator。
+（4）coordinator收到分配方案后会分发给各个消费者。
+（5）最后每个消费者身上都会有一套消费方案，都遵守它进行消费。
+coordinator主要是充当管理者的角色，它不负责消费方案的制定。
+
+rebalance
+ebalance是消费组内达成一致如何消费topic分区的协议，文末书籍里提到有三个触发条件，这里只记录第一个因为它最常出现，那就是消费组里消费者或增加、或离去、或奔溃。
+其他两个，一个是topic分区数使用kafka shell增加了分区，还有一个就是消费的topic是按照正则去匹配的，当有了符合这个规则的新的topic出现，也会触发rebalance。
+它有三种策略，为range、round robin、sticky。
+假设topicA分区有p0~p6 一共6个分区，某个消费组有三个消费者，以此为基础来直观感受三个策略。
+（1）range
+它就是一个范围（有点类似python的range，跟这个没关系就是名字像），会按照分区号来划分，结果就是：
+消费者1 p0 p1，消费者2 p2 p3，消费者3 p4 p5
+（2）round robin
+就是随机均匀分配，结果略。
+（3）sticky
+上面两种分配存在一个小问题，就是有消费者宕机后，重新分配后，原本属于一个消费者消费得好好的的分区会被分到新的消费者。如range策略下消费者3挂掉，重新分配后会变成消费者1 p0 p1 p2 消费者2 p3 p4 p5，这样p2就被重分配了。考虑到管理消费者offset的复杂性，尽量希望维持原来的习惯，如果是sticky策略会变成消费者1 p0 p1 p4 消费者2 p2 p3 p5。
+==============================================================消费组和coordinator==============================================================

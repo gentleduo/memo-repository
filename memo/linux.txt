@@ -426,7 +426,7 @@ $ awk -va=1 -vb=s '{print $1,$1+a,$1b}' log.txt
 3 4 3s
 This's 1 This'ss
 10 11 10s
-$1+a：当两个变量都为数字的时候当数字运算，当有一方为String另一方为数字的时候输入数字的一方。
+$1+a：当两个变量都为数字的时候当数字运算，当有一方为String的时候当字符串拼接处理。
 
 awk 'Pattern {action}' {filenames} # Pattern用来指定判断条件，{}中包含的是awk的动作，也就是awk对记录的操作，比如$3+$4或print。
 例：

@@ -33,6 +33,50 @@ http://www.2cto.com/kf/201305/208332.html
 //classloader
 http://blog.chinaunix.net/uid-21227800-id-65879.html
 
+###################################################多线程-线程不安全案例###################################################
+public class BootStrap {
+
+	public static void main(String[] args) {
+		TicketClient wb = new TicketClient();
+		new Thread(wb, "a").start();
+		new Thread(wb, "b").start();
+		new Thread(wb, "c").start();
+	}
+}
+public class TicketClient implements Runnable {
+
+	int num = 10;
+	private boolean flag = true;
+
+	@Override
+	public void run() {
+		while (flag) {
+			// 加上synchronized之后便是线程安全的了
+			// synchronized (this) {
+			test();
+			// }
+		}
+	}
+
+	public void test() {
+		if (num == 0) {
+			flag = false;
+			return;
+		}
+		try {
+			Thread.sleep(200);
+		} catch (InterruptedException e) {
+			e.printStackTrace();
+		}
+		System.out.println(Thread.currentThread().getName() + "-->" + num--);
+		// 线程不安全，可能都都是同一张票，可能票是负数
+		// 负数:当还有1张票时，三个线程同时进入，都等待后，有两个线程为负数
+		// 相同票:线程有自己的工作台，多个线程几乎同时到达，拷贝数据
+	}
+
+}
+###################################################多线程-线程不安全案例###################################################
+
 ###################################################原子性，可见性，有序性###################################################
 内存  ======> 高速缓存(java的话个人理解就是线程栈) ======> CPU寄存器
 个人理解原子性是针对高速缓存到CPU寄存器，可见性是针对内存到高速缓存
@@ -108,7 +152,7 @@ volatile是保证线程间变量的可见性但是不能保证原子性
 1.Thread和Runnable都可以实现多线程（废话）
 2.Thread是类，而Runnable是接口，这就是类和接口区别，类只能继承一次，而接口可以实现多个接口。
 3.Thread实现Runnable接口，这个可以查看Thread的源代码。
-4.最重要的分享资源功能，一般我们使用多线程就是快速解决资源问题。Runnable可以实现资源分享，类实现Runnable并不具备线程功能，必须通过new Thread(Runnable子类)调用start()启动线程，所以我们通常new一个Runnable的子类，启动多个线程解决资源问题。Thread是类所以我们每次new一个对象时候资源已经实例化了，不能资源共享，Thread类要实现资源共享，可以声明变量为static，类共享的可以解决。
+4.最重要的分享资源功能，一般我们使用多线程就是快速解决资源问题。Runnable可以实现资源分享，类实现Runnable并不具备线程功能，必须通过new Thread(Runnable子类)调用start()启动线程，所以我们通常new一个Runnable的子类，启动多个线程解决资源问题。很多人说的Thread类不能共享资源，其实并不是不能，只是不适合。我们从Thread源码中也可以看到，当以Thread方式去实现资源共享时，实际上源码内部是将thread向下转型为了Runnable，实际上内部依然是以Runnable形式去实现的资源共享
 5.通过以上建议最好实现Runnable接口 实现多线程。
 
 Thread的启动线程的流程：Thread.start() --> navite start0() --> {Runnable.run() or Thread.run()};
@@ -117,9 +161,46 @@ Thread有两大类构造函数：
 2、public Thread(Runnable target)
 通过start()启动线程的时候会调用run()，run里会判断new Thread时是否传入了参数Runnable target，如果传入则调用Runnable里面的run方法
 以继承Thread的方式启动线程时，子类必须Override掉Thread类中的run方法，由于没有传入Runnable，然后start调用的就是子类中的run方法。
+
+/**
+ * Thread 实现资源共享
+ * @author itbird
+ *
+ */
+public class Test2 {
+
+    public static void main(String[] args) {
+        MyThread t1 = new MyThread();
+        new Thread(t1, "线程1").start();
+        new Thread(t1, "线程2").start();
+    }
+
+    public static class MyThread extends Thread {
+        private int total = 10;
+
+        @Override
+        public void run() {
+            for (int i = 0; i < 10; i++) {
+                synchronized (this) {
+                    if (total > 0) {
+                        try {
+                            Thread.sleep(100);
+                            System.out.println(Thread.currentThread().getName() + "卖票---->" + (this.total--));
+                        } catch (InterruptedException e) {
+                            e.printStackTrace();
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 ###################################################Thread、Runnable###################################################
 
 ###################################################Thread的中断机制###################################################
+线程的thread.interrupt()方法是中断线程，将会设置该线程的中断状态位，即设置为true，中断的结果线程是死亡、还是等待新的任务或是继续运行至下一步，就取决于这个程序本身。它并不像stop方法那样会中断一个正在运行的线程。
+
 public static boolean interrupted     判断某个线程是否已被发送过中断请求。（该方法调用后会将中断标示位清除，即重新设置为false）
 public boolean isInterrupted()        判断某个线程是否已被发送过中断请求。（线程的中断状态不受该方法的影响）
 public void interrupt()               中断线程，将会设置该线程的中断状态位，即设置为true，     
@@ -131,6 +212,76 @@ Object.wait,Thread.sleep等方法会不断的轮询监听interrupted标志位，发现其设置为tru
 三、不可中断的操作，包括进入synchronized段以及Lock.lock()，inputSteam.read()等，调用interrupt()对于这几个问题无效，因为它们都不抛出中断异常。如果拿不到资源，它们会无限期阻塞下去。
 对于Lock.lock()，可以改用Lock.lockInterruptibly()，可被中断的加锁操作，它可以抛出中断异常。等同于等待时间无限长的Lock.tryLock(long time, TimeUnit unit)。
 对于inputStream等资源，有些(实现了interruptibleChannel接口)可以通过close()方法将资源关闭，对应的阻塞也会被放开。
+
+总之线程的thread.interrupt()是设置一个中断状态位，至于中不中断由线程自己决定，
+例如：使用中断信号量中断非阻塞状态的线程
+class InterruptActiveThread extends Thread {
+    public static void main(String args[]) throws Exception {
+        InterruptActiveThread thread = new InterruptActiveThread();
+        System.out.println("Starting thread...");
+        thread.start();
+        Thread.sleep(3000);
+        System.out.println("Asking thread to stop...");
+        // 发出中断请求
+        thread.interrupt();
+        Thread.sleep(3000);
+        System.out.println("Stopping application...");
+    }
+
+    public void run() {
+        // 每隔一秒检测是否设置了中断标示
+        while (!Thread.currentThread().isInterrupted()) {
+            System.out.println("Thread is running...");
+            long time = System.currentTimeMillis();
+            // 使用while循环模拟 sleep
+            while ((System.currentTimeMillis() - time < 1000) ) {
+            }
+        }
+        System.out.println("Thread exiting under request...");
+    }
+}
+
+使用thread.interrupt()中断阻塞状态线程
+public class InterruptBlockThread extends Thread {
+
+	public static void main(String[] args) throws InterruptedException {
+
+		InterruptBlockThread thread = new InterruptBlockThread();
+		System.out.println("Starting thread...");
+		thread.start();
+		Thread.sleep(3000);
+		System.out.println("Asking thread to stop...");
+		thread.interrupt();// 等中断信号量设置后再调用
+		Thread.sleep(3000);
+		System.out.println("Stopping application...");
+
+	}
+
+	public void run() {
+		while (!Thread.currentThread().isInterrupted()) {
+			System.out.println("Thread running...");
+			try {
+				/*
+				 * 如果线程阻塞，将不会去检查中断信号量stop变量，所 以thread.interrupt()
+				 * 会使阻塞线程从阻塞的地方抛出异常，让阻塞线程从阻塞状态逃离出来，并 进行异常块进行 相应的处理
+				 */
+				Thread.sleep(1000);// 线程阻塞，如果线程收到中断操作信号将抛出异常
+			} catch (InterruptedException e) {
+				System.out.println("Thread interrupted...");
+				/*
+				 * 如果线程在调用 Object.wait()方法，或者该类的 join() 、sleep()方法 过程中受阻，则其中断状态将被清除
+				 */
+				System.out.println(this.isInterrupted());// false
+
+				// 中不中断由自己决定，如果需要真真中断线程，则需要重新设置中断位，如果
+				// 不需要，则不用调用
+				Thread.currentThread().interrupt();
+			}
+		}
+		System.out.println("Thread exiting under request...");
+	}
+}
+
 ###################################################Thread的中断机制###################################################
 
 同步（synchronous）和异步（asynchronous）
@@ -204,6 +355,46 @@ waite()和notify()必须在synchronized函数或synchronized　block中进行调用。如果在no
 sleep是线程被调用时，占着cpu去睡觉，其他线程不能占用cpu，os认为该线程正在工作，不会让出系统资源，wait是进入等待池等待，让出系统资源，其他线程可以占用cpu，一般wait不会加时间限制，因为如果wait的线程运行资源不够，再出来也没用，要等待其他线程调用notifyall方法唤醒等待池中的所有线程，才会在进入就绪序列等待os分配系统资源，sleep是静态方法，是谁掉的谁去睡觉，就算是在main线程里调用了线程b的sleep方法，实际上还是main去睡觉，想让线程b去睡觉要在b的代码中掉sleep。
 leep(100L)是占用cpu，线程休眠100毫秒，其他进程不能再占用cpu资源，wait（100L）是进入等待池中等待，交出cpu等系统资源供其他进程使用，在这100毫秒中，该线程可以被其他线程notify，但不同的是其他在等待池中的线程不被notify不会出来，但这个线程在等待100毫秒后会自动进入就绪队列等待系统分配资源，换句话说，sleep（100）在100毫秒后肯定会运行，但wait在100毫秒后还有等待os调用分配资源，所以wait100的停止运行时间是不确定的，但至少是100毫秒。
 //############################################Thread sleep,yield,wait############################################
+
+#################################################Java中synchronized同步锁四种用法及作用范围#################################################
+Java中的对象锁和类锁：java的对象锁和类锁在锁的概念上基本上和内置锁是一致的，但是，两个锁实际是有很大的区别的，对象锁是用于对象实例方法，或者一个对象实例上的，类锁是用于类的静态方法或者一个类的class对象上的。我们知道，类的对象实例可以有很多个，但是每个类只有一个class对象，所以不同对象实例的对象锁是互不干扰的，但是每个类只有一个类锁。但是有一点必须注意的是，其实类锁只是一个概念上的东西，并不是真实存在的，它只是用来帮助我们理解锁定实例方法和静态方法的区别的。
+
+synchronized 关键字主要有以下几种用法： 
+- 非静态方法的同步； 
+- 静态方法的同步； 
+- 代码块。
+
+下面分对象锁和类锁来分别说明 synchronized 用法：
+对象锁
+非静态方法使用 synchronized 修饰的写法，修饰实例方法时，锁定的是当前对象：
+    public synchronized void test(){
+        // TODO
+    }
+代码块使用 synchronized 修饰的写法，使用代码块，如果传入的参数是 this，那么锁定的也是当前的对象：
+    public void test(){
+        synchronized (this) {
+            // TODO
+        }
+    }
+对象锁的范围：对象的某个同步方法被一个线程访问后，其他线程能不能访问该对象的其他同步方法，但是另一个线程还是可以访问没有进行同步的方法或者代码。进行了同步的方法（加锁方法）和没有进行同步的方法（普通方法）是互不影响的，一个线程进入了同步方法，得到了对象锁，其他线程还是可以访问那些没有同步的方法（普通方法）。
+类锁
+类锁需要 synchronized 来修饰静态 static 方法，写法如下：
+    public static synchronized void test(){
+        // TODO
+    }
+或者使用代码块，需引用当前的类：
+    public static void test(){
+        synchronized (TestSynchronized.class) {
+            // TODO
+        }
+    }
+类锁和对象锁其实是一样的，由于静态方法是类所有对象共用的，所以进行同步后，该静态方法的锁也是所有对象唯一的。每次只能有一个线程来访问对象的该静态同步方法。
+注意：类锁和对象锁是不一样的锁，是互相独立的。
+总结
+A.无论synchronized关键字加在方法上还是对象上，如果它作用的对象是非静态的，则它取得的锁是对象；如果synchronized作用的对象是一个静态方法或一个类，则它取得的锁是对类，该类所有的对象同一把锁。 
+B.每个对象只有一个锁（lock）与之相关联，谁拿到这个锁谁就可以运行它所控制的那段代码。 
+C.实现同步是要很大的系统开销作为代价的，甚至可能造成死锁，所以尽量避免无谓的同步控制。
+#################################################Java中synchronized同步锁四种用法及作用范围#################################################
 
 //************************************************************JDK 并发包************************************************************
 1.1. ReentrantLock
@@ -346,32 +537,6 @@ Join方法实现是通过wait（小提示：Object 提供的方法）。 当main线程调用t.join时候，
 Object中wait()方法的定义:导致当前的线程等待,直到其他线程调用此对象的notify()方法或notifyAll()方法,或者超过指定的时间量. 
 2) 线程执行完毕后系统会调用notifyAll(),唤醒等待在该线程对象上的其他线程.（这个调用是虚拟机层面的调用不在Thread类中）
 //************************************************************Thread.join************************************************************
-
-//****************************************************************JAR****************************************************************
-『JAR file』
-Eclipse中以『JAR file』的形式export普通jar包的时候，必须自己定义MANIFEST.MF或者手动修改MANIFEST.MF清单文件。该文件的“Main-Class”属性指定了程序的主类，“Class-Path”属性则指定了运行主类所依赖的外部类的路径。
-MANIFEST.MF文件定义如下所示：
-Manifest-Version: 1.0
-Main-Class: com.Task
-Class-Path: lib/dom4j-1.6.1.jar lib/jaxen-1.1-beta-7.jar
-注意:
-<1> manifest.mf文件最后一行必须是一个空行。
-<2> lib/dom4j-1.6.1.jar和lib/jaxen-1.1-beta-7.jar之间用一个空格隔开。
-<3>每个冒号后有一个空格。
-具体流程：
-<1>在eclipse中选择你要导出的类或者package，右击，选择Export子选项
-<2>在弹出的对话框中，选择java文件---选择JAR file
-<3>在JAR file后面的文本框中选择你要生成的jar包的位置以及名字
-<4>注意在Export generated class files and resources和Export java source files and resources前面打上勾
-<5>选择Manifest文件 （即：自己定义MANIFEST.MF然后选择Use existing manifest from workspace）
-<6>将生成的jar文件和存放引用包的lib文件夹放在同一个目录下，最后点击生成的jar文件就可以成功运行了
-还需要注意的是，Class-Path属性指定的类或jar包是本地的文件，不可以是远程访问的类或者JAR包文件中的JAR包，即不能是jar in jar；当然也就不能是本jar包中包含的jar包。要实现对jar in jar的引用，需要自定义相关代码来读取它们。『Runnable JAR file』之所以能够运行，就是因为Eclipse为我们提供了jar in jar loader，来帮助我们读取jar in jar。
-
-『Runnable JAR file』
-Extract required libraries into generated jar -> 提取需要的库(以解压的形式)放到生成的jar文件中
-Package required libraries into generated jar -> 将需要的Jar库包放到生成的jar文件中（即：jar in jar的形式）
-Copy required libraries into a sub-folder next to the generated jar -> 将需要的库拷贝到一个子文件夹并放在生成的jar文件旁边
-//****************************************************************JAR****************************************************************
 
 //****************************************************JVM Server与Client运行模式****************************************************
 JVM Server与Client运行模式 

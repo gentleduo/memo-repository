@@ -511,7 +511,7 @@ Using index
 1，查询的列被索引覆盖，并且where筛选条件是索引的是前导列，Extra中为Using index
 explain select user_id,order_id,create_date from test_order where user_id = 1;
 
-Using where Using index
+Using where; Using index
 直接在二级索引(覆盖索引)上获取全部数据（即type为index的Full Index Scan）
 1，查询的列被索引覆盖，并且where筛选条件是索引列之一但是不是索引的不是前导列，Extra中为Using where; Using index，
 	意味着无法直接通过索引查找来查询到符合条件的数据
@@ -727,6 +727,194 @@ mysql> explain select name,dep_id,age from employee order by name, dep_id desc, 
 
 ############################################################排序与分组优化############################################################
 
+######################################################大批量数据时分页操作如何优化######################################################
+#建立一个临时表
+DROP TABLE IF EXISTS `testemployee`;
+CREATE TABLE `testemployee` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `name` varchar(20) DEFAULT NULL,
+  `dep_id` int(11) DEFAULT NULL,
+  `age` int(11) DEFAULT NULL,
+  `salary` decimal(10,2) DEFAULT NULL,
+  `cus_id` int(11) DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB AUTO_INCREMENT=109 DEFAULT CHARSET=utf8;
+
+#随机生成一个指定个数的字符串
+delimiter $$
+create function rand_str(n int) RETURNS VARCHAR(255)
+BEGIN
+#声明一个str 包含52个字母
+DECLARE str VARCHAR(100) DEFAULT 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+#记录当前是第几个
+DECLARE i int DEFAULT 0;
+#生成的结果
+DECLARE res_str varchar(255) default '';
+while i < n do 
+set  res_str = CONCAT(res_str,substr(str,floor(1+RAND()*52),1));
+set i = i + 1;
+end while;
+RETURN res_str;
+end $$ 
+delimiter ;
+
+#信任自定义函数
+set global log_bin_trust_function_creators=TRUE
+
+#批量插入数据
+delimiter $$
+create procedure insert_emp(in max_num int)
+BEGIN
+declare i int default 0;
+
+set autocommit = 0;
+
+repeat 
+set i = i + 1;
+insert into testemployee (name,dep_id,age,salary,cus_id) values(rand_str(5),floor(1 + rand()*10),floor(20 + rand()*10),floor(2000 + rand()*10),floor(1 + rand()*10));
+until i = max_num
+end REPEAT;
+commit;
+end $$
+
+#调用存储过程，插入1000000条数据；
+call insert_emp(1000000);
+
+传统分析查询：使用limit 随着offset增大, 查询的速度会越来越慢, 
+mysql> SELECT * FROM testemployee LIMIT 990000 ,1;
++--------+-------+--------+------+---------+--------+
+| id     | name  | dep_id | age  | salary  | cus_id |
++--------+-------+--------+------+---------+--------+
+| 990109 | PzbIn |      3 |   27 | 2006.00 |      1 |
++--------+-------+--------+------+---------+--------+
+1 row in set (0.60 sec)
+
+使用子查询优化：
+mysql> SELECT * FROM testemployee e INNER JOIN (SELECT id FROM testemployee LIMIT 990000 ,1 ) et ON e.id = et.id;
++--------+-------+--------+------+---------+--------+--------+
+| id     | name  | dep_id | age  | salary  | cus_id | id     |
++--------+-------+--------+------+---------+--------+--------+
+| 990109 | PzbIn |      3 |   27 | 2006.00 |      1 | 990109 |
++--------+-------+--------+------+---------+--------+--------+
+1 row in set (0.28 sec)
+将比较耗时的处理放在使用索引的子查询中进行，然后再跟表中的内容做一次条件删选，因为条件删选用的都是主键（相当于走索引）不用全表扫描，所以快
+
+mysql> SELECT * FROM testemployee where id >=(SELECT id from testemployee limit 990000 , 1) limit 1;
++--------+-------+--------+------+---------+--------+
+| id     | name  | dep_id | age  | salary  | cus_id |
++--------+-------+--------+------+---------+--------+
+| 990109 | PzbIn |      3 |   27 | 2006.00 |      1 |
++--------+-------+--------+------+---------+--------+
+1 row in set (0.29 sec)
+
+使用id限定优化：
+mysql> SELECT * FROM testemployee where id between 1000000 and 1000100 limit 1;
++---------+-------+--------+------+---------+--------+
+| id      | name  | dep_id | age  | salary  | cus_id |
++---------+-------+--------+------+---------+--------+
+| 1000000 | vPOyc |      9 |   29 | 2003.00 |      1 |
++---------+-------+--------+------+---------+--------+
+1 row in set (0.01 sec)
+
+#删除函数
+DROP PROCEDURE insert_emp;
+#删除存储过程
+drop function rand_str;
+
+######################################################大批量数据时分页操作如何优化######################################################
+
+######################################################小表驱动大表######################################################
+mysql> select * from department;
++----+----------------+---------+
+| id | deptName       | address |
++----+----------------+---------+
+|  1 | 研发部(RD)     | 2层     |
+|  2 | 人事部(HR)     | 3层     |
+|  3 | 市场部(MK)     | 4层     |
+|  4 | 后勤部(MIS)    | 5层     |
+|  5 | 财务部(FD)     | 6层     |
+|  7 | 客服部(CS)     | 7层     |
++----+----------------+---------+
+6 rows in set (0.00 sec)
+
+mysql> select * from employee;
++----+-----------+--------+------+---------+--------+
+| id | name      | dep_id | age  | salary  | cus_id |
++----+-----------+--------+------+---------+--------+
+|  1 | 鲁班      |      1 |   10 | 1000.00 |      1 |
+|  2 | 后裔      |      1 |   20 | 2000.00 |      1 |
+|  3 | 孙尚香    |      1 |   20 | 2500.00 |      1 |
+|  4 | 凯        |      4 |   20 | 3000.00 |      1 |
+|  5 | 典韦      |      4 |   40 | 3500.00 |      2 |
+|  6 | 貂蝉      |      4 |   20 | 5000.00 |      1 |
+|  7 | 孙膑      |      2 |   50 | 5000.00 |      1 |
+|  8 | 蔡文姬    |      4 |   35 | 4000.00 |      1 |
+| 10 | 苍老师    |      7 |   18 | 8000.00 |      1 |
++----+-----------+--------+------+---------+--------+
+9 rows in set (0.00 sec)
+
+mysql> select * from employee where id in (select id from department);
++----+-----------+--------+------+---------+--------+
+| id | name      | dep_id | age  | salary  | cus_id |
++----+-----------+--------+------+---------+--------+
+|  1 | 鲁班      |      1 |   10 | 1000.00 |      1 |
+|  2 | 后裔      |      1 |   20 | 2000.00 |      1 |
+|  3 | 孙尚香    |      1 |   20 | 2500.00 |      1 |
+|  4 | 凯        |      4 |   20 | 3000.00 |      1 |
+|  5 | 典韦      |      4 |   40 | 3500.00 |      2 |
+|  7 | 孙膑      |      2 |   50 | 5000.00 |      1 |
++----+-----------+--------+------+---------+--------+
+6 rows in set (0.01 sec)
+
+小表驱动大表，即小的数据集驱动大得数据集
+for(int i=5;.......)
+{
+     for(int j=1000;......)
+     {}
+}
+如果小的循环在外层，对于数据库连接来说就只连接5次，进行1000次操作
+如果1000在外，则需要进行1000次数据库连接，从而浪费资源，增加消耗。这就是为什么要小表驱动大表
+######################################################小表驱动大表######################################################
+
+######################################################in与exists######################################################
+exists可以替代in
+mysql> select * from employee where id in (select id from department);
++----+-----------+--------+------+---------+--------+
+| id | name      | dep_id | age  | salary  | cus_id |
++----+-----------+--------+------+---------+--------+
+|  1 | 鲁班      |      1 |   10 | 1000.00 |      1 |
+|  2 | 后裔      |      1 |   20 | 2000.00 |      1 |
+|  3 | 孙尚香    |      1 |   20 | 2500.00 |      1 |
+|  4 | 凯        |      4 |   20 | 3000.00 |      1 |
+|  5 | 典韦      |      4 |   40 | 3500.00 |      2 |
+|  7 | 孙膑      |      2 |   50 | 5000.00 |      1 |
++----+-----------+--------+------+---------+--------+
+6 rows in set (0.01 sec)
+相当于（小表驱动大表）：
+for select id from department d:
+    for select * from employee e where e.id = d.id
+
+mysql> select * from employee e where exists (select 1 from department d where e.id = d.id);
++----+-----------+--------+------+---------+--------+
+| id | name      | dep_id | age  | salary  | cus_id |
++----+-----------+--------+------+---------+--------+
+|  1 | 鲁班      |      1 |   10 | 1000.00 |      1 |
+|  2 | 后裔      |      1 |   20 | 2000.00 |      1 |
+|  3 | 孙尚香    |      1 |   20 | 2500.00 |      1 |
+|  4 | 凯        |      4 |   20 | 3000.00 |      1 |
+|  5 | 典韦      |      4 |   40 | 3500.00 |      2 |
+|  7 | 孙膑      |      2 |   50 | 5000.00 |      1 |
++----+-----------+--------+------+---------+--------+
+6 rows in set (0.00 sec)
+相当于（大表驱动小表）：
+for select * from employee e:
+    for select id from department d where e.id = d.id
+
+当A表中数据多于B表中的数据时，这时我们使用IN优于EXISTS
+当B表中数据多于A表中的数据时，这时我们使用EXISTS优于IN
+因此是使用IN还是使用EXISTS就需要根据我们的需求决定了。但是如果两张表中的数据量差不多时那么是使用IN还是使用EXISTS差别不大
+EXISTS子查询只返回TRUE或FALSE，因此子查询中的SELECT *可以是SELECT 1或者其他
+######################################################in与exists######################################################
 
 ############################################################MySQL的四种事务隔离级别############################################################
 一、事务的基本要素（ACID）

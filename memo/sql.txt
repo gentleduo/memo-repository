@@ -88,6 +88,646 @@ SELECT * FROM INFORMATION_SCHEMA.INNODB_TRX;
 SELECT * FROM INFORMATION_SCHEMA.INNODB_LOCKS;
 3：查看当前等锁的事务
 SELECT * FROM INFORMATION_SCHEMA.INNODB_LOCK_WAITS;
+
+############################################################数据库的三范式############################################################
+1NF：是指数据库表的每一列都是不可分割的基本数据项，同一列中不能有多个值，第一范式（1NF）是对关系模式的基本要求，不满足第一范式（1NF）的数据库就不是关系数据库
+2NF：要求数据库表中的每个实例或行必须可以被惟一地区分，设置主键
+3NF：要求一个数据库表中不包含已在其它表中已包含的非主关键字信息，两张表不要重复的字段 ,通常都是设置外键
+
+外键的使用需要满足下列的条件：（这里涉及到了InnoDB的概念）
+1. 两张表必须都是InnoDB表，并且它们没有临时表。
+2. 建立外键关系的对应列必须具有相似的InnoDB内部数据类型。
+3. 建立外键关系的对应列必须建立了索引。（如果对应列没有建立索引，在创建外键的时候会自动给对应列创建普通索引）
+4. 假如显式的给出了CONSTRAINT symbol，那symbol在数据库中必须是唯一的。假如没有显式的给出，InnoDB会自动的创建。
+############################################################数据库的三范式############################################################
+
+############################################################数据库外键############################################################
+在创建表的时候进行添加外键
+[CONSTRAINT  symbol] FOREIGN KEY [id] (从表的字段1) REFERENCES tbl_name (主表的字段2) [ON DELETE {RESTRICT | CASCADE | SET NULL | NO ACTION}] [ON UPDATE {RESTRICT | CASCADE | SET NULL | NO ACTION}
+上面的代码是同一行，中括号里的内容是可选项。
+解释如下：
+CONSTRAINT symbol：可以给这个外键约束起一个名字，有了名字，以后找到它就很方便了。如果不加此参数的话，系统会自动分配一个名字。
+FOREIGN KEY：将从表中的字段1作为外键的字段。
+REFERENCES：映射到主表的字段2。
+ON DELETE后面的四个参数：代表的是当删除主表的记录时，所做的约定。
+RESTRICT(限制)：如果你想删除的那个主表，它的下面有对应从表的记录，此主表将无法删除。（mysql默认是这个级别）
+CASCADE（级联）：如果主表的记录删掉，则从表中相关联的记录都将被删掉。
+SET NULL：将外键设置为空。（意思就是当主表删除或者更新的时候，对应的从表的记录里面外键列的数据将被清空）
+NO ACTION：什么都不做。
+注：一般是RESTRICT和CASCADE用的最多。
+表已经创建好了，继续修改表的结构来添加外键。
+ALTER TABLE employee ADD CONSTRAINT fk_depid FOREIGN KEY(dep_id) REFERENCES department(id) ON DELETE RESTRICT ON UPDATE RESTRICT;
+获取外键名：
+show create table employee;
+撤销外键约束
+ALTER TABLE employee DROP FOREIGN KEY fk_depid;
+############################################################数据库外键############################################################
+
+##################################################key 、primary key 、unique key与index##################################################
+CREATE TABLE `employee` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `name` varchar(20) DEFAULT NULL,
+  `dep_id` int(11) DEFAULT NULL,
+  `age` int(11) DEFAULT NULL,
+  `salary` decimal(10,2) DEFAULT NULL,
+  `cus_id` int(11) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_depid` (`dep_id`),
+  CONSTRAINT `fk_depid` FOREIGN KEY (`dep_id`) REFERENCES `department` (`id`)
+) ENGINE=InnoDB AUTO_INCREMENT=9 DEFAULT CHARSET=utf8 |
+KEY `idx_depid` (`dep_id`)是什么意思？
+
+如果只是key的话，就是普通索引。
+mysql的key和index多少有点令人迷惑，单独的key和其它关键词结合的key(primary key)实际表示的意义是不同，这实际上考察对数据库体系结构的了解的。
+
+1：key 是数据库的物理结构，它包含两层意义和作用，
+一是约束（偏重于约束和规范数据库的结构完整性），
+二是索引（辅助查询用的）。
+包括primary key, unique key, foreign key 等。
+primary key 有两个作用，一是约束作用（constraint），用来规范一个存储主键和唯一性，但同时也在此key上建立了一个主键索引；
+PRIMARY KEY 约束：
+唯一标识数据库表中的每条记录；
+主键必须包含唯一的值；
+主键列不能包含 NULL 值；
+每个表都应该有一个主键，并且每个表只能有一个主键。（PRIMARY KEY 拥有自动定义的 UNIQUE 约束）
+unique key 也有两个作用，一是约束作用（constraint），规范数据的唯一性，但同时也在这个key上建立了一个唯一索引；
+UNIQUE 约束：
+唯一标识数据库表中的每条记录。
+UNIQUE 和 PRIMARY KEY 约束均为列或列集合提供了唯一性的保证。（每个表可以有多个UNIQUE约束，但是每个表只能有一个PRIMARY KEY约束）
+foreign key也有两个作用，一是约束作用（constraint），规范数据的引用完整性，但同时也在这个key上建立了一个index；
+可见，mysql的key是同时具有constraint和index的意义，这点和其他数据库表现的可能有区别。（至少在oracle上建立外键，不会自动建立index），因此创建key也有如下几种方式：
+（1）在字段级以key方式建立， 如 create table t (id int not null primary key);
+（2）在表级以constraint方式建立，如create table t(id int, CONSTRAINT pk_t_id PRIMARY key (id));
+（3）在表级以key方式建立，如create table t(id int, primary key (id));
+其它key创建类似，但不管那种方式，既建立了constraint，又建立了index，只不过index使用的就是这个constraint或key。
+2：index是数据库的物理结构，它只是辅助查询的，它创建时会在另外的表空间（mysql中的innodb表空间）以一个类似目录的结构存储。索引要分类的话，分为前缀索引、全文本索引等；因此，索引只是索引，它不会去约束索引的字段的行为（那是key要做的事情）。如，create table t(id int,index inx_tx_id (id));
+3 总结，最后的释疑：
+（1）我们说索引分类，分为主键索引（必须指定为“PRIMARY KEY”，没有PRIMARY Index）、唯一索引（unique index，一般写成unique key）、普通索引(index，只有这一种才是纯粹的index)等，也是基于是不是把index看作了key。比如 create table t(id int, unique indexinx_tx_id (id));--index当作了key使用
+（2）最重要的也就是，不管如何描述，需要理解index是纯粹的index（普通的key，或者普通索引index），还是被当作key（如：unique index、unique key和primary key），若当作key时则会有两种意义或起两种作用。
+##################################################key 、primary key 、unique key与index##################################################
+
+###################################################################MySQL索引###################################################################
+磁盘IO与预读
+先简单介绍一下磁盘IO和预读，磁盘读取数据靠的是机械运动，每次读取数据花费的时间可以分为寻道时间、旋转延迟、传输时间三个部分，寻道时间指的是磁臂移动到指定磁道所需要的时间，主流磁盘一般在5ms以下；旋转延迟就是我们经常听说的磁盘转速，比如一个磁盘7200转，表示每分钟能转7200次，也就是说1秒钟能转120次，旋转延迟就是1/120/2=4.17ms；传输时间指的是从磁盘读出或将数据写入磁盘的时间，一般在零点几毫秒，相对于前两个时间可以忽略不计。那么访问一次磁盘的时间，即一次磁盘IO的时间约等于5+4.17=9ms左右，听起来还挺不错的，但要知道一台500-MIPS（Million-Instructions-Per-Second）的机器每秒可以执行5亿条指令，因为指令依靠的是电的性质，换句话说执行一次IO的时间可以执行约450万条指令，数据库动辄十万百万乃至千万级数据，每次9毫秒的时间，显然是个灾难。考虑到磁盘IO是非常高昂的操作，计算机操作系统做了一些优化，当一次IO时，不光把当前磁盘地址的数据，而是把相邻的数据也都读取到内存缓冲区内，因为局部预读性原理告诉我们，当计算机访问一个地址的数据的时候，与其相邻的数据也会很快被访问到。每一次IO读取的数据我们称之为一页(page)。具体一页有多大数据跟操作系统有关，一般为4k或8k，也就是我们读取一页内的数据时候，实际上才发生了一次IO，这个理论对于索引的数据结构设计非常有帮助。
+索引的数据结构
+B+树索引是B+树在数据库中的一种实现，是最常见也是数据库中使用最为频繁的一种索引。B+树中的B代表平衡（balance），而不是二叉（binary），因为B+树是从最早的平衡二叉树演化而来的。在讲B+树之前必须先了解二叉查找树、平衡二叉树（AVLTree）和平衡多路查找树（B-Tree），B+树即由这些树逐步优化而来
+二叉查找树:
+左子树的键值小于根的键值
+右子树的键值大于根的键值
+如下图所示就是一棵二叉查找树：
+        6
+	3		7
+2		5		8
+对该二叉树的节点进行查找发现深度为1的节点的查找次数为1，深度为2的查找次数为2，深度为n的节点的查找次数为n，因此其平均查找次数为 (1+2+2+3+3+3) / 6 = 2.3次
+二叉查找树可以任意地构造，同样是2,3,5,6,7,8这六个数字，也可以按照下图的方式来构造： 
+	2
+		3
+			5
+				7
+			6		8
+但是这棵二叉树的查询效率就低了。因此若想二叉树的查询效率尽可能高，需要这棵二叉树是平衡的，从而引出新的定义——平衡二叉树，或称AVL树。
+平衡二叉树（AVL Tree）：
+平衡二叉树（AVL树）在符合二叉查找树的条件下，还满足任何节点的两个子树的高度最大差为1。
+B-Tree(平衡多路查找树):
+m阶B-Tree满足以下条件： 
+每个节点包含关键字和指向孩子的指针
+0.根节点至少包括两个孩子
+1.树中每个节点最多有m个孩子(m>=2，m阶B-Tree中的m)
+2.除了根节点和叶子节点外，其它每个节点至少有Ceil(m/2)个孩子。*注：Ceil表示向上取整
+3.所有叶子节点都在同一层
+4.ki(1=1…n)为关键字,且关键字按顺序升序排列
+5.关键字的个数n满足：ceil(m/2)-1 <= n <= m-1 (非叶子节点关键字个数比指向孩子的指针少1个)
+6.非叶子结点的指针p[1],p[2],…p[m]满足：其中p1指向关键字小于k[1]的子树；p[m]指针关键字大于k[m-1]的子树；p[i]指向关键字属于(k[i-1],k[i])的子树
+优点：
+1.一次可以设置多个节点，降低了树的高度，多以查找很快。
+2.节点中的数据key从左到右依次递增。
+缺点：
+1.根节点不仅存了索引key也存了对应的记录，所以比较占用空间。
+2.子节点之间没有双向链表，每次查找数据都是从根节点出发，如果是查找范围数据的话，就没有优势了
+B+Tree：
+B+树是B树的变体,基本与B-Tree相同
+不同点：
+非叶子节点的子树指针与关键字个数相同（B-Tree中是m-1）
+非叶子节点仅用来做索引,数据都保存在叶子节点中
+所有根节点和分支节点的关键字都同时存在于子节点中，在子节点元素中是最大或者最小的元素。
+所有叶子节点会包含所有的关键字，以及一个链指针指向下一个叶子节点，并且叶子节点本身是根据关键字的大小从小到大顺序链接。
+优点：（与B-Tree区别）
+1.索引携带的数据移到了叶子节点上，在空间相同的情况下，那肯定是B+Tree存储的索引更多一些，而且树的高度更低。
+2.子节点之间是有双向指针指向的，查找的时候，顺着指针找就行了，不用每次都从根节点出发寻找，所以速度更快
+B+Tree的查找过程：
+https://www.cnblogs.com/dongguacai/p/7241860.html
+###b+树性质
+1.索引字段要尽量的小：通过上面的分析，我们知道IO次数取决于b+数的高度h，假设当前数据表的数据为N（即表中有N条数据），每个磁盘块的数据项的数量是m，则有h=㏒(m+1)N（表示以m+1为底N的对数），当数据量N一定的情况下，m越大，h越小；而m=磁盘块的大小/数据项的大小，磁盘块的大小也就是一个数据页的大小，是固定的，如果数据项占的空间越小，数据项的数量越多，树的高度越低。这就是为什么每个数据项，即索引字段要尽量的小，比如int占4字节，要比bigint8字节少一半。这也是为什么b+树要求把真实的数据放到叶子节点而不是内层节点，一旦放到内层节点，磁盘块的数据项会大幅度下降，导致树增高。当数据项等于1时将会退化成线性表。
+2.索引的最左匹配特性：当b+树的数据项是复合的数据结构，比如(name,age,sex)的时候，b+数是按照从左到右的顺序来建立搜索树的，比如当(张三,20,F)这样的数据来检索的时候，b+树会优先比较name来确定下一步的所搜方向，如果name相同再依次比较age和sex，最后得到检索的数据；但当(20,F)这样的没有name的数据来的时候，b+树就不知道下一步该查哪个节点，因为建立搜索树的时候name就是第一个比较因子，必须要先根据name来搜索才能知道下一步去哪里查询。比如当(张三,F)这样的数据来检索时，b+树可以用name来指定搜索方向，但下一个字段age的缺失，所以只能把名字等于张三的数据都找到，然后再匹配性别是F的数据了， 这个是非常重要的性质，即索引的最左匹配特性。
+
+聚簇索引、非聚簇索引、二级索引（非聚簇索引、普通索引、二级索引指的是一个概念）
+聚簇索引（Clustered indexes）是指索引和数据是在同一个结构里，聚簇索引的顺序就是数据的物理存储顺序。聚簇索引的叶子节点就是数据节点。
+聚簇索引是一种数据存储方式，它实际上是在同一个结构中保存了B+树索引和数据行，InnoDB表是按照聚簇索引组织的（类似于Oracle的索引组织表）
+InnoDB通过主键聚簇数据，如果没有定义主键，会选择一个唯一的非空索引代替，如果没有这样的索引，会隐式定义个主键作为聚簇索引。
+表数据是和主键一起存储的，主键索引的叶结点存储行数据，二级索引的叶结点存储行的主键值。
+聚簇索引是顺序结构与数据存储物理结构一致的一种索引，并且一个表的聚簇索引只能有唯一的一条。
+
+非聚簇索引（Non-clustered indexes）非聚簇索引的叶子节点仍然是索引节点，只不过有指向对应数据块的指针。
+表数据和索引是分开存储的，主键索引和二级索引存储上没有任何区别。
+非聚簇索引记录的物理顺序与逻辑顺序没有必然的联系，与数据的存储物理结构没有关系；一个表对应的非聚簇索引可以有多条，根据不同列的约束可以建立不同要求的非聚簇索引
+
+二级索引
+对于InnoDB和MyISAM引擎中的索引，都分为主键索引（primary key）和二级索引（secondary index）
+在InnoDb中，强制使用主键作为聚簇索引，B+Tree叶子节点存储就是主键数据，而二级索引的叶子节点存储的是主键的键值；
+在MyISAM中，主键索引与二级索引没什么区别，都是存储的数据行对应的地址。InnoDB的的二级索引的叶子节点存放的是KEY字段加主键值。因此，通过二级索引查询首先查到是主键值，然后InnoDB再根据查到的主键值通过主键索引找到相应的数据块。而MyISAM的二级索引叶子节点存放的还是列值与行号的组合，叶子节点中保存的是数据的物理地址。所以可以看出MYISAM的主键索引和二级索引没有任何区别，主键索引仅仅只是一个叫做PRIMARY的唯一、非空的索引，且MYISAM引擎中可以不设主键。
+
+回表查询
+由于InnoDB普通索引（非聚簇索引、二级索引）的叶子节点存储主键值、所以无法从普通索引直接定位行记录。（注意，不是存储行记录头指针，只有MyISAM的索引叶子节点才存储记录指针。）
+举个例子、不妨设有表：
+t(id PK, name KEY, sex, flag);
+其中id是聚集索引，name是普通索引。
+表中有四条记录：
+1, shenjian, m, A
+3, zhangsan, m, A
+5, lisi, m, A
+9, wangwu, f, B
+既然从普通索引无法直接定位行记录，那普通索引的查询过程是怎么样的呢？
+例如：
+select * from t where name='lisi';
+需要扫码两遍索引树：
+（1）先通过普通索引定位到主键值id=5；
+（2）在通过聚集索引定位到行记录；
+这就是所谓的回表查询，先定位主键值，再定位行记录，它的性能较扫一遍索引树更低。
+
+索引覆盖(Covering index)
+MySQL官网，在explain查询计划优化章节，即explain的输出结果Extra字段为Using index时，能够触发索引覆盖。类似的说法在SQL-Server官网也能找到。
+不管是SQL-Server官网，还是MySQL官网，都表达了：只需要在一棵索引树上就能获取SQL所需的所有列数据，无需回表，速度更快。
+例：
++--------+---------------+------+-----+---------+----------------+
+| Field  | Type          | Null | Key | Default | Extra          |
++--------+---------------+------+-----+---------+----------------+
+| id     | int(11)       | NO   | PRI | NULL    | auto_increment |
+| name   | varchar(20)   | YES  |     | NULL    |                |
+| dep_id | int(11)       | YES  | MUL | NULL    |                |
+| age    | int(11)       | YES  |     | NULL    |                |
+| salary | decimal(10,2) | YES  |     | NULL    |                |
+| cus_id | int(11)       | YES  |     | NULL    |                |
++--------+---------------+------+-----+---------+----------------+
+
+第一个SQL语句：select id,dep_id from employee where dep_id = 1
+mysql> explain select id,dep_id from employee where dep_id = 1 ;
++----+-------------+----------+------------+------+---------------+-----------+---------+-------+------+----------+-------------+
+| id | select_type | table    | partitions | type | possible_keys | key       | key_len | ref   | rows | filtered | Extra       |
++----+-------------+----------+------------+------+---------------+-----------+---------+-------+------+----------+-------------+
+|  1 | SIMPLE      | employee | NULL       | ref  | idx_depid     | idx_depid | 5       | const |    3 |   100.00 | Using index |
++----+-------------+----------+------------+------+---------------+-----------+---------+-------+------+----------+-------------+
+1 row in set, 1 warning (0.00 sec)
+能够命中dep_id索引，索引叶子节点存储了主键id，通过dep_id的索引树即可获取id和dep_id，无需回表，符合索引覆盖，效率较高。
+Extra：Using index
+
+第二个SQL语句：select id,dep_id,age from employee where dep_id = 1
+mysql> explain select id,dep_id,age from employee where dep_id = 1 ;
++----+-------------+----------+------------+------+---------------+-----------+---------+-------+------+----------+-------+
+| id | select_type | table    | partitions | type | possible_keys | key       | key_len | ref   | rows | filtered | Extra |
++----+-------------+----------+------------+------+---------------+-----------+---------+-------+------+----------+-------+
+|  1 | SIMPLE      | employee | NULL       | ref  | idx_depid     | idx_depid | 5       | const |    3 |   100.00 | NULL  |
++----+-------------+----------+------------+------+---------------+-----------+---------+-------+------+----------+-------+
+1 row in set, 1 warning (0.00 sec)
+能够命中dep_id索引，索引叶子节点存储了主键id，但age字段必须回表查询才能获取到，不符合索引覆盖，需要再次通过id值扫码聚集索引获取age字段，效率会降低。
+Extra：Using NULL
+
+联合索引
+联合索引来说只不过比单值索引多了几列，而这些索引列全都出现在索引树上。对于联合索引，存储引擎会首先根据第一个索引列排序，如果第一列相等则再根据第二列排序，依次类推。
+例如：
+表T1：(a int primary key, b int, c int, d int, e varchar(20))
+create index idx_t1_bcd on t1(b,c,d):
+首先，表T1有字段a,b,c,d,e，其中a是主键，除e为varchar其余为int类型，并创建了一个联合索引idx_t1_bcd(b,c,d)，然后b、c、d三列作为联合索引，联合索引的所有索引列都出现在索引数上，并依次比较三列的大小。
+T1表的表数据如下：
+a	b 	c	d	d
+1	13	12	4	dll
+2	1	5	4	doc
+3	13	16	5	img
+4	12	14	3	xml
+5	1	1	4	txt
+6	13	16	1	exe
+7	5	3	6	pdf
+........
+
+bcd联合索引在B+树上的结构图：
+					1	56	90	
+					1			......
+					4			
+								
+		1	12	21				
+		1	14	1	......			
+		4	3					
+								
+1	1	5		12	13	13	13	
+1	5	3		14	12	16	16	
+4	4	6		3	4	1	5	
+5	2	7		4	1	6	3	
+对于联合索引，存储引擎会首先根据第一个索引列排序，如上图我们可以单看第一个索引列，横着看，如，1 1 5 12 13....他是单调递增的；如果第一列相等则再根据第二列排序，依次类推就构成了上图的索引树，上图中的b列都等于1时，则根据c排序，此时c列也相等则按d列排序，如：1 1 4 ，1 1 5，c=4在c=5前面，以及13 12 4,13 16 1,13 16 5就可以说明这种情况。`
+联合索引的查找方式
+当我们的SQL语言可以应用到索引的时候，比如 select * from T1 where b = 12 and c = 14 and d = 3; （b,c,d为联合索引）存储引擎首先从根节点（一般常驻内存）开始查找，第一个索引的第一个索引列为1,12大于1，第一个索引的第二个索引列为56,12小于56，于是从这俩索引的中间读到下一个节点的磁盘文件地址，从磁盘上Load这个节点，通常伴随一次磁盘IO，然后在内存里去查找。当Load叶子节点的第二个节点时又是一次磁盘IO，比较第一个元素，b=12,c=14,d=3完全符合，于是找到该索引下的data元素即ID值，再从主键索引树上找到最终数据。
+最左前缀匹配原则
+联合索引是首先使用多列索引的第一列构建的索引树，用上面idx_t1_bcd(b,c,d)的例子就是优先使用b列构建，当b列值相等时再以c列排序，若c列的值也相等则以d列排序。索引的第一列也就是b列可以说是从左到右单调递增的，但我们看c列和d列并没有这个特性，它们只能在b列值相等的情况下这个小范围内递增，由于联合索引是上述那样的索引构建方式及存储结构，所以联合索引只能从多列索引的第一列开始查找。所以如果你的查找条件不包含b列如（c,d）、(c）、(d)是无法应用缓存的，以及跨列也是无法完全用到索引如(b,d)，只会用到b列索引。
+
+创建索引
+create [UNIQUE] index 索引名称 ON 表名(字段(长度))
+查看索引
+show index from 表名
+删除索引
+drop index[索引名称] on 表名
+更改索引
+alter table tab_name add primary key(column_list)
+alter table tab_name add unque index_name(column_list)
+alter table tab_name add index index_name(column_list)
+alter table tab_name add fulltext index_name(column_list)
+
+###################################################################MySQL索引###################################################################
+
+############################################################mysql explain解析############################################################
+Explain
+使用explain关键字,可以模拟优化器执行的SQL语句，从而知道MYSQL是如何处理sql语句的，通过Explain可以分析查询语句或表结构的性能瓶颈
+作用：
+查看表的读取顺序
+数据读取操作的操作类型
+查看哪些索引可以使用
+查看哪些索引被实际使用
+查看表之间的引用
+查看每张表有多少行被优化器执行
+包含信息：
+1) id
+select查询的序列号、包含一组数字，表示查询中执行select子句或操作表的顺序
+值的三种情况
+id相同：执行顺序由上到下
+id不同：如果是子查询,id的序号会递增,id值越大优先级越高,优先被执行
+id相同不同,同时存在：可以认为是一组,从上往下顺序执行；在所有组中，id值越大，优先级越高，越先执行；deriverd 衍生出来的虚表
+总结：相同,顺序走、不同,看谁大、大的先执行
+2) select_type
+查询类型,主要用于区别普通查询,联合查询,子查询等复杂查询
+SIMPLE：简单select查询,查询中不包含子查询或者UNION
+PRIMARY：查询中若包含任何复杂的子查询,最外层查询则被标记为primary
+SUBQUERY：在select或where中包含了子查询
+DERIVED：在from列表中包含的子查询被标记为derived(衍生)，把结果放在临时表当中
+UNION：若第二个select出现的union之后,则被标记为union，若union包含在from子句的子查询中,外层select将被标记为deriver
+UNION RESULT：从union表获取结果select，两个UNION合并的结果集在最后
+3) table
+显示这一行的数据是关于哪张表的
+4) partitions
+如果查询是基于分区表的话, 会显示查询访问的分区
+5) type(结果值最好到最差)
+system：表中有一行记录(系统表)  这是const类型的特例,平时不会出现
+const：表示通过索引一次就找到了，const用于比较primary或者unique索引，直接查询主键或者唯一索引
+eq_ref：唯一性索引扫描，对于每个索引键,表中只有一条记录与之匹配，常见于主键或唯一索引扫描
+ref：非唯一性索引扫描,返回匹配某个单独值的所有行，本质上也是一种索引访问，它返回所有匹配某个单独值的行，可能会找到多个符合条件的行
+range：只检索给定范围的行,使用一个索引来选择行，key列显示使用了哪个索引，一般就是在你的where语句中出现between，<，>，in等查询
+index：Full Index Scan，index与All区别为index类型只遍历索引树,通常比All要快,因为索引文件通常比数据文件要小，
+ALL：将全表进行扫描,从硬盘当中读取数据，如果出现了All 切数据量非常大, 一定要去做优化
+6) possible_keys
+显示可能应用在这张表中的索引,一个或者多个；查询涉及到的字段上若存在索引,则该索引将被列出,但不一定被查询实际使用；
+7) key
+实际使用的索引,如果为NULL,则没有使用索引；查询中若使用了覆盖索引 ,则该索引仅出现在key列表中；
+possible_keys与key的关系：理论应该用到哪些索引  实际用到了哪些索引
+8) key_len
+表示索引中使用的字节数,可通过该列计算查询中使用的索引长度(主要查看复合索引中有几个索引被用到)
+9) ref
+索引是否被引入到, 到底引用到了哪几个索引
+10) rows
+根据表统计信息及索引选用情况,大致估算出找到所需的记录所需要读取的行数，每张表有多少行被优化器查询过
+11) filtered
+满足查询的记录数量的比例，注意是百分比，不是具体记录数；值越大越好，filtered列的值依赖统计信息，并不十分准确
+12) Extra
+Using filesort
+Using temporary
+use index
+using where
+using join buffer
+impossible where
+
+比如有如下两个表：
+mysql> desc employee;
++--------+---------------+------+-----+---------+----------------+
+| Field  | Type          | Null | Key | Default | Extra          |
++--------+---------------+------+-----+---------+----------------+
+| id     | int(11)       | NO   | PRI | NULL    | auto_increment |
+| name   | varchar(20)   | YES  |     | NULL    |                |
+| dep_id | int(11)       | YES  | MUL | NULL    |                |
+| age    | int(11)       | YES  |     | NULL    |                |
+| salary | decimal(10,2) | YES  |     | NULL    |                |
+| cus_id | int(11)       | YES  |     | NULL    |                |
++--------+---------------+------+-----+---------+----------------+
+6 rows in set (0.00 sec)
+
+mysql> desc department;
++----------+-------------+------+-----+---------+----------------+
+| Field    | Type        | Null | Key | Default | Extra          |
++----------+-------------+------+-----+---------+----------------+
+| id       | int(11)     | NO   | PRI | NULL    | auto_increment |
+| deptName | varchar(30) | YES  |     | NULL    |                |
+| address  | varchar(40) | YES  |     | NULL    |                |
++----------+-------------+------+-----+---------+----------------+
+3 rows in set (0.00 sec)
+
+检索语句：select e.dep_id from employee e, department d where e.dep_id = d.id的执行过程解析：
+第一条sql相当于执行：select id from department
+这是为了将department表中的id查询出来作为下一条sql查询的条件，由于id是主键，因此只要Full Index Scan即可
+第二条sql相当于执行：select dep_id from employee where dep_id = {ref:test_db.d.id}
+由于他是非唯一性索引扫描，并且条件是其他表的某个字段，所以他的type是ref，由于两条sql都只需要在一棵索引树上就能获取SQL所需的所有列数据，无需回表，所以Extra都是Using index
+mysql> explain select e.dep_id from employee e, department d where e.dep_id = d.id;
++----+-------------+-------+------------+-------+---------------+-----------+---------+--------------+------+----------+-------------+
+| id | select_type | table | partitions | type  | possible_keys | key       | key_len | ref          | rows | filtered | Extra       |
++----+-------------+-------+------------+-------+---------------+-----------+---------+--------------+------+----------+-------------+
+|  1 | SIMPLE      | d     | NULL       | index | PRIMARY       | PRIMARY   | 4       | NULL         |    5 |   100.00 | Using index |
+|  1 | SIMPLE      | e     | NULL       | ref   | idx_depid     | idx_depid | 5       | test_db.d.id |    2 |   100.00 | Using index |
++----+-------------+-------+------------+-------+---------------+-----------+---------+--------------+------+----------+-------------+
+2 rows in set, 1 warning (0.00 sec)
+
+检索语句：select e.dep_id,d.address from employee e, department d where e.dep_id = d.id的执行过程解析：
+第一条sql相当于执行：select address, id from department
+由于这里面除了id外还有非索引字段address所以必须进行全表扫描(因为只有索引的数据结构才是有序的，可以利用B+Tree进行查找，而非索引字段的查询只能全表扫描从硬盘中一条一条将数据读取出来后和条件比对)
+第二条sql相当于执行：select dep_id from employee where dep_id = {ref:test_db.d.id}
+由于他是非唯一性索引扫描，并且条件是其他表的某个字段，所以他的type是ref，并且只需要在一棵索引树上就能获取SQL所需的所有列数据，无需回表，所以Extra是Using index
+mysql> explain select e.dep_id,d.address from employee e, department d where e.dep_id = d.id;
++----+-------------+-------+------------+------+---------------+-----------+---------+--------------+------+----------+-------------+
+| id | select_type | table | partitions | type | possible_keys | key       | key_len | ref          | rows | filtered | Extra       |
++----+-------------+-------+------------+------+---------------+-----------+---------+--------------+------+----------+-------------+
+|  1 | SIMPLE      | d     | NULL       | ALL  | PRIMARY       | NULL      | NULL    | NULL         |    5 |   100.00 | NULL        |
+|  1 | SIMPLE      | e     | NULL       | ref  | idx_depid     | idx_depid | 5       | test_db.d.id |    2 |   100.00 | Using index |
++----+-------------+-------+------------+------+---------------+-----------+---------+--------------+------+----------+-------------+
+2 rows in set, 1 warning (0.00 sec)
+
+检索语句：select name from employee;
+没有命中任何索引，所需的列数据不是索引列，并且检索条件中也不包含索引，所以是全表扫描
+mysql> mysql> explain select name from employee;
++----+-------------+----------+------------+------+---------------+------+---------+------+------+----------+-------+
+| id | select_type | table    | partitions | type | possible_keys | key  | key_len | ref  | rows | filtered | Extra |
++----+-------------+----------+------------+------+---------------+------+---------+------+------+----------+-------+
+|  1 | SIMPLE      | employee | NULL       | ALL  | NULL          | NULL | NULL    | NULL |    8 |   100.00 | NULL  |
++----+-------------+----------+------------+------+---------------+------+---------+------+------+----------+-------+
+1 row in set, 1 warning (0.00 sec)
+
+检索语句：select dep_id, name from employee where dep_id = 1;
+虽能够命中dep_id索引，但name字段必须回表查询才能获取到：先通过二级索引树获取叶子节点中存储的主键id，再通过主键id到聚集索引树上获取name。
+mysql> explain select dep_id, name from employee where dep_id = 1;
++----+-------------+----------+------------+------+---------------+-----------+---------+-------+------+----------+-------+
+| id | select_type | table    | partitions | type | possible_keys | key       | key_len | ref   | rows | filtered | Extra |
++----+-------------+----------+------------+------+---------------+-----------+---------+-------+------+----------+-------+
+|  1 | SIMPLE      | employee | NULL       | ref  | idx_depid     | idx_depid | 5       | const |    3 |   100.00 | NULL  |
++----+-------------+----------+------------+------+---------------+-----------+---------+-------+------+----------+-------+
+1 row in set, 1 warning (0.00 sec)
+
+检索语句：select dep_id, id from employee where dep_id = 1;
+能够命中dep_id索引，索引叶子节点存储了主键id，通过dep_id的索引树即可获取dep_id和id，无需回表，符合索引覆盖，
+mysql> explain select dep_id, id from employee where dep_id = 1;
++----+-------------+----------+------------+------+---------------+-----------+---------+-------+------+----------+-------------+
+| id | select_type | table    | partitions | type | possible_keys | key       | key_len | ref   | rows | filtered | Extra       |
++----+-------------+----------+------------+------+---------------+-----------+---------+-------+------+----------+-------------+
+|  1 | SIMPLE      | employee | NULL       | ref  | idx_depid     | idx_depid | 5       | const |    3 |   100.00 | Using index |
++----+-------------+----------+------------+------+---------------+-----------+---------+-------+------+----------+-------------+
+1 row in set, 1 warning (0.00 sec)
+
+explain select * from gap_lock_1 where year = '19';
+extra中的using index，using where，using index condition
+测试环境搭建
+　　测试表以及测试数据搭建，类似于订单表和订单明细表，暂时先用订单表做测试
+　　测试表结构
+create table test_order
+(
+    id int auto_increment primary key,
+    user_id int,
+    order_id int,
+    order_status tinyint,
+    create_date datetime
+);
+create table test_orderdetail
+(
+    id int auto_increment primary key,
+    order_id int,
+    product_name varchar(100),
+    cnt int,
+    create_date datetime
+);
+建多列复合索引：
+create index idx_userid_order_id_createdate on test_order(user_id,order_id,create_date);
+create index idx_orderid_productname on test_orderdetail(order_id,product_name);
+
+Using index 
+1，查询的列被索引覆盖，并且where筛选条件是索引的是前导列，Extra中为Using index
+explain select user_id,order_id,create_date from test_order where user_id = 1;
+
+Using where Using index
+直接在二级索引(覆盖索引)上获取全部数据（即type为index的Full Index Scan）
+1，查询的列被索引覆盖，并且where筛选条件是索引列之一但是不是索引的不是前导列，Extra中为Using where; Using index，
+	意味着无法直接通过索引查找来查询到符合条件的数据
+explain select user_id,order_id,create_date from test_order where order_id = 1;
+2，查询的列被索引覆盖，并且where筛选条件是索引列前导列的一个范围，同样意味着无法直接通过索引查找查询到符合条件的数据
+explain select user_id,order_id,create_date from test_order where user_id > 1 and user_id < 5;
+
+NULL（既没有Using index，也没有Using where Using index，也没有using where）
+1，查询的列未被索引覆盖，并且where筛选条件是索引的前导列，
+	意味着用到了索引，但是部分字段未被索引覆盖，必须通过“回表”来实现，不是纯粹地用到了索引，也不是完全没用到索引，Extra中为NULL(没有信息)
+explain select user_id,order_id,create_date,order_status from test_order where user_id = 1;
+
+Using where
+没有用到索引，直接在主键索引上过滤数据（全表扫描），必带where子句
+1，查询的列未被索引覆盖，where筛选条件非索引的前导列，Extra中为Using where
+explain select user_id,order_id,create_date,order_status from test_order where order_id = 100;
+2，查询的列未被索引覆盖，where筛选条件非索引列，Extra中为Using where
+explain select user_id,order_id,create_date,order_status from test_order where order_status = 1;
+
+Using index condition
+1，查询的列不全在索引中，where条件中是一个前导列的范围
+explain select user_id,order_id,create_date,order_status from test_order where user_id > 1 and user_id < 5;
+2，查询列不完全被索引覆盖，查询条件完全可以使用到索引（进行索引查找）
+explain select order_id,product_name,cnt from test_orderdetail where order_id = 10900 and product_name like '%662eba6d%';
+using index conditoin 意味着查询列的某一部分无法直接使用索引
+上述case1中，
+　　如果禁用ICP（set optimizer_switch='index_condition_pushdown=off'），
+　　执行计划是using where，意味着全表扫描，如果启用ICP，执行计划为using index Condition，意味着在筛选的过程中实现过滤
+上述case2中
+　　第二个查询条件无法直接使用索引，隐含了一个查找+筛选的过程。
+　　两个case的共同点就是无法直接使用索引。
+
+结论：
+1,Extra中的为Using index的情况
+where筛选列是索引的前导列 &&查询列被索引覆盖 && where筛选条件是一个基于索引前导列的查询，意味着通过索引超找就能直接找到符合条件的数据，并且无须回表
+2,Extra中的为空的情况
+查询列存在未被索引覆盖&&where筛选列是索引的前导列，意味着通过索引超找并且通过“回表”来找到未被索引覆盖的字段，
+3,Extra中的为Using where Using index： 
+出现Using where Using index意味着是通过索引扫描（或者表扫描）来实现sql语句执行的，即便是索引前导列的索引范围查找也有一点范围扫描的动作，不管是前非索引前导列引起的，还是非索引列查询引起的。
+############################################################mysql explain解析############################################################
+
+############################################################索引失效############################################################
+最佳左前缀法则
+组合索引,要遵守最左前缀法则,指的就是从索引的最左列开始 并且不跳过索引中的列
+跳过第一个,索引失效
+跳过前两个, 索引失效
+跳过中间一个 ,只有第一个生效
+顺序可以乱（只要包含最左列即可，sql语句中无需保证索引列的顺序，）
+例：
+employee的表结果如下，存在组合索引：idx_name_dep_age，只要符合
+CREATE TABLE `employee` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `name` varchar(20) DEFAULT NULL,
+  `dep_id` int(11) DEFAULT NULL,
+  `age` int(11) DEFAULT NULL,
+  `salary` decimal(10,2) DEFAULT NULL,
+  `cus_id` int(11) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_name_dep_age` (`name`,`dep_id`,`age`)
+) ENGINE=InnoDB AUTO_INCREMENT=11 DEFAULT CHARSET=utf8
+mysql> explain select * from employee where age = 10 and dep_id = 1 and name = '鲁班';
++----+-------------+----------+------------+------+------------------+------------------+---------+-------------------+------+----------+-------+
+| id | select_type | table    | partitions | type | possible_keys    | key              | key_len | ref               | rows | filtered | Extra |
++----+-------------+----------+------------+------+------------------+------------------+---------+-------------------+------+----------+-------+
+|  1 | SIMPLE      | employee | NULL       | ref  | idx_name_dep_age | idx_name_dep_age | 73      | const,const,const |    1 |   100.00 | NULL  |
++----+-------------+----------+------------+------+------------------+------------------+---------+-------------------+------+----------+-------+
+1 row in set, 1 warning (0.00 sec)
+
+不要在索引列上做任何操作，否则索引失效
+例：
+mysql> explain select * from employee where trim(name) = '鲁班';
++----+-------------+----------+------------+------+---------------+------+---------+------+------+----------+-------------+
+| id | select_type | table    | partitions | type | possible_keys | key  | key_len | ref  | rows | filtered | Extra       |
++----+-------------+----------+------------+------+---------------+------+---------+------+------+----------+-------------+
+|  1 | SIMPLE      | employee | NULL       | ALL  | NULL          | NULL | NULL    | NULL |    8 |   100.00 | Using where |
++----+-------------+----------+------------+------+---------------+------+---------+------+------+----------+-------------+
+1 row in set, 1 warning (0.00 sec)
+
+范围条件右边的索引失效
+例：
+mysql> explain select * from employee where name = '鲁班' and dep_id = 1 and age = 10;
++----+-------------+----------+------------+------+------------------+------------------+---------+-------------------+------+----------+-------+
+| id | select_type | table    | partitions | type | possible_keys    | key              | key_len | ref               | rows | filtered | Extra |
++----+-------------+----------+------------+------+------------------+------------------+---------+-------------------+------+----------+-------+
+|  1 | SIMPLE      | employee | NULL       | ref  | idx_name_dep_age | idx_name_dep_age | 73      | const,const,const |    1 |   100.00 | NULL  |
++----+-------------+----------+------------+------+------------------+------------------+---------+-------------------+------+----------+-------+
+1 row in set, 1 warning (0.00 sec)
+dep_id变成范围查询后，造成age索引失效（dep_id自己还是有效的），key_len由原来的73变成了68
+mysql> explain select * from employee where name = '鲁班' and dep_id > 1 and age = 10;
++----+-------------+----------+------------+-------+------------------+------------------+---------+------+------+----------+-----------------------+
+| id | select_type | table    | partitions | type  | possible_keys    | key              | key_len | ref  | rows | filtered | Extra                 |
++----+-------------+----------+------------+-------+------------------+------------------+---------+------+------+----------+-----------------------+
+|  1 | SIMPLE      | employee | NULL       | range | idx_name_dep_age | idx_name_dep_age | 68      | NULL |    1 |    12.50 | Using index condition |
++----+-------------+----------+------------+-------+------------------+------------------+---------+------+------+----------+-----------------------+
+1 row in set, 1 warning (0.00 sec)
+
+mysql在使用不等于(!=或者<>)的时候无法使用索引会导致全表扫描、is not null 无法使用索引、用or连接时, 会导致索引失效
+mysql> explain select * from employee where name != '鲁班';
++----+-------------+----------+------------+------+------------------+------+---------+------+------+----------+-------------+
+| id | select_type | table    | partitions | type | possible_keys    | key  | key_len | ref  | rows | filtered | Extra       |
++----+-------------+----------+------------+------+------------------+------+---------+------+------+----------+-------------+
+|  1 | SIMPLE      | employee | NULL       | ALL  | idx_name_dep_age | NULL | NULL    | NULL |    8 |   100.00 | Using where |
++----+-------------+----------+------------+------+------------------+------+---------+------+------+----------+-------------+
+1 row in set, 1 warning (0.00 sec)
+mysql> explain select * from employee where name is not null;
++----+-------------+----------+------------+------+------------------+------+---------+------+------+----------+-------------+
+| id | select_type | table    | partitions | type | possible_keys    | key  | key_len | ref  | rows | filtered | Extra       |
++----+-------------+----------+------------+------+------------------+------+---------+------+------+----------+-------------+
+|  1 | SIMPLE      | employee | NULL       | ALL  | idx_name_dep_age | NULL | NULL    | NULL |    8 |   100.00 | Using where |
++----+-------------+----------+------------+------+------------------+------+---------+------+------+----------+-------------+
+1 row in set, 1 warning (0.00 sec)
+mysql> explain select * from employee where name = '鲁班' or age = 10;
++----+-------------+----------+------------+------+------------------+------+---------+------+------+----------+-------------+
+| id | select_type | table    | partitions | type | possible_keys    | key  | key_len | ref  | rows | filtered | Extra       |
++----+-------------+----------+------------+------+------------------+------+---------+------+------+----------+-------------+
+|  1 | SIMPLE      | employee | NULL       | ALL  | idx_name_dep_age | NULL | NULL    | NULL |    8 |    23.44 | Using where |
++----+-------------+----------+------------+------+------------------+------+---------+------+------+----------+-------------+
+1 row in set, 1 warning (0.00 sec)
+
+like以通配符开头(%qw)索引失效变成全表扫描
+使用%开头（索引失效）
+mysql> explain select * from employee where name like '%鲁班' ;
++----+-------------+----------+------------+------+---------------+------+---------+------+------+----------+-------------+
+| id | select_type | table    | partitions | type | possible_keys | key  | key_len | ref  | rows | filtered | Extra       |
++----+-------------+----------+------------+------+---------------+------+---------+------+------+----------+-------------+
+|  1 | SIMPLE      | employee | NULL       | ALL  | NULL          | NULL | NULL    | NULL |    8 |    12.50 | Using where |
++----+-------------+----------+------------+------+---------------+------+---------+------+------+----------+-------------+
+1 row in set, 1 warning (0.00 sec)
+使用%结尾（索引正常）
+mysql> explain select * from employee where name like '鲁班%' ;
++----+-------------+----------+------------+-------+------------------+------------------+---------+------+------+----------+-----------------------+
+| id | select_type | table    | partitions | type  | possible_keys    | key              | key_len | ref  | rows | filtered | Extra                 |
++----+-------------+----------+------------+-------+------------------+------------------+---------+------+------+----------+-----------------------+
+|  1 | SIMPLE      | employee | NULL       | range | idx_name_dep_age | idx_name_dep_age | 63      | NULL |    1 |   100.00 | Using index condition |
++----+-------------+----------+------------+-------+------------------+------------------+---------+------+------+----------+-----------------------+
+1 row in set, 1 warning (0.00 sec)
+使用覆盖索引解决两边%
+mysql> explain select name from employee where name like '%鲁班' ;
++----+-------------+----------+------------+-------+---------------+------------------+---------+------+------+----------+--------------------------+
+| id | select_type | table    | partitions | type  | possible_keys | key              | key_len | ref  | rows | filtered | Extra                    |
++----+-------------+----------+------------+-------+---------------+------------------+---------+------+------+----------+--------------------------+
+|  1 | SIMPLE      | employee | NULL       | index | NULL          | idx_name_dep_age | 73      | NULL |    8 |    12.50 | Using where; Using index |
++----+-------------+----------+------------+-------+---------------+------------------+---------+------+------+----------+--------------------------+
+1 row in set, 1 warning (0.00 sec)
+
+字符串不加引号索引失效
+mysql> explain select * from employee where name = 200 ;
++----+-------------+----------+------------+------+------------------+------+---------+------+------+----------+-------------+
+| id | select_type | table    | partitions | type | possible_keys    | key  | key_len | ref  | rows | filtered | Extra       |
++----+-------------+----------+------------+------+------------------+------+---------+------+------+----------+-------------+
+|  1 | SIMPLE      | employee | NULL       | ALL  | idx_name_dep_age | NULL | NULL    | NULL |    8 |    12.50 | Using where |
++----+-------------+----------+------------+------+------------------+------+---------+------+------+----------+-------------+
+1 row in set, 3 warnings (0.00 sec)
+mysql> explain select * from employee where name = '200';
++----+-------------+----------+------------+------+------------------+------------------+---------+-------+------+----------+-------+
+| id | select_type | table    | partitions | type | possible_keys    | key              | key_len | ref   | rows | filtered | Extra |
++----+-------------+----------+------------+------+------------------+------------------+---------+-------+------+----------+-------+
+|  1 | SIMPLE      | employee | NULL       | ref  | idx_name_dep_age | idx_name_dep_age | 63      | const |    1 |   100.00 | NULL  |
++----+-------------+----------+------------+------+------------------+------------------+---------+-------+------+----------+-------+
+1 row in set, 1 warning (0.00 sec)
+
+上述索引失效的问题，使用覆盖索引可以解决
+例：
+mysql> explain select name,dep_id,age from employee where trim(name) = '鲁班';
++----+-------------+----------+------------+-------+---------------+------------------+---------+------+------+----------+--------------------------+
+| id | select_type | table    | partitions | type  | possible_keys | key              | key_len | ref  | rows | filtered | Extra                    |
++----+-------------+----------+------------+-------+---------------+------------------+---------+------+------+----------+--------------------------+
+|  1 | SIMPLE      | employee | NULL       | index | NULL          | idx_name_dep_age | 73      | NULL |    8 |   100.00 | Using where; Using index |
++----+-------------+----------+------------+-------+---------------+------------------+---------+------+------+----------+--------------------------+
+1 row in set, 1 warning (0.00 sec)
+############################################################索引失效############################################################
+
+############################################################排序与分组优化############################################################
+在使用order by时，经常出现Using filesort（说明这个排序不能通过索引来完成）
+
+使用order by排序时, 如果没有按照索引顺序,会出现Using filesort
+mysql> explain select name,dep_id,age from employee order by age,dep_id,name ;
++----+-------------+----------+------------+-------+---------------+------------------+---------+------+------+----------+-----------------------------+
+| id | select_type | table    | partitions | type  | possible_keys | key              | key_len | ref  | rows | filtered | Extra                       |
++----+-------------+----------+------------+-------+---------------+------------------+---------+------+------+----------+-----------------------------+
+|  1 | SIMPLE      | employee | NULL       | index | NULL          | idx_name_dep_age | 73      | NULL |    8 |   100.00 | Using index; Using filesort |
++----+-------------+----------+------------+-------+---------------+------------------+---------+------+------+----------+-----------------------------+
+1 row in set, 1 warning (0.00 sec)
+
+当使用*时 order by即使使用了 全部索引,也会也filesort
+mysql> explain select * from employee order by name ,dep_id ,age ;
++----+-------------+----------+------------+------+---------------+------+---------+------+------+----------+----------------+
+| id | select_type | table    | partitions | type | possible_keys | key  | key_len | ref  | rows | filtered | Extra          |
++----+-------------+----------+------------+------+---------------+------+---------+------+------+----------+----------------+
+|  1 | SIMPLE      | employee | NULL       | ALL  | NULL          | NULL | NULL    | NULL |    8 |   100.00 | Using filesort |
++----+-------------+----------+------------+------+---------------+------+---------+------+------+----------+----------------+
+1 row in set, 1 warning (0.00 sec)
+
+当索引字段为常量时 可以当作是存在索引的
+mysql> explain select name,dep_id,age from employee where name = '鲁班' order by dep_id ,age ;
++----+-------------+----------+------------+------+------------------+------------------+---------+-------+------+----------+--------------------------+
+| id | select_type | table    | partitions | type | possible_keys    | key              | key_len | ref   | rows | filtered | Extra                    |
++----+-------------+----------+------------+------+------------------+------------------+---------+-------+------+----------+--------------------------+
+|  1 | SIMPLE      | employee | NULL       | ref  | idx_name_dep_age | idx_name_dep_age | 63      | const |    1 |   100.00 | Using where; Using index |
++----+-------------+----------+------------+------+------------------+------------------+---------+-------+------+----------+--------------------------+
+1 row in set, 1 warning (0.00 sec)
+
+使用排序一升一降会造成filesort
+mysql> explain select name,dep_id,age from employee order by name, dep_id desc, age asc ;
++----+-------------+----------+------------+-------+---------------+------------------+---------+------+------+----------+-----------------------------+
+| id | select_type | table    | partitions | type  | possible_keys | key              | key_len | ref  | rows | filtered | Extra                       |
++----+-------------+----------+------------+-------+---------------+------------------+---------+------+------+----------+-----------------------------+
+|  1 | SIMPLE      | employee | NULL       | index | NULL          | idx_name_dep_age | 73      | NULL |    8 |   100.00 | Using index; Using filesort |
++----+-------------+----------+------------+-------+---------------+------------------+---------+------+------+----------+-----------------------------+
+1 row in set, 1 warning (0.00 sec)
+
+使用group by时,使用不当, 会出现Using temporary；解决办法和排序一样, 都要按索引顺序进行分组
+
+############################################################排序与分组优化############################################################
+
+
 ############################################################MySQL的四种事务隔离级别############################################################
 一、事务的基本要素（ACID）
 1、原子性（Atomicity）：事务开始后所有操作，要么全部做完，要么全部不做，不可能停滞在中间环节。事务执行过程中出错，会回滚到事务开始前的状态，所有的操作就像没有发生一样。也就是说事务是一个不可分割的整体，就像化学中学过的原子，是物质构成的基本单位。
@@ -257,394 +897,6 @@ lock in share mode因为覆盖索引故没有锁主键索引，for update会将�
                                                                                                            blocked
 加锁的范围是（5,10]，（10，15]
 ##################################################################MySQL锁机制##################################################################
-
-###################################################################MySQL索引###################################################################
-磁盘IO与预读
-先简单介绍一下磁盘IO和预读，磁盘读取数据靠的是机械运动，每次读取数据花费的时间可以分为寻道时间、旋转延迟、传输时间三个部分，寻道时间指的是磁臂移动到指定磁道所需要的时间，主流磁盘一般在5ms以下；旋转延迟就是我们经常听说的磁盘转速，比如一个磁盘7200转，表示每分钟能转7200次，也就是说1秒钟能转120次，旋转延迟就是1/120/2=4.17ms；传输时间指的是从磁盘读出或将数据写入磁盘的时间，一般在零点几毫秒，相对于前两个时间可以忽略不计。那么访问一次磁盘的时间，即一次磁盘IO的时间约等于5+4.17=9ms左右，听起来还挺不错的，但要知道一台500-MIPS（Million-Instructions-Per-Second）的机器每秒可以执行5亿条指令，因为指令依靠的是电的性质，换句话说执行一次IO的时间可以执行约450万条指令，数据库动辄十万百万乃至千万级数据，每次9毫秒的时间，显然是个灾难。考虑到磁盘IO是非常高昂的操作，计算机操作系统做了一些优化，当一次IO时，不光把当前磁盘地址的数据，而是把相邻的数据也都读取到内存缓冲区内，因为局部预读性原理告诉我们，当计算机访问一个地址的数据的时候，与其相邻的数据也会很快被访问到。每一次IO读取的数据我们称之为一页(page)。具体一页有多大数据跟操作系统有关，一般为4k或8k，也就是我们读取一页内的数据时候，实际上才发生了一次IO，这个理论对于索引的数据结构设计非常有帮助。
-索引的数据结构
-B+树索引是B+树在数据库中的一种实现，是最常见也是数据库中使用最为频繁的一种索引。B+树中的B代表平衡（balance），而不是二叉（binary），因为B+树是从最早的平衡二叉树演化而来的。在讲B+树之前必须先了解二叉查找树、平衡二叉树（AVLTree）和平衡多路查找树（B-Tree），B+树即由这些树逐步优化而来
-二叉查找树:
-左子树的键值小于根的键值
-右子树的键值大于根的键值
-如下图所示就是一棵二叉查找树：
-        6
-	3		7
-2		5		8
-对该二叉树的节点进行查找发现深度为1的节点的查找次数为1，深度为2的查找次数为2，深度为n的节点的查找次数为n，因此其平均查找次数为 (1+2+2+3+3+3) / 6 = 2.3次
-二叉查找树可以任意地构造，同样是2,3,5,6,7,8这六个数字，也可以按照下图的方式来构造： 
-	2
-		3
-			5
-				7
-			6		8
-但是这棵二叉树的查询效率就低了。因此若想二叉树的查询效率尽可能高，需要这棵二叉树是平衡的，从而引出新的定义——平衡二叉树，或称AVL树。
-平衡二叉树（AVL Tree）：
-平衡二叉树（AVL树）在符合二叉查找树的条件下，还满足任何节点的两个子树的高度最大差为1。
-B-Tree(平衡多路查找树):
-m阶B-Tree满足以下条件： 
-每个节点包含关键字和指向孩子的指针
-0.根节点至少包括两个孩子
-1.树中每个节点最多有m个孩子(m>=2，m阶B-Tree中的m)
-2.除了根节点和叶子节点外，其它每个节点至少有Ceil(m/2)个孩子。*注：Ceil表示向上取整
-3.所有叶子节点都在同一层
-4.ki(1=1…n)为关键字,且关键字按顺序升序排列
-5.关键字的个数n满足：ceil(m/2)-1 <= n <= m-1 (非叶子节点关键字个数比指向孩子的指针少1个)
-6.非叶子结点的指针p[1],p[2],…p[m]满足：其中p1指向关键字小于k[1]的子树；p[m]指针关键字大于k[m-1]的子树；p[i]指向关键字属于(k[i-1],k[i])的子树
-优点：
-1.一次可以设置多个节点，降低了树的高度，多以查找很快。
-2.节点中的数据key从左到右依次递增。
-缺点：
-1.根节点不仅存了索引key也存了对应的记录，所以比较占用空间。
-2.子节点之间没有双向链表，每次查找数据都是从根节点出发，如果是查找范围数据的话，就没有优势了
-B+Tree：
-B+树是B树的变体,基本与B-Tree相同
-不同点：
-非叶子节点的子树指针与关键字个数相同（B-Tree中是m-1）
-非叶子节点仅用来做索引,数据都保存在叶子节点中
-所有根节点和分支节点的关键字都同时存在于子节点中，在子节点元素中是最大或者最小的元素。
-所有叶子节点会包含所有的关键字，以及一个链指针指向下一个叶子节点，并且叶子节点本身是根据关键字的大小从小到大顺序链接。
-优点：（与B-Tree区别）
-1.索引携带的数据移到了叶子节点上，在空间相同的情况下，那肯定是B+Tree存储的索引更多一些，而且树的高度更低。
-2.子节点之间是有双向指针指向的，查找的时候，顺着指针找就行了，不用每次都从根节点出发寻找，所以速度更快
-B+Tree的查找过程：
-https://www.cnblogs.com/dongguacai/p/7241860.html
-###b+树性质
-1.索引字段要尽量的小：通过上面的分析，我们知道IO次数取决于b+数的高度h，假设当前数据表的数据为N（即表中有N条数据），每个磁盘块的数据项的数量是m，则有h=㏒(m+1)N（表示以m+1为底N的对数），当数据量N一定的情况下，m越大，h越小；而m=磁盘块的大小/数据项的大小，磁盘块的大小也就是一个数据页的大小，是固定的，如果数据项占的空间越小，数据项的数量越多，树的高度越低。这就是为什么每个数据项，即索引字段要尽量的小，比如int占4字节，要比bigint8字节少一半。这也是为什么b+树要求把真实的数据放到叶子节点而不是内层节点，一旦放到内层节点，磁盘块的数据项会大幅度下降，导致树增高。当数据项等于1时将会退化成线性表。
-2.索引的最左匹配特性：当b+树的数据项是复合的数据结构，比如(name,age,sex)的时候，b+数是按照从左到右的顺序来建立搜索树的，比如当(张三,20,F)这样的数据来检索的时候，b+树会优先比较name来确定下一步的所搜方向，如果name相同再依次比较age和sex，最后得到检索的数据；但当(20,F)这样的没有name的数据来的时候，b+树就不知道下一步该查哪个节点，因为建立搜索树的时候name就是第一个比较因子，必须要先根据name来搜索才能知道下一步去哪里查询。比如当(张三,F)这样的数据来检索时，b+树可以用name来指定搜索方向，但下一个字段age的缺失，所以只能把名字等于张三的数据都找到，然后再匹配性别是F的数据了， 这个是非常重要的性质，即索引的最左匹配特性。
-
-聚簇索引、非聚簇索引、二级索引（非聚簇索引、普通索引、二级索引指的是一个概念）
-聚簇索引（Clustered indexes）是指索引和数据是在同一个结构里，聚簇索引的顺序就是数据的物理存储顺序。聚簇索引的叶子节点就是数据节点。
-聚簇索引是一种数据存储方式，它实际上是在同一个结构中保存了B+树索引和数据行，InnoDB表是按照聚簇索引组织的（类似于Oracle的索引组织表）
-InnoDB通过主键聚簇数据，如果没有定义主键，会选择一个唯一的非空索引代替，如果没有这样的索引，会隐式定义个主键作为聚簇索引。
-表数据是和主键一起存储的，主键索引的叶结点存储行数据，二级索引的叶结点存储行的主键值。
-聚簇索引是顺序结构与数据存储物理结构一致的一种索引，并且一个表的聚簇索引只能有唯一的一条。
-
-非聚簇索引（Non-clustered indexes）非聚簇索引的叶子节点仍然是索引节点，只不过有指向对应数据块的指针。
-表数据和索引是分开存储的，主键索引和二级索引存储上没有任何区别。
-非聚簇索引记录的物理顺序与逻辑顺序没有必然的联系，与数据的存储物理结构没有关系；一个表对应的非聚簇索引可以有多条，根据不同列的约束可以建立不同要求的非聚簇索引
-
-二级索引
-对于InnoDB和MyISAM引擎中的索引，都分为主键索引（primary key）和二级索引（secondary index）
-在InnoDb中，强制使用主键作为聚簇索引，B+Tree叶子节点存储就是主键数据，而二级索引的叶子节点存储的是主键的键值；
-在MyISAM中，主键索引与二级索引没什么区别，都是存储的数据行对应的地址。InnoDB的的二级索引的叶子节点存放的是KEY字段加主键值。因此，通过二级索引查询首先查到是主键值，然后InnoDB再根据查到的主键值通过主键索引找到相应的数据块。而MyISAM的二级索引叶子节点存放的还是列值与行号的组合，叶子节点中保存的是数据的物理地址。所以可以看出MYISAM的主键索引和二级索引没有任何区别，主键索引仅仅只是一个叫做PRIMARY的唯一、非空的索引，且MYISAM引擎中可以不设主键。
-
-回表查询
-由于InnoDB普通索引（非聚簇索引、二级索引）的叶子节点存储主键值、所以无法从普通索引直接定位行记录。（注意，不是存储行记录头指针，只有MyISAM的索引叶子节点才存储记录指针。）
-举个例子、不妨设有表：
-t(id PK, name KEY, sex, flag);
-其中id是聚集索引，name是普通索引。
-表中有四条记录：
-1, shenjian, m, A
-3, zhangsan, m, A
-5, lisi, m, A
-9, wangwu, f, B
-既然从普通索引无法直接定位行记录，那普通索引的查询过程是怎么样的呢？
-例如：
-select * from t where name='lisi';
-需要扫码两遍索引树：
-（1）先通过普通索引定位到主键值id=5；
-（2）在通过聚集索引定位到行记录；
-这就是所谓的回表查询，先定位主键值，再定位行记录，它的性能较扫一遍索引树更低。
-
-索引覆盖(Covering index)
-MySQL官网，在explain查询计划优化章节，即explain的输出结果Extra字段为Using index时，能够触发索引覆盖。类似的说法在SQL-Server官网也能找到。
-不管是SQL-Server官网，还是MySQL官网，都表达了：只需要在一棵索引树上就能获取SQL所需的所有列数据，无需回表，速度更快。
-例：
-+--------+---------------+------+-----+---------+----------------+
-| Field  | Type          | Null | Key | Default | Extra          |
-+--------+---------------+------+-----+---------+----------------+
-| id     | int(11)       | NO   | PRI | NULL    | auto_increment |
-| name   | varchar(20)   | YES  |     | NULL    |                |
-| dep_id | int(11)       | YES  | MUL | NULL    |                |
-| age    | int(11)       | YES  |     | NULL    |                |
-| salary | decimal(10,2) | YES  |     | NULL    |                |
-| cus_id | int(11)       | YES  |     | NULL    |                |
-+--------+---------------+------+-----+---------+----------------+
-
-第一个SQL语句：select id,dep_id from employee where dep_id = 1
-mysql> explain select id,dep_id from employee where dep_id = 1 ;
-+----+-------------+----------+------------+------+---------------+-----------+---------+-------+------+----------+-------------+
-| id | select_type | table    | partitions | type | possible_keys | key       | key_len | ref   | rows | filtered | Extra       |
-+----+-------------+----------+------------+------+---------------+-----------+---------+-------+------+----------+-------------+
-|  1 | SIMPLE      | employee | NULL       | ref  | idx_depid     | idx_depid | 5       | const |    3 |   100.00 | Using index |
-+----+-------------+----------+------------+------+---------------+-----------+---------+-------+------+----------+-------------+
-1 row in set, 1 warning (0.00 sec)
-能够命中dep_id索引，索引叶子节点存储了主键id，通过dep_id的索引树即可获取id和dep_id，无需回表，符合索引覆盖，效率较高。
-Extra：Using index
-
-第二个SQL语句：select id,dep_id,age from employee where dep_id = 1
-mysql> explain select id,dep_id,age from employee where dep_id = 1 ;
-+----+-------------+----------+------------+------+---------------+-----------+---------+-------+------+----------+-------+
-| id | select_type | table    | partitions | type | possible_keys | key       | key_len | ref   | rows | filtered | Extra |
-+----+-------------+----------+------------+------+---------------+-----------+---------+-------+------+----------+-------+
-|  1 | SIMPLE      | employee | NULL       | ref  | idx_depid     | idx_depid | 5       | const |    3 |   100.00 | NULL  |
-+----+-------------+----------+------------+------+---------------+-----------+---------+-------+------+----------+-------+
-1 row in set, 1 warning (0.00 sec)
-能够命中dep_id索引，索引叶子节点存储了主键id，但age字段必须回表查询才能获取到，不符合索引覆盖，需要再次通过id值扫码聚集索引获取age字段，效率会降低。
-Extra：Using NULL
-
-联合索引
-联合索引来说只不过比单值索引多了几列，而这些索引列全都出现在索引树上。对于联合索引，存储引擎会首先根据第一个索引列排序，如果第一列相等则再根据第二列排序，依次类推。
-例如：
-表T1：(a int primary key, b int, c int, d int, e varchar(20))
-create index idx_t1_bcd on t1(b,c,d):
-首先，表T1有字段a,b,c,d,e，其中a是主键，除e为varchar其余为int类型，并创建了一个联合索引idx_t1_bcd(b,c,d)，然后b、c、d三列作为联合索引，联合索引的所有索引列都出现在索引数上，并依次比较三列的大小。
-T1表的表数据如下：
-a	b 	c	d	d
-1	13	12	4	dll
-2	1	5	4	doc
-3	13	16	5	img
-4	12	14	3	xml
-5	1	1	4	txt
-6	13	16	1	exe
-7	5	3	6	pdf
-........
-
-bcd联合索引在B+树上的结构图：
-					1	56	90	
-					1			......
-					4			
-								
-		1	12	21				
-		1	14	1	......			
-		4	3					
-								
-1	1	5		12	13	13	13	
-1	5	3		14	12	16	16	
-4	4	6		3	4	1	5	
-5	2	7		4	1	6	3	
-对于联合索引，存储引擎会首先根据第一个索引列排序，如上图我们可以单看第一个索引列，横着看，如，1 1 5 12 13....他是单调递增的；如果第一列相等则再根据第二列排序，依次类推就构成了上图的索引树，上图中的b列都等于1时，则根据c排序，此时c列也相等则按d列排序，如：1 1 4 ，1 1 5，c=4在c=5前面，以及13 12 4,13 16 1,13 16 5就可以说明这种情况。`
-联合索引的查找方式
-当我们的SQL语言可以应用到索引的时候，比如 select * from T1 where b = 12 and c = 14 and d = 3; （b,c,d为联合索引）存储引擎首先从根节点（一般常驻内存）开始查找，第一个索引的第一个索引列为1,12大于1，第一个索引的第二个索引列为56,12小于56，于是从这俩索引的中间读到下一个节点的磁盘文件地址，从磁盘上Load这个节点，通常伴随一次磁盘IO，然后在内存里去查找。当Load叶子节点的第二个节点时又是一次磁盘IO，比较第一个元素，b=12,c=14,d=3完全符合，于是找到该索引下的data元素即ID值，再从主键索引树上找到最终数据。
-最左前缀匹配原则
-联合索引是首先使用多列索引的第一列构建的索引树，用上面idx_t1_bcd(b,c,d)的例子就是优先使用b列构建，当b列值相等时再以c列排序，若c列的值也相等则以d列排序。索引的第一列也就是b列可以说是从左到右单调递增的，但我们看c列和d列并没有这个特性，它们只能在b列值相等的情况下这个小范围内递增，由于联合索引是上述那样的索引构建方式及存储结构，所以联合索引只能从多列索引的第一列开始查找。所以如果你的查找条件不包含b列如（c,d）、(c）、(d)是无法应用缓存的，以及跨列也是无法完全用到索引如(b,d)，只会用到b列索引。
-
-创建索引
-create [UNIQUE] index 索引名称 ON 表名(字段(长度))
-alter 表名 add [unque] index[索引名称] on(字段(长度))
-查看索引
-show index from 表名
-删除索引
-drop index[索引名称] on 表名
-更改索引
-alter table tab_name add primary key(column_list)
-alter table tab_name add unque index_name(column_list)
-alter table tab_name add index index_name(column_list)
-alter table tab_name add fulltext index_name(column_list)
-
-###################################################################MySQL索引###################################################################
-
-############################################################mysql explain解析############################################################
-Explain
-使用explain关键字,可以模拟优化器执行的SQL语句，从而知道MYSQL是如何处理sql语句的，通过Explain可以分析查询语句或表结构的性能瓶颈
-作用：
-查看表的读取顺序
-数据读取操作的操作类型
-查看哪些索引可以使用
-查看哪些索引被实际使用
-查看表之间的引用
-查看每张表有多少行被优化器执行
-包含信息：
-1) id
-select查询的序列号、包含一组数字，表示查询中执行select子句或操作表的顺序
-值的三种情况
-id相同：执行顺序由上到下
-id不同：如果是子查询,id的序号会递增,id值越大优先级越高,优先被执行
-id相同不同,同时存在：可以认为是一组,从上往下顺序执行；在所有组中，id值越大，优先级越高，越先执行；deriverd 衍生出来的虚表
-总结：相同,顺序走、不同,看谁大、大的先执行
-2) select_type
-查询类型,主要用于区别普通查询,联合查询,子查询等复杂查询
-SIMPLE：简单select查询,查询中不包含子查询或者UNION
-PRIMARY：查询中若包含任何复杂的子查询,最外层查询则被标记为primary
-SUBQUERY：在select或where中包含了子查询
-DERIVED：在from列表中包含的子查询被标记为derived(衍生)，把结果放在临时表当中
-UNION：若第二个select出现的union之后,则被标记为union，若union包含在from子句的子查询中,外层select将被标记为deriver
-UNION RESULT：从union表获取结果select，两个UNION合并的结果集在最后
-3) table
-显示这一行的数据是关于哪张表的
-4) partitions
-如果查询是基于分区表的话, 会显示查询访问的分区
-5) type(结果值最好到最差)
-system：表中有一行记录(系统表)  这是const类型的特例,平时不会出现
-const：表示通过索引一次就找到了，const用于比较primary或者unique索引，直接查询主键或者唯一索引
-eq_ref：唯一性索引扫描，对于每个索引键,表中只有一条记录与之匹配，常见于主键或唯一索引扫描
-ref：非唯一性索引扫描,返回匹配某个单独值的所有行，本质上也是一种索引访问，它返回所有匹配某个单独值的行，可能会找到多个符合条件的行
-range：只检索给定范围的行,使用一个索引来选择行，key列显示使用了哪个索引，一般就是在你的where语句中出现between，<，>，in等查询
-index：Full Index Scan，index与All区别为index类型只遍历索引树,通常比All要快,因为索引文件通常比数据文件要小，
-ALL：将全表进行扫描,从硬盘当中读取数据，如果出现了All 切数据量非常大, 一定要去做优化
-6) possible_keys
-显示可能应用在这张表中的索引,一个或者多个；查询涉及到的字段上若存在索引,则该索引将被列出,但不一定被查询实际使用；
-7) key
-实际使用的索引,如果为NULL,则没有使用索引；查询中若使用了覆盖索引 ,则该索引仅出现在key列表中；
-possible_keys与key的关系：理论应该用到哪些索引  实际用到了哪些索引
-8) key_len
-表示索引中使用的字节数,可通过该列计算查询中使用的索引长度
-9) ref
-索引是否被引入到, 到底引用到了哪几个索引
-10) rows
-根据表统计信息及索引选用情况,大致估算出找到所需的记录所需要读取的行数，每张表有多少行被优化器查询过
-11) filtered
-满足查询的记录数量的比例，注意是百分比，不是具体记录数；值越大越好，filtered列的值依赖统计信息，并不十分准确
-12) Extra
-Using filesort
-Using temporary
-use index
-using where
-using join buffer
-impossible where
-
-比如有如下两个表：
-mysql> desc employee;
-+--------+---------------+------+-----+---------+----------------+
-| Field  | Type          | Null | Key | Default | Extra          |
-+--------+---------------+------+-----+---------+----------------+
-| id     | int(11)       | NO   | PRI | NULL    | auto_increment |
-| name   | varchar(20)   | YES  |     | NULL    |                |
-| dep_id | int(11)       | YES  | MUL | NULL    |                |
-| age    | int(11)       | YES  |     | NULL    |                |
-| salary | decimal(10,2) | YES  |     | NULL    |                |
-| cus_id | int(11)       | YES  |     | NULL    |                |
-+--------+---------------+------+-----+---------+----------------+
-6 rows in set (0.00 sec)
-
-mysql> desc department;
-+----------+-------------+------+-----+---------+----------------+
-| Field    | Type        | Null | Key | Default | Extra          |
-+----------+-------------+------+-----+---------+----------------+
-| id       | int(11)     | NO   | PRI | NULL    | auto_increment |
-| deptName | varchar(30) | YES  |     | NULL    |                |
-| address  | varchar(40) | YES  |     | NULL    |                |
-+----------+-------------+------+-----+---------+----------------+
-3 rows in set (0.00 sec)
-
-检索语句：select e.dep_id from employee e, department d where e.dep_id = d.id的执行过程解析：
-第一条sql相当于执行：select id from department
-这是为了将department表中的id查询出来作为下一条sql查询的条件，因此那只要Full Index Scan即可
-第二条sql相当于执行：select dep_id from employee where id = {ref:test_db.d.id}
-由于他是非唯一性索引扫描，并且条件是其他表的某个字段，所以他的type是ref，由于两条sql都只需要在一棵索引树上就能获取SQL所需的所有列数据，无需回表，所以Extra都是Using index
-mysql> explain select e.dep_id from employee e, department d where e.dep_id = d.id;
-+----+-------------+-------+------------+-------+---------------+-----------+---------+--------------+------+----------+-------------+
-| id | select_type | table | partitions | type  | possible_keys | key       | key_len | ref          | rows | filtered | Extra       |
-+----+-------------+-------+------------+-------+---------------+-----------+---------+--------------+------+----------+-------------+
-|  1 | SIMPLE      | d     | NULL       | index | PRIMARY       | PRIMARY   | 4       | NULL         |    5 |   100.00 | Using index |
-|  1 | SIMPLE      | e     | NULL       | ref   | idx_depid     | idx_depid | 5       | test_db.d.id |    2 |   100.00 | Using index |
-+----+-------------+-------+------------+-------+---------------+-----------+---------+--------------+------+----------+-------------+
-2 rows in set, 1 warning (0.00 sec)
-
-检索语句：select e.dep_id,d.address from employee e, department d where e.dep_id = d.id的执行过程解析：
-第一条sql相当于执行：select address, id from department
-由于这里面除了id外还有非索引字段address所以必须进行全表扫描(因为只有索引的数据结构才是有序的，可以利用B+Tree进行查找，而非索引字段的查询只能全表扫描从硬盘中一条一条将数据读取出来后和条件比对)
-第二条sql相当于执行：select dep_id from employee where id = {ref:test_db.d.id}
-由于他是非唯一性索引扫描，并且条件是其他表的某个字段，所以他的type是ref，并且只需要在一棵索引树上就能获取SQL所需的所有列数据，无需回表，所以Extra是Using index
-mysql> explain select e.dep_id,d.address from employee e, department d where e.dep_id = d.id;
-+----+-------------+-------+------------+------+---------------+-----------+---------+--------------+------+----------+-------------+
-| id | select_type | table | partitions | type | possible_keys | key       | key_len | ref          | rows | filtered | Extra       |
-+----+-------------+-------+------------+------+---------------+-----------+---------+--------------+------+----------+-------------+
-|  1 | SIMPLE      | d     | NULL       | ALL  | PRIMARY       | NULL      | NULL    | NULL         |    5 |   100.00 | NULL        |
-|  1 | SIMPLE      | e     | NULL       | ref  | idx_depid     | idx_depid | 5       | test_db.d.id |    2 |   100.00 | Using index |
-+----+-------------+-------+------------+------+---------------+-----------+---------+--------------+------+----------+-------------+
-2 rows in set, 1 warning (0.00 sec)
-
-检索语句：select name from employee;
-没有命中任何索引，所需的列数据不是索引列，并且检索条件中也不包含索引，所以是全表扫描
-mysql> mysql> explain select name from employee;
-+----+-------------+----------+------------+------+---------------+------+---------+------+------+----------+-------+
-| id | select_type | table    | partitions | type | possible_keys | key  | key_len | ref  | rows | filtered | Extra |
-+----+-------------+----------+------------+------+---------------+------+---------+------+------+----------+-------+
-|  1 | SIMPLE      | employee | NULL       | ALL  | NULL          | NULL | NULL    | NULL |    8 |   100.00 | NULL  |
-+----+-------------+----------+------------+------+---------------+------+---------+------+------+----------+-------+
-1 row in set, 1 warning (0.00 sec)
-
-检索语句：select dep_id, name from employee where dep_id = 1;
-虽能够命中dep_id索引，但name字段必须回表查询才能获取到：先通过二级索引树获取叶子节点中存储的主键id，再通过主键id到聚集索引树上获取name。
-mysql> explain select dep_id, name from employee where dep_id = 1;
-+----+-------------+----------+------------+------+---------------+-----------+---------+-------+------+----------+-------+
-| id | select_type | table    | partitions | type | possible_keys | key       | key_len | ref   | rows | filtered | Extra |
-+----+-------------+----------+------------+------+---------------+-----------+---------+-------+------+----------+-------+
-|  1 | SIMPLE      | employee | NULL       | ref  | idx_depid     | idx_depid | 5       | const |    3 |   100.00 | NULL  |
-+----+-------------+----------+------------+------+---------------+-----------+---------+-------+------+----------+-------+
-1 row in set, 1 warning (0.00 sec)
-
-检索语句：select dep_id, id from employee where dep_id = 1;
-能够命中dep_id索引，索引叶子节点存储了主键id，通过dep_id的索引树即可获取dep_id和id，无需回表，符合索引覆盖，
-mysql> explain select dep_id, id from employee where dep_id = 1;
-+----+-------------+----------+------------+------+---------------+-----------+---------+-------+------+----------+-------------+
-| id | select_type | table    | partitions | type | possible_keys | key       | key_len | ref   | rows | filtered | Extra       |
-+----+-------------+----------+------------+------+---------------+-----------+---------+-------+------+----------+-------------+
-|  1 | SIMPLE      | employee | NULL       | ref  | idx_depid     | idx_depid | 5       | const |    3 |   100.00 | Using index |
-+----+-------------+----------+------------+------+---------------+-----------+---------+-------+------+----------+-------------+
-1 row in set, 1 warning (0.00 sec)
-
-
-
-explain select * from gap_lock_1 where year = '19';
-extra中的using index，using where，using index condition
-测试环境搭建
-　　测试表以及测试数据搭建，类似于订单表和订单明细表，暂时先用订单表做测试
-　　测试表结构
-create table test_order
-(
-    id int auto_increment primary key,
-    user_id int,
-    order_id int,
-    order_status tinyint,
-    create_date datetime
-);
-create table test_orderdetail
-(
-    id int auto_increment primary key,
-    order_id int,
-    product_name varchar(100),
-    cnt int,
-    create_date datetime
-);
-建多列复合索引：
-create index idx_userid_order_id_createdate on test_order(user_id,order_id,create_date);
-create index idx_orderid_productname on test_orderdetail(order_id,product_name);
-
-Using index 
-1，查询的列被索引覆盖，并且where筛选条件是索引的是前导列，Extra中为Using index
-explain select user_id,order_id,create_date from test_order where user_id = 1;
-
-Using where Using index
-1，查询的列被索引覆盖，并且where筛选条件是索引列之一但是不是索引的不是前导列，Extra中为Using where; Using index，
-	意味着无法直接通过索引查找来查询到符合条件的数据
-explain select user_id,order_id,create_date from test_order where order_id = 1;
-2，查询的列被索引覆盖，并且where筛选条件是索引列前导列的一个范围，同样意味着无法直接通过索引查找查询到符合条件的数据
-explain select user_id,order_id,create_date from test_order where user_id > 1 and user_id < 5;
-
-NULL（既没有Using index，也没有Using where Using index，也没有using where）
-1，查询的列未被索引覆盖，并且where筛选条件是索引的前导列，
-	意味着用到了索引，但是部分字段未被索引覆盖，必须通过“回表”来实现，不是纯粹地用到了索引，也不是完全没用到索引，Extra中为NULL(没有信息)
-explain select user_id,order_id,create_date,order_status from test_order where user_id = 1;
-
-Using where
-1，查询的列未被索引覆盖，where筛选条件非索引的前导列，Extra中为Using where
-explain select user_id,order_id,create_date,order_status from test_order where order_id = 100;
-2，查询的列未被索引覆盖，where筛选条件非索引列，Extra中为Using where
-explain select user_id,order_id,create_date,order_status from test_order where order_status = 1;
-
-Using index condition
-1，查询的列不全在索引中，where条件中是一个前导列的范围
-explain select user_id,order_id,create_date,order_status from test_order where user_id > 1 and user_id < 5;
-2，查询列不完全被索引覆盖，查询条件完全可以使用到索引（进行索引查找）
-explain select order_id,product_name,cnt from test_orderdetail where order_id = 10900 and product_name like '%662eba6d%';
-using index conditoin 意味着查询列的某一部分无法直接使用索引
-上述case1中，
-　　如果禁用ICP（set optimizer_switch='index_condition_pushdown=off'），
-　　执行计划是using where，意味着全表扫描，如果启用ICP，执行计划为using index Condition，意味着在筛选的过程中实现过滤
-上述case2中
-　　第二个查询条件无法直接使用索引，隐含了一个查找+筛选的过程。
-　　两个case的共同点就是无法直接使用索引。
-
-结论：
-1,Extra中的为Using index的情况
-where筛选列是索引的前导列 &&查询列被索引覆盖 && where筛选条件是一个基于索引前导列的查询，意味着通过索引超找就能直接找到符合条件的数据，并且无须回表
-2,Extra中的为空的情况
-查询列存在未被索引覆盖&&where筛选列是索引的前导列，意味着通过索引超找并且通过“回表”来找到未被索引覆盖的字段，
-3,Extra中的为Using where Using index： 
-出现Using where Using index意味着是通过索引扫描（或者表扫描）来实现sql语句执行的，即便是索引前导列的索引范围查找也有一点范围扫描的动作，不管是前非索引前导列引起的，还是非索引列查询引起的。
-############################################################mysql explain解析############################################################
 
 ###################################################################MySQL日志###################################################################
 MySQL中有六种日志文件，

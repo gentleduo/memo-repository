@@ -116,6 +116,12 @@ log文件中的日志，是顺序写入的，由message+实际offset+position组
 一句话，Kafka的Message存储采用了分区(partition)，分段(LogSegment)和稀疏索引这几个手段来达到了高效性。
 ==============================================================Partition的数据文件==============================================================
 
+==============================================================生产者==============================================================
+Kafka的Producer发送消息采用的是异步发送的方式，在消息发送的过程中，涉及到了两个线程--main线程和Sender线程，以及一个线程共享变量--RecordAccumulator。main线程将消息发送给RecordAccumulator，Sender线程不断从RecordAccumulator中拉取消息发送到Kafka broker。
+main线程：我们写的代码运行后相当于一个main线程，
+Sender线程：调用send方法后会启动sender线程（只有数据积累到batch.size之后，sender才会发送数据）
+==============================================================生产者==============================================================
+
 ==============================================================消费组和coordinator==============================================================
 消费者消费消息时，会记录消费者offset（注意不是分区的offset，不同的上下文环境一定要区分），这个消费者的offset，也是保存在一个特殊的内部分区，叫做__consumer_offsets，它就一个作用，那就是保存消费组里消费者的offset。默认创建时会生成50个分区（offsets.topic.num.partitions设置），一个副本，如果50个分区分布在50台服务器上，将大大缓解消费者提交offset的压力。可以在创建消费者的时候产生这个特殊消费组。
 # 如果只启动了hadoop03一个broker，则所有的50个分区都会在这上面生成
@@ -156,4 +162,7 @@ AUTO_OFFSET_RESET_CONFIG设置为earliest表示将从最小的offset开始消费
 
 启动kafka
 bin/kafka-server-start.sh -daemon  config/server.properties
+
+kafka命令行consumer
+bin/kafka-console-consumer.sh --bootstrap-server server01:9092 --from-beginning --topic gentleduo-topic-1
 

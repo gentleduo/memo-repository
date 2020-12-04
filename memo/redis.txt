@@ -24,6 +24,14 @@ Make只能发生在configure之后,
 解决: date -s ‘yyyy-mm-dd hh:mm:ss’   重写时间
     再 clock -w  写入cmos
 
+Redis安装报错：在有返回值的函数中，控制流程到达函数尾
+GCC版本太低，需要升级：
+gcc -v                             # 查看gcc版本
+yum -y install centos-release-scl  # 升级到9.1版本
+yum -y install devtoolset-9-gcc devtoolset-9-gcc-c++ devtoolset-9-binutils
+scl enable devtoolset-9 bash
+echo "source /opt/rh/devtoolset-9/enable" >>/etc/profile
+
 5: 可选步骤: make test  测试编译情况
 (可能出现: need tcl  >8.4这种情况, yum install tcl)
 
@@ -71,6 +79,11 @@ dir ./
 4) 默认开启数据压缩
 rdbcompression yes
 解说：配置存储至本地数据库时是否压缩数据，默认为yes。Redis采用LZF压缩方式，但占用了一点CPU的时间。若关闭该选项，但会导致数据库文件变的巨大。建议开启。
+5) 后台备份进程出错时,主进程停不停止写入?
+stop-writes-on-bgsave-error yes
+解读：在默认情况下，如果Redis执行bgsave失败后，Redis将停止接受写操作，这样以一种强硬的方式让用户知道数据不能正确的持久化到磁盘，否则就会没人注意到灾难的发生，如果后台保存进程重新启动工作了，Redis也将自动允许写操作。然而如果安装了靠谱的监控，可能不希望Redis这样做，那么你可以将其修改为no。
+6) 导入rbd恢复时数据时,要不要检验rdb的完整性
+rdbchecksum yes
 
 AOF 详解
 AOF ：Redis默认不开启。它的出现是为了弥补RDB的不足（数据的不一致性），所以它采用日志的形式来记录每个写操作，并追加到文件中。Redis 重启的会根据日志文件的内容将写指令从前到后执行一次以完成数据的恢复工作。
@@ -85,13 +98,20 @@ appendfsync everysec
 解说：
 always：同步持久化，每次发生数据变化会立刻写入到磁盘中。性能较差当数据完整性比较好（慢，安全）
 everysec：出厂默认推荐，每秒异步记录一次（默认值）
-no：不同步
+no：写入工作交给操作系统,由操作系统判断缓冲区大小,统一写入到aof. 同步频率低,速度快,
 4) 配置重写触发机制
 auto-aof-rewrite-percentage 100
 auto-aof-rewrite-min-size 64mb
 解说：当AOF文件大小是上次rewrite后大小的一倍且文件大于64M时触发。一般都设置为3G，64M太小了。
+5) 在日志重写时，不进行命令追加操作，而只是将其放在缓冲区里，避免与命令的追加造成DISK IO上的冲突。
+no-appendfsync-on-rewrite  yes
+当AOF的appendfsync配置为everysec或always，并且后台运行着RDB的save或者AOF重写时，（由于save和rewrite会）消耗大量的磁盘性能。在某些Linux配置下，aof同步到磁盘执行fsync()将被阻塞很长时间。为了减轻这个问题，可以使用no-appendfsync-on-rewrite选项防止执行BGSAVE或BGREWRITEAOF时，在主进程中调用fsync()。（设置为yes表示rewrite期间对新写操作不fsync,暂时存在内存中,等rewrite完成后再写入，默认为no，建议yes）
 
-12：Redis配置外网访问
+注: aof重写是指什么?
+答: aof重写是指把内存中的数据,逆化成命令,写入到.aof日志里.比如执行了三条命令：set key 1;set key 2;set key 3；逆化后变成一条命令：set key 3
+以解决 aof日志过大的问题.
+
+12：Redis配置外网访问（redis.conf里面的”bind IP地址“是限制访问IP的，需要注释掉）
 更改redis.conf 文件
 bind 127.0.0.1
 protected-mode yes
@@ -101,7 +121,77 @@ protected-mode no
 并且设置密码：
 requirepass yourpassword  
 
+13：redis在默认情况下，是不会生成日志文件的，所以需要配置，打开配置文件，找到logfile（可能有多个logfile，认准旁边有loglevel的那个），或者直接搜logfile ""
+例如：logfile "/usr/local/redis/7000/log"
+
 注意：Docker安装Redis并使用外部配置文件启动时，切记注释掉redis.conf文件中的：#daemonize yes 否则无法启动容器（或者改为：daemonize no）
+
+#############################################################Redis集群#############################################################
+Redis Cluster搭建使用
+要让集群正常工作至少需要3个主节点，在这里我们要创建6个redis节点，其中三个为主节点，三个为从节点，对应的redis节点的ip和端口对应关系如下（为了简单演示都在同一台机器上面）
+127.0.0.1:7000
+127.0.0.1:7001
+127.0.0.1:7002
+127.0.0.1:7003
+127.0.0.1:7004
+127.0.0.1:7005
+
+创建存放多个实例的目录
+cd /usr/local/redis/
+mkdir 7000 7001 7002 7003 7004 7005
+
+修改配置文件
+cd /usr/local/redis/
+cp ./redis.conf ./7000/
+cp ./redis.conf ./7001/
+cp ./redis.conf ./7002/
+cp ./redis.conf ./7003/
+cp ./redis.conf ./7004/
+cp ./redis.conf ./7005/
+
+修改配置文件中下面选项
+
+port 7000
+bind 本机ip  //redis.conf里面的”bind IP地址“是限制访问IP的，需要注释掉
+daemonize yes
+pidfile  /var/run/redis_端口号.pid
+cluster-enabled yes
+cluster-config-file nodes-端口号.conf
+cluster-node-timeout 5000
+
+文件中的cluster-enabled选项用于开实例的集群模式，而cluster-conf-file选项则设定了保存节点配置文件的路径，默认值为nodes.conf。其他参数相信童鞋们都知道。节点配置文件无须人为修改，它由Redis集群在启动时创建，并在有需要时自动进行更新。（注：每个节点配置文件中的cluster-config-file文件名不能一样）
+
+分别启动6个redis实例。
+./bin/redis-server ./7000/redis.conf
+./bin/redis-server ./7001/redis.conf
+./bin/redis-server ./7002/redis.conf
+./bin/redis-server ./7003/redis.conf
+./bin/redis-server ./7004/redis.conf
+./bin/redis-server ./7005/redis.conf
+
+./bin/redis-cli --cluster create 192.168.56.110:7000 192.168.56.110:7001 192.168.56.110:7002 192.168.56.110:7003 192.168.56.110:7004 192.168.56.110:7005  --cluster-replicas 1 -a 123456
+
+注意：
+1) 注意：进入集群命令    
+redis-cli -c -h host -p prot -a password （不带-c 参数进入的不是集群；如果加了密码，无论进入单节点或者集群都需要加-a 123456参数）
+
+2) 如果加了密码，那么创建集群时就需要加-a 123456参数
+./bin/redis-cli --cluster create 192.168.56.110:7000 192.168.56.110:7001 192.168.56.110:7002 192.168.56.110:7003 192.168.56.110:7004 192.168.56.110:7005  --cluster-replicas 1 -a 123456
+不然会报以下错误
+[ERR] Node  114.116.35.252:7000 NOAUTH Authentication required.
+
+3) 如果报一下错误：
+[ERR] Node 192.168.56.110:7000 is not empty. Either the node already knows other nodes (check with CLUSTER NODES) or contains some key in database 0.
+解决方法：
+1)、将需要新增的节点下aof、rdb等本地备份文件删除；
+2)、同时将新Node的集群配置文件删除,即：删除你redis.conf里面cluster-config-file所在的文件；
+3)、再次添加新节点如果还是报错，则登录新Node,./redis-cli –h host –p prot对数据库进行清除：
+172.168.63.201:7001>  flushdb      #清空当前数据库
+
+4) redis-cli命令开启集群,要使用公网IP,
+注意一定不要用127.0.0.1这种本地的局域ip，要用公网ip，命令中的--cluster-replicas 1 公网IP:7000 公网IP:7001… … 都要使用非本地的其他设备在局域网内能访问到的ip,不要使用127.0.0.1。
+#############################################################Redis集群#############################################################
+
 #############################################################Redis通用key操作命令#############################################################
 keys pattern 查询相应的key
 在redis里,允许模糊查询key
@@ -155,9 +245,9 @@ persist key
 
 #############################################################Redis字符串类型的操作#############################################################
 flushdb 清空DB
-et key value [ex 秒数] / [px 毫秒数]  [nx] /[xx]
+Set key value [ex 秒数] / [px 毫秒数]  [nx] /[xx]
 如: set a 1 ex 10 , 10秒有效
-Set a 1 px 9000  , 9秒有效
+Set a 1 px 9000  , 9000毫秒有效
 注: 如果ex,px同时写,以后面的有效期为准
 如 set a 1 ex 100 px 9000, 实际有效期是9000毫秒
 
@@ -376,7 +466,7 @@ sdiff key1 key2 key3
 
 #############################################################Redis-set结构及命令详解#############################################################
 
-#############################################################Redis-order set有序集合#############################################################
+#########################################################Redis-order set有序集合#########################################################
 zadd key score1 value1 score2 value2 ..
 添加元素
 redis 127.0.0.1:6379> zadd stu 18 lily 19 hmm 20 lilei 21 lilei
@@ -462,9 +552,9 @@ redis 127.0.0.1:6379> zrange tmp 0 -1 withscores
 3) "a"
 4) "7"
 
-#############################################################Redis-order set有序集合#############################################################
+#########################################################Redis-order set有序集合#########################################################
 
-#############################################################Redis-hash结构及命令详解#############################################################
+#########################################################Redis-hash结构及命令详解#########################################################
 hset key field value
 作用: 把key中filed域的值设为value
 注:如果没有field域,直接添加,如果有,则覆盖原field域的值
@@ -502,7 +592,7 @@ hkeys key
 kvals key
 作用: 返回key中所有的value
 
-#############################################################Redis-hash结构及命令详解#############################################################
+#########################################################Redis-hash结构及命令详解#########################################################
 
 #############################################################python链接redis操作#############################################################
 redis-py提供两个类Redis和StrictRedis用于实现Redis的命令，StrictRedis用于实现大部分官方的命令，并使用官方的语法和命令，Redis是StrictRedis的子类，用于向后兼容旧版本的redis-py。

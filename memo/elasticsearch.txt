@@ -1,0 +1,394 @@
+=============================================================环境安装=============================================================
+1、下载elasticsearch
+https://www.elastic.co/cn/downloads/elasticsearch
+
+2、elasticsearch-head (方便查看ES中的索引及数据)es5以上就需要安装node和grunt，所以安装head插件的前提，是需要把该两项配置好。
+	1) node下载地址：https://nodejs.org/en/download/，下载对应环境的node版本，(绿色版路径：D:\installation_package\node-v14.15.1-win-x64，添加至环境变量并重启)
+	2) 在node安装路径下，使用命令安装：npm install -g grunt-cli安装grunt。
+	3) 安装结束后，使用命令grunt -version查看是否安装成功，
+	4) 下载地址：https://github.com/mobz/elasticsearch-head，下载zip包，解压（路径：D:\elasticsearch\elasticsearch-head-master）
+	5) 在dos窗口进入到elasticsearch-head路径下，使用命令npm install安装pathomjs
+	npm install -g cnpm --registry=https://registry.npm.taobao.org
+	6) 在dos窗口进入到elasticsearch-head路径下，使用命令npm run start启用服务
+	npm run start
+	7) 使用地址：localhost:9100访问，
+	elasticsearch-head 无法连接elasticsearch的原因和解决
+	首先确定的是，elasticsearch-head启动无误，elasticsearch启动无误。
+	点击连接elasticsearch出现这个问题：集群健康值: 未连接
+	需要在elasticsearch的elasticsearch.yml文件里面添加
+	http.cors.enabled: true
+    http.cors.allow-origin: "*"
+    分析原因：
+	elasticsearch-head发送请求的时候，跨域了，所以变成options，让options去发现有什么可以请求的方法，而options请求没有返回结果。
+	
+3、Kibana(方便开发通过rest api 调试ES，有代码提示)
+https://www.elastic.co/cn/downloads/kibana
+http://localhost:5601
+
+4、中文分词elasticsearch-analysis-ik （ik）
+	1)下载和es版本一致的ik
+	https://github.com/medcl/elasticsearch-analysis-ik/releases
+	2)进入es的plugins目录新建一个名为ik的子目录，并将elasticsearch-analysis-ik-7.10.0.zip包解压到该ik目录内
+	D:\elasticsearch\elasticsearch-7.10.0\plugins
+	3)将elascticsearch和kibana服务重启
+	4)测试
+	GET _analyze
+	{
+	  "analyzer": "ik_max_word",
+	  "text": "上海自来水来自海上"
+	}
+=============================================================环境安装=============================================================
+
+=============================================================mapping映射管理=============================================================
+1、映射(mapping)介绍
+映射：创建索引的时候，可以预先定义字段的类型以及相关属性
+elasticsearch会根据json源数据的基础类型猜测你想要的字段映射，将输入的数据转换成可搜索的索引项，mapping就是我们自己定义的字段数据类型，同时告诉elasticsearch如何索引数据以及是否可以被搜索
+作用：会让索引建立的更加细致和完善
+类型：静态映射和动态映射
+2、内置映射类型(也就是数据类型)
+string类型：text,keyword两种
+　　text类型：会进行分词，抽取词干，建立倒排索引
+　　keyword类型：就是一个普通字符串，只能完全匹配才能搜索到
+数字类型：long,integer,short,byte,double,float
+日期类型：date
+bool(布尔)类型：boolean
+binary(二进制)类型：binary
+复杂类型：object,nested
+geo(地区)类型：geo-point,geo-shape
+专业类型：ip,competion
+=============================================================mapping映射管理=============================================================
+
+=============================================================正排、倒排索引=============================================================
+1、不分词的所有field（如：long、integer等）可以执行聚合操作；因为在创建索引的时候doc_values的属性默认为true，所以会自动生成doc_value正排索引，针对这些不分词的field执行聚合操作的时候，自动就会用doc_value来执行
+的doc_values属性有两个值，true、false。默认为true，即开启。
+当doc_values为fasle时，无法基于该字段排序、聚合、在脚本中访问字段值。
+当doc_values为true时，会创建正排索引：doc_value，也会写入磁盘文件中，然后呢，os_cache先进行缓存，以提升访问doc_value正排索引的性能,如果os_cache内存大小不足够放得下整个正排索引，doc_value，就会将doc_value的数据写入磁盘文件中
+示例1: 关闭 doc_values 属性
+PUT student
+{
+  "mappings" : {
+    "properties" : {
+      "name" : {
+        "type" : "keyword",
+        "doc_values": false
+      },
+      "age" : {
+        "type" : "integer",
+        "doc_values": false
+      }
+    }
+  }
+}
+插入数据
+POST _bulk
+{ "index" : { "_index" : "student", "_id" : "1" } }
+{ "name" : "张三", "age": 12 }
+{ "index" : { "_index" : "student", "_id" : "2" } }
+{ "name" : "李四", "age": 10 }
+{ "index" : { "_index" : "student", "_id" : "3" } }
+{ "name" : "王五", "age": 11 }
+查询数据并按照age排序，会报错
+POST student/_search
+{
+  "query": {
+    "match_all": {}
+  },
+  "sort" : [
+    {"age": {"order": "desc"}}
+  ],
+  "from": 0,
+  "size": 1
+}
+查询数据并按照name排序，同样会报错
+POST student/_search
+{
+  "query": {
+    "match_all": {}
+  },
+  "sort" : [
+    {"name": {"order": "desc"}}
+  ],
+  "from": 0,
+  "size": 1
+}
+获取age平均值，也会报错
+POST student/_search
+{
+  "aggs":{
+    "age_stat": {
+      "avg": {"field": "age"}
+    }
+  },
+  "from": 0
+}
+示例2: 开启 doc_values 属性
+PUT student
+{
+  "mappings" : {
+    "properties" : {
+      "name" : {
+        "type" : "keyword",
+        "doc_values": true
+      },
+      "age" : {
+        "type" : "integer",
+        "doc_values": true
+      }
+    }
+  }
+}
+插入数据
+POST _bulk
+{ "index" : { "_index" : "student", "_id" : "1" } }
+{ "name" : "张三", "age": 12 }
+{ "index" : { "_index" : "student", "_id" : "2" } }
+{ "name" : "李四", "age": 10 }
+{ "index" : { "_index" : "student", "_id" : "3" } }
+{ "name" : "王五", "age": 11 }
+查询数据并按照age排序，正常执行
+POST student/_search
+{
+  "query": {
+    "match_all": {}
+  },
+  "sort" : [
+    {"age": {"order": "desc"}}
+  ],
+  "from": 0,
+  "size": 1
+}
+查询数据并按照name排序，正常执行
+POST student/_search
+{
+  "query": {
+    "match_all": {}
+  },
+  "sort" : [
+    {"name": {"order": "desc"}}
+  ],
+  "from": 0,
+  "size": 1
+}
+获取age平均值，正常执行
+POST student/_search
+{
+  "aggs":{
+    "age_stat": {
+      "avg": {"field": "age"}
+    }
+  },
+  "from": 0,
+  "size": 0
+}
+
+2、对于分词的field（如：text），由于在创建索引的时候不会给它建立doc_value正排索引，所以无法基于该字段排序、聚合；如果一定要对分词的field执行聚合，那么必须将fielddata=true，然后es就会在执行聚合操作的时候，现场将field对应的数据，建立一份fielddata正排索引，fielddata正排索引的结构跟doc_value是类似的，但是只会将fielddata正排索引加载到内存中来，然后基于内存中的fielddata正排索引执行分词field的聚合操作
+示例1: 对于分词的field执行aggregation，会报错
+PUT student
+{
+  "mappings" : {
+    "properties" : {
+      "name" : {
+        "type" : "text",
+        "fields" : {
+          "keyword" : {
+            "type" : "keyword",
+            "ignore_above" : 256
+          }
+        }
+      },
+      "age" : {
+        "type" : "integer"
+      }
+    }
+  }
+}
+插入数据
+POST _bulk
+{ "index" : { "_index" : "student", "_id" : "1" } }
+{ "name" : "张三", "age": 12 }
+{ "index" : { "_index" : "student", "_id" : "2" } }
+{ "name" : "李四", "age": 10 }
+{ "index" : { "_index" : "student", "_id" : "3" } }
+{ "name" : "王五", "age": 11 }
+以name进行分组会报错
+GET /student/_search 
+{
+  "aggs": {
+    "group_by_name_field": {
+      "terms": {
+        "field": "name"
+      }
+    }
+  }
+}
+
+示例2：使用类型为keyword的内置field，可以正常执行聚合操作
+GET /student/_search 
+{
+  "aggs": {
+    "group_by_name_field": {
+      "terms": {
+        "field": "name.keyword"
+      }
+    }
+  }
+}
+
+示例3: 对于分词的field，设置fielddata为true，可以正常执行聚合操作
+POST /student/_mapping
+{
+  "properties": {
+    "name": {
+      "type": "text",
+      "fielddata": true
+    }
+  }
+}
+可以正常执行聚合操作
+GET /student/_search 
+{
+  "aggs": {
+    "group_by_name_field": {
+      "terms": {
+        "field": "name"
+      }
+    }
+  }
+}
+=============================================================正排、倒排索引=============================================================
+
+=======================================================query、filter及多搜索条件组合=======================================================
+1、filter与query对比
+filter，仅仅只是按照搜索条件过滤出需要的数据而已，不计算任何相关度分数，对相关度没有任何影响
+query，会去计算每个document相对于搜索条件的相关度，并按照相关度进行排序
+一般来说，如果你是在进行搜索，需要将最匹配搜索条件的数据先返回，那么用query；如果你只是要根据一些条件筛选出一部分数据，不关注其排序，那么用filter
+除非是你的这些搜索条件，你希望越符合这些搜索条件的document越排在前面返回，那么这些搜索条件要放在query中；如果你不希望一些搜索条件来影响你的document排序，那么就放在filter中即可
+
+2、filter与query性能
+filter，不需要计算相关度分数，不需要按照相关度分数进行排序，同时还有内置的自动cache最常使用filter的数据
+query，相反，要计算相关度分数，按照分数进行排序，而且无法cache结果
+
+3、多搜索条件组合
+POST _bulk
+{ "index" : { "_index" : "article", "_id" : "1" } }
+{ "title" : "how to make millions", "tag" : "spam", "date" : "2014-01-01", "price" : 29.99,"category" : "ebooks" }
+{ "index" : { "_index" : "article", "_id" : "2" } }
+{ "title" : "java thread knowledge", "tag" : "java", "date" : "2015-01-01", "price" : 100,"category" : "java" }
+{ "index" : { "_index" : "article", "_id" : "3" } }
+{ "title" : "how study hadoop", "tag" : "starred", "date" : "2017-01-01", "price" : 299,"category" : "hadoop" }
+
+bool用于多搜索条件组合查询，bool里面可以使用must，must_not，should，filter
+例：
+GET /article/_search
+{
+  "query": {
+    "bool": {
+        "must":     { "match": { "title": "how to make millions" }},
+        "must_not": { "match": { "tag":   "spam" }},
+        "should": [
+            { "match": { "tag": "starred" }}
+        ],
+        "filter": {
+          "bool": { 
+              "must": [
+                  { "range": { "date": { "gte": "2014-01-01" }}},
+                  { "range": { "price": { "gte": 29.99 }}}
+              ],
+              "must_not": [
+                  { "term": { "category": "ebooks" }}
+              ]
+          }
+        }
+    }
+  }
+}
+每个子查询都会计算一个document针对它的相关度分数，然后bool综合所有分数，合并为一个分数，但是filter是不会计算分数的
+
+4、单独使用filter进行过滤（注意必须加constant_score）
+GET /article/_search
+{
+  "query": {
+    "constant_score": {
+        "filter": {
+          "bool": { 
+              "must": [
+                  { "range": { "date": { "gte": "2014-01-01" }}},
+                  { "range": { "price": { "gte": 29.99 }}}
+              ],
+              "must_not": [
+                  { "term": { "category": "ebooks" }}
+              ]
+          }
+        }
+    }
+  }
+}
+
+=======================================================query、filter及多搜索条件组合=======================================================
+
+=======================================================term query与match query区别=======================================================
+1.首先设置索引名称为my_index，设置该索引的full_text字段类型为text，exact_value字段类型为keyword（表示该字段不分词）。
+PUT my_index  
+{  
+  "mappings": {  
+	  "properties": {  
+  		"full_text": {  
+  		  "type":  "text"    
+  		},  
+  		"exact_value": {  
+  		  "type":  "keyword"
+  		}  
+	  }  
+  }  
+}
+2.添加一条数据
+PUT my_index/_doc/1  
+{  
+  "full_text":   "Quick Foxes!",    
+  "exact_value": "Quick Foxes!"     
+}
+3.执行查询
+（1）使用term查询exact_value,搜索内容为Quick Foxes!
+    GET my_index/_doc/_search  
+    {  
+      "query": {  
+        "term": {  
+          "exact_value": "Quick Foxes!"    
+        }  
+      }  
+    }
+    由于exact_value不分词，Quick Foxes!与exact_value的值QuickFoxes!匹配，因此可以匹配
+（2）使用term查询full_text,搜索内容为Quick Foxes!
+    GET my_index/_doc/_search  
+    {  
+      "query": {  
+        "term": {  
+          "full_text": "Quick Foxes!"    
+        }  
+      }  
+    }
+	由于full_text字段默认使用标准分析器分词，在倒排索引中被分为quick和foxes，因此使用 Quick Foxes!匹配不到内容
+（3）使用term查询full_text,搜索内容为foxes
+    GET my_index/_doc/_search  
+    {  
+      "query": {  
+        "term": {  
+          "full_text": "foxes"    
+        }  
+      }
+    }
+    由于full_text字段默认使用标准分析器分词，在倒排索引中被分为quick和foxes，因此使用 foxes可以匹配到
+（4）使用match查询full_text,查询内容为Quick Foxes!
+	GET my_index/_doc/_search  
+	{  
+	  "query": {  
+		"match": {  
+		  "full_text": "Quick Foxes!"    
+		}  
+	  }  
+	}
+    使用match搜索，先分析搜索字符串Quick Foxes!，对它分词，然后搜索full_text中含有quick或者foxes或者两者都包含的文档，由于full_text字在倒排索引中被分为quick和foxes,因此可以匹配到.
+
+总结：
+match query搜索的时候，首先会解析查询字符串，进行分词，然后查询，而term query,输入的查询内容是什么，就会按照什么去查询，并不会解析查询内容，对它分词。
+=======================================================term query与match query区别=======================================================

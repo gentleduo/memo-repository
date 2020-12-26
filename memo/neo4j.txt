@@ -1,0 +1,170 @@
+cypher：描述性的类sql的图操作语言。（没有join，cypher语言中任何语法都可以有return）
+
+############################################################Create、match、merge############################################################
+=====> 创建节点及添加相应的属性
+create (grandpa:Person {id:1,name:"王始初",age:68,gender:"male"}) //标签前面的"王始初"是别名，无法通过别名查询，
+create (grandma:Person {id:2,name:"郑月娥",age:65,gender:"female"}) 
+create (father:Person {id:3,name:"王才仁",age:36,gender:"male"})
+create (mother:Person {id:4,name:"赵雅芝",age:32,gender:"female"})
+create (Son:Person {id:5,name:"王子",age:25,gender:"male"})
+create (daughter:Person {id:6,name:"王燕飞",age:18,gender:"female"})
+
+也可以一次创建：
+create (grandpa:Person {id:1,name:"王始初",age:68,gender:"male"}),
+       (grandma:Person {id:2,name:"郑月娥",age:65,gender:"female"}), 
+       (father:Person {id:3,name:"王才仁",age:36,gender:"male"}),
+       (mother:Person {id:4,name:"赵雅芝",age:32,gender:"female"}),
+       (son:Person {id:5,name:"王子",age:25,gender:"male"}),
+       (daughter:Person {id:6,name:"王燕飞",age:18,gender:"female"})
+
+=====> 创建多个标签的节点 
+create (n:Card:Finance {type:"Visa",quota:50000,ValidPeriod:10,conditions:"白领"})
+
+=====> 创建节点之间的关系
+match (s:Person {name:"王始初"}), (d:Person {name:"郑月娥"})
+create ((s)-[r:wife]->(d))
+match (s:Person {name:"郑月娥"}), (d:Person {name:"王始初"})
+create ((s)-[r:husband]->(d))
+
+match (s:Person {name:"王才仁"}), (d:Person {name:"赵雅芝"})
+create ((s)-[r:wife]->(d))
+match (s:Person {name:"赵雅芝"}), (d:Person {name:"王才仁"})
+create ((s)-[r:husband]->(d))
+
+match (s:Person {name:"王子"}), (d:Person {name:"王燕飞"})
+create ((s)-[r:sister]->(d))
+match (s:Person {name:"王燕飞"}), (d:Person {name:"王子"})
+create ((s)-[r:brothers]->(d))
+
+match (s:Person {name:"王始初"}), (d:Person {name:"王才仁"})
+create ((s)-[r:son]->(d))
+match (s:Person {name:"王始初"}), (d:Person {name:"赵雅芝"})
+create ((s)-[r:DaughterInLaw]->(d))
+
+match (s:Person {name:"郑月娥"}), (d:Person {name:"王才仁"})
+create ((s)-[r:son]->(d))
+match (s:Person {name:"郑月娥"}), (d:Person {name:"赵雅芝"})
+create ((s)-[r:DaughterInLaw]->(d))
+
+match (s:Person {name:"王才仁"}), (d:Person {name:"王始初"})
+create ((s)-[r:father]->(d))
+match (s:Person {name:"王才仁"}), (d:Person {name:"郑月娥"})
+create ((s)-[r:mother]->(d))
+
+match (s:Person {name:"赵雅芝"}), (d:Person {name:"王始初"})
+create ((s)-[r:FatherInLaw]->(d))
+match (s:Person {name:"赵雅芝"}), (d:Person {name:"郑月娥"})
+create ((s)-[r:MotherInLaw]->(d))
+
+match (s:Person {name:"王才仁"}), (d:Person {name:"王子"})
+create ((s)-[r:son]->(d))
+match (s:Person {name:"王才仁"}), (d:Person {name:"王燕飞"})
+create ((s)-[r:daughter]->(d))
+
+match (s:Person {name:"赵雅芝"}), (d:Person {name:"王子"})
+create ((s)-[r:son]->(d))
+match (s:Person {name:"赵雅芝"}), (d:Person {name:"王燕飞"})
+create ((s)-[r:daughter]->(d))
+
+=====> 在创建节点的同时建立关系，由于在一个会话中，所以后面建立的语句可以使用前面创建节点时用的别名
+create (meimei:Person {name:"美眉"}),(gege:Person {name:"哥哥"}),(meimei)-[:husband]->(gege)
+如果直接create (meimei)-[:husband]->(gege)的时候将会新建出2个节点和1个关系，并且新创建的节点和关系没有任何属性，只有系统默认分配的id
+
+=====> 通过merge给节点之间添加关系
+直接使用merge：如果相同标签及属性的关系不存在，就会新建节点、属性及关系；如果存在的话就相当于查询、检索出相应的节点及属性
+merge (m:Person {name:"美眉"})-[r:husband]->(g:Person {name:"哥哥"})
+merge (g:Person {name:"哥哥"})-[r:wife]->(m:Person {name:"美眉"}) 
+
+如果想要在原来的节点中修改关系则需要通过match先将符合条件的节点查出来后再merge
+match (m:Person {name:"美眉"}) , (g:Person {name:"哥哥"})
+merge (g)-[r:wife]->(m)
+############################################################Create、match、merge############################################################
+
+#########################################################set、delete、remove#########################################################
+=====> 通过set更新节点的属性
+match (n:Person {name:"赵雅芝"}) set n.id=4 return n.name,n.id
+属性是写数据的时候自动创建，无schema特性，
+
+=====> delete、remove主要区别
+delete操作用于删除节点和relation
+remove操作用于删除节点中的标签和属性
+两个命令都应该与match一起使用
+
+=====> remove属性
+先创建：
+create (n:Card {type:"万事达",quota:100000,ValidPeriod:10,conditions:"学生"})
+更新：
+match (n:Card {type:"万事达"}) set n.name='京东联名卡' return n.name
+再remove：
+match (n:Card {name:"京东联名卡"}) remove n.conditions return n
+
+=====> remove标签（当该标签没有被任何节点引用时，系统会自动删除该标签）
+先添加标签：
+match (n:Card {name:"京东联名卡"}) set n:Finance return n
+再remove标签：
+match (n:Card {name:"京东联名卡"}) remove n:Finance
+
+=====> delete关系
+先创建节点：
+create (a:Teacher {name:"张老师",age:48}),(b:Student {name:"李学生",age:12}),(c:Student {name:"王学生",age:11})
+再创建关系：
+match (t:Teacher),(l:Student),(w:Student) where t.name="张老师" and w.name="王学生" and l.name="李学生"
+merge (t)-[:teach]->(l)
+merge (t)-[:teach]->(w)
+match (t:Teacher),(l:Student),(w:Student) where t.name="张老师" and w.name="王学生" and l.name="李学生"
+merge (l)-[:study]->(t)
+merge (w)-[:study]->(t)
+删除关系（指定条件：老师姓名、学生姓名）：
+match (s:Teacher)-[r:teach]->(d:Student) where s.name="张老师" and d.name="王学生" delete r
+删除关系（没有指定条件：将所有的teach关系全部删除掉）：
+match (s)-[r:teach]->(d) delete r
+
+注意：如果使用下述语句的话，会将整个库里面存在关系的节点及标签和它们之间的关系全部删除掉（不管这个关系的方向）
+match p=()-[]-() delete p
+match ()-[r]-() delete r
+
+=====> delete节点
+先创建节点：
+create (a:Teacher {name:"张老师",age:48}),(b:Student {name:"李学生",age:12}),(c:Student {name:"王学生",age:11})
+再删除：
+match (n:Teacher) delete n
+match (n:Student) delete n
+删除所有标签为Teacher的节点，删除从Teacher标签的节点到Student标签的节点的关系中所有的teach关系以及删除所有标签为Student的节点：
+match (s:Teacher)-[r:teach]->(d:Student) delete s,r,d
+删除所有存在关系的标签为Person的节点以及他们之间的关系（不管这个关系的方向）
+match p=(:Person)-[]-(:Person) delete p
+match (s:Person)-[r]-(d:Person) delete s,r,d
+删除所有标签为Person的节点
+match p=(:Person) delete p
+match (n:Person) delete n
+删除所有关系（不管这个关系的方向）
+match p=()-[]-() delete p
+match ()-[r]-() delete r
+删除所有节点（所有标签的节点）
+match p=() delete p
+match (n) delete n
+
+注意：如果被删除的节点和其他节点之间还存在关系的话将无法删除
+
+=====> 通过真正的id删除关系和节点
+match ()-[r]-() where id(r)=15 delete r
+match (n) where id(n)=6 delete n
+#########################################################set、delete、remove#########################################################
+
+#########################################################排序、limit、skip#########################################################
+=====> order by
+match (n:Person) return n order by n.id desc
+=====> limit
+match (n:Person) return n limit 2
+=====> skip：跳过前面的n行
+match (n:Person) return n order by n.id desc skip 2
+=====> union：（将多段match的return结果组合成一个结果集，自动去重）
+match (n:Person) where n.id = 1 return n union match (n:Person) where n.name="王始初" return n
+=====> union all
+match (n:Person) where n.id = 1 return n union all match (n:Person) where n.name="王始初" return n
+=====> is null、is not null
+match (n:Person) where n.id is null return n
+match (n:Person) where n.id is not null return n
+=====> in
+match (n:Person) where n.id in [1,3,5] return n
+#########################################################排序、limit、skip#########################################################

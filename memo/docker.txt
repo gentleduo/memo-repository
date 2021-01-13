@@ -231,6 +231,83 @@ KiB Swap:  1952764 total,  1952764 free,        0 used.  1520044 avail Mem
 但是，你如果在容器里执行top指令，就会发现，它显示的信息居然是宿主机的CPU和内存数据，而不是当前容器的数据。
 造成这个问题的原因就是，/proc文件系统并不知道用户通过Cgroups给这个容器做了什么样的资源限制，即：/proc文件系统不了解Cgroups限制的存在。
 在生产环境中，这个问题必须进行修正，否则应用程序在容器里读取到的CPU核数、可用内存等信息都是宿主机上的数据，这会给应用的运行带来非常大的困惑和风险。这也是在企业中，容器化应用碰到的一个常见问题，也是容器相较于虚拟机另一个不尽如人意的地方。
+
+下面的代码可以模拟一个简单的docker容器创建过程：
+#define _GNU_SOURCE
+#include <sys/mount.h> 
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <stdio.h>
+#include <sched.h>
+#include <signal.h>
+#include <unistd.h>
+#define STACK_SIZE (1024 * 1024)
+
+static char container_stack[STACK_SIZE];
+char* const container_args[] = {
+  "/bin/bash",
+  NULL
+};
+
+int container_main(void* arg)
+{  
+  printf("Container - inside the container!\n");
+  mount("none", "/proc", "proc", 0, "");
+  execv(container_args[0], container_args);
+  printf("Something's wrong!\n");
+  return 1;
+}
+
+int main()
+{
+  printf("Parent - start a container!\n");
+  int container_pid = clone(container_main, container_stack+STACK_SIZE, CLONE_NEWNS | CLONE_NEWPID | CLONE_NEWUSER | SIGCHLD, NULL);
+  printf("Container - pid = %d \n" ,container_pid);
+  waitpid(container_pid, NULL, 0);
+  printf("Parent - container stopped!\n");
+  return 0;
+}
+编译并运行程序：
+[root@localhost opt]# gcc -o ns ns.c
+[root@localhost opt]# ./ns
+Parent - start a container!
+Container - pid = 107435
+Container - inside the container!
+[nfsnobody@localhost opt]$
+在进程的/bin/bash命令行中使用top命令查看运行的进程：
+top - 16:50:35 up 54 days, 22 min,  2 users,  load average: 0.00, 0.03, 0.10
+Tasks:   2 total,   1 running,   1 sleeping,   0 stopped,   0 zombie
+%Cpu(s):  0.0 us,  0.0 sy,  0.0 ni,100.0 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
+KiB Mem : 52782950+total, 46932281+free,  7756752 used, 50749928 buff/cache
+KiB Swap: 16777212 total, 16777212 free,        0 used. 51831715+avail Mem
+
+   PID USER      PR  NI    VIRT    RES    SHR S  %CPU %MEM     TIME+ COMMAND
+     1 nfsnobo+  20   0  116088   2656   1604 S   0.0  0.0   0:00.05 bash
+    31 nfsnobo+  20   0  161896   2140   1528 R   0.0  0.0   0:00.00 top
+
+注意：
+在CentOS内核3.8或更高版本中，添加了user-namespaces（户名命名空间）功能。但是，该功能默认情况下是禁用的，原因是RedHat希望该功能在社区中孵化更长时间，以确保该功能的稳定性和安全性。
+配置CentOS-7系统启用user-namespaces：
+# kernel 设置
+[root@localhost ~]# grubby --args="user_namespace.enable=1" --update-kernel="$(grubby --default-kernel)"
+# 重启
+[root@localhost ~]# reboot
+如需关闭user-namespace ，使用如下命令：
+[root@localhost ~]# grubby --remove-args="user_namespace.enable=1" --update-kernel="$(grubby --default-kernel)"
+
+配置系统max_user_namespaces
+临时配置，重启会失效，可用作临时验证：
+# 查看系统 user namespaces 最大为 0
+[root@localhost ~]# cat /proc/sys/user/max_user_namespaces
+0
+# 临时开启 user namespace ，向文件内写入一个整数。
+[root@localhost ~]# echo 10000 > /proc/sys/user/max_user_namespaces
+永久配置
+# 写入配置文件
+[root@localhost ~]# echo "user.max_user_namespaces=10000" >> /etc/sysctl.conf
+# 重启
+[root@localhost ~]# reboot
+
 ########################################################容器技术概念########################################################
 
 ########################################################Dockerfile########################################################

@@ -330,3 +330,64 @@ MATCH (cust:Customer)-[:PURCHASED]->(:Order)-[o:ORDERS]->(p:Product),
 RETURN DISTINCT cust.contactName as CustomerName, SUM(o.quantity) AS TotalProductsPurchased
 
 ###############################################From RDBMS to Neo4j, using a classic data set.###############################################
+
+###############################################图数据库neo4j存储数据结构分析###############################################
+=====> 存储的数据结构的源码目录
+neo4j-4.2\community\record-storage-engine\src\main\java\org\neo4j\kernel\impl\store\format\standard
+
+=====> neo4j存储的数据结构
+在neo4j中，点、关系和属性等图的组成元素都是基于neo4j内部维护的ID进行访问的。而且可以认为这些元素的定长存储的。这样做的好处在于，知道了某点/关系/属性的ID，就能直接算出该ID在对应文件中的偏移位置，直接进行访问。也就是说在图的遍历过程中不需要基于索引扫描，直奔目的地即可。
+
+=====> 点
+点结构为定长15byte，并且仅保存该点的第一个关系的ID和该点的第一个属性的ID
+// in_use(byte)+next_rel_id(int)+next_prop_id(int)+labels(5)+extra(byte)
+public static final int RECORD_SIZE = 15;
+第一个byte的第一个bit存inUse(节点是否在使用中)，后七个bit存属性和关系id的高位信息
+// [    ,   x] in use bit
+// [    ,xxx ] higher bits for rel id
+// [xxxx,    ] higher bits for prop id
+接下来用一个Int(4个byte)保存第一个关系ID的低位，加上第一个byte的三个位表示的关系ID的高位组合成关系ID（就是说neo4j中关系ID用35位表示）
+接下来用一个Int(4个byte)保存第一个属性ID的低位，加上第一个byte的四个位表示的属性ID的高位组合成关系ID（就是说neo4j中属性ID用36位表示）
+接下来用一个Int(4个byte)存lsbLabels
+接下来用一个byte存hsbLabels，跟4组成5个byte的label
+最后一个byte保留字段extra，存记录是否为dense，dense的意思是是否为一个supernode
+
+=====> 边
+边结构为定长34byte，
+第一个byte的第一个bit存inUse(关系是否在使用中)，后七个bit存关系起点和第一个属性的高位信息
+一个Int存该关系的起点
+一个Int存该关系的终点
+一个Int存关系的类型，以及关系的终点、关系的起点的前一个和后一个关系、关系的终点的前一个和后一个关系的高位信息，如下所示：
+// [ xxx,    ][    ,    ][    ,    ][    ,    ] second node high order bits,     0x70000000
+// [    ,xxx ][    ,    ][    ,    ][    ,    ] first prev rel high order bits,  0xE000000
+// [    ,   x][xx  ,    ][    ,    ][    ,    ] first next rel high order bits,  0x1C00000
+// [    ,    ][  xx,x   ][    ,    ][    ,    ] second prev rel high order bits, 0x380000
+// [    ,    ][    , xxx][    ,    ][    ,    ] second next rel high order bits, 0x70000
+// [    ,    ][    ,    ][xxxx,xxxx][xxxx,xxxx] type
+一个Int存该关系的起点的前一个关系
+一个Int存该关系的起点的下一个关系
+一个Int存该关系的终点的前一个关系
+一个Int存该关系的终点的下一个关系
+一个Int存该关系的第一个属性
+一个Byte存该关系是不是起点和终点的第一个关系，如下所示：
+// [    ,   x] 1:st in start node chain,  0x1
+// [    ,  x ] 1:st in end node chain,   0x2
+边保存了其对应的起点和终点的ID，可以看到点的ID跟边一样，也是35位；这算是最基本的字段；
+除此之外，还保持了起点对应的前一个和后一个关系，终点对应的前一个和后一个关系。这看起来就有点特别了，也就是说，对一个点的所有边的遍历，不是由点而是由其边掌控的；
+由于起点和终点的关系都保存了，所以无论从起点开始遍历还是从终点开始都能够顺利完成遍历操作；
+与点一样，边也仅保存自身的第一个属性；
+最后，分别有个标识位来说明该边是否为起点和终点的第一条边。
+
+=====> 属性
+属性结构为定长41B。但与点和边不同的是，属性的长度本身是不固定的，一个属性结构不一定能够保存得下，因此还有可能外链到动态存储块上（DynamicRecord），动态存储块又可分为动态数组或动态字符串，动态存储块在此不做详细介绍。
+一个Byte存辅助信息，即前后属性结构ID的高位信息（就是说neo4j中属性ID用36位表示）
+一个Int存前一个属性
+一个Int存下一个属性
+默认存4个属性块，每个块一个Long
+
+=====> 图规模
+从上面知道，neo4j使用35位保存点和边的ID，用36位保存属性ID。
+2^35 = 34,359,738,368
+2^36 = 68,719,476,7362
+也就是说neo4j最大能够保存34B的点和边，68B个属性。更直观说就是340亿的点和边，680亿个属性。所以，从规模上，neo4j图数据库能够容纳足够大的图。
+###############################################图数据库neo4j存储数据结构分析###############################################

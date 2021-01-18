@@ -300,6 +300,83 @@ overlay只支持两层，upper文件系统通常是可写的；lower文件系统
 可以看到，因为lower是只读，所以无论对lower上的文件和目录做任何的操作都不会对lower做变更。所有的操作都是对在upper做。
 copy_up只在第一次写时对文件做copy_up操作，后面的操作都不再需要做copy_up，都只操作这个文件，特别适合大文件的场景。overlay的copy_up操作要比AUFS相同的操作要快，因为AUFS有很多层，在穿过很多层时可能会有延迟，而overlay只有两层。而且overlay在2014年并入linux-kernel-mailline，但是aufs并没有被并入linux-kernel-mailline，所以overlay可能会比AUFS快。
 
+=====> setns
+docker exec是如何进入通过Linux Namespace机制创建的隔离空间中的
+实际上，Linux Namespace创建的隔离空间虽然看不见摸不着，但一个进程的Namespace信息在宿主机上是确确实实存在的，并且是以一个文件的方式存在。
+比如，通过如下指令，你可以看到当前正在运行的Docker容器的进程号（PID）是25686：
+[root@server01 opt]# docker inspect --format '{{ .State.Pid }}' 625e8df55f45
+1262
+这时，你可以通过查看宿主机的 proc 文件，看到这个 25686 进程的所有 Namespace 对应的文件：
+[root@server01 opt]# ls -l /proc/1262/ns
+总用量 0
+lrwxrwxrwx 1 root root 0 1月  18 13:17 ipc -> ipc:[4026532192]
+lrwxrwxrwx 1 root root 0 1月  18 13:17 mnt -> mnt:[4026532190]
+lrwxrwxrwx 1 root root 0 1月  18 12:49 net -> net:[4026532195]
+lrwxrwxrwx 1 root root 0 1月  18 13:17 pid -> pid:[4026532193]
+lrwxrwxrwx 1 root root 0 1月  18 13:17 user -> user:[4026531837]
+lrwxrwxrwx 1 root root 0 1月  18 13:17 uts -> uts:[4026532191]
+可以看到，一个进程的每种Linux Namespace，都在它对应的/proc/[进程号]/ns下有一个对应的虚拟文件，并且链接到一个真实的Namespace文件上。
+有了这样一个可以“hold住”所有Linux Namespace的文件，我们就可以对Namespace做一些很有意义事情了，比如：加入到一个已经存在的Namespace当中。
+这也就意味着：一个进程，可以选择加入到某个进程已有的Namespace当中，从而达到“进入”这个进程所在容器的目的，这正是docker exec的实现原理。
+而这个操作所依赖的，乃是一个名叫 setns()的Linux系统调用。它的调用方法，可以用如下一段小程序来说明：
+#define _GNU_SOURCE
+#include <fcntl.h>
+#include <sched.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <stdio.h>
+
+#define errExit(msg) do { perror(msg); exit(EXIT_FAILURE);} while (0)
+
+int main(int argc, char *argv[]) {
+    int fd;
+    fd = open(argv[1], O_RDONLY);
+    if (setns(fd, 0) == -1) {
+        errExit("setns");
+    }
+    execvp(argv[2], &argv[2]); 
+    errExit("execvp");
+}
+这段代码功能非常简单：它一共接收两个参数，第一个参数是argv[1]，即当前进程要加入的Namespace文件的路径，比如/proc/1262/ns/net；而第二个参数，则是你要在这个Namespace里运行的进程，比如/bin/bash。
+这段代码的核心操作，则是通过open()系统调用打开了指定的Namespace文件，并把这个文件的描述符fd交给setns()使用。在setns()执行后，当前进程就加入了这个文件对应的Linux Namespace当中了。
+现在，可以编译执行一下这个程序，加入到容器进程（PID=1262）的Network Namespace中：
+[root@server01 opt]# gcc -o dockerExec dockerExec.c
+[root@server01 opt]# ./dockerExec /proc/1262/ns/net /bin/bash
+[root@server01 opt]# ifconfig
+eth0: flags=4163<UP,BROADCAST,RUNNING,MULTICAST>  mtu 1500
+        inet 172.17.0.2  netmask 255.255.0.0  broadcast 172.17.255.255
+        ether 02:42:ac:11:00:02  txqueuelen 0  (Ethernet)
+        RX packets 16  bytes 1296 (1.2 KiB)
+        RX errors 0  dropped 0  overruns 0  frame 0
+        TX packets 0  bytes 0 (0.0 B)
+        TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
+
+lo: flags=73<UP,LOOPBACK,RUNNING>  mtu 65536
+        inet 127.0.0.1  netmask 255.0.0.0
+        loop  txqueuelen 1  (Local Loopback)
+        RX packets 0  bytes 0 (0.0 B)
+        RX errors 0  dropped 0  overruns 0  frame 0
+        TX packets 0  bytes 0 (0.0 B)
+        TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
+如上所示，当执行ifconfig命令查看网络设备时，会发现能看到的网卡“变少”了：只有两个。而我的宿主机则至少有四个网卡。这是怎么回事呢？
+实际上，在setns()之后我看到的这两个网卡，正是我在前面启动的Docker容器里的网卡。也就是说，我新创建的这个/bin/bash进程，由于加入了该容器进程（PID=1262）的Network Namepace，它看到的网络设备与这个容器里是一样的，即：/bin/bash进程的网络设备视图，也被修改了。
+
+=====> Volume
+Docker Volume要解决的问题：Volume机制，允许你将宿主机上指定的目录或者文件，挂载到容器里面进行读取和修改操作。
+那么，Docker又是如何做到把一个宿主机上的目录或者文件，挂载到容器里面去呢？难道又是Mount Namespace的黑科技吗？实际上，并不需要这么麻烦。
+当容器进程被创建之后，尽管开启了Mount-Namespace，但是在它执行chroot（或者pivot_root）之前，容器进程一直可以看到宿主机上的整个文件系统。而宿主机上的文件系统，也自然包括了我们要使用的容器镜像。这个镜像的只读层保存在LowerDir目录下，在容器进程启动后，它和可写层UpperDir联合挂载在MergedDir目录中，这样容器所需的rootfs就准备好了。
+所以，只需要在rootfs准备好之后，在执行pivot_root之前，把Volume指定的宿主机目录（比如/home目录），挂载到指定的容器目录（比如/test目录）在宿主机上对应的目录（即：可写层UpperDir/test）上，这个Volume的挂载工作就完成了。
+更重要的是，由于执行这个挂载操作时，“容器进程”已经创建了，也就意味着此时Mount-Namespace已经开启了。所以，这个挂载事件只在这个容器里可见。你在宿主机上，是看不见容器内部的这个挂载点的。这就保证了容器的隔离性不会被Volume打破。
+注意：这里提到的"容器进程"，是Docker创建的一个容器初始化进程(dockerinit)，而不是应用进程(ENTRYPOINT+CMD)。dockerinit会负责完成根目录的准备、挂载设备和目录、配置hostname等一系列需要在容器内进行的初始化操作。最后，它通过execv()系统调用，让应用进程取代自己，成为容器里的PID=1的进程。
+而这里要使用到的挂载技术，就是Linux的绑定挂载（bind-mount）机制。它的主要作用就是，允许你将一个目录或者文件，而不是整个设备，挂载到一个指定的目录上。并且，这时你在该挂载点上进行的任何操作，只是发生在被挂载的目录或者文件上，而原挂载点的内容则会被隐藏起来且不受影响。
+其实，如果你了解Linux内核的话，就会明白，绑定挂载实际上是一个inode替换的过程。在Linux操作系统中，inode可以理解为存放文件内容的“对象”，而dentry，也叫目录项，就是访问这个inode所使用的“指针”。
+mount -- bind /home /test
+会将/home挂载到/test上。其实相当于将/test的dentry，重定向到了/home的inode。这样当我们修改/test目录时，实际修改的是/home目录的inode。这也就是为何，一旦执行umount命令，/test目录原先的内容就会恢复：因为修改真正发生在的，是/home目录里。
+所以，在一个正确的时机，进行一次绑定挂载，Docker就可以成功地将一个宿主机上的目录或文件，不动声色地挂载到容器中。
+这样，进程在容器里对这个/test目录进行的所有操作，都实际发生在宿主机的对应目录（比如，/home）里，而不会影响容器镜像的内容。
+这个/test目录里的内容，虽然挂载在容器rootfs的可读写层，但是不会被dockercommit提交掉。
+这个原因其实我们前面已经提到过。容器的镜像操作，比如docker-commit，都是发生在宿主机空间的。而由于Mount-Namespace的隔离作用，宿主机并不知道这个绑定挂载的存在。所以，在宿主机看来，容器中可读写层的/UpperDir/test目录，始终是空的。不过，由于Docker一开始还是要创建/UpperDir/test这个目录作为挂载点，所以执行了docker-commit之后，你会发现新产生的镜像里，会多出来一个空的/UpperDir/test目录。毕竟，新建目录操作，又不是挂载操作，Mount-Namespace对它可起不到“障眼法”的作用。
+
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>模拟一个简单的docker容器创建过程<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 #define _GNU_SOURCE
 #include <sys/mount.h> 

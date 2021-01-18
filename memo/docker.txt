@@ -127,7 +127,7 @@ $ docker run -it centos:7 /bin/bash
 本来，每当我们在宿主机上运行了一个/bin/bash程序，操作系统都会给它分配一个进程编号，比如PID=100。这个编号是进程的唯一标识，就像员工的工牌一样。所以PID=100，可以粗略地理解为这个/bin/bash是我们公司里的第100号员工，而第1号员工就自然是比尔·盖茨这样统领全局的人物。
 而现在，我们要通过Docker把这个/bin/bash程序运行在一个容器当中。这时候，Docker就会在这个第100号员工入职时给他施一个“障眼法”，让他永远看不到前面的其他99个员工，更看不到比尔·盖茨。这样，他就会错误地以为自己就是公司里的第1号员工。
 这种机制，其实就是对被隔离应用的进程空间做了手脚，使得这些进程只能看到重新计算过的进程编号，比如PID=1。可实际上，他们在宿主机的操作系统里，还是原来的第100号进程。
-这种技术，就是Linux里面的Namespace机制。而Namespace的使用方式也非常有意思：它其实只是Linux创建新进程的一个可选参数。我们知道，在Linux系统中创建线程的系统调用是clone()，比如：
+这种技术，就是Linux里面的Namespace机制。它是Linux内核用来隔离内核资源的方式，通过namespace可以让一些进程只能看到与自己相关的一部分资源，而另外一些进程也只能看到与它们自己相关的资源，这两拨进程根本就感觉不到对方的存在。而Namespace的使用方式也非常有意思：它其实只是Linux创建新进程的一个可选参数。我们知道，在Linux系统中创建线程的系统调用是clone()，比如：
 int pid = clone(main_function, stack_size, SIGCHLD, NULL); 
 这个系统调用就会为我们创建一个新的进程，并且返回它的进程号pid。
 而当我们用clone()系统调用创建一个新进程时，就可以在参数中指定CLONE_NEWPID参数，比如：
@@ -144,7 +144,16 @@ int pid = clone(main_function, stack_size, CLONE_NEWPID | SIGCHLD, NULL);
 很多人会把Docker项目称为“轻量级”虚拟化技术的原因，实际上就是把虚拟机的概念套在了容器上。
 在理解了Namespace的工作方式之后，你就会明白，跟真实存在的虚拟机不同，在使用Docker的时候，并没有一个真正的“Docker容器”运行在宿主机里面。Docker项目帮助用户启动的，还是原来的应用进程，只不过在创建这些进程时，Docker为它们加上了各种各样的Namespace参数。
 这时，这些进程就会觉得自己是各自PID-Namespace里的第1号进程，只能看到各自Mount-Namespace里挂载的目录和文件，只能访问到各自Network-Namespace里的网络设备，就仿佛运行在一个个“容器”里面，与世隔绝。
-
+Namespace Flag            Page                  Isolates
+Cgroup    CLONE_NEWCGROUP cgroup_namespaces(7)  Cgroup root directory(cgroup的根目录)
+IPC       CLONE_NEWIPC    ipc_namespaces(7)     System V IPC,POSIX message queues(信息量、消息队列和共享内存；隔离进程间通信)
+Network   CLONE_NEWNET    network_namespaces(7) Network devices,stacks, ports, etc.(网络设备、网络栈、端口等；隔离网络资源).
+Mount     CLONE_NEWNS     mount_namespaces(7)   Mount points(文件系统挂载点；隔离文件系统挂载点)
+PID       CLONE_NEWPID    pid_namespaces(7)     Process IDs(进程编号；隔离进程的ID)
+Time      CLONE_NEWTIME   time_namespaces(7)    Boot and monotonic clocks(允许操作系统为进程设定不同的系统时间；隔离系统时间)
+User      CLONE_NEWUSER   user_namespaces(7)    User and group IDs(用户和用户组；隔离用户和用户组的ID)
+UTS       CLONE_NEWUTS    uts_namespaces(7)     Hostname and NIS domain name(主机名与NIS域名；隔离主机名和域名信息)
+									   
 =====> Cgroups
 前面详细介绍了Linux容器中用来实现“隔离”的技术手段：Namespace。而通过这些讲解，你应该能够明白，Namespace技术实际上修改了应用进程看待整个计算机“视图”，即它的“视线”被操作系统做了限制，只能“看到”某些指定的内容。但对于宿主机来说，这些被“隔离”了的进程跟其他进程并没有太大区别。
 在虚拟机与容器技术的对比里，不应该把Docker-Engine或者任何容器管理工具放在跟Hypervisor相同的位置，因为它们并不像Hypervisor那样对应用进程的隔离环境负责，也不会创建任何实体的“容器”，真正对隔离环境负责的是宿主机操作系统本身：
@@ -232,27 +241,137 @@ KiB Swap:  1952764 total,  1952764 free,        0 used.  1520044 avail Mem
 造成这个问题的原因就是，/proc文件系统并不知道用户通过Cgroups给这个容器做了什么样的资源限制，即：/proc文件系统不了解Cgroups限制的存在。
 在生产环境中，这个问题必须进行修正，否则应用程序在容器里读取到的CPU核数、可用内存等信息都是宿主机上的数据，这会给应用的运行带来非常大的困惑和风险。这也是在企业中，容器化应用碰到的一个常见问题，也是容器相较于虚拟机另一个不尽如人意的地方。
 
-下面的代码可以模拟一个简单的docker容器创建过程：
+=====> chroot、pivot_root
+chroot的作用是帮你“change root file system”，即改变进程的根目录到你指定的位置。
+假设，我们现在有一个 $HOME/test 目录，想要把它作为一个 /bin/bash 进程的根目录。
+首先，创建一个test目录和几个lib文件夹：
+[root@localhost ~]# mkdir -p $HOME/test
+[root@localhost ~]# mkdir -p $HOME/test/{bin,lib64,lib}
+[root@localhost ~]# cd $T
+然后，把bash命令拷贝到test目录对应的bin路径下：
+[root@localhost ~]# cp -v /bin/{bash,ls} $HOME/test/bin
+接下来，把bash命令需要的所有so文件，也拷贝到test目录对应的lib路径下。找到so文件可以用ldd命令：
+[root@localhost ~]# T=$HOME/test
+[root@localhost ~]# list="$(ldd /bin/ls | egrep -o '/lib.*\.[0-9]')"
+[root@localhost ~]# for i in $list; do cp -v "$i" "${T}${i}"; done
+最后，执行chroot命令，告诉操作系统，我们将使用$HOME/test目录作为/bin/bash 进程的根目录：
+[root@localhost ~]# chroot $HOME/test /bin/bash
+这时，你如果执行"ls /"，就会看到，它返回的都是$HOME/test目录下面的内容，而不是宿主机的内容。
+更重要的是，对于被chroot的进程来说，它并不会感受到自己的根目录已经被“修改”成 $HOME/test了。
+pivot_root的man手册
+https://man7.org/linux/man-pages/man2/pivot_root.2.html
+pivot_root改变当前进程所在mount namespace内的所有进程的root mount移到put_old，然后将new_root作为新的root mount；
+pivot_root并没有修改当前调用进程的工作目录，通常需要使用chdir("/")来实现切换到新的root mount的根目录。
+chroot只改变当前进程的“/”
+pivot_root改变当前mount namespace的“/”
+
+=====> overlay
+overlay是联合文件系统（Union File System）的一种技术实现，Union File System也叫UnionFS，最主要的功能是将多个不同位置的目录联合挂载（union mount）到同一个目录下。
+overlayfs通过三个目录：lower目录、upper目录、以及work目录实现，其中lower目录可以是多个，work目录为工作基础目录，挂载后内容会被清空，且在使用过程中其内容用户不可见，最后联合挂载完成给用户呈现的统一视图称为为merged目录。
+
+mkdir -p /opt/overlay_test
+cd /opt/overlay_test
+mkdir -p /tmp/test A/aa B C worker
+echo "from A" > A/a.txt
+echo "from B" > B/b.txt
+echo "from B" > B/a.txt
+echo "from C" > C/c.txt
+echo "from A" > A/x.txt
+echo "from C" > C/x.txt
+mount -t overlay overlay -o lowerdir=A:B,upperdir=C,workdir=worker /tmp/test
+
+overlay文件系统分为lowerdir、upperdir、merged，对外统一展示为merged，
+upperdir和lowerdir的同名文件会被upperdir覆盖。
+lowerdir中存在同名的文件时，merged层目录会显示离它最近层的文件
+
+overlay只支持两层，upper文件系统通常是可写的；lower文件系统则是只读，这就表示着，当我们对overlay文件系统做任何的变更，都只会修改upper文件系统中的文件。那下面看一下overlay文件系统的读，写，删除操作。
+读
+¬读upper没有而lower有的文件时，需从lower读；
+¬读只在upper有的文件时，则直接从upper读
+¬读lower和upper都有的文件时，则直接从upper读。
+写
+¬对只在upper有的文件时，则直接在upper写
+¬对在lower和upper都有的文件时，则直接在upper写。
+¬对只在lower有的文件写时，则会做一个copy_up的操作，先从lower将文件拷贝一份到upper，同时为文件创建一个硬链接。此时可以看到upper目录下生成了两个新文件，写的操作只对从lower复制到upper的文件生效，而lower还是原文件。
+删
+¬删除lower和upper都有的文件时，upper的会被删除，在upper目录下创建一个‘without’文件，而lower的不会被删除。
+¬删除lower有而upper没有的文件时，会为被删除的文件在upper目录下创建一个‘without’文件，而lower的不会被删除。
+¬删除lower和upper都有的目录时，upper的会被删除，在upper目录下创建一个类似‘without’文件的‘opaque’目录，而lower的不会被删除。
+可以看到，因为lower是只读，所以无论对lower上的文件和目录做任何的操作都不会对lower做变更。所有的操作都是对在upper做。
+copy_up只在第一次写时对文件做copy_up操作，后面的操作都不再需要做copy_up，都只操作这个文件，特别适合大文件的场景。overlay的copy_up操作要比AUFS相同的操作要快，因为AUFS有很多层，在穿过很多层时可能会有延迟，而overlay只有两层。而且overlay在2014年并入linux-kernel-mailline，但是aufs并没有被并入linux-kernel-mailline，所以overlay可能会比AUFS快。
+
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>模拟一个简单的docker容器创建过程<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 #define _GNU_SOURCE
 #include <sys/mount.h> 
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <sys/syscall.h>
+#include <sys/stat.h>
+#include <sys/mman.h>
 #include <stdio.h>
 #include <sched.h>
 #include <signal.h>
 #include <unistd.h>
+#include<stdlib.h>
+#include <limits.h>
 #define STACK_SIZE (1024 * 1024)
+#define errExit(msg)    do { perror(msg); exit(EXIT_FAILURE); \
+                               } while (0)
 
 static char container_stack[STACK_SIZE];
 char* const container_args[] = {
   "/bin/bash",
   NULL
 };
+char* const mount_args[] = {
+  "mount",
+  "-t",
+  "overlay",
+  "overlay",
+  "-o",
+  "lowerdir=/var/lib/docker/overlay2/20f04012d6a965fb7a9ce094caa18138596743a96be3a99299e27aeec133efc1-init/diff:/var/lib/docker/overlay2/05f27cb6334067dcc7de438d938206dece782bec26279b378241b1d81a93fde7/diff,upperdir=/opt/DockerRuntime,workdir=/opt/DockerWorker",
+  "/opt/DockerTmp",
+  NULL
+};
 
-int container_main(void* arg)
+static int pivot_root(const char *new_root, const char *put_old)
+{
+    return syscall(SYS_pivot_root, new_root, put_old);
+}
+int container_main(void *arg)
 {  
   printf("Container - inside the container!\n");
-  mount("none", "/proc", "proc", 0, "");
+  //通过pivot_root改变当前mount namespace的“/”
+  char ** args = arg;
+  char * new_root = args[0];
+  char * put_old = args[1];
+  char path[PATH_MAX];
+  /* Ensure that 'new_root' and its parent mount don't have
+     shared propagation (which would cause pivot_root() to
+     return an error), and prevent propagation of mount
+     events to the initial mount namespace */
+  if (mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL) == -1)
+      errExit("mount-MS_PRIVATE");
+  /* Ensure that 'new_root' is a mount point */
+  if (mount(new_root, new_root, NULL, MS_BIND, NULL) == -1)
+      errExit("mount-MS_BIND");
+  /* Create directory to which old root will be pivoted */
+  snprintf(path, sizeof(path), "%s/%s", new_root, put_old);
+  if (mkdir(path, 0777) == -1)
+      errExit("mkdir");
+  /* And pivot the root filesystem */
+  if (pivot_root(new_root, path) == -1)
+      errExit("pivot_root");
+  /* Switch the current working directory to "/" */
+  if (chdir("/") == -1)
+      errExit("chdir");
+  if (mount("proc", "/proc", "proc", 0, NULL) == -1)
+      errExit("mount proc");
+  /* Unmount old root and remove mount point */
+  if (umount2(put_old, MNT_DETACH) == -1)
+      perror("umount2");
+  if (rmdir(put_old) == -1)
+      perror("rmdir");
   execv(container_args[0], container_args);
   printf("Something's wrong!\n");
   return 1;
@@ -261,30 +380,37 @@ int container_main(void* arg)
 int main()
 {
   printf("Parent - start a container!\n");
-  int container_pid = clone(container_main, container_stack+STACK_SIZE, CLONE_NEWNS | CLONE_NEWPID | CLONE_NEWUSER | SIGCHLD, NULL);
+  //execv("/usr/bin/mount", mount_args);
+  //通过联合挂载将镜像层（只读）和容器层（可写）合并成一个新的根文件系统目录，然后再通过pivot_root改变当前mount namespace的“/”
+  system("mount -t overlay overlay -o lowerdir=/var/lib/docker/overlay2/20f04012d6a965fb7a9ce094caa18138596743a96be3a99299e27aeec133efc1-init/diff:/var/lib/docker/overlay2/05f27cb6334067dcc7de438d938206dece782bec26279b378241b1d81a93fde7/diff,upperdir=/opt/DockerRuntime,workdir=/opt/DockerWorker /opt/DockerTmp");
+  char *argv[] = {"/opt/DockerTmp","/oldrootfs"};
+  //通过clone fork新的子进程的时候加入各种namespace参数来进行隔离
+  int container_pid = clone(container_main, container_stack+STACK_SIZE, CLONE_NEWNS | CLONE_NEWPID | CLONE_NEWUSER | SIGCHLD, &argv);
   printf("Container - pid = %d \n" ,container_pid);
   waitpid(container_pid, NULL, 0);
   printf("Parent - container stopped!\n");
   return 0;
 }
 编译并运行程序：
-[root@localhost opt]# gcc -o ns ns.c
-[root@localhost opt]# ./ns
+[root@server01 opt]# gcc -o ns ns.c
+[root@server01 opt]# ./ns
 Parent - start a container!
-Container - pid = 107435
+Container - pid = 1660
 Container - inside the container!
-[nfsnobody@localhost opt]$
-在进程的/bin/bash命令行中使用top命令查看运行的进程：
-top - 16:50:35 up 54 days, 22 min,  2 users,  load average: 0.00, 0.03, 0.10
+/usr/bin/id: cannot find name for group ID 65534
+/usr/bin/id: cannot find name for user ID 65534
+[I have no name!@server01 /]$
+使用top命令查看运行的进程：
+top - 11:53:11 up  1:38,  0 users,  load average: 0.00, 0.01, 0.05
 Tasks:   2 total,   1 running,   1 sleeping,   0 stopped,   0 zombie
 %Cpu(s):  0.0 us,  0.0 sy,  0.0 ni,100.0 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
-KiB Mem : 52782950+total, 46932281+free,  7756752 used, 50749928 buff/cache
-KiB Swap: 16777212 total, 16777212 free,        0 used. 51831715+avail Mem
+KiB Mem :  2048668 total,  1485900 free,   302184 used,   260584 buff/cache
+KiB Swap:  1952764 total,  1952764 free,        0 used.  1595692 avail Mem
 
-   PID USER      PR  NI    VIRT    RES    SHR S  %CPU %MEM     TIME+ COMMAND
-     1 nfsnobo+  20   0  116088   2656   1604 S   0.0  0.0   0:00.05 bash
-    31 nfsnobo+  20   0  161896   2140   1528 R   0.0  0.0   0:00.00 top
-
+  PID USER      PR  NI    VIRT    RES    SHR S %CPU %MEM     TIME+ COMMAND
+    1 65534     20   0   15248   1908   1484 S  0.0  0.1   0:00.00 bash
+   14 65534     20   0   59596   1980   1448 R  0.0  0.1   0:00.00 top
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>模拟一个简单的docker容器创建过程<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 注意：
 在CentOS内核3.8或更高版本中，添加了user-namespaces（户名命名空间）功能。但是，该功能默认情况下是禁用的，原因是RedHat希望该功能在社区中孵化更长时间，以确保该功能的稳定性和安全性。
 配置CentOS-7系统启用user-namespaces：
@@ -307,7 +433,6 @@ KiB Swap: 16777212 total, 16777212 free,        0 used. 51831715+avail Mem
 [root@localhost ~]# echo "user.max_user_namespaces=10000" >> /etc/sysctl.conf
 # 重启
 [root@localhost ~]# reboot
-
 ########################################################容器技术概念########################################################
 
 ########################################################Dockerfile########################################################

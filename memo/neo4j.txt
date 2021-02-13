@@ -1,5 +1,12 @@
 cypher：描述性的类sql的图操作语言。（没有join，cypher语言中任何语法都可以有return）
 
+下载算法包：
+从https://github.com/neo4j-contrib/neo4j-graph-algorithms/releases下载相应版本jar包（例：graph-algorithms-algo-3.5.4.0），放到　　
+\plugins 目录下面
+配置文件：
+在 C:\Users\Administrator.Neo4jDesktop\neo4jDatabases\database-数据库ID\installation-3.5.6/conf/neo4j.conf 配置文件中添加 　　
+　　dbms.security.procedures.unrestricted=algo.*
+
 ############################################################Create、match、merge############################################################
 =====> 创建节点及添加相应的属性
 create (grandpa:Person {id:1,name:"王始初",age:68,gender:"male"}) //标签前面的"王始初"是别名，无法通过别名查询，

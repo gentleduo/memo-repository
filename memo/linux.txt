@@ -1639,6 +1639,30 @@ yum install iptables-services
 执行如下命令（老版本命令为：service iptables on），设置iptables开机自启
 systemctl enable iptables.service
 
+iptables -t nat -S  // 显示目前类型为nat下的所有规则
+例：
+-P PREROUTING ACCEPT
+-P INPUT ACCEPT
+-P OUTPUT ACCEPT
+-P POSTROUTING ACCEPT
+-N DOCKER
+-A PREROUTING -m addrtype --dst-type LOCAL -j DOCKER
+-A OUTPUT ! -d 127.0.0.0/8 -m addrtype --dst-type LOCAL -j DOCKER
+-A POSTROUTING -s 172.17.0.0/16 ! -o docker0 -j MASQUERADE
+-A POSTROUTING -s 172.17.0.2/32 -d 172.17.0.2/32 -p tcp -m tcp --dport 10000 -j MASQUERADE
+-A POSTROUTING -s 172.17.0.2/32 -d 172.17.0.2/32 -p tcp -m tcp --dport 9999 -j MASQUERADE
+-A DOCKER -i docker0 -j RETURN
+-A DOCKER ! -i docker0 -p tcp -m tcp --dport 9000 -j DNAT --to-destination 172.17.0.2:10000
+-A DOCKER ! -i docker0 -p tcp -m tcp --dport 8085 -j DNAT --to-destination 172.17.0.2:9999
+在上述命令打印出的规则前面加iptables -t nat可以增加相应的规则
+例：
+iptables -t nat -A POSTROUTING -s 172.17.0.0/16 ! -o docker0 -j MASQUERADE
+iptables -t nat -A OUTPUT ! -d 127.0.0.0/8 -m addrtype --dst-type LOCAL -j DOCKER
+将上述命令中的-A改成-D即可删除相应的规则
+例：
+iptables -t nat -D POSTROUTING -s 172.17.0.0/16 ! -o docker0 -j MASQUERADE
+iptables -t nat -D OUTPUT ! -d 127.0.0.0/8 -m addrtype --dst-type LOCAL -j DOCKER
+
 netstat命令是一个监控TCP/IP网络的非常有用的工具，它可以显示路由表、实际的网络连接以及每一个网络接口设备的状态信息。
 -a或--all：显示所有连线中的Socket（所有状态）； 
 -A<网络类型>或--<网络类型>：列出该网络类型连线中的相关地址； 

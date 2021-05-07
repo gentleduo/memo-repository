@@ -117,6 +117,20 @@ RETURN x, x.name
 MATCH (a:Movie { title: 'The Matrix' })
 OPTIONAL MATCH (a)<-[r:ACTED_IN]-()
 RETURN r
+
+创建3个点一条边，以及一个点是孤立点
+create (n:Person {name:"张三"})-[:Know]->(m:Person {name:"李四"}),(l:Person {name:"王五"}) return *
+match查询(将与和第一个match到的节点存在Know关系的节点返回)
+match (n:Person) match (n)-[r:Know]->(m) return *
+结果：
+m                       n                       r
+{"elementId":12582913}	{"elementId":9437185}	{"elementId":00000000009000010004000005F5E121}
+optional match查询(将第一个match到的节点全部返回，当和该节点不存在Know关系的时候用null代替)
+match (n:Person) optional match (n)-[r:Know]->(m) return *
+m                       n                       r
+{"elementId":}	        {"elementId":9437184}	{"elementId":}
+{"elementId":12582913}	{"elementId":9437185}	{"elementId":00000000009000010004000005F5E121}
+
 ############################################################OPTINAL MATCH############################################################
 
 #########################################################set、delete、remove#########################################################

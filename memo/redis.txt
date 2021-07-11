@@ -173,7 +173,7 @@ cluster-node-timeout 5000
 
 注意：
 1) 注意：进入集群命令    
-redis-cli -c -h host -p prot -a password （不带-c 参数进入的不是集群；如果加了密码，无论进入单节点或者集群都需要加-a 123456参数）
+./bin/redis-cli -c -h host -p prot -a password （不带-c 参数进入的不是集群；如果加了密码，无论进入单节点或者集群都需要加-a 123456参数）
 
 2) 如果加了密码，那么创建集群时就需要加-a 123456参数
 ./bin/redis-cli --cluster create 192.168.56.110:7000 192.168.56.110:7001 192.168.56.110:7002 192.168.56.110:7003 192.168.56.110:7004 192.168.56.110:7005  --cluster-replicas 1 -a 123456
@@ -184,15 +184,27 @@ redis-cli -c -h host -p prot -a password （不带-c 参数进入的不是集群；如果加了密
 [ERR] Node 192.168.56.110:7000 is not empty. Either the node already knows other nodes (check with CLUSTER NODES) or contains some key in database 0.
 解决方法：
 1)、将需要新增的节点下aof、rdb等本地备份文件删除；
-2)、同时将新Node的集群配置文件删除,即：删除你redis.conf里面cluster-config-file所在的文件；
+2)、同时将新Node的集群配置文件删除,即：删除你redis.conf里面cluster-config-file所在的文件（nodes-7000.conf、nodes-7001.conf.....nodes-7005.conf）；
 3)、再次添加新节点如果还是报错，则登录新Node,./redis-cli –h host –p prot对数据库进行清除：
 172.168.63.201:7001>  flushdb      #清空当前数据库
 
 4) redis-cli命令开启集群,要使用公网IP,
 注意一定不要用127.0.0.1这种本地的局域ip，要用公网ip，命令中的--cluster-replicas 1 公网IP:7000 公网IP:7001… … 都要使用非本地的其他设备在局域网内能访问到的ip,不要使用127.0.0.1。
+
+5) 集群的关闭
+逐个关闭redis实例进程即可
+查找redis实例进程号
+    ps -ef | grep redis
+关闭redis进程,使用kill -9 ${进程号}，如果需要关闭多个进程，进程号之间空格隔开即可
+kill -9 10252 10257 10262 10267 10272 10294
+也可执行以下命令来关闭redis进程
+pkill -9 redis
+
 #############################################################Redis集群#############################################################
 
 #############################################################Redis通用key操作命令#############################################################
+查询redis数据库个数 config get databases
+
 keys pattern 查询相应的key
 在redis里,允许模糊查询key
 有3个通配符 *, ? ,[]

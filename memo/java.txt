@@ -79,7 +79,7 @@ do something after method
 四.机制分析:
 Proxy.newProxyInstance(ClassLoader loader, Class<?>[] interfaces, InvocationHandler h)做了以下几件事.
 (1)根据参数loader和interfaces调用方法getProxyClass(loader, interfaces)创建代理类$Proxy. $Proxy0类实现了interfaces的接口,并继承了Proxy类.具体流程如下：
-Proxy静态方法newProxyInstance调用getProxyClass0，getProxyClass中再调用getProxyClass0；getProxyClass0方法里其实直接取proxyClassCache缓存，proxyClassCache是一个代理类的缓存变量，如果这个缓存里有这个代理类，就直接返回代理类，如果没有，就会通过ProxyClassFactory创建代理对象。ProxyClassFactory是Proxy里的一个内部类，用来生成代理类，apply()方法最后调用ProxyGenerator.generateProxyClass()方法来完成生成字节码的操作，
+Proxy静态方法newProxyInstance调用getProxyClass，getProxyClass中再调用getProxyClass0；getProxyClass0方法里其实直接取proxyClassCache缓存，proxyClassCache是一个代理类的缓存变量，如果这个缓存里有这个代理类，就直接返回代理类，如果没有，就会通过ProxyClassFactory创建代理对象。ProxyClassFactory是Proxy里的一个内部类，用来生成代理类，apply()方法最后调用ProxyGenerator.generateProxyClass()方法来完成生成字节码的操作，
 (2)实例化$Proxy0并在构造方法中把BusinessHandler传过去,接着$Proxy0调用父类java.lang.reflect.Proxy的构造器,为h赋值,如下:
 class Proxy{
 	InvocationHandler h=null;

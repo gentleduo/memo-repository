@@ -1,0 +1,204 @@
+1、独立版本
+我们可以在 Vue.js 的官网上直接下载最新版本, 并用 <script> 标签引入。
+https://cn.vuejs.org/v2/guide/
+https://cn.vuejs.org/v2/guide/installation.html#%E7%9B%B4%E6%8E%A5%E7%94%A8-lt-script-gt-%E5%BC%95%E5%85%A5
+
+2、NPM方法
+在用Vue.js构建大型应用的时候推荐使用NPM安装方法，NPM能很好的和诸如Webpack或者Browserify 模块打包器配合使用。Vue.js 也提供配套工具来开发单文件组件。
+
+1) npm（node package manager）是node.js的包管理工具，所以使用npm之前必须先安装node.js
+node.js环境（npm包管理器）
+Node.js 安装包及源码下载地址为：https://nodejs.org/en/download/。
+CentOS 下源码安装 Node.js
+cd /usr/local/src/
+1、下载源码，你需要在https://nodejs.org/en/download/下载最新的Nodejs版本
+wget https://nodejs.org/dist/v14.17.1/node-v14.17.1.tar.gz
+2、解压源码
+tar zxvf node-v0.10.24.tar.gz
+3、 编译安装
+cd node-v14.17.1
+./configure --prefix=/usr/local/node/0.10.24
+make
+make install
+4、 配置NODE_HOME，进入profile编辑环境变量
+vim /etc/profile
+设置 nodejs 环境变量，在 export PATH USER LOGNAME MAIL HOSTNAME HISTSIZE HISTCONTROL 一行的上面添加如下内容:
+#set for nodejs
+export NODE_HOME=/usr/local/node/0.10.24
+export PATH=$NODE_HOME/bin:$PATH
+:wq保存并退出，编译/etc/profile 使配置生效
+source /etc/profile
+验证是否安装配置成功
+输出v14.17.1表示配置成功
+node -v
+npm模块安装路径
+/usr/local/node/0.10.24/lib/node_modules/
+
+2) npm install vue
+安装完成node.js后使用npm安装vue报错如下：
+C:\Users\gentl>npm install vue
+npm WARN saveError ENOENT: no such file or directory, open 'C:\Users\gentl\package.json'
+npm notice created a lockfile as package-lock.json. You should commit this file.
+npm WARN enoent ENOENT: no such file or directory, open 'C:\Users\gentl\package.json'
+npm WARN gentl No description
+npm WARN gentl No repository field.
+npm WARN gentl No README data
+npm WARN gentl No license field.
+
++ vue@2.6.14
+added 1 package from 1 contributor and audited 1 package in 4.229s
+found 0 vulnerabilities
+
+根据错误提示，是系统没有‘package.json’这个文件导致。这个文件的作用就是管理你本地安装的npm包，一个package.json文件可以做如下事情：
+展示项目所依赖的npm包 
+允许你指定一个包的版本[范围] 
+让你建立起稳定，意味着你可以更好的与其他开发者共享
+此刻我们需要执行命令：
+npm init
+创建package.json文件，系统会提示相关配置，也可以使用命令：
+npm init -y
+直接创建package.json文件，这样创建好处是必填项已经帮你填好，执行完命令后可以看到用户路径下多了一个package.json文件。
+
+3) 全局安装 vue-cli（vue-cli是Vue.js 提供一个官方命令行工具，可用于快速搭建大型单页应用。）
+npm install --global vue-cli
+#创建一个基于webpack模板的新项目：命令先定位到vue的工作空间D:\VueProject目录下
+vue init webpack web-design
+在执行上述命令的时候，会要求依次输入项目的基本信息：
+项目名称
+项目描述
+项目作者
+Vue项目构建：运行+编译还是仅运行
+是否安装vue-router
+是否使用ESLint。
+是否使用单元测试。
+是否适用Nightwatch e2e测试。
+是否在项目创建成功后自动执行"npm install"安装依赖
+#进入D:\VueProject\web-design项目目录下，创建package.json文件
+npm init -y
+#进入D:\VueProject\web-design项目目录下，安装axios
+npm install axios --save
+#进入D:\VueProject\web-design项目目录下，运行项目
+npm run dev
+
+##############################################################################################################
+Vue CLI是一个基于Vue.js进行快速开发的完成的系统（脚手架工具）
+Vue CLI = Vue.js + 一堆插件
+
+安装最新版
+npm install -g @vue/cli
+安装指定版本
+npm install -g @vue/cli@4.5.9
+创建一个项目（vue create is a Vue CLI 3 only command ）
+vue create web
+vue create -m npm web
+
+Manually select features
+? Check the features needed for your project:
+ (*) Choose Vue version
+ (*) Babel
+ (*) TypeScript
+ ( ) Progressive Web App (PWA) Support
+ (*) Router
+>(*) Vuex
+ ( ) CSS Pre-processors
+ (*) Linter / Formatter
+ ( ) Unit Testing
+ ( ) E2E Testing
+ 
+? Please pick a preset: Manually select features
+? Check the features needed for your project: Choose Vue version, Babel, TS, Router, Vuex, Linter
+? Choose a version of Vue.js that you want to start the project with 3.x (Preview)
+? Use class-style component syntax? No
+? Use Babel alongside TypeScript (required for modern mode, auto-detected polyfills, transpiling JSX)? No
+? Use history mode for router? (Requires proper server setup for index fallback in production) Yes
+? Pick a linter / formatter config: Basic
+? Pick additional lint features: Lint on save
+? Where do you prefer placing config for Babel, ESLint, etc.? In dedicated config files
+? Save this as a preset for future projects? No
+
+npm serve run
+
+npm install
+
+##############################################################################################################
+latest release 最新的稳定版本。是已经发布了的。 运行以下命令即可
+npm install npm@latest
+next release npm的最新未发布版本，最终作为最新版本发布。一般是你想在发布前就使用即将的新版本进行测试时。运行以下命令即可
+npm install npm@next
+
+第一、npm install moduleName 命令
+    安装模块到全局，不会在项目node_modules目录中保存模块包。
+    不会将模块依赖写入到package.json文档中的 devDependencies 或 dependencies 节点。
+    运行 npm install 初始化项目时不会下载模块。
+第二、npm install -g moduleName 命令
+    安装模块到全局，不会在项目node_modules目录中保存模块包。
+    不会将模块依赖写入到package.json文档中的 devDependencies 或 dependencies 节点。
+    运行 npm install 初始化项目时不会下载模块。
+第三、npm install --save moduleName 命令
+    安装模块到项目node_modules目录下。
+    会将模块依赖写入dependencies 节点。
+    运行 npm install 初始化项目时，会将模块下载到项目目录下。
+    运行npm install --production或者注明NODE_ENV变量值为production时，会自动下载模块到node_modules目录中。
+第四、npm install --save-dev moduleName 命令
+    安装模块到项目node_modules目录下。
+    会将模块依赖写入devDependencies 节点。
+    运行 npm install 初始化项目时，会将模块下载到项目目录下。
+    运行npm install --production或者注明NODE_ENV变量值为production时，不会自动下载模块到node_modules目录中。
+
+dependencies和devDependencies区别
+1、devDependencies：节点下的模块是我们在开发时需要用的，比如项目中使用的 gulp ，压缩css、js的模块。这些模块在我们的项目部署后是不需要的，所以我们可以使用 --save-dev 的形式安装。
+2、dependencies：节点下的模块是我们在编译完成之后，项目运行中需要依赖用的，像 express 这些模块是项目运行必备的，应该安装在 dependencies 节点下，所以我们应该使用 --save 的形式安装。
+
+npm get registry --显示当前镜像网址
+默认的镜像网址：
+npm get registry
+https://registry.npmjs.org/
+npm config set registry https://registry.npm.taobao.org --使用淘宝的镜像网址
+npm config set metrics-registry https://registry.npm.taobao.org
+//本次从淘宝仓库源下载
+npm --registry=https://registry.npm.taobao.org install
+
+Ant Design Vue 
+https://2x.antdv.com/components/overview-cn/
+卸载vue/cli
+npm uninstall -g @vue/cli
+npm install -g @vue/cli
+创建项目
+vue create kgweb
+vue create -m npm kgweb
+安装最新版本
+npm install vue@3.0.11 --save
+npm install ant-design-vue@2.1.2 --save
+npm install @ant-design/icons-vue --save 
+npm install axios --save
+安装指定版本
+npm --registry=https://registry.npm.taobao.org install -g @vue/cli@4.5.9
+npm --registry=https://registry.npm.taobao.org install ant-design-vue@2.1.2 --save	
+配置文件
+npm config ls -l
+
+#########################################################Vue.js#########################################################
+component：引入它需要的一些组件
+data：就是我们数据绑定会用到这些变量，这些变量都会在上面的html里面用到
+mounted:指的就是这个组件被加载完成之后或者这个界面渲染好之后，就会去执行这个方法。
+methods:自己定义的一些事件，一些方法。比如按钮的点击事件
+数据的定义在data里面，数据的赋值可能在methods里面某一个方法，
+
+vue3之后 data、mounted、methods就被setup代替了。
+响应式数据就在说在js里面动态修改这里面的值，它会实时反映到页面上
+
+v-model
+用在html表单控件上，实现双向绑定（只能用在html表单控件上（还有自定义组件），其他组件无效）
+限制：
+<input>
+<select>
+<textarea> 
+components
+
+v-bind
+动态地绑定一个或多个 attribute，或一个组件 prop 到表达式。【绑的是html元素的属性或者组件的prop，而不是像model那样绑的是表单控件的值】
+在绑定 class 或 style attribute 时，支持其它类型的值，如数组或对象。可以通过下面的教程链接查看详情。
+在绑定 prop 时，prop 必须在子组件中声明。可以用修饰符指定不同的绑定类型。
+没有参数时，可以绑定到一个包含键值对的对象。注意此时 class 和 style 绑定不支持数组和对象。
+#########################################################Vue.js#########################################################
+

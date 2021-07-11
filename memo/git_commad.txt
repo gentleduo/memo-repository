@@ -46,6 +46,8 @@ $ git remote add [shortname] [url]
 $ git pull origin <remote_branch>：<local_branch>
 使用git push将本地库中的最新信息发送给远程库（建立本地分支和远程分支的关联关系：git push -u origin master）
 $ git push origin <local_branch>：<remote_branch>
+使用强覆盖方式用你本地的代码替代git仓库内的内容（一般用在non-fast-forward后的冲突解决）
+$ git push -f origin <local_branch>：<remote_branch>
 
 通过git fetch更新代码。举例说明：将远程origin仓库的xx分支合并到本地的yy分支。
 $ git fetch origin xx
@@ -147,3 +149,18 @@ git checkout <tagName> -b <branchName>
 根据commitid检出代码:
 git checkout <commitid> -b <branchName>
 注意：如果通过标签或者commitid检出代码不指定branchName的话就会使HEAD处于detached状态（游离状态）。
+
+
+…or create a new repository on the command line
+echo "# test" >> README.md
+git init
+git add README.md
+git commit -m "first commit"
+git branch -M main
+git remote add origin git@github.com:gentleduo/test.git
+git push -u origin main
+
+…or push an existing repository from the command line
+git remote add origin git@github.com:gentleduo/test.git
+git branch -M main
+git push -u origin main

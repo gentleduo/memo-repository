@@ -965,12 +965,12 @@ T2：干扰事务，目的在于扰乱T1的正常的事务执行。
 1、事务隔离级别为读未提交或读提交时，写数据只会锁住相应的行
 select @@tx_isolation;
 set @@session.tx_isolation = 'read-uncommitted';
-set @@session.tx_isolation = 'repeatable-read';
+set @@session.tx_isolation = 'read-committed';
 start transaction;
 commit;
 2、事务隔离级别为可重复读时，如果检索条件有索引（包括主键索引）的时候，默认加锁方式是next-key 锁；如果检索条件没有索引，更新数据时会锁住整张表。一个间隙被事务加了锁，其他事务是不能在这个间隙插入记录的，这样可以防止幻读。
 select @@tx_isolation;
-set @@session.tx_isolation = 'read-uncommitted';
+set @@session.tx_isolation = 'repeatable-read';
 start transaction;
 commit;
 3、事务隔离级别为串行化时，读写数据都会锁住整张表

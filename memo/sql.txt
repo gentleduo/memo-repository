@@ -140,6 +140,11 @@ CREATE TABLE `employee` (
 KEY `idx_depid` (`dep_id`)是什么意思？
 
 如果只是key的话，就是普通索引（普通索引是由关键字KEY或INDEX定义的索引，的唯一任务是加快对数据的访问速度。）
+MySQL Key值（PRI, UNI, MUL）的含义
+PRI主键约束；
+UNI唯一约束；
+MUL可以重复。
+
 mysql的key和index多少有点令人迷惑，单独的key和其它关键词结合的key(primary key)实际表示的意义是不同，这实际上考察对数据库体系结构的了解的。
 
 1：key 是数据库的物理结构，它包含两层意义和作用，

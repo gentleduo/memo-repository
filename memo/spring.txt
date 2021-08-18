@@ -325,6 +325,33 @@ xhr.send(JSON.stringify(user));
 </script>
 </body>
 （4）当Ajax请求的内容类型为application/x-www-form-urlencoded并且后台使用@RquestBody获取时，前台会报错415（Unsupported Media Type）。后台日志就会报错Content type 'application/x-www-form-urlencoded;charset=UTF-8' not supported
+
+表单（POST请求）支持下面两种编码：
+内容编码方式                        描述                             数据格式                     获取数据	
+application/x-www-form-urlencoded	默认编码方式，                   key1=value1&key2=value2      getParameter
+multipart/form-data	                普通表单提交，以及表单文件上传   key1=value1&key2=value2      getParameter， getParts
+application/json                    传递序列化后的 JSON 字符串。     {"key1":"val1","key2":"va2"} getInputStream
+text/plain	                        该方式不常用，数据获取方式       纯文本                       getInputStream
+表单（GET请求）编码方式：
+enctype
+application/x-www-form-urlencoded	                                 key1=value1&key2=value2
+
+通过getParameter获取参数（getInputStream无法获取数据）：
+System.out.println(request.getParameter("name"));
+System.out.println(request.getParameter("password"));
+通过getInputStream(需要注意的是，该方法只能被调用一次，再次调用返回结果为空)方法获取传入参数：
+InputStream inputStream = request.getInputStream();
+byte[] bytes = new byte[1024];
+int length;
+StringBuffer buffer = new StringBuffer();
+for (; (length = inputStream.read(bytes)) != -1; ) {
+    buffer.append(new String(bytes, 0, length));
+}
+System.out.println("字节流数据：" + buffer.toString());
+//解码
+System.out.println(URLDecoder.decode(buffer.toString(), "UTF-8"));
+需要额外注意的是：getInputStream 方法和getReader方法互斥。最多只能调用其中的一个，如果这两个方法都被调用则会抛出异常。
+
 ###################################################SpringMVC 请求数据获取###################################################
 
 #############################################SpringMVC访问/WEB-INF/views下的jsp#############################################

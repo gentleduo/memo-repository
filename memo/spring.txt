@@ -1,4 +1,4 @@
-#########################################################spring和springmvc父子容器#########################################################
+###################################################spring和springmvc父子容器###################################################
 首先了解什么是容器：
 java容器：
 可以管理对象声明周期，对象间的依赖关系。还可以配置对象名称，属性，产生方式等。不用程序员自己编写程序来管理。
@@ -65,9 +65,9 @@ Spring是一个容器，springmvc也是一个容器。他们两者之间是父�
 
 Spring是根容器，SpringMVC是其子容器。子容器的创建依赖于父容器的创建，父容器先于子容器创建。子容器(SpringMVC容器)可以访问父容器(Spring容器)的Bean，父容器(Spring容器)不能访问子容器(SpringMVC容器)的Bean。也就是说，当在SpringMVC容器中getBean时，如果在自己的容器中找不到对应的bean，则会去父容器中去找，这也解释了为什么由SpringMVC容器创建的Controller可以获取到Spring容器创建的Service组件的原因。
 
-#########################################################spring和springmvc父子容器#########################################################
+###################################################spring和springmvc父子容器###################################################
 
-#############################<context:annotation-config/>、<context:component-scan>和<mvc:annotation-driven/>#############################
+#######################<context:annotation-config/>、<context:component-scan>和<mvc:annotation-driven/>#######################
 1、<context:annotation-config/>
 如果你想使用@Autowired注解，那么就必须事先在spring容器中声明AutowiredAnnotationBeanPostProcessor的Bean.
 如果想使用@Resource ,@PostConstruct,@PreDestroy等注解就必须声明CommonAnnotationBeanPostProcessor的Bean.
@@ -172,9 +172,9 @@ public class Demo2Servlet extends HttpServlet {
 而<mvc:annotation-driven/>是告知Spring，我们启用注解驱动，为WEB 应用服务(我们就可以使用该标签注册的几个bean的功能)。然后Spring会自动为我们注册上面说到的几个Bean到工厂中，来处理我们的请求。换句话说，<context
 比如请求一个URL，我要知道这个URL匹配哪个controller中的哪个方法。哪个Controller就需要<context:component-scan/>注解，如何匹配，匹配哪个方法就需要<mvc:annotation-driven/>注解。
 
-#############################<context:annotation-config/>、<context:component-scan>和<mvc:annotation-driven/>#############################
+#######################<context:annotation-config/>、<context:component-scan>和<mvc:annotation-driven/>#######################
 
-##########################################################SpringMVC JSON&POJO转换##########################################################
+###################################################SpringMVC JSON&POJO转换###################################################
 springmvc中使用jackson的包进行json转换
 实现功能：
 @RequestBody: 将请求的JSON数据转成POJO对象
@@ -182,9 +182,9 @@ springmvc中使用jackson的包进行json转换
 具体配置：
 1、springmvc.xml中直接采用<mvc:annotation-driven/> 自动装配Json转换器；或者将MappingJackson2HttpMessageConverter注册到spring容器中；
 2、消息转换接口的实现类能够顺利执行，还需要jackson来支持；所以在pom.xml中必须配置：jackson-core、jackson-databind和jackson-annotations
-##########################################################SpringMVC JSON&POJO转换##########################################################
+###################################################SpringMVC JSON&POJO转换###################################################
 
-##########################################################SpringMVC 中文乱码解决##########################################################
+###################################################SpringMVC 中文乱码解决###################################################
 1、post请求乱码
 在web.xml加入filter过滤，注意，只能解决浏览器端发送post请求，controller接收中文乱码的情况。
 <!-- POST字符编码过滤 -->
@@ -252,15 +252,82 @@ springmvc中使用jackson的包进行json转换
 浏览器端发送get请求，controller接收中文乱码，需要在tomcat的server.xml文件中加入添加URIEncoding="utf-8"：
 <Connector URIEncoding="UTF-8" connectionTimeout="20000" port="8080" protocol="HTTP/1.1" redirectPort="8443"/>
 
-##########################################################SpringMVC 中文乱码解决##########################################################
+###################################################SpringMVC 中文乱码解决###################################################
 
-##########################################################SpringMVC 请求数据获取##########################################################
+###################################################SpringMVC 请求数据获取###################################################
 https://blog.csdn.net/bingguang1993/article/details/95491259
-（1）当Ajax以application/x-www-form-urlencoded格式上传即使用JSON对象，后台需要使用@RequestParam 或者Servlet获取。 
-（2） 当Ajax以application/json格式上传即使用JSON字符串，后台需要使用@RquestBody获取。
-##########################################################SpringMVC 请求数据获取##########################################################
+（1）当Ajax请求的内容类型为application/x-www-form-urlencoded时，send中的数据格式类似get请求参数，浏览器会把数据封装到HTTP-BODY中(form表单的格式)，然后发送到服务器。所以并不会显示在URL上。后台可以使用@RequestParam或者request.getParameter获取。 
+xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
+xhr.send('username=张三&age=18');
+（2）当Ajax请求的内容类型为application/json时，后台需要使用@RquestBody获取。
+xhr.setRequestHeader("Content-Type", "application/json");
+const user = {
+	username: "张三",
+	age: 38,
+	sex: "male"
+}
+xhr.send(JSON.stringify(user));
+（3）当Ajax请求的内容类型为multipart/form-data时，利用FormData可以自动组装请求数据，后台可以使用@RequestParam或者request.getParameter获取。 
+<body>
+<form id="login" action="" method="POST" enctype="multipart/form-data">
+  <input type="text" name="username" placeholder="用户名" />
+  <input type="text" name="age" placeholder="年龄" />
+  <input type="text" name="sex" placeholder="性别" />
+  <input id="submit" type="submit" value="登录" />
+</form>
+<script>
+  // 1.使用 Ajax 提交表单
 
-######################################################SpringMVC访问/WEB-INF/views下的jsp######################################################
+  // 2.FormData 的基本用法
+  // 通过 HTML 表单元素创建 FormData 对象
+  // const fd = new FormData(表单元素);
+  // xhr.send(fd);
+
+  // 通过 append() 方法添加数据
+  // const fd = new FormData(表单元素);
+  // fd.append('age', 18);
+  // fd.append('sex', 'male');
+  // xhr.send(fd);
+
+  // IE10 及以上可以支持
+  const login = document.getElementById('login');
+  const { username, password } = login;
+  const btn = document.getElementById('submit');
+  const url = 'http://localhost:8080/post/hello?type=postjson';
+
+  btn.addEventListener(
+	'click',
+	e => {
+	  // 阻止表单自动提交
+	  e.preventDefault();
+	  // 发送 Ajax 请求
+	  const xhr = new XMLHttpRequest();
+	  xhr.addEventListener(
+		'load',
+		() => {
+		  if (
+			(xhr.status >= 200 && xhr.status < 300) ||
+			xhr.status === 304
+		  ) {
+			console.log(xhr.response);
+		  }
+		},
+		false
+	  );
+	  xhr.open('POST', url, true);
+	  // FormData 可用于发送表单数据，FormData会将数据组装成key=val的形式(form表单的格式)，并且会将Content-Type自动设置为multipart/form-data
+	  // 后台可以使用@RequestParam或者request.getParameter获取
+	  const data = new FormData(login);
+	  xhr.send(data);
+	},
+	false
+  );
+</script>
+</body>
+（4）当Ajax请求的内容类型为application/x-www-form-urlencoded并且后台使用@RquestBody获取时，前台会报错415（Unsupported Media Type）。后台日志就会报错Content type 'application/x-www-form-urlencoded;charset=UTF-8' not supported
+###################################################SpringMVC 请求数据获取###################################################
+
+#############################################SpringMVC访问/WEB-INF/views下的jsp#############################################
 1、首先在springmvc-servlet.xml中添加视图解析。
 <!-- 视图处理器 -->
   <bean id="viewResolver"
@@ -286,7 +353,7 @@ public class URLController {
   } 
 }
 4、在地址栏中访问http://localhost/XXXX/web/login直接就能够跳转到对应的login.jsp页面了。
-######################################################SpringMVC访问/WEB-INF/views下的jsp######################################################
+#############################################SpringMVC访问/WEB-INF/views下的jsp#############################################
 
 ##################################################Spring AOP,AspectJ, CGLIB####################################################
 AspectJ是一套独立的面向切面编程的解决方案。

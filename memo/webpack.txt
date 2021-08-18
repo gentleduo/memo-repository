@@ -1,0 +1,104 @@
+webpack 初始化项目
+
+1.创建一个空目录
+mkdir D:\VueProject\webPackApp
+
+2.初始化当前目录的npm环境
+npm init
+
+3. 安装webpack
+npm install webpack --save-dev
+npm install webpack-cli --save-dev
+以上是在项目中安装并将依赖写在package.json文件中，所有安装的webpack将放在当前项目的./node_modules/.bin/webpack下，所有在command中输入webpack，是没有这个命令的，如果想在command中使用webpack命令，就需要全局安装:npm install webpack webpack-cli -g
+
+4. webpack项目打包
+  1)配置package.json
+    打开 package.json
+    输入以下代码：
+    {
+      "scripts":{"build": "webpack ./src/main.js --output-path=./dist --output-filename=bundle.js  --mode development"}
+    }
+  2)使用webpack.config.js进行配置
+    和package.json同级目录下，新增并配置webpack.config.js
+	'use strict'
+    const path = require('path');
+	var HtmlWebpackPlugin = require('html-webpack-plugin');
+    module.exports = {
+	  //指定入口文件
+	  //单入口
+      entry:'./src/main.js',
+	  //多入口
+	  //entry:{
+	  //  main:'./src/main.js',
+	  //  search:'./src/search.js'
+	  //}
+      output:{
+	    //path必须是绝对路径(__dirname:表示当前文件所在目录的绝对路径)
+        path: path.resolve(__dirname, 'dist'),
+        filename: 'bundle.js'
+		//多入口时需要利用node自带的name变量，动态设置打包后的js文件名(name对用的是entry中的js文件名)
+		//filename: '[name].js'
+      },
+	  module:{
+	    rules:[
+		  {
+		    //需要进行babel处理的对象:所有的js文件
+		    test:/\.js$/,
+			//排除node_modules目录下的js文件
+			exclude:/node_modules/,
+			loader:'babel-loader'
+		  }
+		]
+	  },
+	  //template参数：webpack模板的相对或绝对路径。
+	  plugins: [new HtmlWebpackPlugin({template:'./template.html'})],
+      mode:'production'
+    }
+	打开 package.json
+    输入以下代码：
+    {
+      "scripts":{"build": "webpack --config webpack.config.js"}
+    }
+  3)运行:npm run build
+  
+5. webpack-dev-server
+  1)webpack-dev-server是一个轻量级的服务器，修改文件源码后，自动刷新页面将修改同步到页面上
+  2)安装webpack-dev-server：
+　  全局安装：npm install webpack-dev-server -g
+　　在项目中安装并将依赖写在package.json文件中: npm install webpack-dev-server --save-dev
+  3)使用命令webpack-dev-server --hot --inline完成自动刷新
+　4)默认的端口号是8080，如果需要8080端口被占用，就需要改端口，webpack-dev-server --port 3000(将端口号改为3000)
+　5)安装webpack-dev-server后就可以在命令行中输入webpack-dev-server开启服务，然后在浏览器地址栏中输入localhost:端口号，就可以在浏览器中打开项目根目录的index.html文件，如果项目根目录中没有index.html文件，就会在浏览器中列出项目根目录中的所有的文件夹。
+  6)第五条只是启动服务并不能自动刷新，要自动刷新需要用到webpack-dev-server --hot --inline
+　7)当使用webpack-dev-server --hot --inline命令时，在每次修改文件，是将文件打包保存在内存中并没有写在磁盘里(默认是根据webpack.config.js打包文件，通过--config xxxx.js修改)，这种打包得到的文件和项目根目录中的index.html位于同一级（但是你看不到，因为它在内存中并没有在磁盘里）。使用webpack命令将打包后的文件保存在磁盘中
+  8)每一次都敲一长串命令太麻烦，在项目根目录的package.json文件的scripts配置中添加配置，如"build":"webpack-dev-server --hot --inline",然后在命令行中输入 npm run build就能代替输入一长串命令（webpack-dev-server --hot --inline），运行webpack-dev-server --hot --inline默认是找webpack.config.js,通过--config命令可以修改为另一个配置文件。例如：webpack-dev-server --hot --inline --config 'webpack.es6.config.js'
+  9)配置根目录 当在命令行中输入webpack-dev-server --hot --inline，再在浏览器中输入localhost：端口号，浏览器会在项目的根目录中去查找内容，通过--content-base可以配置根目录。如webpack-dev-server --hot --inline --content-base './dist/'，在dist文件夹中去加载index.html，如果没有index.html文件，将会在浏览器中显示所有build目录下的文件和文件夹
+  
+6. loader
+  webpack本身只能进行js模块的打包(即处理js中的模块化的代码，即export、import代码，它没有编译的功能不能将ES6编译成ES3或ES5，即无法处理ES6中的const、let等关键字)，loader让webpack能够去处理那些非js文件的模块以及将js中ES6的代码编译成兼容性更好的ES3或ES5(即转换某些类型的模块)
+  1)babel-loader
+    通过babel-loader就能使用babel进行编译后再打包(babel-loader只相当于联通了babel和webpack，使得可以在webpack中使用babel，真正执行编译的是babel)
+	npm install --save-dev babel-loader@8.1.0 @babel/core@7.11.0 @babel/preset-env@7.11.0
+	但是babel还是无法编译ES6中新增的API，例如Promise、Array.from()等，如果需要将API编译成ES3或ES5则还需安装如下插件，并且在js源码中import 'core-js/stable';
+	npm install --save-dev core-js@3.6.5
+	
+7. plugins
+  loader被用于转换某些类型的模块，而插件则可以用于执行范围更广的任务。插件的范围包括，从打包优化和压缩，一直到重新定义环境中的变量。插件接口功能极其强大，可以用来处理各种各样的任务。想要使用一个插件，只需要require()它，然后把它添加到plugins数组中。多数插件可以通过选项(option)自定义。也可以在一个配置文件中因为不同目的而多次使用同一个插件，这时需要通过使用new操作符来创建一个实例。(具体插件:https://www.webpackjs.com/plugins/)
+  
+  HtmlWebpackPlugin
+  HtmlWebpackPlugin会自动为你生成一个HTML5文件， 其中包括使用script标签的body中的所有webpack包。
+  安装：
+  npm install --save-dev html-webpack-plugin@4.3.0
+  导入：
+  var HtmlWebpackPlugin = require('html-webpack-plugin');
+  var webpackConfig = {
+    entry: 'index.js',
+    output: {
+      path: path.resolve(__dirname, './dist'),
+      filename: 'index_bundle.js'
+    },
+	//template参数：webpack模板的相对或绝对路径。
+    plugins: [new HtmlWebpackPlugin({template:'./template.html'})]
+  };
+  
+	

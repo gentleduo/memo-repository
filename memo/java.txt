@@ -13,7 +13,8 @@ C:\Program Files\Java\jre1.8.0_144
 Java能够跨平台运行的核心在于JVM。不是Java能够跨平台，而是它的jvm能够跨平台。我们知道，不同的操作系统向上的API肯定是不同的，那么如果我们想要写一段代码调用系统的声音设备，就需要针对不同系统的API写出不同的代码来完成动作。
 而Java引入了字节码的概念，jvm只能认识字节码，并将它们解释到系统的API调用。针对不同的系统有不同的jvm实现，有Linux版本的jvm实现，也有Windows版本的jvm实现，但是同一段代码在编译后的字节码是一样的。引用上面的例子，在JavaAPI层面，我们调用系统声音设备的代码是唯一的，和系统无关，编译生成的字节码也是唯一的。但是同一段字节码，在不同的jvm实现上会映射到不同系统的API调用，从而实现代码的不加修改即可跨平台运行。
 #########################################################JRE、JDK、JVM#########################################################
-#######################################java 动态代理深度学习(Proxy,InvocationHandler),含$Proxy0源码#######################################
+
+#################################java 动态代理深度学习(Proxy,InvocationHandler),含$Proxy0源码#################################
 一.相关类及其方法:
 java.lang.reflect.Proxy
 Proxy 提供用于创建动态代理类和实例的静态方法.
@@ -160,10 +161,9 @@ public class $Proxy0 extends Proxy implements Manager {
 当执行managerProxy.modify()方法时,就调用了$Proxy0类中的modify()方法.
 在modify方法中,调用父类Proxy中的h的invoke()方法.
 即InvocationHandler.invoke();
+#################################java 动态代理深度学习(Proxy,InvocationHandler),含$Proxy0源码#################################
 
-#######################################java 动态代理深度学习(Proxy,InvocationHandler),含$Proxy0源码#######################################
-
-#############################################################java ThreadLocal#############################################################
+#######################################################java ThreadLocal#######################################################
 ThreadLocal的实现原理
 Thread类中有两个变量threadLocals和inheritableThreadLocals，二者都是ThreadLocal内部类ThreadLocalMap类型的变量，我们通过查看内部内ThreadLocalMap可以发现实际上它类似于一个HashMap。在默认情况下，每个线程中的这两个变量都为null。只有当线程第一次调用ThreadLocal的set或者get方法的时候才会创建他们（后面我们会查看这两个方法的源码）。每个线程的本地变量不是存放在ThreadLocal实例中，而是放在调用线程的ThreadLocals变量里面（前面也说过，该变量是Thread类的变量）。也就是说，ThreadLocal类型的本地变量是存放在具体的线程空间上，其本身相当于一个装载本地变量的工具壳，通过set方法将value添加到调用线程的threadLocals中，当调用线程调用get方法时候能够从它的threadLocals中取出变量。如果调用线程一直不终止，那么这个本地变量将会一直存放在他的threadLocals中，所以不使用本地变量的时候需要调用remove方法将threadLocals中删除不用的本地变量。
 1、set方法源码
@@ -233,7 +233,7 @@ public void remove() {
         m.remove(this);
 }
 4、每个线程内部有一个名为threadLocals的成员变量，该变量的类型为ThreadLocal.ThreadLocalMap类型（类似于一个HashMap），其中的key为当前定义的ThreadLocal变量的this引用，value为我们使用set方法设置的值。每个线程的本地变量存放在自己的本地内存变量threadLocals中，如果当前线程一直不消亡，那么这些本地变量就会一直存在（所以可能会导致内存溢出），因此使用完毕需要将其remove掉。
-#############################################################java ThreadLocal#############################################################
+#######################################################java ThreadLocal#######################################################
 
 #####################################################JVM ClassLoader#####################################################
 类装载工作由ClassLoader及其子类负责，ClassLoader是一个重要的Java执行时系统组件，它负责在运行时查找和装入Class字节码文件。JVM在运行时会产生三个ClassLoader：根装载器、ExtClassLoader（扩展类装载器）和AppClassLoader（系统类装载器）。其中，根装载器不是ClassLoader的子类，它使用C++编写，因此我们在Java中看不到它，根装载器负责装载JRE的核心类库，如JRE目标下的rt.jar、charsets.jar等。ExtClassLoader和AppClassLoader都是ClassLoader的子类。其中ExtClassLoader负责装载JRE目录ext中的JAR类包；AppClassLoader负责装载ClassPath路径下的类包。

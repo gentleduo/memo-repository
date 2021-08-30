@@ -1030,6 +1030,32 @@ dup函数是用来复制一个文件描述符的。复制得到的文件描述�
 
 ####################################################文件描述符与socket连接####################################################
 
+################################################一个服务端端口建立多个TCP连接################################################
+客户端：
+　　socket()---->创建出 active_socket_fd (client_socket_fd)
+　　bind()--->把active_socket_fd与ip,port绑定起来
+　　connect()--->client_socket_fd 主动请求服务端的 listen_socket_fd
+　　read()/write()---->读/写 socket io
+　　close()---->关闭socket_fd
+服务端：
+　　socket()---->创建出 active_socket_fd
+　　bind()--->把active_socket_fd与ip,port绑定起来
+　　listen()---->active_socket_fd--> listen_socket_fd 等待客户端的client_socket_fd来请求连接
+　　accept()---->listen_socket_fd-->connec_socket_fd 把监听socket转变为连接socket,用于建立连接后的读写数据
+　　read()/write()---->读/写 socket io
+　　close()---->关闭socket_fd
+
+linux内核中，socket函数不管在客户端还是服务端，创建的套接字都是主动socket，但是在服务端经过listen()，后把其转变为listen_socket_fd(被动监听socket)，经过accept()后转变为connect_socket_fd(已连接socket)。
+在转变为connect_socket_fd之前，都是同一个socket，只不过socket的状态改变了，但是服务端经过accept()后返回的socket是新的socket，用于连接后的read()/write()。
+一个tcp连接的唯一标识是一个四元组<clientIP,clientPort,serverIP,serverPort>，serverIP和serverPort是固定的，假定客户端也只有一个，即clientIP也是固定的，则描述不同的tcp连接就只剩下clientPort了。而实际上每当客户端调用connect()函数试图与服务端建立连接时，内核会为客户端分配一个临时端口作为源端口clientPort，服务端通过accept()函数感知到这个连接时，将返回一个全新的tcp连接的描述字（connect_socket_fd）。
+所以，一个服务端端口是能建立多个连接的，因为每个连接中clientPort都是不同的，在进行通信时，操作系统接收到向serverPort发来的数据时，会在该端口产生的连接中查找到符合这个唯一标识并传递信息到对应的缓冲区。
+扩展一下：
+1）为什么服务端需要产生两个socket(listen_socket_fd和connect_socket_fd)
+答：监听socket是服务器作为客户端连接请求的一个对端，只需创建一次即可，它存在于服务器的整个生命周期，可为成千上万的客户端服务，而一旦一个客户端和服务器连接成功，完成了TCP三次握手，操作系统内核就为这个客户端生成一个已连接套接字（connect_socket_fd），让应用服务器使用这个connect_socket_fd和客户端进行通信，如果应用服务器完成了对这个客户端的服务，那么关闭的就是已连接套接字，这样就完成了TCP连接的释放。请注意，这个时候释放的只是这一个客户端连接，其它被服务的客户端连接可能还存在。最重要的是，监听套接字一直都处于“监听”状态，等待新的客户请求到达并服务。若只使用一个listen_socket_fd完成从创建监听到被请求连接，处理请求，关闭socket的整个过程，那么这个socket就会一直被占用，而不能被其它的客户端请求，造成服务端性能低下。使用两个socket，按职责分工，listen_socket_fd专门负责响应客户端的请求，每个新的connect_socket_fd专门负责该次连接的数据交互，分层协作，提高服务端的性能。
+2）一个端口能建立多个UDP连接么？
+答：UDP本身是无连接的，所以不存在什么多个UDP连接。只是服务端接收UDP数据需要bind一个端口，一个socket只能绑定到一个端口。
+################################################一个服务端端口建立多个TCP连接################################################
+
 /*******************************************************linux 文件系统*******************************************************
 Linux启动过程
 

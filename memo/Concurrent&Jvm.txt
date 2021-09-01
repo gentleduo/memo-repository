@@ -33,6 +33,44 @@ http://www.2cto.com/kf/201305/208332.html
 //classloader
 http://blog.chinaunix.net/uid-21227800-id-65879.html
 
+###################################################»ù±¾¸ÅÄî###################################################
+Í¬²½£¨synchronous£©ºÍÒì²½£¨asynchronous£©
+
+²¢·¢(Concurrent)
+µ±ÓĞ¶à¸öÏß³ÌÔÚ²Ù×÷Ê±,Èç¹ûÏµÍ³Ö»ÓĞÒ»¸öCPU,ÔòËü¸ù±¾²»¿ÉÄÜÕæÕıÍ¬Ê±½øĞĞÒ»¸öÒÔÉÏµÄÏß³Ì,ËüÖ»ÄÜ°ÑCPUÔËĞĞÊ±¼ä»®·Ö³ÉÈô¸É¸öÊ±¼ä¶Î,ÔÙ½«Ê±¼ä¶Î·ÖÅä¸ø¸÷¸öÏß³ÌÖ´ĞĞ,ÔÚÒ»¸öÊ±¼ä¶ÎµÄÏß³Ì´úÂëÔËĞĞÊ±,ÆäËüÏß³Ì´¦ÓÚ¹ÒÆğ×´Ì¬.ÕâÖÖ·½Ê½ÎÒÃÇ³ÆÖ®Îª²¢·¢(Concurrent).
+
+²¢ĞĞ(Parallel)
+µ±ÏµÍ³ÓĞÒ»¸öÒÔÉÏCPUÊ±,ÔòÏß³ÌµÄ²Ù×÷ÓĞ¿ÉÄÜ·Ç²¢·¢.µ±Ò»¸öCPUÖ´ĞĞÒ»¸öÏß³ÌÊ±,ÁíÒ»¸öCPU¿ÉÒÔÖ´ĞĞÁíÒ»¸öÏß³Ì,Á½¸öÏß³Ì»¥²»ÇÀÕ¼CPU×ÊÔ´,¿ÉÒÔÍ¬Ê±½øĞĞ,ÕâÖÖ·½Ê½ÎÒÃÇ³ÆÖ®Îª²¢ĞĞ(Parallel)
+
+ÁÙ½çÇø
+¨CÁÙ½çÇøÓÃÀ´±íÊ¾Ò»ÖÖ¹«¹²×ÊÔ´»òÕßËµÊÇ¹²ÏíÊı¾İ£¬¿ÉÒÔ±»¶à¸öÏß³ÌÊ¹ÓÃ¡£µ«ÊÇÃ¿Ò»´Î£¬Ö»ÄÜÓĞÒ»¸öÏß³ÌÊ¹ÓÃËü£¬Ò»µ©ÁÙ½çÇø×ÊÔ´±»Õ¼ÓÃ£¬ÆäËûÏß³ÌÒªÏëÊ¹ÓÃÕâ¸ö×ÊÔ´£¬¾Í±ØĞëµÈ´ı¡£
+ÁÙ½çÇøÔÚ¶àÏß³Ì»·¾³ÏÂÊÇĞèÒª±»¿ØÖÆµÄÇøÓò
+
+×èÈû£¨Blocking£©ºÍ·Ç×èÈû£¨Non-Blocking£©
+¨C×èÈûºÍ·Ç×èÈûÍ¨³£ÓÃÀ´ĞÎÈİ¶àÏß³Ì¼äµÄÏà»¥Ó°Ïì¡£±ÈÈçÒ»¸öÏß³ÌÕ¼ÓÃÁËÁÙ½çÇø×ÊÔ´£¬ÄÇÃ´ÆäËüËùÓĞĞèÒªÕâ¸ö×ÊÔ´µÄÏß³Ì¾Í±ØĞëÔÚÕâ¸öÁÙ½çÇøÖĞ½øĞĞµÈ´ı£¬µÈ´ı»áµ¼ÖÂÏß³Ì¹ÒÆğ¡£ÕâÖÖÇé¿ö¾ÍÊÇ×èÈû¡£´ËÊ±£¬Èç¹ûÕ¼ÓÃ×ÊÔ´µÄÏß³ÌÒ»Ö±²»Ô¸ÒâÊÍ·Å×ÊÔ´£¬ÄÇÃ´ÆäËüËùÓĞ×èÈûÔÚÕâ¸öÁÙ½çÇøÉÏµÄÏß³Ì¶¼²»ÄÜ¹¤×÷¡£
+¨C·Ç×èÈûÔÊĞí¶à¸öÏß³ÌÍ¬Ê±½øÈëÁÙ½çÇø
+
+ËÀËø£¨Deadlock£©¡¢¼¢¶ö£¨Starvation£©ºÍ»îËø£¨Livelock£©
+
+²¢·¢¼¶±ğ
+×èÈû
+¨Cµ±Ò»¸öÏß³Ì½øÈëÁÙ½çÇøºó£¬ÆäËûÏß³Ì±ØĞëµÈ´ı
+·Ç×èÈû
+ÎŞÕÏ°­£¨Obstruction-Free£© ÆäÊµ¾ÍÊÇÅÅËû£¬ÏÈÄÃÒ»¸ö¸üĞÂÈÕÆÚ£¬È»ºóÔÚÓĞÏŞ´ÎÊıÄÚÍê³É¸üĞÂ£¬ÒòÎª´ÎÊıÏŞ¶¨ËùÒÔ²»±£Ö¤Ò»¶¨ÄÜ¸üĞÂ³É¹¦
+¨CÎŞÕÏ°­ÊÇÒ»ÖÖ×îÈõµÄ·Ç×èÈûµ÷¶È
+¨C×ÔÓÉ³öÈëÁÙ½çÇø
+¨CÎŞ¾ºÕùÊ±£¬ÓĞÏŞ²½ÄÚÍê³É²Ù×÷
+¨CÓĞ¾ºÕùÊ±£¬»Ø¹öÊı¾İ
+ÎŞËø£¨Lock-Free£©
+¨CÊÇÎŞÕÏ°­µÄ
+¨C±£Ö¤ÓĞÒ»¸öÏß³Ì¿ÉÒÔÊ¤³ö
+while (!atomicVar.compareAndSet(localVar, localVar+1)) { localVar = atomicVar.get(); }
+ÎŞµÈ´ı£¨Wait-Free£© µäĞÍµÄ°¸Àı¾ÍÊÇ¶ÁĞ´ËøÖĞµÄ¶ÁËø
+¨CÎŞËøµÄ
+¨CÒªÇóËùÓĞµÄÏß³Ì¶¼±ØĞëÔÚÓĞÏŞ²½ÄÚÍê³É
+¨CÎŞ¼¢¶öµÄ
+###################################################»ù±¾¸ÅÄî###################################################
+
 ###################################################¶àÏß³Ì-Ïß³Ì²»°²È«°¸Àı###################################################
 public class BootStrap {
 
@@ -171,6 +209,69 @@ I(Invalid)£ºÕâĞĞÊı¾İÎŞĞ§¡£
 ÄÚ´æ  ======> ¸ßËÙ»º´æ(javaµÄ»°¸öÈËÀí½â¾ÍÊÇÏß³ÌÕ») ======> CPU¼Ä´æÆ÷
 ¸öÈËÀí½âÔ­×ÓĞÔÊÇÕë¶Ô¸ßËÙ»º´æµ½CPU¼Ä´æÆ÷£¬¿É¼ûĞÔÊÇÕë¶ÔÄÚ´æµ½¸ßËÙ»º´æ¡£JavaÄÚ´æÄ£ĞÍÖĞÃ¿¸öÏß³ÌµÄ¹¤×÷ÄÚ´æÊµ¼ÊÉÏ¾ÍÊÇ¼Ä´æÆ÷ÒÔ¼°¸ßËÙ»º´æµÄ³éÏó¡£
 
+Ô­×ÓĞÔ
+Ô­×ÓĞÔÊÇÖ¸Ò»¸ö²Ù×÷ÊÇ²»¿ÉÖĞ¶ÏµÄ¡£¼´Ê¹ÊÇÔÚ¶à¸öÏß³ÌÒ»ÆğÖ´ĞĞµÄÊ±ºò£¬Ò»¸ö²Ù×÷Ò»µ©¿ªÊ¼£¬¾Í²»»á±»ÆäËüÏß³Ì¸ÉÈÅ¡£
+
+ÓĞĞòĞÔ
+Ò»ÌõÖ¸ÁîµÄÖ´ĞĞÊÇ¿ÉÒÔ·ÖÎªºÜ¶à²½ÖèµÄ
+¨C È¡Ö¸ IF                  //(InstrucTIon Fetch)´ÓÄÚ´æÖĞÈ¡³öÖ¸Áî  
+¨C ÒëÂëºÍÈ¡¼Ä´æÆ÷²Ù×÷Êı ID  //(InstrucTIon Decode)°ÑÖ¸ÁîËÍµ½Ö¸ÁîÒëÂëÆ÷½øĞĞÒëÂë£¬²úÉúÏàÓ¦¿ØÖÆĞÅºÅ
+¨C Ö´ĞĞ»òÕßÓĞĞ§µØÖ·¼ÆËã EX  //(InstrucTIon Execute)Ö¸ÁîÖ´ĞĞ£¬ÔÚÖ´ĞĞ½×¶ÎµÄ×î³£¼û²¿¼şÎªËãÊõÂß¼­²¿¼şÔËËãÆ÷(ArithmeTIc Logical Unit£¬ALU)
+¨C ´æ´¢Æ÷·ÃÎÊ MEM           //·Ã´æ£¨Memory Access£©ÊÇÖ¸´æ´¢Æ÷·ÃÎÊÖ¸Áî½«Êı¾İ´Ó´æ´¢Æ÷ÖĞ¶Á³ö£¬»òÕßĞ´Èë´æ´¢Æ÷µÄ¹ı³Ì
+¨C Ğ´»Ø WB                  // Ğ´»Ø£¨Write-Back£©ÊÇÖ¸½«Ö¸ÁîÖ´ĞĞµÄ½á¹ûĞ´»ØÍ¨ÓÃ¼Ä´æÆ÷×éµÄ¹ı³Ì
+
+µ¥ÖÜÆÚ´¦ÀíÆ÷(Ê±ÖÓÖÜÆÚ1000ps)
+IF ID EX MEM WB
+               IF ID EX MEM WB
+			                  IF ID EX MEM WB
+Á÷Ë®Ïß´¦ÀíÆ÷(Ê±ÖÓÖÜÆÚ200ps)
+IF ID EX MEM WB
+   IF ID EX  MEM WB
+      IF ID  EX  MEM WB
+Ö¸Áî²»ÊÇÒ»²½¿ÉÒÔÖ´ĞĞÍê±ÏµÄ£¬Ã¿¸ö²½ÖèÉæ¼°µÄÓ²¼ş¿ÉÄÜ²»Í¬£¬Ö¸ÁîµÄÄ³Ò»²½ÖèÔÚÖ´ĞĞµÄÊ±ºò£¬Ö»»áÕ¼ÓÃÄ³¸öÀàĞÍµÄÓ²¼ş£¬ÀıÈç£ºµ±AÖ¸ÁîÔÚÈ¡Ö¸µÄÊ±ºò£¬BÖ¸ÁîÊÇ¿ÉÒÔ½øĞĞÒëÂë¡¢Ö´ĞĞ»òÕßĞ´»ØµÈ²Ù×÷µÄ¡£ËùÒÔ¿ÉÒÔÊ¹ÓÃÁ÷Ë®Ïß¼¼ÊõÀ´Ö´ĞĞÖ¸Áî¡£¿ÉÒÔ¿´µ½£¬µ±µÚ2ÌõÖ¸ÁîÖ´ĞĞÊ±£¬µÚ1ÌõÖ¸ÁîÖ»ÊÇÍê³ÉÁËÈ¡Öµ²Ù×÷¡£¼ÙÈçÃ¿¸ö²½ÖèĞèÒª1ºÁÃë£¬ÄÇÃ´Èç¹ûÖ¸Áî2µÈ´ıÖ¸Áî1Ö´ĞĞÍêÔÙÖ´ĞĞ£¬¾ÍĞèÒªµÈ´ı5ºÁÃë¡£¶øÊ¹ÓÃÁ÷Ë®Ïßºó£¬Ö»ĞèÒªµÈ´ı1ºÁÃë¡£
+
+ÀıÈç£ºA = B + CµÄ´¦Àí
+LW  R1,B     IF ID EX MEM WB                     //LW±íÊ¾load£¬°ÑBµÄÖµ¼ÓÔØµ½R1¼Ä´æÆ÷ÖĞ
+LW  R2,C        IF ID EX  MEM WB                 //LW±íÊ¾load£¬°ÑCµÄÖµ¼ÓÔØµ½R2¼Ä´æÆ÷ÖĞ
+ADD R3,R1,R2       IF ID  X   EX MEM WB          //ADDÊÇ¼Ó·¨£¬°ÑR1¡¢R2µÄÖµÏà¼Ó£¬²¢´æ·Åµ½R3ÖĞ
+SW  A,R3              IF  X   ID EX  MEM WB      //SW±íÊ¾store´æ´¢£¬½«R3¼Ä´æÆ÷µÄÖµ±£´æµ½±äÁ¿AÖĞ
+ÔÚADDÖ¸ÁîÉÏµÄ´ó²æ±íÊ¾Ò»¸öÖĞ¶Ï£¬Ò²¾ÍÊÇÔÚÕâÀïÍ£¶ÙÁËÒ»ÏÂ£¬ÒòÎªR2ÖĞµÄÊı¾İ»¹Ã»×¼±¸ºÃ¡£ÓÉÓÚADDµÄÑÓ³Ù£¬ºóÃæµÄÖ¸Áî¶¼ÒªÂıÒ»¸ö½ÚÅÄ¡£
+ÔÙ¿´¸´ÔÓÒ»µãµÄÇé¿ö
+A = B + C 
+D = E + F
+LW  R1,B     IF ID EX MEM WB                     
+LW  R2,C        IF ID EX  MEM WB                 
+ADD R3,R1,R2       IF ID  X   EX MEM WB          
+SW  A,R3              IF  X   ID EX  MEM WB      
+LW  R4,E                  X   IF ID  EX  MEM WB 
+LW  R5,F                         IF  ID  EX  MEM WB
+ADD R6,R4,R5                         IF  ID  X   EX  MEM WB
+SW  D,R6                                 IF  X   ID  EX  MEM WB
+¿É¼ûÉÏÍ¼ÖĞÓĞ²»ÉÙÍ£¶Ù¡£ÎªÁË¼õÉÙÍ£¶Ù£¬ÎÒÃÇÖ»ĞèÒª½«LW R4,EºÍLW R5,FÒÆ¶¯µ½Ç°ÃæÖ´ĞĞ¡£
+LW  R1,B     IF ID EX MEM WB                     
+LW  R2,C        IF ID EX  MEM WB
+LW  R4,E           IF ID  EX  MEM WB                
+ADD R3,R1,R2          IF  ID  EX  MEM WB
+LW  R5,F                  IF  ID  EX  MEM WB       
+SW  A,R3                      IF  ID  EX  MEM WB      
+ADD R6,R4,R5                      IF  ID  EX  MEM WB
+SW  D,R6                              IF  ID  EX  MEM WB
+¿É¼ûÖ¸ÁîÖØÅÅĞò¶ÔÌá¸ßCPUĞÔÄÜÊ®·Ö±ØÒª£¬µ«ÊÇÒª×ñÑ­happens-before¹æÔò
+Happen-Before¹æÔò
+? ³ÌĞòË³ĞòÔ­Ôò£ºÒ»¸öÏß³ÌÄÚ±£Ö¤ÓïÒåµÄ´®ĞĞĞÔ(±ÈÈça=1;b=a+1;)
+? volatile¹æÔò£ºvolatile±äÁ¿µÄĞ´£¬ÏÈ·¢ÉúÓÚ¶Á£¬Õâ±£Ö¤ÁËvolatile±äÁ¿µÄ¿É¼ûĞÔ
+? Ëø¹æÔò£º½âËø£¨unlock£©±ØÈ»·¢ÉúÔÚËæºóµÄ¼ÓËø£¨lock£©Ç°
+? ´«µİĞÔ£ºAÏÈÓÚB£¬BÏÈÓÚC£¬ÄÇÃ´A±ØÈ»ÏÈÓÚC
+? Ïß³ÌµÄstart()·½·¨ÏÈÓÚËüµÄÃ¿Ò»¸ö¶¯×÷
+? Ïß³ÌµÄËùÓĞ²Ù×÷ÏÈÓÚÏß³ÌµÄÖÕ½á£¨Thread.join()£©
+? Ïß³ÌµÄÖĞ¶Ï£¨interrupt()£©ÏÈÓÚ±»ÖĞ¶ÏÏß³ÌµÄ´úÂë
+? ¶ÔÏóµÄ¹¹Ôìº¯ÊıÖ´ĞĞ½áÊøÏÈÓÚfinalize()·½·¨
+
+¿É¼ûĞÔ
+¿É¼ûĞÔÊÇÖ¸µ±Ò»¸öÏß³ÌĞŞ¸ÄÁËÄ³Ò»¸ö¹²Ïí±äÁ¿µÄÖµ£¬ÆäËûÏß³ÌÊÇ·ñÄÜ¹»Á¢¼´ÖªµÀÕâ¸öĞŞ¸Ä¡£
+¨C ±àÒëÆ÷ÓÅ»¯
+¨C Ó²¼şÓÅ»¯£¨ÈçĞ´ÎüÊÕ£¬Åú²Ù×÷£©
+
 Àı1£º
 public class Test {
 
@@ -203,39 +304,147 @@ public class Test {
 ËùÒÔÔÚÏß³Ì1ÔÚ¶ÁÈ¡incµÄÎª10ºó£¬Ö´ĞĞ×ÔÔö²Ù×÷µÄµÚÒ»²½»òÕßµÚ¶ş²½£¬´ËÊ±±»¶ÂÈûÁË(ÔÚ·¢ÉúÏß³ÌÇĞ»»µÄÊ±ºò£¬¸ÃÏß³ÌÊ¹ÓÃµÄCPUÄÚ²¿¼Ä´æÆ÷»á±»×÷ÎªÏÖ³¡½øĞĞ±£´æ)¡£ËùÒÔ¹¤×÷ÄÚ´æµÄincÈÔÈ»Îª10ÔÚÏß³Ì2¶ÁÈ¡incµÄÊ±ºò£¬ÖµÒ²ÊÇÎª10£¬µ«Ïß³Ì2µÄ×ÔÔö²Ù×÷Ö´ĞĞÍêÁË3²½£¬ËùÒÔ¹¤×÷ÄÚ´æµÄinc»á±»ĞŞ¸ÄÎª11£¬Ö÷´æµÄincÒ²±»Á¢¿ÌĞŞ¸ÄÎª11£¬´Ó¶øËùÓĞÏß³ÌµÄ¹¤×÷ÄÚ´æÀïµÄincÒ²Îª11£¨×¼È·µÄËµÊÇÆäËûÏß³ÌÖĞ£¬ÒÑ¾­»º´æ¸Ã¹²Ïí±äÁ¿µÄCPUCacheLine±»ÉèÎªÊ§Ğ§£¬µ±ÆäËûÏß³ÌÔÙ´Î¶ÁÈ¡incµÄÊ±ºò¾Í»á´ÓÄÚ´æÖĞÖØĞÂ¶ÁÈ¡£¬µ«ÊÇÓÉÓÚÏß³Ì1ÒÑ¾­½«inc¶ÁÈ¡³öÀ´·ÅÈëCPU¼Ä´æÆ÷ÖĞÁË£¬ËùÒÔÔÚ½ÓÏÂÀ´»á¸ù¾İ¼Ä´æÆ÷ÖĞµÄÖµ½øĞĞ×ÔÔö£¬Ö±µ½ÏÂÒ»´ÎÔÙ¶ÁÈ¡incµÄÖµµÄÊ±ºò²Å»áÖØĞÂ´ÓÄÚ´æÖĞ¶ÁÈ¡£©¡£µ«ÊÇÓÉÓÚ´ËÊ±Ïß³Ì1µÄ×ÔÔö²Ù×÷ÊÇ»ùÓÚ¼Ä´æÆ÷ÀïµÄi£¨ÈÔÎª10£©£¬ËùÒÔ²Å»á³öÏÖÕâÖÖÇé¿ö¡£ËùÒÔ£¬volatileÊÇ°ÑËùÓĞÏß³ÌµÄ¹¤×÷ÄÚ´æµÄ±äÁ¿À¦°óÔÚÒ»Æğ£¬Ëü±£Ö¤ÁËËùÓĞÏß³ÌµÄ±äÁ¿ÊÇÒ»ÖÂµÄ¡£µ«ËüÈ´²¢²»ÊÇÏß³Ì°²È«µÄ¡£
 
 Àı2£º
-public class VolatileExample extends Thread {
-
-    private volatile boolean flag = false;
-    //ÎŞÏŞÑ­»·,µÈ´ıflag±äÎªtrueÊ±²ÅÌø³öÑ­»·
+public class VisibilityTest extends Thread {
+    private boolean stop;
     public void run() {
-        while (!flag) {
-            //System.out.println("1");
+        int i = 0;
+        while(!stop) {
+            i++;
         }
+        System.out.println("finish loop,i=" + i);
+    }
+    public void stopIt() {
+        stop = true;
+    }
+    public boolean getStop(){
+        return stop;
     }
     public static void main(String[] args) throws Exception {
-
-        VolatileExample example = new VolatileExample();
-        example.start();
-        //sleepµÄÄ¿µÄÊÇµÈ´ıÏß³ÌÆô¶¯Íê±Ï,Ò²¾ÍÊÇËµ½øÈërunµÄÎŞÏŞÑ­»·ÌåÁË
-        Thread.sleep(100);
-        example.setFlag(true);
-
-    }
-    public void setFlag(boolean flag) {
-        this.flag = flag;
+        VisibilityTest v = new VisibilityTest();
+        v.start();
+        Thread.sleep(1000);
+        v.stopIt();
+        Thread.sleep(2000);
+        System.out.println("finish main");
+        System.out.println(v.getStop());
     }
 }
-Õâ¸öÀı×ÓºÜºÃÀí½â£¬mainº¯ÊıÀïÆô¶¯Ò»¸öÏß³Ì£¬Æärun·½·¨ÊÇÒ»¸öÒÔflagÎª±êÖ¾Î»µÄÎŞÏŞÑ­»·¡£Èç¹ûflagÎªtrueÔòÌø³öÑ­»·¡£µ±mainÖ´ĞĞµ½12ĞĞµÄÊ±ºò£¬flag±»ÖÃÎªtrue£¬°´Âß¼­·ÖÎö´ËÊ±Ïß³Ì¸Ã½áÊø£¬¼´Õû¸ö³ÌĞòÖ´ĞĞÍê±Ï¡£
-Ö´ĞĞÒ»ÏÂ¿´¿´ÊÇÊ²Ã´½á¹û£¿½á¹ûÊÇÁîÈË¾ªÑÈµÄ£¬³ÌĞòÊ¼ÖÕÒ²²»»á½áÊø¡£mainÊÇ¿Ï¶¨½áÊøÁËµÄ£¬ÆäÔ­Òò¾ÍÊÇÏß³ÌµÄrun·½·¨Î´½áÊø£¬¼´run·½·¨ÖĞµÄflagÈÔÈ»Îªfalse¡£
-°ÑµÚ3ĞĞ¼ÓÉÏvolatileĞŞÊÎ·û£¬¼´
-private volatile boolean flag = false;
-ÔÙÖ´ĞĞÒ»±é¿´¿´£¿½á¹ûÊÇ³ÌĞòÕı³£ÍË³ö£¬volatileÉúĞ§ÁË¡£
-ÎÒÃÇÔÙĞŞ¸ÄÒ»ÏÂ¡£È¥µôvolatile¹Ø¼ü×Ö£¬»Ö¸´µ½ÆğÊ¼µÄÀı×Ó£¬È»ºó°Ñwhile(!flag){}¸ÄÎªwhile(!flag){System.out.println(1);}£¬ÔÙÖ´ĞĞÒ»ÏÂ¿´¿´¡£°´·ÖÎö£¬Ã»ÓĞvolatile¹Ø¼ü×ÖµÄÊ±ºò£¬³ÌĞò²»»áÖ´ĞĞ½áÊø£¬ËäÈ»¼ÓÉÏÁË´òÓ¡Óï¾ä£¬µ«Ã»ÓĞ×öÈÎºÎµÄ¹Ø¼ü×Ö/Âß¼­µÄĞŞ¸Ä£¬Ó¦¸Ã³ÌĞòÒ²²»»á½áÊø²Å¶Ô£¬µ«Ö´ĞĞ½á¹ûÈ´ÊÇ£º³ÌĞòÕı³£½áÊø¡£
+JavaĞéÄâ»ú²ãÃæµÄ¿É¼ûĞÔ
+ÉÏÃæ´úÂëÔÚ²»¼ÓvolatileÊ±£¬Éú³ÉµÄ»ã±à´úÂëÈçÏÂ£¬stop±äÁ¿Ö»ÔÚ0x0193bf99µÄÊ±ºòÖ´ĞĞÒ»´Î£¬½øÈëÑ­»·ºó¾Í²»»áÔÙ´ÓÄÚ´æÖĞ¶ÁÈ¡stop±äÁ¿µÄÖµ£º
+Java HotSpot(TM) Server VM warning: PrintAssembly is enabled; turning on DebugNonSafepoints to gain additional output
+CompilerOracle: dontinline *VisibilityTest.run
+CompilerOracle: compileonly *VisibilityTest.run
+Loaded disassembler from D:\Dev\Java\jdk1.7.0_25\jre\bin\server\hsdis-i386.dll
+Decoding compiled method 0x0193be88:
+Code:
+Argument 0 is unknown.RIP: 0x193bf80 Code size: 0x00000050
+[Disassembling for mach='i386']
+[Entry Point]
+[Constants]
+  # {method} 'run' '()V' in 'edu/hushi/jvm/VisibilityTest'
+  #           [sp+0x10]  (sp of caller)
+  0x0193bf80: cmp     eax,dword ptr [ecx+4h]
+  0x0193bf83: jne     191d100h          ;   {runtime_call}
+  0x0193bf89: nop
+[Verified Entry Point]
+  0x0193bf8c: mov     dword ptr [esp+0ffffc000h],eax
+  0x0193bf93: push    ebp
+  0x0193bf94: sub     esp,8h            ;*synchronization entry
+                                        ; - edu.hushi.jvm.VisibilityTest::run@-1 (line 13)
+  0x0193bf97: mov     ebp,ecx
+  0x0193bf99: movzx   eax,byte ptr [ecx+64h]  ;*getfield stop
+                                        ; - edu.hushi.jvm.VisibilityTest::run@9 (line 14)
+  0x0193bf9d: test    eax,eax
+  0x0193bf9f: jne     193bfafh          ;*ifeq
+                                        ; - edu.hushi.jvm.VisibilityTest::run@12 (line 14)
+  0x0193bfa1: mov     ebx,1h            ; OopMap{ebp=Oop off=38}
+                                        ;*ifeq
+                                        ; - edu.hushi.jvm.VisibilityTest::run@12 (line 14)
+  0x0193bfa6: test    dword ptr [0a0000h],edi  ;*ifeq
+                                        ; - edu.hushi.jvm.VisibilityTest::run@12 (line 14)
+                                        ;   {poll}
+  0x0193bfac: inc     ebx               ;*iinc
+                                        ; - edu.hushi.jvm.VisibilityTest::run@5 (line 15)
+  0x0193bfad: jmp     193bfa6h
+  0x0193bfaf: mov     ecx,14h
+  0x0193bfb4: nop
+  0x0193bfb7: call    191dd00h          ; OopMap{ebp=Oop off=60}
+                                        ;*getstatic out
+                                        ; - edu.hushi.jvm.VisibilityTest::run@15 (line 17)
+                                        ;   {runtime_call}
+  0x0193bfbc: int3                      ;*iinc
+                                        ; - edu.hushi.jvm.VisibilityTest::run@5 (line 15)
+  0x0193bfbd: int3
+  0x0193bfbe: hlt
+  0x0193bfbf: hlt
+[Exception Handler]
+[Stub Code]
+  0x0193bfc0: jmp     1938780h          ;   {no_reloc}
+[Deopt Handler Code]
+  0x0193bfc5: push    193bfc5h          ;   {section_word}
+  0x0193bfca: jmp     191e280h          ;   {runtime_call}
+  0x0193bfcf: hlt
+finish main
+true
 
-volatileÊÇ±£Ö¤Ïß³Ì¼ä±äÁ¿µÄ¿É¼ûĞÔµ«ÊÇ²»ÄÜ±£Ö¤Ô­×ÓĞÔ
-¸÷Ïß³ÌµÄ¹¤×÷ÄÚ´æ¼ä±Ë´Ë¶ÀÁ¢¡¢»¥²»¿É¼û£¬ÔÚÏß³ÌÆô¶¯µÄÊ±ºò£¬ĞéÄâ»úÎªÃ¿¸öÄÚ´æ·ÖÅäÒ»¿é¹¤×÷ÄÚ´æ£¬²»½ö°üº¬ÁËÏß³ÌÄÚ²¿¶¨ÒåµÄ¾Ö²¿±äÁ¿£¬Ò²°üº¬ÁËÏß³ÌËùĞèÒªÊ¹ÓÃµÄ¹²Ïí±äÁ¿(·ÇÏß³ÌÄÚ¹¹ÔìµÄ¶ÔÏó)µÄ¸±±¾£¬¼´ÎªÁËÌá¸ßÖ´ĞĞĞ§ÂÊ
-¹¤×÷ÄÚ´æ¿ÉÒÔËµÊÇÖ÷ÄÚ´æµÄÒ»·İ»º´æ£¬ÎªÁË±ÜÃâ»º´æµÄ²»Ò»ÖÂĞÔ£¬ËùÒÔvolatileĞèÒª·ÏÆú´Ë»º´æ¡£µ«³ıÁËÄÚ´æ»º´æÖ®Íâ£¬ÔÚCPUÓ²¼ş¼¶±ğÒ²ÊÇÓĞ»º´æµÄ£¬¼´¼Ä´æÆ÷¡£¼ÙÈçÏß³ÌA½«±äÁ¿XÓÉ0ĞŞ¸ÄÎª1µÄÊ±ºò£¬CPUÊÇÔÚÆä»º´æÄÚ²Ù×÷£¬Ã»ÓĞ¼°Ê±»ØĞ´µ½ÄÚ´æ£¬ÄÇÃ´X=1Õâ¸ö²Ù×÷JVMÊÇÎŞ·¨¼°Ê±±»Ö®ºóÖ´ĞĞµÄÏß³ÌB¿´µ½µÄ£¬ËùÒÔÎÒ¾õµÃJVMÔÚ´¦Àívolatile±äÁ¿µÄÊ±ºò£¬Ò²Í¬ÑùÓÃÁËÓ²¼ş¼¶±ğµÄ»º´æÒ»ÖÂĞÔÔ­Ôò
-¡°¸÷Ïß³ÌµÄ¹¤×÷ÄÚ´æ¼ä±Ë´Ë¶ÀÁ¢¡¢»¥²»¿É¼û£¬ÔÚÏß³ÌÆô¶¯µÄÊ±ºò£¬ĞéÄâ»úÎªÃ¿¸öÄÚ´æ·ÖÅäÒ»¿é¹¤×÷ÄÚ´æ£¬²»½ö°üº¬ÁËÏß³ÌÄÚ²¿¶¨ÒåµÄ¾Ö²¿±äÁ¿£¬Ò²°üº¬ÁËÏß³ÌËùĞèÒªÊ¹ÓÃµÄ¹²Ïí±äÁ¿(·ÇÏß³ÌÄÚ¹¹ÔìµÄ¶ÔÏó)µÄ¸±±¾£¬¼´ÎªÁËÌá¸ßÖ´ĞĞĞ§ÂÊ¡±²¢²»×¼È·¡£Èç½ñµÄvolatileµÄÀı×ÓÒÑ¾­ÊÇºÜÄÑÖØÏÖ£¬Èç±¾Àı¿ªÍ·Ê±Ö»ÓĞÔÚwhileËÀÑ­»·Ê±²ÅÌåÏÖ³övolatileµÄ×÷ÓÃ£¬ÄÄÅÂÖ»ÊÇ¼ÓÁËSystem.out.println(1)ÕâÃ´Ò»Ğ¡¶Î£¬ÆÕÍ¨±äÁ¿Ò²ÄÜ´ïµ½volatileµÄĞ§¹û£¬ÕâÊÇÊ²Ã´Ô­ÒòÄØ£¿Ô­À´Ö»ÓĞÔÚ¶Ô±äÁ¿¶ÁÈ¡ÆµÂÊºÜ¸ßµÄÇé¿öÏÂ£¬ĞéÄâ»ú²Å²»»á¼°Ê±»ØĞ´Ö÷ÄÚ´æ£¬¶øµ±ÆµÂÊÃ»ÓĞ´ïµ½ĞéÄâ»úÈÏÎªµÄ¸ßÆµÂÊÊ±£¬ÆÕÍ¨±äÁ¿ºÍvolatileÊÇÍ¬ÑùµÄ´¦ÀíÂß¼­¡£ÈçÔÚÃ¿¸öÑ­»·ÖĞÖ´ĞĞSystem.out.println(1)¼Ó´óÁË¶ÁÈ¡±äÁ¿µÄÊ±¼ä¼ä¸ô£¬Ê¹ĞéÄâ»úÈÏÎª¶ÁÈ¡ÆµÂÊ²¢²»ÄÇÃ´¸ß£¬ËùÒÔÊµÏÖÁËºÍvolatileµÄĞ§¹û¡£volatileµÄĞ§¹ûÔÚjdk1.2¼°Ö®Ç°ºÜÈİÒ×ÖØÏÖ£¬µ«Ëæ×ÅĞéÄâ»úµÄ²»¶ÏÓÅ»¯£¬Èç½ñµÄÆÕÍ¨±äÁ¿µÄ¿É¼ûĞÔÒÑ¾­²»ÊÇÄÇÃ´ÑÏÖØµÄÎÊÌâÁË£¬ÕâÒ²ÊÇvolatileÈç½ñÈ·Êµ²»Ì«ÓĞÊ¹ÓÃ³¡¾°µÄÔ­Òò°É¡£
+ÉÏÃæ´úÂëÔÚ¼ÓvolatileÊ±£¬Éú³ÉµÄ»ã±à´úÂëÈçÏÂ£¬stop±äÁ¿»áÔÚ0x01c7c797ºÍ0x01c7c7a1Á½¸öµØ·½·Ö±ğ´ÓÄÚ´æÖĞ¶ÁÈ¡£¬¼´Ã¿´ÎÑ­»·ÅĞ¶ÏÖ®Ç°¶¼»áÖØĞÂ´ÓÄÚ´æÖĞ¶ÁÈ¡stop±äÁ¿µÄÖµ£º
+Java HotSpot(TM) Server VM warning: PrintAssembly is enabled; turning on DebugNonSafepoints to gain additional output
+CompilerOracle: dontinline *VisibilityTest.run
+CompilerOracle: compileonly *VisibilityTest.run
+Loaded disassembler from D:\Dev\Java\jdk1.7.0_25\jre\bin\server\hsdis-i386.dll
+Decoding compiled method 0x01c7c688:
+Code:
+Argument 0 is unknown.RIP: 0x1c7c780 Code size: 0x00000050
+[Disassembling for mach='i386']
+[Entry Point]
+[Constants]
+  # {method} 'run' '()V' in 'edu/hushi/jvm/VisibilityTest'
+  #           [sp+0x10]  (sp of caller)
+  0x01c7c780: cmp     eax,dword ptr [ecx+4h]
+  0x01c7c783: jne     1c5d100h          ;   {runtime_call}
+  0x01c7c789: nop
+[Verified Entry Point]
+  0x01c7c78c: mov     dword ptr [esp+0ffffc000h],eax
+  0x01c7c793: push    ebp
+  0x01c7c794: sub     esp,8h            ;*synchronization entry
+                                        ; - edu.hushi.jvm.VisibilityTest::run@-1 (line 13)
+  0x01c7c797: movzx   eax,byte ptr [ecx+64h]  ;*getfield stop
+                                        ; - edu.hushi.jvm.VisibilityTest::run@9 (line 14)
+  0x01c7c79b: xor     ebp,ebp
+  0x01c7c79d: test    eax,eax
+  0x01c7c79f: jne     1c7c7b0h          ;*iinc
+                                        ; - edu.hushi.jvm.VisibilityTest::run@5 (line 15)
+  0x01c7c7a1: movzx   ebx,byte ptr [ecx+64h]  ;*getfield stop
+                                        ; - edu.hushi.jvm.VisibilityTest::run@9 (line 14)
+  0x01c7c7a5: inc     ebp               ; OopMap{ecx=Oop off=38}
+                                        ;*ifeq
+                                        ; - edu.hushi.jvm.VisibilityTest::run@12 (line 14)
+  0x01c7c7a6: test    dword ptr [350000h],edi  ;   {poll}
+  0x01c7c7ac: test    ebx,ebx
+  0x01c7c7ae: je      1c7c7a1h          ;*getstatic out
+                                        ; - edu.hushi.jvm.VisibilityTest::run@15 (line 17)
+  0x01c7c7b0: mov     ecx,14h
+  0x01c7c7b5: nop
+  0x01c7c7b7: call    1c5dd00h          ; OopMap{off=60}
+                                        ;*getstatic out
+                                        ; - edu.hushi.jvm.VisibilityTest::run@15 (line 17)
+                                        ;   {runtime_call}
+  0x01c7c7bc: int3                      ;*getstatic out
+                                        ; - edu.hushi.jvm.VisibilityTest::run@15 (line 17)
+  0x01c7c7bd: hlt
+  0x01c7c7be: hlt
+  0x01c7c7bf: hlt
+[Exception Handler]
+[Stub Code]
+  0x01c7c7c0: jmp     1c78f80h          ;   {no_reloc}
+[Deopt Handler Code]
+  0x01c7c7c5: push    1c7c7c5h          ;   {section_word}
+  0x01c7c7ca: jmp     1c5e280h          ;   {runtime_call}
+  0x01c7c7cf: hlt
+finish loop,i=1109307815
+finish main
+true
+
 ###################################################Ô­×ÓĞÔ£¬¿É¼ûĞÔ£¬ÓĞĞòĞÔ###################################################
 
 ###################################################Thread¡¢Runnable###################################################
@@ -374,43 +583,6 @@ public class InterruptBlockThread extends Thread {
 
 ###################################################ThreadµÄÖĞ¶Ï»úÖÆ###################################################
 
-Í¬²½£¨synchronous£©ºÍÒì²½£¨asynchronous£©
-
-²¢·¢(Concurrent)
-µ±ÓĞ¶à¸öÏß³ÌÔÚ²Ù×÷Ê±,Èç¹ûÏµÍ³Ö»ÓĞÒ»¸öCPU,ÔòËü¸ù±¾²»¿ÉÄÜÕæÕıÍ¬Ê±½øĞĞÒ»¸öÒÔÉÏµÄÏß³Ì,ËüÖ»ÄÜ°ÑCPUÔËĞĞÊ±¼ä»®·Ö³ÉÈô¸É¸öÊ±¼ä¶Î,ÔÙ½«Ê±¼ä¶Î·ÖÅä¸ø¸÷¸öÏß³ÌÖ´ĞĞ,ÔÚÒ»¸öÊ±¼ä¶ÎµÄÏß³Ì´úÂëÔËĞĞÊ±,ÆäËüÏß³Ì´¦ÓÚ¹ÒÆğ×´Ì¬.ÕâÖÖ·½Ê½ÎÒÃÇ³ÆÖ®Îª²¢·¢(Concurrent).
-
-²¢ĞĞ(Parallel)
-µ±ÏµÍ³ÓĞÒ»¸öÒÔÉÏCPUÊ±,ÔòÏß³ÌµÄ²Ù×÷ÓĞ¿ÉÄÜ·Ç²¢·¢.µ±Ò»¸öCPUÖ´ĞĞÒ»¸öÏß³ÌÊ±,ÁíÒ»¸öCPU¿ÉÒÔÖ´ĞĞÁíÒ»¸öÏß³Ì,Á½¸öÏß³Ì»¥²»ÇÀÕ¼CPU×ÊÔ´,¿ÉÒÔÍ¬Ê±½øĞĞ,ÕâÖÖ·½Ê½ÎÒÃÇ³ÆÖ®Îª²¢ĞĞ(Parallel)
-
-ÁÙ½çÇø
-¨CÁÙ½çÇøÓÃÀ´±íÊ¾Ò»ÖÖ¹«¹²×ÊÔ´»òÕßËµÊÇ¹²ÏíÊı¾İ£¬¿ÉÒÔ±»¶à¸öÏß³ÌÊ¹ÓÃ¡£µ«ÊÇÃ¿Ò»´Î£¬Ö»ÄÜÓĞÒ»¸öÏß³ÌÊ¹ÓÃËü£¬Ò»µ©ÁÙ½çÇø×ÊÔ´±»Õ¼ÓÃ£¬ÆäËûÏß³ÌÒªÏëÊ¹ÓÃÕâ¸ö×ÊÔ´£¬¾Í±ØĞëµÈ´ı¡£
-ÁÙ½çÇøÔÚ¶àÏß³Ì»·¾³ÏÂÊÇĞèÒª±»¿ØÖÆµÄÇøÓò
-
-×èÈû£¨Blocking£©ºÍ·Ç×èÈû£¨Non-Blocking£©
-¨C×èÈûºÍ·Ç×èÈûÍ¨³£ÓÃÀ´ĞÎÈİ¶àÏß³Ì¼äµÄÏà»¥Ó°Ïì¡£±ÈÈçÒ»¸öÏß³ÌÕ¼ÓÃÁËÁÙ½çÇø×ÊÔ´£¬ÄÇÃ´ÆäËüËùÓĞĞèÒªÕâ¸ö×ÊÔ´µÄÏß³Ì¾Í±ØĞëÔÚÕâ¸öÁÙ½çÇøÖĞ½øĞĞµÈ´ı£¬µÈ´ı»áµ¼ÖÂÏß³Ì¹ÒÆğ¡£ÕâÖÖÇé¿ö¾ÍÊÇ×èÈû¡£´ËÊ±£¬Èç¹ûÕ¼ÓÃ×ÊÔ´µÄÏß³ÌÒ»Ö±²»Ô¸ÒâÊÍ·Å×ÊÔ´£¬ÄÇÃ´ÆäËüËùÓĞ×èÈûÔÚÕâ¸öÁÙ½çÇøÉÏµÄÏß³Ì¶¼²»ÄÜ¹¤×÷¡£
-¨C·Ç×èÈûÔÊĞí¶à¸öÏß³ÌÍ¬Ê±½øÈëÁÙ½çÇø
-
-ËÀËø£¨Deadlock£©¡¢¼¢¶ö£¨Starvation£©ºÍ»îËø£¨Livelock£©
-
-²¢·¢¼¶±ğ
-×èÈû
-¨Cµ±Ò»¸öÏß³Ì½øÈëÁÙ½çÇøºó£¬ÆäËûÏß³Ì±ØĞëµÈ´ı
-·Ç×èÈû
-ÎŞÕÏ°­£¨Obstruction-Free£© ÆäÊµ¾ÍÊÇÅÅËû£¬ÏÈÄÃÒ»¸ö¸üĞÂÈÕÆÚ£¬È»ºóÔÚÓĞÏŞ´ÎÊıÄÚÍê³É¸üĞÂ£¬ÒòÎª´ÎÊıÏŞ¶¨ËùÒÔ²»±£Ö¤Ò»¶¨ÄÜ¸üĞÂ³É¹¦
-¨CÎŞÕÏ°­ÊÇÒ»ÖÖ×îÈõµÄ·Ç×èÈûµ÷¶È
-¨C×ÔÓÉ³öÈëÁÙ½çÇø
-¨CÎŞ¾ºÕùÊ±£¬ÓĞÏŞ²½ÄÚÍê³É²Ù×÷
-¨CÓĞ¾ºÕùÊ±£¬»Ø¹öÊı¾İ
-ÎŞËø£¨Lock-Free£©
-¨CÊÇÎŞÕÏ°­µÄ
-¨C±£Ö¤ÓĞÒ»¸öÏß³Ì¿ÉÒÔÊ¤³ö
-while (!atomicVar.compareAndSet(localVar, localVar+1)) { localVar = atomicVar.get(); }
-ÎŞµÈ´ı£¨Wait-Free£© µäĞÍµÄ°¸Àı¾ÍÊÇ¶ÁĞ´ËøÖĞµÄ¶ÁËø
-¨CÎŞËøµÄ
-¨CÒªÇóËùÓĞµÄÏß³Ì¶¼±ØĞëÔÚÓĞÏŞ²½ÄÚÍê³É
-¨CÎŞ¼¢¶öµÄ
-
-
 ############################################JavaÏß³ÌµÄ5ÖÖ×´Ì¬¼°ÇĞ»»############################################
 Thread.classÖĞ¿ÉÒÔÕÒµ½Õâ¸öÃ¶¾Ù£¬Ëü¶¨ÒåÁËÏß³ÌµÄÏà¹Ø×´Ì¬:
 public enum State {
@@ -452,6 +624,62 @@ wait(100L)±íÊ¾:µ÷ÓÃwaitºóÏß³Ì½øÈë¼ÆÊ±µÈ´ı×´Ì¬(TIMED_WAITING)£¬100ºÁÃëÈç¹ûËøÃ»ÓĞ±
 Thread.sleep(0)µÄ×÷ÓÃ£¬¾ÍÊÇ´¥·¢²Ù×÷ÏµÍ³Á¢¿ÌÖØĞÂ½øĞĞÒ»´ÎCPU¾ºÕù£¬ÖØĞÂ¼ÆËãÓÅÏÈ¼¶¡£¾ºÕùµÄ½á¹ûÒ²ĞíÊÇµ±Ç°Ïß³ÌÈÔÈ»»ñµÃCPU¿ØÖÆÈ¨£¬Ò²Ğí»á»»³É±ğµÄÏß³Ì»ñµÃCPU¿ØÖÆÈ¨¡£ÕâÒ²ÊÇÎÒÃÇÔÚ´óÑ­»·ÀïÃæ¾­³£»áĞ´Ò»¾äThread.sleep(0)£¬ÒòÎªÕâÑù¾Í¸øÁËÆäËûÏß³Ì±ÈÈçPaintÏß³Ì»ñµÃCPU¿ØÖÆÈ¨µÄÈ¨Àû£¬ÕâÑù½çÃæ¾Í²»»á¼ÙËÀÔÚÄÄÀï¡£
 
 ############################################Thread sleep,yield,wait############################################
+
+#################################################Thread.join#################################################
+    /** 
+     * Waits at most {@code millis} milliseconds for this thread to 
+     * die. A timeout of {@code 0} means to wait forever. 
+     * 
+     * <p> This implementation uses a loop of {@code this.wait} calls 
+     * conditioned on {@code this.isAlive}. As a thread terminates the 
+     * {@code this.notifyAll} method is invoked. It is recommended that 
+     * applications not use {@code wait}, {@code notify}, or 
+     * {@code notifyAll} on {@code Thread} instances. 
+     * 
+     * @param  millis 
+     *         the time to wait in milliseconds 
+     * 
+     * @throws  IllegalArgumentException 
+     *          if the value of {@code millis} is negative 
+     * 
+     * @throws  InterruptedException 
+     *          if any thread has interrupted the current thread. The 
+     *          <i>interrupted status</i> of the current thread is 
+     *          cleared when this exception is thrown. 
+     */  
+    public final synchronized void join(long millis)  
+    throws InterruptedException {  
+        long base = System.currentTimeMillis();  
+        long now = 0;  
+      
+        if (millis < 0) {  
+            throw new IllegalArgumentException("timeout value is negative");  
+        }  
+      
+        if (millis == 0) {  
+            while (isAlive()) {  
+                wait(0);  
+            }  
+        } else {  
+            while (isAlive()) {  
+                long delay = millis - now;  
+                if (delay <= 0) {  
+                    break;  
+                }  
+                wait(delay);  
+                now = System.currentTimeMillis() - base;  
+            }  
+        }  
+    }
+Join·½·¨ÊµÏÖÊÇÍ¨¹ıwait£¨Ğ¡ÌáÊ¾£ºObject Ìá¹©µÄ·½·¨£©¡£ µ±mainÏß³Ìµ÷ÓÃt.joinÊ±ºò£¬mainÏß³Ì»á»ñµÃÏß³Ì¶ÔÏótµÄËø£¨wait ÒâÎ¶×ÅÄÃµ½¸Ã¶ÔÏóµÄËø),
+µ÷ÓÃ¸Ã¶ÔÏóµÄwait(µÈ´ıÊ±¼ä)£¬Ö±µ½¸Ã¶ÔÏó»½ĞÑmainÏß³Ì£¬±ÈÈçÍË³öºó¡£
+1) mainÏß³ÌÖĞµ÷ÓÃ×ÓÏß³ÌµÄjoin()·½·¨,join()·½·¨ÖĞµÄisAlive()Ó¦¸ÃÊÇÅĞ¶Ï"×ÓÏß³Ì"ÊÇ²»ÊÇAlive×´Ì¬
+¶øwait()µÄ×÷ÓÃÊÇÈÃ"µ±Ç°Ïß³Ì"µÈ´ı,¶øÕâÀïµÄ"µ±Ç°Ïß³Ì"ÊÇÖ¸µ±Ç°ÔÚCPUÉÏÔËĞĞµÄÏß³Ì.ËùÒÔ,ËäÈ»ÊÇµ÷ÓÃ×ÓÏß³ÌµÄwait()·½·¨,µ«ÊÇËüÊÇÍ¨¹ı"Ö÷Ïß³Ì"È¥µ÷ÓÃµÄ:
+ËùÒÔ,ĞİÃßµÄÊÇÖ÷Ïß³Ì,¶ø²»ÊÇ"×ÓÏß³Ì"!
+¼´:AÏß³Ìµ÷ÓÃBÏß³ÌµÄÊ±ºò,¿ÉÒÔ°ÑBÏß³Ì¿´³ÉÊÇÒ»¸ö¶ÔÏó,µ±ÔÚÒ»¸öÏß³ÌÖĞµ÷ÓÃÒ»¸ö¶ÔÏóµÄwait()·½·¨Ê±ºò»áµ¼ÖÂµ±Ç°Ïß³Ì×èÈû.
+ObjectÖĞwait()·½·¨µÄ¶¨Òå:µ¼ÖÂµ±Ç°µÄÏß³ÌµÈ´ı,Ö±µ½ÆäËûÏß³Ìµ÷ÓÃ´Ë¶ÔÏóµÄnotify()·½·¨»ònotifyAll()·½·¨,»òÕß³¬¹ıÖ¸¶¨µÄÊ±¼äÁ¿. 
+2) Ïß³ÌÖ´ĞĞÍê±ÏºóÏµÍ³»áµ÷ÓÃnotifyAll(),»½ĞÑµÈ´ıÔÚ¸ÃÏß³Ì¶ÔÏóÉÏµÄÆäËûÏß³Ì.£¨Õâ¸öµ÷ÓÃÊÇĞéÄâ»ú²ãÃæµÄµ÷ÓÃ²»ÔÚThreadÀàÖĞ£©
+#################################################Thread.join#################################################
 
 ########################################JavaÖĞsynchronizedÍ¬²½ËøËÄÖÖÓÃ·¨¼°×÷ÓÃ·¶Î§//########################################
 JavaÖĞµÄ¶ÔÏóËøºÍÀàËø£ºjavaµÄ¶ÔÏóËøºÍÀàËøÔÚËøµÄ¸ÅÄîÉÏ»ù±¾ÉÏºÍÄÚÖÃËøÊÇÒ»ÖÂµÄ£¬µ«ÊÇ£¬Á½¸öËøÊµ¼ÊÊÇÓĞºÜ´óµÄÇø±ğµÄ£¬¶ÔÏóËøÊÇÓÃÓÚ¶ÔÏóÊµÀı·½·¨£¬»òÕßÒ»¸ö¶ÔÏóÊµÀıÉÏµÄ£¬ÀàËøÊÇÓÃÓÚÀàµÄ¾²Ì¬·½·¨»òÕßÒ»¸öÀàµÄclass¶ÔÏóÉÏµÄ¡£ÎÒÃÇÖªµÀ£¬ÀàµÄ¶ÔÏóÊµÀı¿ÉÒÔÓĞºÜ¶à¸ö£¬µ«ÊÇÃ¿¸öÀàÖ»ÓĞÒ»¸öclass¶ÔÏó£¬ËùÒÔ²»Í¬¶ÔÏóÊµÀıµÄ¶ÔÏóËøÊÇ»¥²»¸ÉÈÅµÄ£¬µ«ÊÇÃ¿¸öÀàÖ»ÓĞÒ»¸öÀàËø¡£µ«ÊÇÓĞÒ»µã±ØĞë×¢ÒâµÄÊÇ£¬ÆäÊµÀàËøÖ»ÊÇÒ»¸ö¸ÅÄîÉÏµÄ¶«Î÷£¬²¢²»ÊÇÕæÊµ´æÔÚµÄ£¬ËüÖ»ÊÇÓÃÀ´°ïÖúÎÒÃÇÀí½âËø¶¨ÊµÀı·½·¨ºÍ¾²Ì¬·½·¨µÄÇø±ğµÄ¡£
@@ -578,62 +806,6 @@ LockSupport.unpark(t1);
 1.8.2. µÈ´ı¶ÓÁĞ
 1.8.3. park()
 #################################################JDK ²¢·¢°ü#################################################
-
-#################################################Thread.join#################################################
-    /** 
-     * Waits at most {@code millis} milliseconds for this thread to 
-     * die. A timeout of {@code 0} means to wait forever. 
-     * 
-     * <p> This implementation uses a loop of {@code this.wait} calls 
-     * conditioned on {@code this.isAlive}. As a thread terminates the 
-     * {@code this.notifyAll} method is invoked. It is recommended that 
-     * applications not use {@code wait}, {@code notify}, or 
-     * {@code notifyAll} on {@code Thread} instances. 
-     * 
-     * @param  millis 
-     *         the time to wait in milliseconds 
-     * 
-     * @throws  IllegalArgumentException 
-     *          if the value of {@code millis} is negative 
-     * 
-     * @throws  InterruptedException 
-     *          if any thread has interrupted the current thread. The 
-     *          <i>interrupted status</i> of the current thread is 
-     *          cleared when this exception is thrown. 
-     */  
-    public final synchronized void join(long millis)  
-    throws InterruptedException {  
-        long base = System.currentTimeMillis();  
-        long now = 0;  
-      
-        if (millis < 0) {  
-            throw new IllegalArgumentException("timeout value is negative");  
-        }  
-      
-        if (millis == 0) {  
-            while (isAlive()) {  
-                wait(0);  
-            }  
-        } else {  
-            while (isAlive()) {  
-                long delay = millis - now;  
-                if (delay <= 0) {  
-                    break;  
-                }  
-                wait(delay);  
-                now = System.currentTimeMillis() - base;  
-            }  
-        }  
-    }
-Join·½·¨ÊµÏÖÊÇÍ¨¹ıwait£¨Ğ¡ÌáÊ¾£ºObject Ìá¹©µÄ·½·¨£©¡£ µ±mainÏß³Ìµ÷ÓÃt.joinÊ±ºò£¬mainÏß³Ì»á»ñµÃÏß³Ì¶ÔÏótµÄËø£¨wait ÒâÎ¶×ÅÄÃµ½¸Ã¶ÔÏóµÄËø),
-µ÷ÓÃ¸Ã¶ÔÏóµÄwait(µÈ´ıÊ±¼ä)£¬Ö±µ½¸Ã¶ÔÏó»½ĞÑmainÏß³Ì£¬±ÈÈçÍË³öºó¡£
-1) mainÏß³ÌÖĞµ÷ÓÃ×ÓÏß³ÌµÄjoin()·½·¨,join()·½·¨ÖĞµÄisAlive()Ó¦¸ÃÊÇÅĞ¶Ï"×ÓÏß³Ì"ÊÇ²»ÊÇAlive×´Ì¬
-¶øwait()µÄ×÷ÓÃÊÇÈÃ"µ±Ç°Ïß³Ì"µÈ´ı,¶øÕâÀïµÄ"µ±Ç°Ïß³Ì"ÊÇÖ¸µ±Ç°ÔÚCPUÉÏÔËĞĞµÄÏß³Ì.ËùÒÔ,ËäÈ»ÊÇµ÷ÓÃ×ÓÏß³ÌµÄwait()·½·¨,µ«ÊÇËüÊÇÍ¨¹ı"Ö÷Ïß³Ì"È¥µ÷ÓÃµÄ:
-ËùÒÔ,ĞİÃßµÄÊÇÖ÷Ïß³Ì,¶ø²»ÊÇ"×ÓÏß³Ì"!
-¼´:AÏß³Ìµ÷ÓÃBÏß³ÌµÄÊ±ºò,¿ÉÒÔ°ÑBÏß³Ì¿´³ÉÊÇÒ»¸ö¶ÔÏó,µ±ÔÚÒ»¸öÏß³ÌÖĞµ÷ÓÃÒ»¸ö¶ÔÏóµÄwait()·½·¨Ê±ºò»áµ¼ÖÂµ±Ç°Ïß³Ì×èÈû.
-ObjectÖĞwait()·½·¨µÄ¶¨Òå:µ¼ÖÂµ±Ç°µÄÏß³ÌµÈ´ı,Ö±µ½ÆäËûÏß³Ìµ÷ÓÃ´Ë¶ÔÏóµÄnotify()·½·¨»ònotifyAll()·½·¨,»òÕß³¬¹ıÖ¸¶¨µÄÊ±¼äÁ¿. 
-2) Ïß³ÌÖ´ĞĞÍê±ÏºóÏµÍ³»áµ÷ÓÃnotifyAll(),»½ĞÑµÈ´ıÔÚ¸ÃÏß³Ì¶ÔÏóÉÏµÄÆäËûÏß³Ì.£¨Õâ¸öµ÷ÓÃÊÇĞéÄâ»ú²ãÃæµÄµ÷ÓÃ²»ÔÚThreadÀàÖĞ£©
-#################################################Thread.join#################################################
 
 #################################################JVM ServerÓëClientÔËĞĞÄ£Ê½#################################################
 JVM ServerÓëClientÔËĞĞÄ£Ê½ 

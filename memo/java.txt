@@ -302,7 +302,7 @@ java -jar xxx.jar
 但是有时，我们希望运行里面的具体某个类，这时可以通过：(注意:java -cp可以运行非Runnable的JAR)
 java -cp xxx.jar xxx.com.xxxx  它会找到这个类的main函数，开始执行
 其中-cp命令是将xxx.jar加入到classpath，这样java class loader就会在这里面查找匹配的类。
-例如我要运行的主函数在test2.jar中，而依赖的jdbc驱动在./lib目录下，所以利用java -cp运行的代码如下：
+例如我要运行的主函数在test2.jar中，而依赖的jdbc驱动在./lib目录下，所以利用java -cp运行的代码如下(windows下多个jar包之间使用分号；)：
 java -cp .:lib/*:./test2.jar database.pack.QueryData
 java命令直接运行class文件时候是以当前用户路径为基础，按照package指定的包路径转化为文件路径去搜索class文件的：
 例如：类Main1的package名为Pack1，当前用户的路径为/home，那么必须在当前路径下建一个名为Pack1的目录然后将Main1.class放在此目录下（即class的目录为：/home/Pack1）只这样在/home目录下运行java Pack1.Main1才能执行成功。
@@ -315,4 +315,26 @@ java -cp运行时：直接在-cp参数后面指定依赖的jar，再指定main�
 结论1：在没有配置CLASSPATH环境变量时，java命令在找class文件时是默认在当前目录下寻找的。
 结论2：配置过CLASSPATH环境后，java命令是按照CLASSPATH变量中的路径来的寻找class文件的，这就是为什么CLASSPATH变量中配置没有当前目录时，即使当前目录中有class文件，java命令仍然不能正常运行的原因。
 结论3：java执行class文件对package的路径是强依赖的。它在执行的时候会严格以当前用户路径为基础，按照package指定的包路径转化为文件路径去搜索class文件
+
+使用jar命名编译java文件
+======================>需要编译的java类中，import了其他java类
+比如需要编译的类：BufferedStreamFileOperationMain中引入了com.pccc.risk.CommonUtils
+由于java编译器会从目前的classpath中开始叠加包路径转化为文件路径后的路径中查找CommonUtils类，所以CommonUtils文件一定要放在classpath+包路径转化为文件路径后的文件夹中
+例如CommonUtils放在D:\eclipse-workspace\riskdatacleaning\src\com\pccc\risk文件夹中，CommonUtils的包名为：com.pccc.risk，所以classpath必须设置为：D:\eclipse-workspace\riskdatacleaning\src
+javac -encoding utf-8 -cp D:\eclipse-workspace\riskdatacleaning\src D:\eclipse-workspace\riskdatacleaning\src\com\pccc\risk\BufferedStreamFileOperationMain.java
+另外：如果在java文件在同一目录下，比如A，B在同一目录下，A需要用到B的类，则可以使用比较简单的方式 javac A B或者javac *.java就行
+
+======================>需要编译的java类中，import了其他jar
+linux下，对于需要依赖的jar包使用-cp ，多个jar包之间使用冒号: java命令运行时注意.:
+javac -cp  .:httpcore-4.4.1.jar:httpclient-4.4.1.jar:commons-logging-1.2.jar  TestIPMain.java
+java -cp  .:httpcore-4.4.1.jar:httpclient-4.4.1.jar:commons-logging-1.2.jar  TestIPMain
+windows下，对于需要依赖的jar包使用-cp ，多个jar包之间使用分号;java命令运行时注意.;
+javac -cp  .;d:\javaTestIP\httpcore-4.4.1.jar;d:\javaTestIP\httpclient-4.4.1.jar;d:\javaTestIP\commons-logging-1.2.jar  TestIPMain.java
+java -cp  .;d:\javaTestIP\httpcore-4.4.1.jar;d:\javaTestIP\httpclient-4.4.1.jar;d:\javaTestIP\commons-logging-1.2.jar  TestIPMain
+
+jar命令打jar包
+第一种方式 jar -cvf ./class2json.jar ./com
+jar包中中META-INF/MANIFEST.MF是自动生成的，并没有额外的jar包以及主类，所以 java -jar class2json.jar 运行失败，因为找不到主类
+第二种方式 jar cvfm class2json_1.jar ./META-INF/MANIFEST.MF com
+其中META-INF/MANIFEST.MF是我们引入的，包括额外的jar包以及主类，所以 java -jar class2json.jar 运行成功
 #############################################################JAR#############################################################

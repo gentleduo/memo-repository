@@ -572,7 +572,7 @@ public class InterruptBlockThread extends Thread {
 				 */
 				System.out.println(this.isInterrupted());// false
 
-				// 中不中断由自己决定，如果需要真真中断线程，则需要重新设置中断位，如果
+				// 中不中断由自己决定，如果需要真正中断线程，则需要重新设置中断位，如果
 				// 不需要，则不用调用
 				Thread.currentThread().interrupt();
 			}

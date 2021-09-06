@@ -53,6 +53,12 @@ PC:程序计数器（Program Counter）也是一种寄存器，保存了将要取出的下一条指令的内存
 Cache:
 程序执行过程：指令放PC，数据放Registers，然后ALU进行计算；线程切换则是将PC和Registers中正在执行的线程的数据保存到Cache中，然后将另一个线程的数据load到CPU的PC和Registers中来。
 CPU只负责计算，操作系统负责具体指令和数据是属于哪个线程的。
+设置线程数量的一般计算公式
+N_threads = N_cpu * U_cpu * (1 + W/C)
+其中：
+N_cpu是处理器的核的数目，可以通过Runtime.getRuntime().availableProcessors()得到
+U_cpu是期望的CPU利用率(该值应该介于0到1之间)
+W/C是等待时间与计算时间的比率
 
 纤程/协程
 绿色线程，用户管理的(而不是OS管理的)线程
@@ -139,6 +145,15 @@ public class TicketClient implements Runnable {
 ###################################################多线程-线程不安全案例###################################################
 
 ###################################################cpu缓存与多线程###################################################
+硬件内存架构
+计算机在执行程序的时候，每条指令都是在CPU中执行的，而执行的时候，又免不了要和数据打交道。而计算机上面的数据，是存放在主存当中的，也就是计算机的物理内存。以多核CPU为例，每个CPU核都包含一组「CPU寄存器」，这些寄存器本质上是在CPU内存中。CPU在这些寄存器上执行操作的速度要比在主内存(RAM)中执行的速度快得多。因为CPU速率高，内存速率慢，为了让存储体系可以跟上CPU的速度，所以中间又加上Cache层，就是我们说的「CPU高速缓存」。
+CPU多级缓存
+由于CPU的运算速度远远超越了1级缓存的数据I\O能力，CPU厂商又引入了多级的缓存结构。通常L1、L2是每个CPU核有一个，L3是多个核共用一个。
+CacheLine
+Cache又是由很多个「缓存行」(CacheLine)组成的。CacheLine是Cache和RAM交换数据的最小单位。Cache存储数据是固定大小为单位的，称为一个CacheEntry，这个单位称为CacheLine或CacheBlock。给定Cache容量大小和cache-line-size的情况下，它能存储的条目个数(number-of-cache-entries)就是固定的。因为Cache是固定大小的，所以它从主内存获取数据也是固定大小。对于X86来讲，是64Bytes。对于ARM来讲，较旧的架构的CacheLine是32Bytes，但一次内存访存只访问一半的数据也不太合适，所以它经常是一次填两个CacheLine，叫做DoubleFill。
+缓存的工作原理
+这里的缓存的工作原理和我们项目中用memcached、redis做常用数据的缓存层是一个道理。当CPU要读取一个数据时，首先从缓存中查找，如果找到就立即读取并送给CPU处理；如果没有找到，就去内存中读取并送给CPU处理，同时把这个数据所在的数据块（就是我们上边说的CacheBlock）调入缓存中，即把临近的共64Byte的数据也一同载入，因为临近的数据在将来被访问的可能性更大，可以使得以后对整块数据的读取都从缓存中进行，不必再调用内存。这就增加了CPU读取缓存的命中率（CacheHit）了。
+
 首先我们来看一个Java的例子:
 public class MainClass {
 
@@ -206,7 +221,7 @@ CPU缓存在顺序访问连续内存数据时挥发出了最大的优势。(注意一定是顺序访问连续内存数
 我们只需要保证不同线程的变量存在于不同的CacheLine即可，使用多余的字节来填充可以做点这一点，这样就不会出现伪共享问题。
 
 MESI协议(硬件层面)
-多核CPU都有自己的专有缓存（一般为L1，L2），以及同一个CPU插槽之间的核共享的缓存（一般为L3）。不同核心的CPU缓存中难免会加载同样的数据，那么如何保证数据的一致性呢，就是MESI协议了。
+多核(Core)CPU都有自己的专有缓存（一般为L1，L2），以及同一个CPU插槽(Socket)之间的核共享的缓存（一般为L3）。不同核心的CPU缓存中难免会加载同样的数据，那么如何保证数据的一致性呢，就是MESI协议了。
 在MESI协议中，每个Cache line有4个状态，可用2个bit表示，它们分别是：
 M(Modified)：这行数据有效，数据被修改了，和内存中的数据不一致，数据只存在于本Cache中；
 E(Exclusive)：这行数据有效，数据和内存中的数据一致，数据只存在于本Cache中；
@@ -222,9 +237,168 @@ I(Invalid)：这行数据无效。
 | Core A        |     | Core B        |     | Core C        |
 | CacheLine X=4 |     | CacheLine X=3 |     | CacheLine X=3 |
 | Status: M     |     | Status: I     |     | Status: I     |
-注意：当在某个处理器中改变某个共享变量在CPUCache中的缓存值的时候不会触发其他处理器将自己已经缓存该共享变量的CacheLine的状态设置为失效，只有当将缓存中的数据写入内存时，才会触发出发其他处理器（核）将自己已经缓存该共享变量的CacheLine的状态设置为失效。(比如在java中可以设置共享变量的类型为volatile，它会保证在缓存中修改的值会立即被更新到主存，而普通的共享变量不能保证可见性，因为普通共享变量被修改之后，什么时候被写入主存是不确定的，当其他线程去读取时，此时内存中可能还是原来的旧值，因此无法保证可见性。)
 
 为什么会出现伪共享问题呢？假设在多线程情况下，x，y两个共享变量在同一个缓存行中，核a修改变量x，会导致核b，核c中的x变量和y变量同时失效。此时对于在核a上运行的线程，仅仅只是修改了了变量x，却导致同一个缓存行中的所有变量都无效，需要重新刷缓存。假设此时在核b上运行的线程，正好想要修改变量y，那么就会出现相互竞争，相互失效的情况，这就是伪共享啦。
+
+现代计算机都是多核cpu，cpu需要和内存交互，但内存相对cpu的速度实在太慢，于是cpu和内存之间还有cache层，每个cpu都有属于自己的cache，cache由CacheLine组成，每个CacheLine64位（根据不同架构，也可能是32位或128位），每个CacheLine知道自己对应什么范围的物理内存地址，当cpu需要读取某一个内存地址的值时，它会把内存地址传递给一级cache，一级cache会检查它是否有这个内存地址对应的CacheLine。如果没有，它会以CacheLine为单位从内存加载数据，是的，一次加载整个CacheLine，这是基于这样一个假设：内存访问倾向于本地化（localized），如果我们当前需要某个地址的数据，那么很可能我们马上要访问它的邻近地址。
+由于每个cpu独立工作，那就会有一个显著的问题：多个cache与内存之间的数据同步该怎么做？缓存一致性协议就是要解决这个问题，协议有多种，可以分为两类：“窥探（snooping）”协议和“基于目录的（directory-based）”协议，MESI协议属于一种“窥探协议“。
+窥探协议的基本思想
+所有cache与内存，cache与cache（是的，cache之间也会有数据传输）之间的传输都发生在一条共享的总线上，而所有的cpu都能看到这条总线，同一个指令周期中，只有一个cache可以读写内存，所有的内存访问都要经过仲裁（arbitrate）。
+窥探协议的思想是，cahce不但与内存通信时和总线打交道，而且它会不停地窥探总线上发生的数据交换，跟踪其他cache在做什么。所以当一个cache代表它所属的cpu去读写内存时，其它cpu都会得到通知，它们以此来使自己的cache保持同步。
+MESI协议的工作方式
+”MESI“该名称来自4个状态的首字母的缩写，协议中最重要的内容有两部分：cache line的状态以及消息通知机制。
+cache line的状态有4个
+    Invalid，表明该cache line已失效，它要么已经不在cache中，要么它的内容已经过时。处于该状态下的cache line等同于它从来没被加载到cache中。
+    Shared，表明该cache line是内存中某一段数据的拷贝，处于该状态下的cache line只能被cpu读取，不能写入，因为此时还没有独占。不同cpu的cache line都可以拥有这段内存数据的拷贝。
+    Exclusive，和 Shared 状态一样，表明该cache line是内存中某一段数据的拷贝。区别在于，该cache line独占该内存地址，其他处理器的cache line不能同时持有它，如果其他处理器原本也持有同一cache line，那么它会马上变成“Invalid”状态。
+    Modified，表明该cache line已经被修改，cache line只有处于Exclusive状态才能被修改。此外，已修改cache line如果被丢弃或标记为Invalid，那么先要把它的内容回写到内存中。
+cpu有读取数据的动作，有独占的动作，有独占后更新数据的动作，有更新数据之后回写内存的动作，根据”窥探协议“的规范，每个动作都需要通知到其他cpu，于是有以下的消息机制：
+    Read，cpu发起读取数据请求，请求中包含需要读取的数据地址。
+    Read Response，作为Read消息的响应，该消息可能是内存响应的，也可能是某cpu响应的(比如该地址在某cpu cache Line中为Modified状态，则该cpu必须返回该地址的最新数据)。
+    Invalidate，cpu发起”我要独占一个cache line，其他cpu请失效对应的cache line“的消息，消息中包含了内存地址，所有的其它cpu需要将对应cache line置为Invalid状态。
+    Invalidate ACK，收到Invalidate消息的cpu在将对应cache line置为Invalid后，返回Invalid ACK。
+    Read Invalidate，相当于Read消息+Invalidate消息，即取得数据并且独占它，将收到一个Read Response和所有其它cpu的Invalidate ACK。
+    Write back，写回消息，即将状态为Modified的cache line写回到内存，通常在该行将被替换时使用。现代cpu cache基本都采用”写回(Write Back)”而非”直写(Write Through)”的方式。
+
+						 cup0		 cup1		 cup2		 cup3		main memory
+                         cacheline   cacheline   cacheline   cacheline  0x0    0x8
+cpu0:read from 0x0       0/shared                                       latest latest
+cpu3:read from 0x0       0/shared                            0/shared   latest latest
+cpu0:read from 0x8       8/shared                            0/shared   latest latest
+cpu2:exclusive 0x0       8/shared                0/exclusive            latest latest
+cpu2:modified 0x0        8/shared                0/modified             expire latest
+cpu1:atomic inc in 0x0   8/shared    0/modified                         expire latest 
+cpu1:read from 0x8       8/shared    8/shared                           latest latest
+
+cache line时序变化图 
+    初始状态，4个cpu的cache line都为Invalid状态（黑色表示Invalid）。
+    cpu0发送Read消息，加载0x0的数据，数据从内存返回，cache line状态变为Shared。
+    cpu3发送Read消息，加载0x0的数据，数据从内存返回，cache line状态变为Shared。
+    cpu0发送Read消息，加载0x8的数据，导致cache line被替换，由于之前状态为Shared，即与内存中数据一致，可直接覆盖，而无需回写。
+    cpu2发送Read Invalidate消息，从内存返回最新数据，cpu3返回Invalidate ACK，并将状态变为Invalid，cpu2获得独占权，状态变为Exclusive。
+    cpu2修改cache line中的数据，cache line状态为Modified，同时内存中0x0的数据过期。
+    cpu1 对地址0x0的数据执行原子(atomic)递增操作，发出Read Invalidate消息，cpu2将返回Read Response(而不是内存)，包含最新数据，并返回Invalidate ACK，同时cache line状态变为Invalid。最后cpu1获得独占权，cache line状态变为Modified，数据为递增后的数据，而内存中的数据仍然为过期状态。
+    cpu1 加载0x8的数据，此时cache line将被替换，由于之前状态为Modified，因此需要先执行写回操作，此时内存中0x0的数据得以更新。
+
+总结
+这就是缓存一致性协议，一个状态机，仅此而已。因为该协议的存在，每个cpu就可以放心操作属于自己的cache，而不需要担心本地cache中的数据会不会已经被其他cpu修改。但在缓存一致性协议的框架下工作性能不高，但这并不是协议的问题，协议本身逻辑很严谨。性能差在哪里？假如某数据存在于其他cpu的cache中，那自己每次需要修改数据时，都需要发送ReadInvalidate消息，除了等待最新数据的返回，还需要等待其他cpu的Invalidate ACK才能继续执行其他指令，这是一种同步行为，于是便有了cpu的优化：内存屏障
+
+内存屏障(Store Buffer, Invalid Queue)
+硬件层面的优化——Store Buffer, Invalid Queue，以及软件层面的优化——cpu、内存屏障指令。
+Store Buffer
+当cpu需要的数据在其他cpu的cache内时，需要请求，并且等待响应，这显然是一个同步行为，优化的方案也很明显，采用异步。思路大概是在cpu和cache之间加一个StoreBuffer，cpu可以先将数据写到StoreBuffer，同时给其他cpu发送消息，然后继续做其它事情，等到收到其它cpu发过来的响应消息，再将数据从StoreBuffer移到CacheLine。
+增加store buffer方案听起来不错！但逻辑上有漏洞，需要细化，我们来看几个漏洞。比如有如下代码:
+a = 1;
+b = a + 1;
+assert(b == 2);
+初始状态下，假设a，b值都为0，并且a存在cpu1的cache line中(Shared状态)，可能出现如下操作序列:
+    cpu0 要写入a，将a=1写入store buffer，并发出Read Invalidate消息，继续其他指令。
+    cpu1 收到Read Invalidate，返回Read Response(包含a=0的cache line)和Invalidate ACK，cpu0 收到Read Response，更新cache line(a=0)。
+    cpu0 开始执行b=a+1，此时cache line中还没有加载b，于是发出Read Invalidate消息，从内存加载b=0，同时cache line中已有a=0，于是得到b=1，状态为Modified状态。
+    cpu0 得到 b=1，断言失败。
+    cpu0 将store buffer中的a=1推送到cache line，然而为时已晚。
+造成这个问题的根源在于对同一个cpu存在对a的两份拷贝，一份在cache，一份在StoreBuffer，而cpu计算b=a+1时，a和b的值都来自cache。仿佛代码的执行顺序变成了这个样子：
+b = a + 1;
+a = 1;
+assert(b == 2);
+这个问题需要优化。
+思考题：以上操作序列只是其中一种可能，具体响应（也就是操作2）什么时候到来是不确定的，那么假如响应在cpu0计算“b=a+1”之后到来会发生什么？ 
+Store Forwarding
+StoreBuffer可能导致破坏程序顺序的问题，硬件工程师在StoreBuffer的基础上，又实现了”StoreForwarding”技术:cpu可以直接从StoreBuffer中加载数据，即支持将cpu存入StoreBuffer的数据传递(forwarding)给后续的加载操作，而不经由cache。
+虽然现在解决了同一个cpu读写数据的问题，但还是有漏洞，来看看并发程序:
+void foo() {
+    a = 1;
+    b = 1;
+}
+void bar() {
+    while (b == 0) continue;
+    assert(a == 1)
+}
+初始状态下，假设a，b值都为0，a存在于cpu1的cache中，b存在于cpu0的cache中，均为Exclusive状态，cpu0执行foo函数，cpu1执行bar函数，上面代码的预期断言为真。那么来看下执行序列:
+    cpu1执行while(b == 0)，由于cpu1的Cache中没有b，发出Read b消息
+    cpu0执行a=1，由于cpu0的cache中没有a，因此它将a(当前值1)写入到store buffer并发出Read Invalidate a消息
+    cpu0执行b=1，由于b已经存在在cache中，且为Exclusive状态，因此可直接执行写入
+    cpu0收到Read b消息，将cache中的b(当前值1)返回给cpu1，将b写回到内存，并将cache Line状态改为Shared
+    cpu1收到包含b的cache line，结束while (b == 0)循环
+    cpu1执行assert(a == 1)，由于此时cpu1 cache line中的a仍然为0并且有效(Exclusive)，断言失败
+    cpu1收到Read Invalidate a消息，返回包含a的cache line，并将本地包含a的cache line置为Invalid，然而已经为时已晚。
+    cpu0收到cpu1传过来的cache line，然后将store buffer中的a(当前值1)刷新到cache line
+出现这个问题的原因在于cpu不知道a, b之间的数据依赖，cpu0对a的写入需要和其他cpu通信，因此有延迟，而对b的写入直接修改本地cache就行，因此b比a先在cache中生效，导致cpu1读到b=1时，a还存在于store buffer中。从代码的角度来看，foo函数似乎变成了这个样子：
+void foo() {
+    b = 1;
+    a = 1;
+}
+foo函数的代码，即使是StoreForwarding也阻止不了它被cpu“重排”，虽然这并没有影响foo函数的正确性，但会影响到所有依赖foo函数赋值顺序的线程。看来还要继续优化！
+写屏障指令
+到目前为止，我们发现了”指令重排“的其中一个本质，cpu为了优化指令的执行效率，引入了StoreBuffer（forwarding），而又因此导致了指令执行顺序的变化。要保证这种顺序一致性，靠硬件是优化不了了，需要在软件层面支持，没错，cpu提供了写屏障（WriteMemoryBarrier）指令，Linux操作系统将写屏障指令封装成了smp_wmb()函数，cpu执行smp_mb()的思路是，会先把当前StoreBuffer中的数据刷到cache之后，再执行屏障后的“写入操作”，该思路有两种实现方式:一是简单地刷StoreBuffer，但如果此时远程CacheLine没有返回，则需要等待，二是将当前StoreBuffer中的条目打标，然后将屏障后的“写入操作”也写到StoreBuffer中，cpu继续干其他的事，当被打标的条目全部刷到CacheLine，之后再刷后面的条目（具体实现非本文目标），以第二种实现逻辑为例，我们看看以下代码执行过程：
+void foo() {
+    a = 1;
+    smp_wmb()
+    b = 1;
+}
+void bar() {
+    while (b == 0) continue;
+    assert(a == 1)
+}
+    cpu1执行while(b == 0)，由于cpu1的cache中没有b，发出Read b消息。
+    cpu0执行a=1，由于cpu0的cache中没有a，因此它将a(当前值1)写入到store buffer并发出Read Invalidate a消息。
+    cpu0看到smp_wmb()内存屏障，它会标记当前store buffer中的所有条目(即a=1被标记)。
+    cpu0执行b=1，尽管b已经存在在cache中(Exclusive)，但是由于store buffer中还存在被标记的条目，因此b不能直接写入，只能先写入store buffer中。
+    cpu0收到Read b消息，将cache中的b(当前值0)返回给cpu1，将b写回到内存，并将cache line状态改为Shared。
+    cpu1收到包含b的cache line，继续while (b == 0)循环。
+    cpu1收到Read Invalidate a消息，返回包含a的cache line，并将本地的cache line置为Invalid。
+    cpu0收到cpu1传过来的包含a的cache line，然后将store buffer中的a(当前值1)刷新到cache line，并且将cache line状态置为Modified。
+    由于cpu0的store buffer中被标记的条目已经全部刷新到cache，此时cpu0可以尝试将store buffer中的b=1刷新到cache，但是由于包含B的cache line已经不是Exclusive而是Shared，因此需要先发Invalidate b消息。
+    cpu1收到Invalidate b消息，将包含b的cache line置为Invalid，返回Invalidate ACK。
+    cpu1继续执行while(b == 0)，此时b已经不在cache中，因此发出Read消息。
+    cpu0收到Invalidate ACK，将store buffer中的b=1写入Cache。
+    cpu0收到Read消息，返回包含b新值的cache line。
+    cpu1收到包含b的cache line，可以继续执行while(b == 0)，终止循环，然后执行assert(a == 1)，此时a不在其cache中，因此发出Read消息。
+    cpu0收到Read消息，返回包含a新值的cache line。
+    cpu1收到包含a的cache line，断言为真。
+Invalid Queue
+引入了StoreBuffer，再辅以StoreForwarding，写屏障，看起来好像可以自洽了，然而还有一个问题没有考虑:StoreBuffer的大小是有限的，所有的写入操作发生CacheMissing（数据不再本地）都会使用StoreBuffer，特别是出现内存屏障时，后续的所有写入操作(不管是否CacheMissing)都会挤压在StoreBuffer中(直到StoreBuffer中屏障前的条目处理完)，因此StoreBuffer很容易会满，当StoreBuffer满了之后，cpu还是会卡在等对应的InvalidateACK以处理StoreBuffer中的条目。因此还是要回到InvalidateACK中来，InvalidateACK耗时的主要原因是cpu要先将对应的CacheLine置为Invalid后再返回InvalidateACK，一个很忙的cpu可能会导致其它cpu都在等它回InvalidateACK。解决思路还是化同步为异步:cpu不必要处理了CacheLine之后才回InvalidateACK，而是可以先将Invalid消息放到某个请求队列InvalidQueue，然后就返回InvalidateACK。CPU可以后续再处理InvalidQueue中的消息，大幅度降低InvalidateACK响应时间。
+加入了InvalidQueue之后，cpu在处理任何CacheLine的MSEI状态前，都必须先看InvalidQueue中是否有该CacheLine的Invalid消息没有处理。另外，它也再一次破坏了内存的一致性。请看代码：
+void foo() {
+    a = 1;
+    smp_wmb()
+    b = 1;
+}
+void bar() {
+    while (b == 0) continue;
+    assert(a == 1)
+}
+仍然假设a, b的初始值为0，a在cpu0，cpu1中均为Shared状态，b在cpu0独占(Exclusive状态)，cpu0执行foo，cpu1执行bar:
+    cpu0执行a=1，由于其有包含a的cache line，将a写入store buffer，并发出Invalidate a消息。
+    cpu1执行while(b == 0)，它没有b的cache，发出Read b消息。
+    cpu1收到cpu0的Invalidate a消息，将其放入Invalidate Queue，返回Invalidate ACK。
+    cpu0收到Invalidate ACK，将store buffer中的a=1刷新到cache line，标记为Modified。
+    cpu0看到smp_wmb()内存屏障，但是由于其store buffer为空，因此它可以直接跳过该语句。
+    cpu0执行b=1，由于其cache独占b，因此直接执行写入，cache line标记为Modified。
+    cpu0收到cpu1发的Read b消息，将包含b的cache line写回内存并返回该cache line，本地的cache line标记为Shared。
+    cpu1收到包含b(当前值1)的cache line，结束while循环。
+    cpu1执行assert(a == 1)，由于其本地有包含a旧值的cache line，读到a初始值0，断言失败。
+    cpu1这时才处理Invalid Queue中的消息，将包含a旧值的cache line置为Invalid。
+问题在于第9步中cpu1在读取a的CacheLine时，没有先处理InvalidQueue中该CacheLine的Invalid操作，怎么办？其实cpu还提供了读屏障指令，Linux将其封装成smp_rmb()函数，将该函数插入到bar函数中，就像这样：
+void foo() {
+    a = 1;
+    smp_wmb()
+    b = 1;
+}
+void bar() {
+    while (b == 0) continue;
+    smp_rmb()
+    assert(a == 1)
+}
+和smp_wmb()类似，cpu执行smp_rmb()的时，会先把当前invalidate queue中的数据处理掉之后，再执行屏障后的“读取操作”。
+内存屏障
+到目前为止，我们已经接触到了「读屏障」和「写屏障」，本节我们就专门聊聊内存屏障。首先内存屏障有几个不同的种类，比如「读屏障」、「写屏障」、「全屏障」等等，各个cpu厂商可以自行选择支持哪些语义以及如何支持，所以不同的cpu支持的语义不同，对应的指令也不同，
+    smp_rmb(): 在invalid queue的数据被刷完之后再执行屏障后的读操作。
+    smp_wmb(): 在store buffer的数据被刷完之后再执行屏障后的写操作。
+    smp_mb(): 同时具有读屏障和写屏障功能。
+    smp_read_barrier_depends() that forces subsequent operations that depend on prior operations to be ordered. This primitive is a no-op on all platforms except Alpha.
+    mmiowb() that forces ordering on MMIO writes that are guarded by global spinlocks. This primitive is a no-op on all platforms on which the memory barriers in spinlocks already enforce MMIO ordering. The platforms with a nonno-op mmiowb() definition include some (but not all) IA64, FRV, MIPS, and SH systems. This primitive is relatively new, so relatively few drivers take advantage of it.
+内存屏障是硬件之上，操作系统之下对一致性的最后一层保障
 
 ###################################################cpu缓存与多线程###################################################
 
@@ -468,6 +642,10 @@ finish loop,i=1109307815
 finish main
 true
 
+既然CPU有了MESI协议可以保证cache的一致性，那么为什么还需要volatile这个关键词来保证可见性(内存屏障)？或者是只有加了volatile的变量在多核cpu执行的时候才会触发缓存一致性协议？
+两个解释结论：
+1.多核情况下，所有的cpu操作都会涉及缓存一致性的校验，只不过该协议是弱一致性(由于缓存一致性协议MESI是同步请求请他CPU数据，所以性能大打折扣，因此CPU会从硬件和软件两个层面进行优化，但是优化会破坏内存的一致性)，不能保证一个线程修改变量后，其他线程立马可见，也就是说虽然其他CPU状态已经置为无效，但是当前CPU可能将数据修改之后又去做其他事情，没有来得及将修改后的变量刷新回主存，而如果此时其他CPU需要使用该变量，则又会从主存中读取到旧的值。而volatile则可以保证可见性，即立即刷新回主存，修改操作和写回操作必须是一个原子操作。(cpu为了优化指令的执行效率，引入了StoreBuffer(forwarding)，而又因此导致了指令执行顺序的变化，比如会将修改值的时候会先存入StoreBuffer后继续做其它事情，在将来的某个时候再将StoreBuffer的值更新回CacheLine，所以要保证这种顺序一致性，靠硬件是优化不了了，需要在软件层面支持)
+2.正常情况下，系统操作并不会进行缓存一致性的校验，只有变量被volatile修饰了，该变量所在的缓存行才被赋予缓存一致性的校验功能。
 ###################################################原子性，可见性，有序性###################################################
 
 ###################################################Thread、Runnable###################################################

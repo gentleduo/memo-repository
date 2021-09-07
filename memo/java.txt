@@ -472,3 +472,28 @@ jar包中中META-INF/MANIFEST.MF是自动生成的，并没有额外的jar包以
 第二种方式 jar cvfm class2json_1.jar ./META-INF/MANIFEST.MF com
 其中META-INF/MANIFEST.MF是我们引入的，包括额外的jar包以及主类，所以 java -jar class2json.jar 运行成功
 #############################################################JAR#############################################################
+
+#########################################################class字节码及汇编代码输出#########################################################
+查看class字节码文件
+1、使用javac编译Java文件
+2、使用javap -verbose查看class字节码文件
+2.1 使用-g:none或-g:lines选项来取消或要求生成LineNumberTable
+2.2 使用-g:none或-g:vars选项来取消或要求生成LocalVariableTable
+例如:
+cd src/thread/pack
+javac VolatileExample.java
+cd src
+javap -verbose java thread.pack.VolatileExample
+
+代码转换为汇编指令:
+下载hsdis工具，链接如下；
+https://sourceforge.net/projects/fcml/files/fcml-1.1.1/hsdis-1.1.1-win32-amd64.zip/download
+下载完毕之后解压，将hsdis-amd64.dll与hsdis-amd64.lib两个文件放在%JAVA_HOME%\jre\bin\server路径下即可
+跑main函数之前，加入如下虚拟机参数：
+-server
+-Xcomp
+-XX:+UnlockDiagnosticVMOptions
+-XX:CompileCommand=dontinline,*VisibilityTest.run
+-XX:CompileCommand=compileonly,*VisibilityTest.run
+-XX:+PrintAssembly
+#########################################################class字节码及汇编代码输出#########################################################

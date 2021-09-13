@@ -302,10 +302,110 @@ Load-Memory-Barrier£º¶ÁÆÁÕÏ£¬µÈÍ¬ÓÚÇ°ÎÄµÄLoadLoadBarriers¸æËß´¦ÀíÆ÷ÔÚÖ´ĞĞÈÎºÎµÄ¼
 Full-Barrier£ºÍòÄÜÆÁÕÏ£¬¼´FullBarrier×÷ÓÃµÈÍ¬ÓÚÒÔÉÏ¶şÕßÖ®ºÍ¡£¼´ËùÓĞStoreBarrierÖ®Ç°µÄstoreÖ¸Áî¶ÔÖ®ºóµÄÖ¸Áî¶¼ÊÇ¿É¼ûµÄ£¬Ö®ºó£¨±¾ºËĞÄºÍÆäËûºËĞÄ£©µÄÖ¸ÁîÒ²¶¼ÊÇ¿É¼ûµÄ£¬ÍêÈ«±£Ö¤ÁËÊı¾İµÄÇ¿Ò»ÖÂĞÔ¡£
 
 ÄÚ´æÆÁÕÏµÄÎÊÌâ
-CPUÖªµÀÊ²Ã´Ê±ºòĞèÒª¼ÓÈëÄÚ´æÆÁÕÏ£¬Ê²Ã´Ê±ºò²»ĞèÒªÂğ£¿CPU½«Õâ¸ö¼ÓÈëÄÚ´æÆÁÕÏµÄÊ±»ú½»¸øÁË³ÌĞòÔ±¡£ÔÚjavaÖĞÕâ¸ö¼ÓÈëÄÚ´æÆÁÕÏµÄÃüÁî¾ÍÊÇvolatile¹Ø¼ü×Ö¡£³ÎÇåÒ»µã£¬volatile²¢²»ÊÇ½ö½ö¼ÓÈëÄÚ´æÆÁÕÏÕâÃ´¼òµ¥£¬¼ÓÈëÄÚ´æÆÁÕÏÖ»ÊÇvolatileÄÚºËÖ¸Áî¼¶±ğµÄÄÚ´æÓïÒå¡£³ı´ËÖ®Íâ£ºvolatile»¹¿ÉÒÔ½ûÖ¹±àÒëÆ÷µÄÖ¸ÁîÖØÅÅ£¬ÒòÎªJVMÎªÁËÓÅ»¯ĞÔÄÜ²¢ÇÒ²»Î¥·´happens-beforeÔ­ÔòµÄÇ°ÌáÏÂÒ²»á½øĞĞÖ¸ÁîÖØÅÅ¡£VolatileÕıÊÇÍ¨¹ı¶Ô´¦ÀíÆ÷¼ÓÈëÄÚ´æÆÁÕÏÀ´½ûÖ¹Ö¸ÁîÖØÅÅ´ÓÀ´±£Ö¤ÓĞĞòĞÔµÄ¡£µ±È»ÔÚjavaÓïÑÔÖĞ£¬Ö¸ÁîÖØÅÅ²¢²»ÊÇÖ»·¢ÉúÔÚ´¦ÀíÆ÷²ãÃæ¡£ÔÚjava±àÒëÆ÷ÖĞJVMÒ²»á´æÔÚÖ¸ÁîÖØÅÅÓÅ»¯£¬ÒÔÌá¸ß³ÌĞòµÄĞÔÄÜ¡£VolatileÍ¬Ñù¿ÉÒÔ½ûÖ¹±àÒëÆ÷²ãÃæµÄÖ¸ÁîÖØÅÅ¡£¹Û²ì¼ÓÈëvolatile¹Ø¼ü×ÖºÍÃ»ÓĞ¼ÓÈëvolatile¹Ø¼ü×ÖÊ±ËùÉú³ÉµÄ»ã±à´úÂë·¢ÏÖ£¬¼ÓÈëvolatile¹Ø¼ü×ÖÊ±£¬»á¶à³öÒ»¸ölockÇ°×ºÖ¸Áî£¬lockÇ°×ºÖ¸ÁîÊµ¼ÊÉÏÏàµ±ÓÚÇ°ÎÄ½éÉÜµÄ²åÈëÄÚ´æÆÁÕÏÖ¸Áî¡££¨Õâ¸ölockÖ¸ÁîÊÇJMMÖĞµÄ£¬ÔÙÍùµ×²ã¾ÍÊÇ¼ÓÈëÄÚ´æÆÁÕÏÖ¸Áî£©
+CPUÖªµÀÊ²Ã´Ê±ºòĞèÒª¼ÓÈëÄÚ´æÆÁÕÏ£¬Ê²Ã´Ê±ºò²»ĞèÒªÂğ£¿CPU½«Õâ¸ö¼ÓÈëÄÚ´æÆÁÕÏµÄÊ±»ú½»¸øÁË³ÌĞòÔ±¡£ÔÚjavaÖĞÕâ¸ö¼ÓÈëÄÚ´æÆÁÕÏµÄÃüÁî¾ÍÊÇvolatile¹Ø¼ü×Ö¡£³ÎÇåÒ»µã£¬volatile²¢²»ÊÇ½ö½ö¼ÓÈëÄÚ´æÆÁÕÏÕâÃ´¼òµ¥£¬¼ÓÈëÄÚ´æÆÁÕÏÖ»ÊÇvolatileÄÚºËÖ¸Áî¼¶±ğµÄÄÚ´æÓïÒå¡£³ı´ËÖ®Íâ£ºvolatile»¹¿ÉÒÔ½ûÖ¹±àÒëÆ÷µÄÖ¸ÁîÖØÅÅ£¬ÒòÎªJVMÎªÁËÓÅ»¯ĞÔÄÜ²¢ÇÒ²»Î¥·´happens-beforeÔ­ÔòµÄÇ°ÌáÏÂÒ²»á½øĞĞÖ¸ÁîÖØÅÅ¡£
 
-ÄÚ´æÆÁÕÏÊÇÓ²¼şÖ®ÉÏ£¬²Ù×÷ÏµÍ³Ö®ÏÂ¶ÔÒ»ÖÂĞÔµÄ×îºóÒ»²ã±£ÕÏ
+======================>Store Buffer¡¢Invalid Queue»áÌá¸ßCPUĞÔÄÜµ«ÊÇ»áÔì³É¿É¼ûĞÔÎÊÌâ£¬ÀıÈç£º
+Store Buffer
+µ±cpuĞèÒªµÄÊı¾İÔÚÆäËûcpuµÄcacheÄÚÊ±£¬ĞèÒªÇëÇó£¬²¢ÇÒµÈ´ıÏìÓ¦£¬ÕâÏÔÈ»ÊÇÒ»¸öÍ¬²½ĞĞÎª£¬ÓÅ»¯µÄ·½°¸Ò²ºÜÃ÷ÏÔ£¬²ÉÓÃÒì²½¡£Ë¼Â·´ó¸ÅÊÇÔÚcpuºÍcacheÖ®¼ä¼ÓÒ»¸öStoreBuffer£¬cpu¿ÉÒÔÏÈ½«Êı¾İĞ´µ½StoreBuffer£¬Í¬Ê±¸øÆäËûcpu·¢ËÍÏûÏ¢£¬È»ºó¼ÌĞø×öÆäËüÊÂÇé£¬µÈµ½ÊÕµ½ÆäËücpu·¢¹ıÀ´µÄÏìÓ¦ÏûÏ¢£¬ÔÙ½«Êı¾İ´ÓStoreBufferÒÆµ½CacheLine¡£
+StoreBuffer´øÀ´µÄÎÊÌâ£¬ÀıÈçÓĞÈçÏÂ´úÂë£º
+a = 1;
+b = a + 1;
+assert(b == 2);
+³õÊ¼×´Ì¬ÏÂ£¬¼ÙÉèa£¬bÖµ¶¼Îª0£¬²¢ÇÒa´æÔÚcpu1µÄcache lineÖĞ(Shared×´Ì¬)£¬¿ÉÄÜ³öÏÖÈçÏÂ²Ù×÷ĞòÁĞ:
+    cpu0 ÒªĞ´Èëa£¬½«a=1Ğ´Èëstore buffer£¬²¢·¢³öRead InvalidateÏûÏ¢£¬¼ÌĞøÆäËûÖ¸Áî¡£
+    cpu1 ÊÕµ½Read Invalidate£¬·µ»ØRead Response(°üº¬a=0µÄcache line)ºÍInvalidate ACK£¬cpu0 ÊÕµ½Read Response£¬¸üĞÂcache line(a=0)¡£
+    cpu0 ¿ªÊ¼Ö´ĞĞb=a+1£¬´ËÊ±cache lineÖĞ»¹Ã»ÓĞ¼ÓÔØb£¬ÓÚÊÇ·¢³öRead InvalidateÏûÏ¢£¬´ÓÄÚ´æ¼ÓÔØb=0£¬Í¬Ê±cache lineÖĞÒÑÓĞa=0£¬ÓÚÊÇµÃµ½b=1£¬×´Ì¬ÎªModified×´Ì¬¡£
+    cpu0 µÃµ½ b=1£¬¶ÏÑÔÊ§°Ü¡£
+    cpu0 ½«store bufferÖĞµÄa=1ÍÆËÍµ½cache line£¬È»¶øÎªÊ±ÒÑÍí¡£
+Ôì³ÉÕâ¸öÎÊÌâµÄ¸ùÔ´ÔÚÓÚ¶ÔÍ¬Ò»¸öcpu´æÔÚ¶ÔaµÄÁ½·İ¿½±´£¬Ò»·İÔÚcache£¬Ò»·İÔÚstore buffer£¬¶øcpu¼ÆËãb=a+1Ê±£¬aºÍbµÄÖµ¶¼À´×Ôcache¡£
 
+Store Forwarding
+StoreBuffer¿ÉÄÜµ¼ÖÂÆÆ»µ³ÌĞòË³ĞòµÄÎÊÌâ£¬Ó²¼ş¹¤³ÌÊ¦ÔÚStoreBufferµÄ»ù´¡ÉÏ£¬ÓÖÊµÏÖÁË¡±StoreForwarding¡±¼¼Êõ:cpu¿ÉÒÔÖ±½Ó´ÓStoreBufferÖĞ¼ÓÔØÊı¾İ£¬¼´Ö§³Ö½«cpu´æÈëStoreBufferµÄÊı¾İ´«µİ(forwarding)¸øºóĞøµÄ¼ÓÔØ²Ù×÷£¬¶ø²»¾­ÓÉcache¡£ËäÈ»½â¾öÁËÍ¬Ò»¸öcpu¶ÁĞ´Êı¾İµÄÎÊÌâ£¬µ«ÊÇÔÚ²¢·¢³ÌĞòÖĞ»¹ÊÇ»áÓĞÎÊÌâ¡£ÀıÈçÓĞÈçÏÂ´úÂë£º
+void foo() {
+    a = 1;
+    b = 1;
+}
+void bar() {
+    while (b == 0) continue;
+    assert(a == 1)
+}
+³õÊ¼×´Ì¬ÏÂ£¬¼ÙÉèa£¬bÖµ¶¼Îª0£¬a´æÔÚÓÚcpu1µÄcacheÖĞ£¬b´æÔÚÓÚcpu0µÄcacheÖĞ£¬¾ùÎªExclusive×´Ì¬£¬cpu0Ö´ĞĞfooº¯Êı£¬cpu1Ö´ĞĞbarº¯Êı£¬ÉÏÃæ´úÂëµÄÔ¤ÆÚ¶ÏÑÔÎªÕæ¡£ÄÇÃ´À´¿´ÏÂÖ´ĞĞĞòÁĞ:
+    cpu1Ö´ĞĞwhile(b == 0)£¬ÓÉÓÚcpu1µÄCacheÖĞÃ»ÓĞb£¬·¢³öRead bÏûÏ¢
+    cpu0Ö´ĞĞa=1£¬ÓÉÓÚcpu0µÄcacheÖĞÃ»ÓĞa£¬Òò´ËËü½«a(µ±Ç°Öµ1)Ğ´Èëµ½store buffer²¢·¢³öRead Invalidate aÏûÏ¢
+    cpu0Ö´ĞĞb=1£¬ÓÉÓÚbÒÑ¾­´æÔÚÔÚcacheÖĞ£¬ÇÒÎªExclusive×´Ì¬£¬Òò´Ë¿ÉÖ±½ÓÖ´ĞĞĞ´Èë
+    cpu0ÊÕµ½Read bÏûÏ¢£¬½«cacheÖĞµÄb(µ±Ç°Öµ1)·µ»Ø¸øcpu1£¬½«bĞ´»Øµ½ÄÚ´æ£¬²¢½«cache Line×´Ì¬¸ÄÎªShared
+    cpu1ÊÕµ½°üº¬bµÄcache line£¬½áÊøwhile (b == 0)Ñ­»·
+    cpu1Ö´ĞĞassert(a == 1)£¬ÓÉÓÚ´ËÊ±cpu1 cache lineÖĞµÄaÈÔÈ»Îª0²¢ÇÒÓĞĞ§(Exclusive)£¬¶ÏÑÔÊ§°Ü
+    cpu1ÊÕµ½Read Invalidate aÏûÏ¢£¬·µ»Ø°üº¬aµÄcache line£¬²¢½«±¾µØ°üº¬aµÄcache lineÖÃÎªInvalid£¬È»¶øÒÑ¾­ÎªÊ±ÒÑÍí¡£
+    cpu0ÊÕµ½cpu1´«¹ıÀ´µÄcache line£¬È»ºó½«store bufferÖĞµÄa(µ±Ç°Öµ1)Ë¢ĞÂµ½cache line
+³öÏÖÕâ¸öÎÊÌâµÄÔ­ÒòÔÚÓÚcpu²»ÖªµÀa,bÖ®¼äµÄÊı¾İÒÀÀµ£¬cpu0¶ÔaµÄĞ´ÈëĞèÒªºÍÆäËûcpuÍ¨ĞÅ£¬Òò´ËÓĞÑÓ³Ù£¬¶ø¶ÔbµÄĞ´ÈëÖ±½ÓĞŞ¸Ä±¾µØcache¾ÍĞĞ£¬Òò´Ëb±ÈaÏÈÔÚcacheÖĞÉúĞ§£¬µ¼ÖÂcpu1¶Áµ½b=1Ê±£¬a»¹´æÔÚÓÚstore bufferÖĞ¡£
+
+Invalidate Queues
+ÒıÈëÁËStoreBuffer£¬ÔÙ¸¨ÒÔStoreForwarding£¬Ğ´ÆÁÕÏ£¬¿´ÆğÀ´ºÃÏñ¿ÉÒÔ×ÔÇ¢ÁË£¬È»¶ø»¹ÓĞÒ»¸öÎÊÌâÃ»ÓĞ¿¼ÂÇ:StoreBufferµÄ´óĞ¡ÊÇÓĞÏŞµÄ£¬ËùÓĞµÄĞ´Èë²Ù×÷·¢ÉúCacheMissing£¨Êı¾İ²»ÔÙ±¾µØ£©¶¼»áÊ¹ÓÃStoreBuffer£¬ÌØ±ğÊÇ³öÏÖÄÚ´æÆÁÕÏÊ±£¬ºóĞøµÄËùÓĞĞ´Èë²Ù×÷(²»¹ÜÊÇ·ñCacheMissing)¶¼»á¼·Ñ¹ÔÚStoreBufferÖĞ(Ö±µ½StoreBufferÖĞÆÁÕÏÇ°µÄÌõÄ¿´¦ÀíÍê)£¬Òò´ËStoreBufferºÜÈİÒ×»áÂú£¬µ±StoreBufferÂúÁËÖ®ºó£¬cpu»¹ÊÇ»á¿¨ÔÚµÈ¶ÔÓ¦µÄInvalidateACKÒÔ´¦ÀíStoreBufferÖĞµÄÌõÄ¿¡£Òò´Ë»¹ÊÇÒª»Øµ½InvalidateACKÖĞÀ´£¬InvalidateACKºÄÊ±µÄÖ÷ÒªÔ­ÒòÊÇcpuÒªÏÈ½«¶ÔÓ¦µÄCacheLineÖÃÎªInvalidºóÔÙ·µ»ØInvalidateACK£¬Ò»¸öºÜÃ¦µÄcpu¿ÉÄÜ»áµ¼ÖÂÆäËücpu¶¼ÔÚµÈËü»ØInvalidateACK¡£½â¾öË¼Â·»¹ÊÇ»¯Í¬²½ÎªÒì²½:cpu²»±ØÒª´¦ÀíÁËCacheLineÖ®ºó²Å»ØInvalidateACK£¬¶øÊÇ¿ÉÒÔÏÈ½«InvalidÏûÏ¢·Åµ½Ä³¸öÇëÇó¶ÓÁĞInvalidQueue£¬È»ºó¾Í·µ»ØInvalidateACK¡£CPU¿ÉÒÔºóĞøÔÙ´¦ÀíInvalidQueueÖĞµÄÏûÏ¢£¬´ó·ù¶È½µµÍInvalidateACKÏìÓ¦Ê±¼ä£¬¼´CPUµÄ¿ÕµÈÏÖÏó¾Í¼õÉÙÁË£¬µ«ÊÇÒ²´øÀ´ÁËĞÂµÄ¿É¼ûĞÔÎÊÌâ¡£
+void foo() {
+    a = 1;
+    smp_wmb()
+    b = 1;
+}
+void bar() {
+    while (b == 0) continue;
+    assert(a == 1)
+}
+¼ÙÉèa, bµÄ³õÊ¼ÖµÎª0£¬aÔÚcpu0£¬cpu1ÖĞ¾ùÎªShared×´Ì¬£¬bÔÚcpu0¶ÀÕ¼(Exclusive×´Ì¬)£¬cpu0Ö´ĞĞfoo£¬cpu1Ö´ĞĞbar:
+    cpu0Ö´ĞĞa=1£¬ÓÉÓÚÆäÓĞ°üº¬aµÄcache line£¬½«aĞ´Èëstore buffer£¬²¢·¢³öInvalidate aÏûÏ¢¡£
+    cpu1Ö´ĞĞwhile(b == 0)£¬ËüÃ»ÓĞbµÄcache£¬·¢³öRead bÏûÏ¢¡£
+    cpu1ÊÕµ½cpu0µÄInvalidate aÏûÏ¢£¬½«Æä·ÅÈëInvalidate Queue£¬·µ»ØInvalidate ACK¡£
+    cpu0ÊÕµ½Invalidate ACK£¬½«store bufferÖĞµÄa=1Ë¢ĞÂµ½cache line£¬±ê¼ÇÎªModified¡£
+    cpu0¿´µ½smp_wmb()ÄÚ´æÆÁÕÏ£¬µ«ÊÇÓÉÓÚÆästore bufferÎª¿Õ£¬Òò´ËËü¿ÉÒÔÖ±½ÓÌø¹ı¸ÃÓï¾ä¡£
+    cpu0Ö´ĞĞb=1£¬ÓÉÓÚÆäcache¶ÀÕ¼b£¬Òò´ËÖ±½ÓÖ´ĞĞĞ´Èë£¬cache line±ê¼ÇÎªModified¡£
+    cpu0ÊÕµ½cpu1·¢µÄRead bÏûÏ¢£¬½«°üº¬bµÄcache lineĞ´»ØÄÚ´æ²¢·µ»Ø¸Ãcache line£¬±¾µØµÄcache line±ê¼ÇÎªShared¡£
+    cpu1ÊÕµ½°üº¬b(µ±Ç°Öµ1)µÄcache line£¬½áÊøwhileÑ­»·¡£
+    cpu1Ö´ĞĞassert(a == 1)£¬ÓÉÓÚÆä±¾µØÓĞ°üº¬a¾ÉÖµµÄcache line£¬¶Áµ½a³õÊ¼Öµ0£¬¶ÏÑÔÊ§°Ü¡£
+    cpu1ÕâÊ±²Å´¦ÀíInvalid QueueÖĞµÄÏûÏ¢£¬½«°üº¬a¾ÉÖµµÄcache lineÖÃÎªInvalid¡£
+ÎÊÌâÔÚÓÚµÚ9²½ÖĞcpu1ÔÚ¶ÁÈ¡aµÄcache lineÊ±£¬Ã»ÓĞÏÈ´¦ÀíInvalid QueueÖĞ¸Ãcache lineµÄInvalid²Ù×÷
+
+======================>CPUÄÚ´æÆÁ±ÎÖ¸ÁîÍ¨¹ıÎşÉüCPUĞÔÄÜÈ¥»ñµÃÄÚ´æ¿É¼ûĞÔÒÔ¼°½ûÖ¹ÂÒĞòÖ´ĞĞµÄÌØĞÔ£¬ÀıÈç
+Ğ´ÆÁÕÏÖ¸Áî
+µ½Ä¿Ç°ÎªÖ¹£¬ÎÒÃÇ·¢ÏÖÁË¡±Ö¸ÁîÖØÅÅ¡°µÄÆäÖĞÒ»¸ö±¾ÖÊ£¬cpuÎªÁËÓÅ»¯Ö¸ÁîµÄÖ´ĞĞĞ§ÂÊ£¬ÒıÈëÁËStoreBuffer£¨forwarding£©£¬¶øÓÖÒò´Ëµ¼ÖÂÁËÖ¸ÁîÖ´ĞĞË³ĞòµÄ±ä»¯¡£Òª±£Ö¤ÕâÖÖË³ĞòÒ»ÖÂĞÔ£¬¿¿Ó²¼şÊÇÓÅ»¯²»ÁËÁË£¬ĞèÒªÔÚÈí¼ş²ãÃæÖ§³Ö£¬Ã»´í£¬cpuÌá¹©ÁËĞ´ÆÁÕÏ£¨write-memory-barrier£©Ö¸Áî£¬Linux²Ù×÷ÏµÍ³½«Ğ´ÆÁÕÏÖ¸Áî·â×°³ÉÁËsmp_wmb()º¯Êı£¬cpuÖ´ĞĞsmp_mb()µÄË¼Â·ÊÇ£¬»áÏÈ°Ñµ±Ç°StoreBufferÖĞµÄÊı¾İË¢µ½cacheÖ®ºó£¬ÔÙÖ´ĞĞÆÁÕÏºóµÄ¡°Ğ´Èë²Ù×÷¡±£¬¸ÃË¼Â·ÓĞÁ½ÖÖÊµÏÖ·½Ê½:Ò»ÊÇ¼òµ¥µØË¢StoreBuffer£¬µ«Èç¹û´ËÊ±Ô¶³ÌCacheLineÃ»ÓĞ·µ»Ø£¬ÔòĞèÒªµÈ´ı£¬¶şÊÇ½«µ±Ç°StoreBufferÖĞµÄÌõÄ¿´ò±ê£¬È»ºó½«ÆÁÕÏºóµÄ¡°Ğ´Èë²Ù×÷¡±Ò²Ğ´µ½StoreBufferÖĞ£¬cpu¼ÌĞø¸ÉÆäËûµÄÊÂ£¬µ±±»´ò±êµÄÌõÄ¿È«²¿Ë¢µ½CacheLine£¬Ö®ºóÔÙË¢ºóÃæµÄÌõÄ¿£¨¾ßÌåÊµÏÖ·Ç±¾ÎÄÄ¿±ê£©£¬ÒÔµÚ¶şÖÖÊµÏÖÂß¼­ÎªÀı£¬¿´¿´ÒÔÏÂ´úÂëÖ´ĞĞ¹ı³Ì£º
+void foo() {
+    a = 1;
+    smp_wmb()
+    b = 1;
+}
+void bar() {
+    while (b == 0) continue;
+    assert(a == 1)
+}
+³õÊ¼×´Ì¬ÏÂ£¬¼ÙÉèa£¬bÖµ¶¼Îª0£¬a´æÔÚÓÚcpu1µÄcacheÖĞ£¬b´æÔÚÓÚcpu0µÄcacheÖĞ£¬¾ùÎªExclusive×´Ì¬£¬cpu0Ö´ĞĞfooº¯Êı£¬cpu1Ö´ĞĞbarº¯Êı£¬ÉÏÃæ´úÂëµÄÔ¤ÆÚ¶ÏÑÔÎªÕæ¡£ÄÇÃ´À´¿´ÏÂÖ´ĞĞĞòÁĞ:
+    cpu1Ö´ĞĞwhile(b == 0)£¬ÓÉÓÚcpu1µÄcacheÖĞÃ»ÓĞb£¬·¢³öRead bÏûÏ¢¡£
+    cpu0Ö´ĞĞa=1£¬ÓÉÓÚcpu0µÄcacheÖĞÃ»ÓĞa£¬Òò´ËËü½«a(µ±Ç°Öµ1)Ğ´Èëµ½store buffer²¢·¢³öRead Invalidate aÏûÏ¢¡£
+    cpu0¿´µ½smp_wmb()ÄÚ´æÆÁÕÏ£¬Ëü»á±ê¼Çµ±Ç°store bufferÖĞµÄËùÓĞÌõÄ¿(¼´a=1±»±ê¼Ç)¡£
+    cpu0Ö´ĞĞb=1£¬¾¡¹ÜbÒÑ¾­´æÔÚÔÚcacheÖĞ(Exclusive)£¬µ«ÊÇÓÉÓÚstore bufferÖĞ»¹´æÔÚ±»±ê¼ÇµÄÌõÄ¿£¬Òò´Ëb²»ÄÜÖ±½ÓĞ´Èë£¬Ö»ÄÜÏÈĞ´Èëstore bufferÖĞ¡£
+    cpu0ÊÕµ½Read bÏûÏ¢£¬½«cacheÖĞµÄb(µ±Ç°Öµ0)·µ»Ø¸øcpu1£¬½«bĞ´»Øµ½ÄÚ´æ£¬²¢½«cache line×´Ì¬¸ÄÎªShared¡£
+    cpu1ÊÕµ½°üº¬bµÄcache line£¬¼ÌĞøwhile (b == 0)Ñ­»·¡£
+    cpu1ÊÕµ½Read Invalidate aÏûÏ¢£¬·µ»Ø°üº¬aµÄcache line£¬²¢½«±¾µØµÄcache lineÖÃÎªInvalid¡£
+    cpu0ÊÕµ½cpu1´«¹ıÀ´µÄ°üº¬aµÄcache line£¬È»ºó½«store bufferÖĞµÄa(µ±Ç°Öµ1)Ë¢ĞÂµ½cache line£¬²¢ÇÒ½«cache line×´Ì¬ÖÃÎªModified¡£
+    ÓÉÓÚcpu0µÄstore bufferÖĞ±»±ê¼ÇµÄÌõÄ¿ÒÑ¾­È«²¿Ë¢ĞÂµ½cache£¬´ËÊ±cpu0¿ÉÒÔ³¢ÊÔ½«store bufferÖĞµÄb=1Ë¢ĞÂµ½cache£¬µ«ÊÇÓÉÓÚ°üº¬BµÄcache lineÒÑ¾­²»ÊÇExclusive¶øÊÇShared£¬Òò´ËĞèÒªÏÈ·¢Invalidate bÏûÏ¢¡£
+    cpu1ÊÕµ½Invalidate bÏûÏ¢£¬½«°üº¬bµÄcache lineÖÃÎªInvalid£¬·µ»ØInvalidate ACK¡£
+    cpu1¼ÌĞøÖ´ĞĞwhile(b == 0)£¬´ËÊ±bÒÑ¾­²»ÔÚcacheÖĞ£¬Òò´Ë·¢³öReadÏûÏ¢¡£
+    cpu0ÊÕµ½Invalidate ACK£¬½«store bufferÖĞµÄb=1Ğ´ÈëCache¡£
+    cpu0ÊÕµ½ReadÏûÏ¢£¬·µ»Ø°üº¬bĞÂÖµµÄcache line¡£
+    cpu1ÊÕµ½°üº¬bµÄcache line£¬¿ÉÒÔ¼ÌĞøÖ´ĞĞwhile(b == 0)£¬ÖÕÖ¹Ñ­»·£¬È»ºóÖ´ĞĞassert(a == 1)£¬´ËÊ±a²»ÔÚÆäcacheÖĞ£¬Òò´Ë·¢³öReadÏûÏ¢¡£
+    cpu0ÊÕµ½ReadÏûÏ¢£¬·µ»Ø°üº¬aĞÂÖµµÄcache line¡£
+    cpu1ÊÕµ½°üº¬aµÄcache line£¬¶ÏÑÔÎªÕæ¡£
+
+¶ÁÆÁÕÏÖ¸Áî
+¶ÁÆÁÕÏÖ¸Áî£¬Linux½«Æä·â×°³Ésmp_rmb()º¯Êı£¬ºÍsmp_wmb()ÀàËÆ£¬cpuÖ´ĞĞsmp_rmb()µÄÊ±£¬»áÏÈ°Ñµ±Ç°InvalidateQueueÖĞµÄÊı¾İ´¦ÀíµôÖ®ºó£¬ÔÙÖ´ĞĞÆÁÕÏºóµÄ¡°¶ÁÈ¡²Ù×÷¡±£¬¾ÍÏñÕâÑù£º
+void foo() {
+    a = 1;
+    smp_wmb()
+    b = 1;
+}
+void bar() {
+    while (b == 0) continue;
+    smp_rmb()
+    assert(a == 1)
+}
 ###################################################cpu»º´æÓë¶àÏß³Ì###################################################
 
 ###################################################Ô­×ÓĞÔ£¬¿É¼ûĞÔ£¬ÓĞĞòĞÔ###################################################
@@ -562,6 +662,233 @@ https://sourceforge.net/projects/fcml/files/fcml-1.1.1/hsdis-1.1.1-win32-amd64.z
 -XX:CompileCommand=dontinline,*VisibilityTest.run
 -XX:CompileCommand=compileonly,*VisibilityTest.run
 -XX:+PrintAssembly
+×¢ÒâÉÏÃæµÄVisibilityTest.run£¬Ëü±íÊ¾½«VisibilityTestÀàÖĞµÄrun·½·¨×ª»»Îª»ã±àÖ¸Áî
+
+±ÈÈç£º
+public class LazySingleton {
+	private static volatile LazySingleton instance = null;
+	public static LazySingleton getInstance() {
+		if (instance == null) {
+			instance = new LazySingleton();
+		}
+		return instance;
+	}
+	public static void main(String[] args) {
+		LazySingleton.getInstance();
+	}
+}
+ÅÜmainº¯ÊıÖ®Ç°£¬¼ÓÈëÈçÏÂĞéÄâ»ú²ÎÊı£º
+-server
+-Xcomp
+-XX:+UnlockDiagnosticVMOptions
+-XX:+PrintAssembly
+-XX:CompileCommand=compileonly,*LazySingleton.getInstance
+±íÊ¾Ëü±íÊ¾½«LazySingletonÀàÖĞµÄgetInstance·½·¨×ª»»Îª»ã±àÖ¸Áî
+CompilerOracle: compileonly *LazySingleton.getInstance
+Loaded disassembler from hsdis-amd64.dll
+Decoding compiled method 0x00000000034323d0:
+Code:
+Argument 0 is unknown.RIP: 0x3432540 Code size: 0x00000248
+[Disassembling for mach='amd64']
+[Entry Point]
+[Verified Entry Point]
+[Constants]
+  # {method} {0x000000001c380350} 'getInstance' '()Lthread/pack/LazySingleton;' in 'thread/pack/LazySingleton'
+  #           [sp+0x40]  (sp of caller)
+  0x0000000003432540: mov     dword ptr [rsp+0ffffffffffffa000h],eax
+  0x0000000003432547: push    rbp
+  0x0000000003432548: sub     rsp,30h
+  0x000000000343254c: mov     rdx,1c380548h     ;   {metadata(method data for {method} {0x000000001c380350} 'getInstance' '()Lthread/pack/LazySingleton;' in 'thread/pack/LazySingleton')}
+  0x0000000003432556: mov     esi,dword ptr [rdx+0dch]
+  0x000000000343255c: add     esi,8h
+  0x000000000343255f: mov     dword ptr [rdx+0dch],esi
+  0x0000000003432565: mov     rdx,1c380348h     ;   {metadata({method} {0x000000001c380350} 'getInstance' '()Lthread/pack/LazySingleton;' in 'thread/pack/LazySingleton')}
+  0x000000000343256f: and     esi,0h
+  0x0000000003432572: cmp     esi,0h
+  0x0000000003432575: je      343267ah
+  0x000000000343257b: mov     rdx,76b3b71a0h    ;   {oop(a 'java/lang/Class' = 'thread/pack/LazySingleton')}
+  0x0000000003432585: mov     edx,dword ptr [rdx+68h]
+  0x0000000003432588: shl     rdx,3h            ;*getstatic instance
+                                                ; - thread.pack.LazySingleton::getInstance@0 (line 6)
+
+  0x000000000343258c: cmp     rdx,0h
+  0x0000000003432590: mov     rdx,1c380548h     ;   {metadata(method data for {method} {0x000000001c380350} 'getInstance' '()Lthread/pack/LazySingleton;' in 'thread/pack/LazySingleton')}
+  0x000000000343259a: mov     rsi,108h
+  0x00000000034325a4: jne     34325b4h
+  0x00000000034325aa: mov     rsi,118h
+  0x00000000034325b4: mov     rdi,qword ptr [rdx+rsi]
+  0x00000000034325b8: lea     rdi,[rdi+1h]
+  0x00000000034325bc: mov     qword ptr [rdx+rsi],rdi
+  0x00000000034325c0: jne     343265dh          ;*ifnonnull
+                                                ; - thread.pack.LazySingleton::getInstance@3 (line 6)
+
+  0x00000000034325c6: mov     rdx,7c0060028h    ;   {metadata('thread/pack/LazySingleton')}
+  0x00000000034325d0: mov     rax,qword ptr [r15+60h]
+  0x00000000034325d4: lea     rdi,[rax+10h]
+  0x00000000034325d8: cmp     rdi,qword ptr [r15+70h]
+  0x00000000034325dc: jnbe    3432691h
+  0x00000000034325e2: mov     qword ptr [r15+60h],rdi
+  0x00000000034325e6: mov     rcx,qword ptr [rdx+0a8h]
+  0x00000000034325ed: mov     qword ptr [rax],rcx
+  0x00000000034325f0: mov     rcx,rdx
+  0x00000000034325f3: shr     rcx,3h
+  0x00000000034325f7: mov     dword ptr [rax+8h],ecx
+  0x00000000034325fa: xor     rcx,rcx
+  0x00000000034325fd: mov     dword ptr [rax+0ch],ecx
+  0x0000000003432600: xor     rcx,rcx           ;*new  ; - thread.pack.LazySingleton::getInstance@6 (line 7)
+
+  0x0000000003432603: mov     rdx,rax
+  0x0000000003432606: mov     rsi,1c380548h     ;   {metadata(method data for {method} {0x000000001c380350} 'getInstance' '()Lthread/pack/LazySingleton;' in 'thread/pack/LazySingleton')}
+  0x0000000003432610: add     qword ptr [rsi+128h],1h
+  0x0000000003432618: mov     rdx,rax           ;*invokespecial <init>
+                                                ; - thread.pack.LazySingleton::getInstance@10 (line 7)
+
+  0x000000000343261b: mov     qword ptr [rsp+20h],rax
+  0x0000000003432620: nop
+  0x0000000003432621: nop
+  0x0000000003432622: nop
+  0x0000000003432623: nop
+  0x0000000003432624: nop
+  0x0000000003432625: nop
+  0x0000000003432626: nop
+  0x0000000003432627: call    33761a0h          ; OopMap{[32]=Oop off=236}
+                                                ;*invokespecial <init>
+                                                ; - thread.pack.LazySingleton::getInstance@10 (line 7)
+                                                ;   {optimized virtual_call}
+  0x000000000343262c: mov     rax,76b3b71a0h    ;   {oop(a 'java/lang/Class' = 'thread/pack/LazySingleton')}
+  0x0000000003432636: mov     rsi,qword ptr [rsp+20h]
+  0x000000000343263b: mov     r10,rsi
+  0x000000000343263e: shr     r10,3h
+  0x0000000003432642: mov     dword ptr [rax+68h],r10d
+  0x0000000003432646: shr     rax,9h
+  0x000000000343264a: mov     rsi,0f0e4000h
+  0x0000000003432654: mov     byte ptr [rax+rsi],0h
+  0x0000000003432658: lock add dword ptr [rsp],0h  ;*putstatic instance
+                                                ; - thread.pack.LazySingleton::getInstance@13 (line 7)
+
+  0x000000000343265d: mov     rax,76b3b71a0h    ;   {oop(a 'java/lang/Class' = 'thread/pack/LazySingleton')}
+  0x0000000003432667: mov     eax,dword ptr [rax+68h]
+  0x000000000343266a: shl     rax,3h            ;*getstatic instance
+                                                ; - thread.pack.LazySingleton::getInstance@16 (line 9)
+
+  0x000000000343266e: add     rsp,30h
+  0x0000000003432672: pop     rbp
+  0x0000000003432673: test    dword ptr [1470100h],eax
+                                                ;   {poll_return}
+  0x0000000003432679: ret
+  0x000000000343267a: mov     qword ptr [rsp+8h],rdx
+  0x000000000343267f: mov     qword ptr [rsp],0ffffffffffffffffh
+  0x0000000003432687: call    342f1e0h          ; OopMap{off=332}
+                                                ;*synchronization entry
+                                                ; - thread.pack.LazySingleton::getInstance@-1 (line 6)
+                                                ;   {runtime_call}
+  0x000000000343268c: jmp     343257bh
+  0x0000000003432691: mov     rdx,rdx
+  0x0000000003432694: call    342b280h          ; OopMap{off=345}
+                                                ;*new  ; - thread.pack.LazySingleton::getInstance@6 (line 7)
+                                                ;   {runtime_call}
+  0x0000000003432699: jmp     3432603h
+  0x000000000343269e: nop
+  0x000000000343269f: nop
+  0x00000000034326a0: mov     rax,qword ptr [r15+2a8h]
+  0x00000000034326a7: mov     r10,0h
+  0x00000000034326b1: mov     qword ptr [r15+2a8h],r10
+  0x00000000034326b8: mov     r10,0h
+  0x00000000034326c2: mov     qword ptr [r15+2b0h],r10
+  0x00000000034326c9: add     rsp,30h
+  0x00000000034326cd: pop     rbp
+  0x00000000034326ce: jmp     339d520h          ;   {runtime_call}
+  0x00000000034326d3: hlt
+  0x00000000034326d4: hlt
+  0x00000000034326d5: hlt
+  0x00000000034326d6: hlt
+  0x00000000034326d7: hlt
+  0x00000000034326d8: hlt
+  0x00000000034326d9: hlt
+  0x00000000034326da: hlt
+  0x00000000034326db: hlt
+  0x00000000034326dc: hlt
+  0x00000000034326dd: hlt
+  0x00000000034326de: hlt
+  0x00000000034326df: hlt
+[Stub Code]
+  0x00000000034326e0: nop                       ;   {no_reloc}
+  0x00000000034326e1: nop
+  0x00000000034326e2: nop
+  0x00000000034326e3: nop
+  0x00000000034326e4: nop
+  0x00000000034326e5: mov     rbx,0h            ;   {static_stub}
+  0x00000000034326ef: jmp     34326efh          ;   {runtime_call}
+[Exception Handler]
+  0x00000000034326f4: call    342c9a0h          ;   {runtime_call}
+  0x00000000034326f9: mov     qword ptr [rsp+0ffffffffffffffd8h],rsp
+  0x00000000034326fe: sub     rsp,80h
+  0x0000000003432705: mov     qword ptr [rsp+78h],rax
+  0x000000000343270a: mov     qword ptr [rsp+70h],rcx
+  0x000000000343270f: mov     qword ptr [rsp+68h],rdx
+  0x0000000003432714: mov     qword ptr [rsp+60h],rbx
+  0x0000000003432719: mov     qword ptr [rsp+50h],rbp
+  0x000000000343271e: mov     qword ptr [rsp+48h],rsi
+  0x0000000003432723: mov     qword ptr [rsp+40h],rdi
+  0x0000000003432728: mov     qword ptr [rsp+38h],r8
+  0x000000000343272d: mov     qword ptr [rsp+30h],r9
+  0x0000000003432732: mov     qword ptr [rsp+28h],r10
+  0x0000000003432737: mov     qword ptr [rsp+20h],r11
+  0x000000000343273c: mov     qword ptr [rsp+18h],r12
+  0x0000000003432741: mov     qword ptr [rsp+10h],r13
+  0x0000000003432746: mov     qword ptr [rsp+8h],r14
+  0x000000000343274b: mov     qword ptr [rsp],r15
+  0x000000000343274f: mov     rcx,6e959e40h     ;   {external_word}
+  0x0000000003432759: mov     rdx,34326f9h      ;   {internal_word}
+  0x0000000003432763: mov     r8,rsp
+  0x0000000003432766: and     rsp,0fffffffffffffff0h
+  0x000000000343276a: call    6e613cf0h         ;   {runtime_call}
+  0x000000000343276f: hlt
+[Deopt Handler Code]
+  0x0000000003432770: mov     r10,3432770h      ;   {section_word}
+  0x000000000343277a: push    r10
+  0x000000000343277c: jmp     3377600h          ;   {runtime_call}
+  0x0000000003432781: hlt
+  0x0000000003432782: hlt
+  0x0000000003432783: hlt
+  0x0000000003432784: hlt
+  0x0000000003432785: hlt
+  0x0000000003432786: hlt
+  0x0000000003432787: hlt
+×¢ÒâÉÏÃæ»ã±àÖ¸ÁîÖĞµÄ£º
+lock add dword ptr [rsp],0h  ;*putstatic instance; - thread.pack.LazySingleton::getInstance@13 (line 7)
+ÓÉÓÚ±äÁ¿instance¼ÓÁËvolatile¹Ø¼ü×ÖĞŞÊÎ£¬ËùÒÔ×ª»»³É»ã±àÖ¸Áîºó»áÔÚaddÇ°ÃæÔö¼ÓlockÖ¸ÁîÒÔ±£Ö¤ÄÚ´æ¿É¼ûĞÔ
+
+Àı3£º
+public class DoubleCheckLock {
+    private static DoubleCheckLock instance;
+    private DoubleCheckLock(){}
+    public static DoubleCheckLock getInstance(){
+        //µÚÒ»´Î¼ì²â
+        if (instance==null){
+            //Í¬²½
+            synchronized (DoubleCheckLock.class){
+                if (instance == null){
+                    //¶àÏß³Ì»·¾³ÏÂ¿ÉÄÜ»á³öÏÖÎÊÌâµÄµØ·½
+                    instance = new DoubleCheckLock();
+                }
+            }
+        }
+        return instance;
+    }
+}
+ÉÏÊö´úÂëÒ»¸ö¾­µäµÄµ¥ÀıµÄË«ÖØ¼ì²âµÄ´úÂë£¬Õâ¶Î´úÂëÔÚµ¥Ïß³Ì»·¾³ÏÂ²¢Ã»ÓĞÊ²Ã´ÎÊÌâ£¬µ«Èç¹ûÔÚ¶àÏß³Ì»·¾³ÏÂ¾Í¿ÉÒÔ³öÏÖÏß³Ì°²È«ÎÊÌâ¡£Ô­ÒòÔÚÓÚÄ³Ò»¸öÏß³ÌÖ´ĞĞµ½µÚÒ»´Î¼ì²â£¬¶ÁÈ¡µ½µÄinstance²»ÎªnullÊ±£¬instanceµÄÒıÓÃ¶ÔÏó¿ÉÄÜÃ»ÓĞÍê³É³õÊ¼»¯¡£
+ÒòÎªinstance = new DoubleCheckLock();¿ÉÒÔ·ÖÎªÒÔÏÂ3²½Íê³É(Î±´úÂë)
+memory = allocate(); //1.·ÖÅä¶ÔÏóÄÚ´æ¿Õ¼ä
+instance(memory);    //2.³õÊ¼»¯¶ÔÏó
+instance = memory;   //3.ÉèÖÃinstanceÖ¸Ïò¸Õ·ÖÅäµÄÄÚ´æµØÖ·£¬´ËÊ±instance£¡=null
+ÓÉÓÚ²½Öè1ºÍ²½Öè2¼ä¿ÉÄÜ»áÖØÅÅĞò£¬ÈçÏÂ£º
+memory = allocate(); //1.·ÖÅä¶ÔÏóÄÚ´æ¿Õ¼ä
+instance = memory;   //3.ÉèÖÃinstanceÖ¸Ïò¸Õ·ÖÅäµÄÄÚ´æµØÖ·£¬´ËÊ±instance£¡=null£¬µ«ÊÇ¶ÔÏó»¹Ã»ÓĞ³õÊ¼»¯Íê³É£¡
+instance(memory);    //2.³õÊ¼»¯¶ÔÏó
+ÓÉÓÚ²½Öè2ºÍ²½Öè3²»´æÔÚÊı¾İÒÀÀµ¹ØÏµ£¬¶øÇÒÎŞÂÛÖØÅÅÇ°»¹ÊÇÖØÅÅºó³ÌĞòµÄÖ´ĞĞ½á¹ûÔÚµ¥Ïß³ÌÖĞ²¢Ã»ÓĞ¸Ä±ä£¬Òò´ËÕâÖÖÖØÅÅÓÅ»¯ÊÇÔÊĞíµÄ¡£µ«ÊÇÖ¸ÁîÖØÅÅÖ»»á±£Ö¤´®ĞĞÓïÒåµÄÖ´ĞĞµÄÒ»ÖÂĞÔ(µ¥Ïß³Ì)£¬µ«²¢²»»á¹ØĞÄ¶àÏß³Ì¼äµÄÓïÒåÒ»ÖÂĞÔ¡£ËùÒÔµ±Ò»ÌõÏß³Ì·ÃÎÊinstance²»ÎªnullÊ±£¬ÓÉÓÚinstanceÊµÀıÎ´±ØÒÑ³õÊ¼»¯Íê³É£¬Ò²¾ÍÔì³ÉÁËÏß³Ì°²È«ÎÊÌâ¡£ÄÇÃ´¸ÃÈçºÎ½â¾öÄØ£¬ºÜ¼òµ¥£¬ÎÒÃÇÊ¹ÓÃvolatile½ûÖ¹instance±äÁ¿±»Ö´ĞĞÖ¸ÁîÖØÅÅÓÅ»¯¼´¿É¡£
+//½ûÖ¹Ö¸ÁîÖØÅÅÓÅ»¯
+ private volatile static DoubleCheckLock instance;
 ###################################################Ô­×ÓĞÔ£¬¿É¼ûĞÔ£¬ÓĞĞòĞÔ###################################################
 
 ###################################################Thread¡¢Runnable###################################################

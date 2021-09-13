@@ -70,3 +70,12 @@ javaws.exe用于web程序。
 按照下述流程将网络代理设置为Manual（手动方式）：
 Window->Preferences->General->Network Connections将右侧页面中的Active Provider改为Manual
 ########################Eclipse弹出提示code recommenders cannot download its model repository index########################
+
+################################################Eclipse下代码字体背景变红/变绿/变黄原因################################################
+eclipse 有测试代码覆盖率的功能，也就是执行Run——>Coverage后会出现代码字体背景变红/变绿/变黄
+如何清除
+解决办法是打开Coverage的视图,然后点击Remove all Sessions(两个×按钮)
+步骤一 Window ——>show view ——> Other——>Java——>Coverage
+步骤二 点击Remove all Sessions(两个×按钮)
+
+################################################Eclipse下代码字体背景变红/变绿/变黄原因################################################

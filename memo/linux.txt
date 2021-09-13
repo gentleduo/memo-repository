@@ -2619,6 +2619,10 @@ fd目录下是进程打开或使用的文件的符号连接。
 
 ###############################################【linux】yum本地源创建###############################################
 1) 修改/etc/yum.conf文件，将keepcache设置为1 (修改完之后通过yum install安装的rpm包将放在yum.conf文件中cachedir指向的目录)
+$releasever的值,这个表示当前系统的发行版本，$basearch是我们的系统硬件架构(CPU指令集),就是我们常说的i386\i486\i586\i686\...
+可以通过如下命令查看：
+rpm -qi centos-release
+其中的Version     : 7就是我们系统的版本号，Architecture: x86_64就是系统硬件架构(CPU指令集)
 2) yum install createrepo (createrepo 命令用于创建yum源（软件仓库），即为存放于本地特定位置的众多rpm包建立索引，描述各包所需依赖信息，并形成元数据。)
 3) 将cachedir目录下，base和updates目录下packages里面的rpm包统一复制至指定文件夹
 查找并删除*.so文件
@@ -2628,6 +2632,11 @@ find . -name "*.so" | xargs -i cp {} ./tmp/
 拷贝当前目录下所有*.so文件到./tmp/下
 ls *.so | xargs -i cp {} ./tmp/
 4) 通过：createrepo /rpm依赖包集合创建索引
+5) 在/etc/yum.repos.d下创建一个自定义的源文件，例如：customize.repo
+[customize_packages]
+name=customize_repo
+baseurl=file:///data/repo
+gpgcheck=0
 
 显示历史版本
 yum --showduplicates list nfs-utils

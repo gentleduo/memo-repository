@@ -1709,6 +1709,13 @@ top -Hp pid // 观察进程中的线程
 jinfo pid // 查看正在运行的 java 应用程序的扩展参数，包括Java System属性和JVM命令行参数，
 jstat -gc pid // 动态观察gc情况，jstat -gc pid 500：每隔500毫秒打印GC情况
 
+jstack堆栈跟踪
+-F 当jstack [-l] pid没有相应的时候强制打印栈信息,如果直接jstack无响应时，用于强制jstack，一般情况不需要使用
+-l 长列表. 打印关于锁的附加信息,例如属于java.util.concurrent的ownable synchronizers列表，会使得JVM停顿得长久得多
+（可能会差很多倍，比如普通的jstack可能几毫秒和一次GC没区别，加了-l 就是近一秒的时间），-l 建议不要用。一般情况不需要使用
+-m 打印java和native c/c++ 框架的所有栈信息.可以打印JVM的堆栈,显示上Native的栈帧，一般应用排查不需要使用
+可以使用jstack -l pid > jstack.tdump线程信息存入文件中，然后再从服务器下载到本地然后使用jvisualvm进行dump文件分析
+
 jconsole远程连接
 1.在linux服务器中使用如下参数启动应用
 java -Djava.rmi.server.hostname=192.168.56.110 -Dcom.sun.management.jmxremote -Dcom.sun.management.jmxremote.port=8999 -Dcom.sun.management.jmxremote.authenticate=false -Dcom.sun.management.jmxremote.ssl=false JconsoleJava
@@ -1731,8 +1738,33 @@ jmap -dump:format=b,file=/opt/heapDump.hprof pid
 -XX:HeapDumpPath=${目录}参数表示生成DUMP文件的路径，也可以指定文件名称，例如：-XX:HeapDumpPath=${目录}/java_heapdump.hprof。如果不指定文件名，默认为：java_<pid>_<date>_<time>_heapDump.hprof。
 比如：java -Xmn10M -Xms40M -Xmx60M -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/opt/java_heapdump.hprof HelloGC
 
-使用MAT/jhat进行dump文件分析
+jhat进行dump文件分析
+jhat -J-mx512M xxx.hprof
+jhat命令会在linux服务器上启动一个web服务，在windows通过链接：http://192.168.56.110:7000访问
+拉倒最后：找到对应的链接
 
+jvisualvm进行dump文件分析
+将linux服务器生成的dump文件下载的windows本地
+打开C:\Program Files\Java\jdk1.8.0_144\bin目录下的jvisualvm.exe，点击文件==>装入
+
+Linux服务器中使用java -XX:+PrintCommandLineFlags -version无法打印默认GC的类型，但是可以通过jmap查看jvm采用的垃圾收集器
+1.ps -ef|grep tomcat（获取tomcat的PID获得）
+2.查看java垃圾收集器 jmap -heap pid
+其中using thread-local object allocation下面就是采用的java垃圾收集器
+比如Mark Sweep Compact GC、Concurrent Mark-Sweep GC、Garbage-First (G1) GC等
+
+==========>arthas在线排查
+https://github.com/alibaba/arthas
+下载arthas-boot.jar，然后用java -jar的方式启动：
+curl -O https://arthas.aliyun.com/arthas-boot.jar
+java -jar arthas-boot.jar
+命令：(具体参考：https://arthas.aliyun.com/doc/commands.html)
+dashboard // 当前系统的实时数据面板
+thread // 查看当前线程信息，查看线程的堆栈
+jvm // 查看当前JVM信息
+jad // 反编译指定已加载类的源码
+redefine // 加载外部的.class文件，redefine jvm已加载的类(热替换)，使用实例：redefine /opt/XXX.class
+redefine的class不能修改、添加、删除类的field和method，包括方法参数、方法名称及返回值（即只能修改方法的实现）
 #################################################GC Tuning#################################################
 
 

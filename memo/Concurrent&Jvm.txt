@@ -1540,7 +1540,8 @@ MajorGC/FGC:在老年代无法继续分配空间时触发，新生代和老年代同时进行回收
   无逃逸
   支持标量替换
 线程本地分配TLAB(Thread Local Allocation Buffer)
-  占用eden，默认1%(即开启UseTLAB后，每一个线程，都会产生一个TLAB，该线程独享的工作区域，TLAB用来避免多线程冲突问题，提高对象分配效率)
+如果设置了jvm参数-XX:+UseTLAB，在线程初始化时，会向堆申请一个确定大小的内存(即TLAB，缺省情况下，TLAB仅占Eden区的1%)作为当前线程私有的空间，线程运行过程中，如果需要分配内存，会在自己的TLAB上分配，这样就不存在申请内存的竞争。
+  占用eden
   多线程的时候不用竞争eden就可以申请空间，提高效率
   小对象
 //逃逸分析：关闭逃逸分析：-DoEscapeAnalysis；开启逃逸分析则是：+DoEscapeAnalysis)
@@ -1769,6 +1770,63 @@ jvm // 查看当前JVM信息
 jad // 反编译指定已加载类的源码
 redefine // 加载外部的.class文件，redefine jvm已加载的类(热替换)，使用实例：redefine /opt/XXX.class
 redefine的class不能修改、添加、删除类的field和method，包括方法参数、方法名称及返回值（即只能修改方法的实现）
+
+==========>GC常用参数
+-Xmn -Xms -Xmx -Xss //年轻代 最小堆 最大堆 栈空间
+-XX:+UseTLAB //使用TLAB，默认打开
+-XX:+PrintTLAB //打印TLAB的使用情况
+-XX:TLABSize //设置TLAB大小
+-XX:+DisableExplictGC //System.gc()不管用 ，FGC
+-XX:+PrintFlagsFinal //打印所有系统最终参数值
+-XX:+PrintFlagsInitial //打印所有系统默认参数值
+-XX:+PrintGC //输出GC日志
+-XX:+PrintGCDetails //输出详细的GC日志信息
+-XX:+PrintHeapAtGC //在GC的前后打印出堆的信息，
+-XX:+PrintGCTimeStamps //输出GC的时间戳，以JVM启动时间为基准
+-XX:+PrintGCDateStamps //输出GC的时间戳，以日期的形式。
+-XX:+PrintGCApplicationConcurrentTime //打印应用程序时间
+-XX:+PrintGCApplicationStoppedTime  //打印暂停时长
+-XX:+PrintReferenceGC //记录回收了多少种不同引用类型的引用
+-XX:+PrintVMOptions //打印显式参数
+-XX:+PrintCommandLineFlags //打印显式隐式参数
+-verbose:class //类加载详细过程
+-Xloggc:/opt/log/gc.log //GC日志
+-XX:MaxTenuringThreshold //升代年龄，最大值15
+-XX:+UseSpining //开启自旋锁 
+-XX:PreBlockSpin  //更改自旋锁的自旋次数，使用这个参数必须先开启自旋锁
+-XX:CompileThreshold //通过JIT编译器，将方法编译成机器码的触发阀值，可以理解为调用方法的次数，例如调1000次，将方法编译为机器码
+-XX:+DoEscapeAnalysis //逃逸分析
+-XX:+EliminateAllocations //标量替换
+
+==========>Parallel常用参数
+-XX:SurvivorRatio  //新生代中Eden区域和Survivor区域(From区和To区)的比例，默认为8，就是Eden占新生代的8/10，From幸区和To幸存区各占新生代的1/10
+-XX:PreTenureSizeThreshold //大对象到底多大
+-XX:MaxTenuringThreshold   //该参数主要是控制新生代需要经历多少次GC晋升到老年代中的最大阈值
+-XX:+ParallelGCThreads     //并行收集器的线程数，同样适用于CMS，一般设为和CPU核数相同
+-XX:+UseAdaptiveSizePolicy //自动选择各区大小比例
+
+==========>CMS常用参数
+-XX:+UseConcMarkSweepGC                 // 使用CMS垃圾回收器
+-XX:ParallelCMSThreads                  // CMS线程数量
+-XX:CMSInitiatingOccupancyFraction      // 使用多少比例的老年代后开始CMS收集，默认是68%(近似值)，如果频繁发生SerialOld卡顿，应该调小。
+-XX:UseCMSCompactAtFullCollection       // 在FGC时进行压缩
+-XX:CMSFullGCsBeforeCompaction          // 多少次FGC之后进行压缩
+-XX:CMSClassUnloadingEnabled            // 
+-XX:CMSInitiatingPermOccupancyFraction  // 达到什么比例进行Perm回收
+GCTimeRatio                             // 设置GC时间占用程序运行时间的百分比
+-XX:MaxGCPauseMillis                    // 停顿时间，是一个建议时间，GC会尝试用各种手段达到这个时间，比如减少年轻代
+
+==========>G1常用参数
+-XX:UseG1GC                // 使用CMS垃圾回收器
+-XX:MaxGCPauseMillis       // 建议值，G1会尝试调整Young区的块数来达到这个值
+-XX:GCPauseIntervalMillis  // GC的间隔时间
+-XX:+G1HeapRegionSize      // 分区大小，建议逐渐增大该值，1 2 4 8 16 32。随着size增加，垃圾的存活时间更长，GC间隔更长，但每次GC的时间也会更长
+-XX:G1NewSizePercent       // 新生代最小比例，默认为5%
+-XX:G1MaxNewSizePercent    // 新生代最大比例，默认为60%
+-XX:GCTimeRatio            // GC时间建议比例，G1会根据这个值调整堆空间
+-XX:ConcGCThreads          // 线程数量
+-XX:InitiatingHeapOccupancyPercent  //启动G1的堆空间占用比例
+
 #################################################GC Tuning#################################################
 
 

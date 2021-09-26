@@ -523,7 +523,7 @@ useradd 选项 用户名
 -u 用户号 指定用户的用户号，如果同时有-o选项，则可以重复使用其他用户的标识号。
 例1：
 useradd -g dl4juser –d /home/dl4juser -m dl4juser
-其中-d和-m选项用来为登录名sam产生一个主目录/usr/sam（/usr为默认的用户主目录所在的父目录）。
+其中-m选项用来为创建用户dl4juser， -d选项表示为用户dl4juser产生一个主目录/usr/dl4juser（/usr为默认的用户主目录所在的父目录）。
 passwd dl4juser 给已创建的用户dl4juser设置密码
 例2：
 # useradd -s /bin/sh -g group –G adm,root gem

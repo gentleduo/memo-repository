@@ -1,3 +1,16 @@
+###########################################BIO的处理流程###########################################
+设置协议处理类============>
+Connector
+
+通过socket获取数据============>
+Http11Protocol ==>JIoEndpoint
+
+解析数据封装成request对象============>
+Http11Processor==>AbstractHttp11Processor==>InternalInputBuffer==IdentityInputFilter.end()
+CoyoteInputStream==>InputBuffer==>org.apache.coyote.Request==>InternalInputBuffer.fill
+
+###########################################BIO的处理流程###########################################
+
 TOMCAT服务器不写端口号、不写项目名访问项目
 不写端口：
 TOMCAT默认的访问端口为8080，而TCP/IP协议默认80端口访问，

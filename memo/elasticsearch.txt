@@ -84,7 +84,7 @@ else
   JAVA_TYPE="bundled jdk"
 fi
 
-编辑配置文件
+编辑配置文件(/usr/local/elasticsearch/config/elasticsearch.yml)========>
 # 设置集群名称，集群内所有节点的名称必须一致。
 cluster.name: es-prod
 # 设置节点名称，集群内节点名称必须唯一,且不可重复
@@ -199,7 +199,379 @@ index会拆分多个shard，每个shard就会存放这个index的一份数据，
 2.数据分布在多个shard，多台服务器上，所有的操作都会在多台服务器上进行分布式执行，提升吞吐量和性能
 shard其实就是primary shard，一般称为shard
 replica其实就是replica shard，一般简称为replica
+在es中master节点不承载所有的请求，只负责管理es集群的元数据，所以es属于节点平等的分布式架构
+############################节点平等的分布式架构############################
+（1）节点对等，每个节点都能接收所有的请求
+（2）自动请求路由
+（3）响应收集
+############################节点平等的分布式架构############################
+
+Document、Type、Index========>
+Document：文档，ES中最小的数据单元，一个document可以是一条商品数据，通常用JSON数据结构表示，每个index下的type中可以存储多个document。
+Type：类型，type是index中的一个逻辑数据分类，一个type下的document有相同的field。
+Index：索引，包含很多相似结构的文档数据。每个索引下面可以有一个或多个type，type是index中的一个逻辑数据分类
+Elasticsearch    数据库
+Document         行
+Type             表
+Index            库
+在7.0以及之后的版本中Type被废弃了。一个index中只有一个默认的type，即_doc：
+ES的Type被废弃后，库表合一，Index既可以被认为对应MySQL的Database，也可以认为对应table，也可以这样理解：
+ES实例：对应MySQL实例中的一个Database。
+Index对应MySQL中的Table。
+Document对应MySQL中表的记录。
+
+document数据格式========>
+面向文档的搜索分析引擎
+（1）应用系统的数据结构都是面向对象的，复杂的
+（2）对象数据存储到数据库中，只能拆解开来，变为扁平的多张表，每次查询的时候还得还原回对象格式，相当麻烦
+（3）ES是面向文档的，文档中存储的数据结构，与面向对象的数据结构是一样的，基于这种文档数据结构，es可以提供复杂的索引，全文检索，分析聚合等功能
+（4）es的document用json数据格式来表达
+比如：employee对象：里面包含了Employee类自己的属性，还有一个EmployeeInfo对象
+如果是数据库的话，则是如下设计：
+两张表：employee表，employee_info表，将employee对象的数据重新拆开来，变成Employee数据和EmployeeInfo数据
+employee表：email，first_name，last_name，join_date，4个字段
+employee_info表：bio，age，interests，3个字段；此外还有一个外键字段，比如employee_id，关联着employee表
+用es的话数据会存储在一个document中：
+{
+    "email":      "zhangsan@sina.com",
+    "first_name": "san",
+    "last_name": "zhang",
+    "info": {
+        "bio":         "curious and modest",
+        "age":         30,
+        "interests": [ "bike", "climb" ]
+    },
+    "join_date": "2017/01/01"
+}
+这就就明白了es的document数据格式和数据库的关系型数据格式的区别
+
+简单的集群管理========>
+（1）快速检查集群的健康状况
+es提供了一套api，叫做cat api，可以查看es中各种各样的数据
+kibana:
+GET /_cat/health?v
+linux:
+curl -X GET server01:9200/_cat/health?v
+green：每个索引的primary shard和replica shard都是active状态的
+yellow：每个索引的primary shard都是active状态的，但是部分replica shard不是active状态，处于不可用的状态
+red：不是所有索引的primary shard都是active状态的，部分索引有数据丢失了
+# 检查集群状态，查看是否有节点丢失，有多少分片无法分配
+GET /_cluster/health/
+# 查看索引级别,找到红色的索引
+GET /_cluster/health?level=indices
+#查看索引的分片
+GET _cluster/health?level=shards
+# Explain 变红的原因
+GET /_cluster/allocation/explain
+（2）快速查看集群中有哪些索引
+GET /_cat/indices?v
+（3）简单的索引操作
+创建索引：PUT /test_index?pretty
+删除索引：DELETE /test_index?pretty
+################################################ES集群Unassigned（脑裂现象）################################################
+现象：
+后台启动ES集群，由三个节点组成，集群健康值为yellow，节点只有主分片，副本状态为：Unassigned
+原因：
+在ES磁盘分配分片控制策略中，为了保护数据节点的安全，ES对磁盘进行了限额，并会定时检查各节点数据目录的使用情况：
+cluster.info.update.interval // 默认30秒
+在达到cluster.routing.allocation.disk.watermark.low(默认85%)时，新索引分片就不会分配到这个节点上了。
+在达到cluster.routing.allocation.disk.watermark.high(默认90%)时，就会触发该节点现存分片的数据均衡，把数据挪到其他节点上去。
+如何修改：
+方案一：删除es集群所在路径不必要大文件，如旧的日志文件，临时文件等，使 Use% 值小于 85%。
+方案二：修改ES分片控制策略，提高cluster.routing.allocation.disk.watermark.low的值，该值大于当前ES集群所在路径%Use的值。
+curl -X PUT -H "Content-Type:application/json" server01:9200/_cluster/settings -d '{
+   "transient":{
+      "cluster.routing.allocation.disk.watermark.high":"95%",
+      "cluster.routing.allocation.disk.watermark.low":"90%"
+    }
+}'
+################################################ES集群Unassigned（脑裂现象）################################################
+
 =======================================================基本概念=======================================================
+
+=======================================================基本操作=======================================================
+基本的CRUD操作（在DSL语句结尾加上?pretty可以更清晰直观的看到执行结果）========>
+（1）新增商品：新增文档，建立索引
+PUT /index/type/id
+{
+  "json数据"
+}
+PUT /ecommerce/_doc/1?pretty
+{
+    "name" : "gaolujie yagao",
+    "desc" :  "gaoxiao meibai",
+    "price" :  30,
+    "producer" :      "gaolujie producer",
+    "tags": [ "meibai", "fangzhu" ]
+}
+PUT /ecommerce/_doc/2?pretty
+{
+    "name" : "jiajieshi yagao",
+    "desc" :  "youxiao fangzhu",
+    "price" :  25,
+    "producer" :      "jiajieshi producer",
+    "tags": [ "fangzhu" ]
+}
+PUT /ecommerce/_doc/3?pretty
+{
+    "name" : "zhonghua yagao",
+    "desc" :  "caoben zhiwu",
+    "price" :  40,
+    "producer" :      "zhonghua producer",
+    "tags": [ "qingxin" ]
+}
+es会自动建立index和type，不需要提前创建，而且es默认会对document每个field都建立倒排索引，让其可以被搜索
+（2）查询商品：检索文档
+GET /index/type/id
+GET /ecommerce/_doc/1?pretty
+（3）修改商品：替换文档
+PUT /ecommerce/_doc/1?pretty
+{
+    "name" : "jiaqiangban gaolujie yagao",
+    "desc" :  "gaoxiao meibai",
+    "price" :  30,
+    "producer" :      "gaolujie producer",
+    "tags": [ "meibai", "fangzhu" ]
+}
+替换方式必须带上所有的field，才能去进行信息的修改，否则其他字段将被置空
+（4）修改商品：更新文档
+POST /ecommerce/_update/1/?pretty
+{
+  "doc": {
+    "name": "jiaqiangban gaolujie yagao"
+  }
+}
+curl -X POST -H 'Content-Type:application/json' http://server01:9200/ecommerce/_update/1 -d '{
+    "doc": {
+	    "name": "gaolujie yagao"
+	}
+}'
+（5）删除商品：删除文档
+DELETE /ecommerce/_doc/1
+
+###############################################搜索方式###############################################
+query string search========>
+搜索全部商品：GET /ecommerce/_search?pretty
+curl -X GET http://server01:9200/ecommerce/_search?pretty
+took：耗费了几毫秒
+timed_out：是否超时，这里是没有
+_shards：数据拆成了5个分片，所以对于搜索请求，会打到所有的primary shard（或者是它的某个replica shard也可以）
+hits.total：查询结果的数量，3个document
+hits.max_score：score的含义，就是document对于一个search的相关度的匹配分数，越相关，就越匹配，分数也高
+hits.hits：包含了匹配搜索的document的详细数据
+query string search的由来，因为search参数都是以http请求的query string来附带的
+搜索商品名称中包含yagao的商品，而且按照售价降序排序：GET /ecommerce/product/_search?q=name:yagao&sort=price:desc
+适用于临时的在命令行使用一些工具，比如curl，快速的发出请求，来检索想要的信息；但是如果查询请求很复杂，是很难去构建的
+在生产环境中，几乎很少使用query string search
+
+query DSL========>
+DSL：Domain Specified Language，特定领域的语言
+http request body：请求体，可以用json的格式来构建查询语法，比较方便，可以构建各种复杂的语法，比query string search肯定强大多了
+查询所有的商品
+GET /ecommerce/_search
+{
+  "query": { "match_all": {} }
+}
+查询名称包含yagao的商品，同时按照价格降序排序
+GET /ecommerce/_search
+{
+    "query" : {
+        "match" : {
+            "name" : "yagao"
+        }
+    },
+    "sort": [
+        { "price": "desc" }
+    ]
+}
+分页查询商品，总共3条商品，假设每页就显示1条商品，现在显示第2页，所以就查出来第2个商品
+GET /ecommerce/_search
+{
+  "query": { "match_all": {} },
+  "from": 1,
+  "size": 1
+}
+指定要查询出来商品的名称和价格就可以
+GET /ecommerce/_search
+{
+  "query": { "match_all": {} },
+  "_source": ["name", "price"]
+}
+
+query filter========>
+搜索商品名称包含yagao，而且售价大于25元的商品
+GET /ecommerce/_search
+{
+    "query" : {
+        "bool" : {
+            "must" : {
+                "match" : {
+                    "name" : "yagao" 
+                }
+            },
+            "filter" : {
+                "range" : {
+                    "price" : { "gt" : 25 } 
+                }
+            }
+        }
+    }
+}
+
+full-text search（全文检索）======>
+增加一条数据：
+PUT /ecommerce/_doc/4
+{
+  "name" : "special yagao",
+  "desc" : "special meibai",
+  "price" : 50,
+  "producer" : "special yagao producer",
+  "tags" : [
+	"meibai"
+  ]
+}
+
+phrase search（短语搜索）======>
+跟全文检索相对应，相反，全文检索会将输入的搜索串拆解开来，去倒排索引里面去一一匹配，只要能匹配上任意一个拆解后的单词，就可以作为结果返回
+phrase search，要求输入的搜索串，必须在指定的字段文本中，完全包含一模一样的，才可以算匹配，才能作为结果返回
+GET /ecommerce/_search
+{
+    "query" : {
+        "match_phrase" : {
+            "producer" : "yagao producer"
+        }
+    }
+}
+
+highlight search（高亮搜索结果）======>
+GET /ecommerce/_search
+{
+    "query" : {
+        "match" : {
+            "producer" : "producer"
+        }
+    },
+    "highlight": {
+        "fields" : {
+            "producer" : {}
+        }
+    }
+}
+###############################################搜索方式###############################################
+
+###############################################聚合下钻###############################################
+在聚合操作前必须将字段的倒排索引改为正排索引：
+PUT /ecommerce/_mapping
+{
+  "properties": {
+    "tags": {
+      "type": "text",
+      "fielddata": true
+    }
+  }
+}
+计算每个tag下的商品数量(size=0表示只返回聚合结果，不返回每条数据的具体信息)
+GET /ecommerce/_search
+{
+  "size": 0,
+  "aggs": {
+    "group_by_tags": {
+      "terms": {
+        "field": "tags"
+      }
+    }
+  }
+}
+对名称中包含yagao的商品，计算每个tag下的商品数量
+GET /ecommerce/_search
+{
+  "size": 0, 
+  "query": {
+    "match": {
+      "name": "yagao"
+    }
+  },
+  "aggs": {
+    "all_tags": {
+      "terms": {
+        "field": "tags"
+      }
+    }
+  }
+}
+先分组，再算每组的平均值，计算每个tag下的商品的平均价格
+GET /ecommerce/_search
+{
+    "size": 0,
+    "aggs" : {
+        "group_by_tags" : {
+            "terms" : { "field" : "tags" },
+            "aggs" : {
+                "avg_price" : {
+                    "avg" : { "field" : "price" }
+                }
+            }
+        }
+    }
+}
+计算每个tag下的商品的平均价格，并且按照平均价格降序排序
+GET /ecommerce/_search
+{
+    "size": 0,
+    "aggs" : {
+        "all_tags" : {
+            "terms" : { "field" : "tags", "order": { "avg_price": "desc" } },
+            "aggs" : {
+                "avg_price" : {
+                    "avg" : { "field" : "price" }
+                }
+            }
+        }
+    }
+}
+按照指定的价格范围区间进行分组，然后在每组内再按照tag进行分组，最后再计算每组的平均价格
+GET /ecommerce/_search
+{
+  "size": 0,
+  "aggs": {
+    "group_by_price": {
+      "range": {
+        "field": "price",
+        "ranges": [
+          {
+            "from": 0,
+            "to": 20
+          },
+          {
+            "from": 20,
+            "to": 40
+          },
+          {
+            "from": 40,
+            "to": 50
+          }
+        ]
+      },
+      "aggs": {
+        "group_by_tags": {
+          "terms": {
+            "field": "tags"
+          },
+          "aggs": {
+            "average_price": {
+              "avg": {
+                "field": "price"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+###############################################聚合下钻###############################################
+
+=======================================================基本操作=======================================================
 
 =======================================================mapping映射管理=======================================================
 1、映射(mapping)介绍

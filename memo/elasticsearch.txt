@@ -199,6 +199,14 @@ index会拆分多个shard，每个shard就会存放这个index的一份数据，
 2.数据分布在多个shard，多台服务器上，所有的操作都会在多台服务器上进行分布式执行，提升吞吐量和性能
 shard其实就是primary shard，一般称为shard
 replica其实就是replica shard，一般简称为replica
+（1）index包含多个shard
+（2）每个shard都是一个最小工作单元，承载部分数据，lucene实例，完整的建立索引和处理请求的能力
+（3）增减节点时，shard会自动在nodes中负载均衡
+（4）primary shard和replica shard，每个document肯定只存在于某一个primary shard以及其对应的replica shard中，不可能存在于多个primary shard
+（5）replica shard是primary shard的副本，负责容错，以及承担读请求负载
+（6）primary shard的数量在创建索引的时候就固定了，replica shard的数量可以随时修改
+（7）primary shard的默认数量是5，replica默认是1，默认有10个shard，5个primary shard，5个replica shard
+（8）primary shard不能和自己的replica shard放在同一个节点上（否则节点宕机，primary shard和副本都丢失，起不到容错的作用），但是可以和其他primary shard的replica shard放在同一个节点上
 在es中master节点不承载所有的请求，只负责管理es集群的元数据，所以es属于节点平等的分布式架构
 ############################节点平等的分布式架构############################
 （1）节点对等，每个节点都能接收所有的请求
@@ -287,6 +295,36 @@ curl -X PUT -H "Content-Type:application/json" server01:9200/_cluster/settings -
 }'
 ################################################ES集群Unassigned（脑裂现象）################################################
 
+document的核心元数据========>
+{
+  "_index" : "test_index",
+  "_type" : "_doc",
+  "_id" : "1",
+  "_version" : 1,
+  "_seq_no" : 0,
+  "_primary_term" : 1,
+  "found" : true,
+  "_source" : {
+    "test-key" : "test-val"
+  }
+}
+1、_index元数据
+（1）代表一个document存放在哪个index中
+（2）类似的数据放在一个索引，非类似的数据放不同索引：product index（包含了所有的商品），sales index（包含了所有的商品销售数据），inventory index（包含了所有库存相关的数据）。如果你把比如product，sales，human resource（employee），全都放在一个大的index里面，比如说company index，不合适的。
+（3）index中包含了很多类似的document：类似是什么意思，其实指的就是说，这些document的fields很大一部分是相同的，你说你放了3个document，每个document的fields都完全不一样，这就不是类似了，就不太适合放到一个index里面去了。
+（4）索引名称必须是小写的，不能用下划线开头，不能包含逗号：product，website，blog
+2、_type元数据
+（1）代表document属于index中的哪个类别（type）
+（2）一个索引通常会划分为多个type，逻辑上对index中有些许不同的几类数据进行分类：因为一批相同的数据，可能有很多相同的fields，但是还是可能会有一些轻微的不同，可能会有少数fields是不一样的，举个例子，就比如说，商品，可能划分为电子商品，生鲜商品，日化商品，等等。
+（3）type名称可以是大写或者小写，但是同时不能用下划线开头，不能包含逗号
+3、_id元数据
+（1）代表document的唯一标识，与index和type一起，可以唯一标识和定位一个document
+（2）我们可以手动指定document的id（put /index/type/id），也可以不指定，由es自动为我们创建一个id
+4、_source元数据
+_source元数据：就是说在创建一个document的时候，使用的那个放在request body中的json串，默认情况下，在get的时候，会原封不动的给我们返回回来。
+定制返回的结果，指定_source中，返回哪些field GET /test_index/test_type/1?_source=test_field1,test_field2
+5、_version元数据
+第一次创建一个document的时候，它的_version内部版本号就是1；以后，每次对这个document执行修改或者删除操作，都会对这个_version版本号自动加1；哪怕是删除，也会对这条数据的版本号加1，我们会发现，在删除一个document之后，可以从一个侧面证明，它不是立即物理删除掉的，因为它的一些版本号等信息还是保留着的。先删除一条document，再重新创建这条document，其实会在delete version基础之上，再把version号加1
 =======================================================基本概念=======================================================
 
 =======================================================基本操作=======================================================
@@ -571,18 +609,97 @@ GET /ecommerce/_search
 }
 ###############################################聚合下钻###############################################
 
+###############################################DocumentId###############################################
+一般来说，是从某些其他的系统中，导入一些数据到es时，会采取这种方式，就是使用系统中已有数据的唯一标识，作为es中document的id。举个例子，比如说，我们现在在开发一个电商网站，做搜索功能，或者是OA系统，做员工检索功能。这个时候，数据首先会在网站系统或者IT系统内部的数据库中，会先有一份，此时就肯定会有一个数据库的primary key（自增长，UUID，或者是业务编号）。如果将数据导入到es中，此时就比较适合采用数据在数据库中已有的primary key。
+如果说，我们是在做一个系统，这个系统主要的数据存储就是es一种，也就是说，数据产生出来以后，可能就没有id，直接就放es一个存储，那么这个时候，可能就不太适合说手动指定document id的形式了，因为你也不知道id应该是什么，此时可以采取下面要讲解的让es自动生成id的方式。
+1、手动指定document id
+POST /test_index/_doc/1?pretty
+{
+  "test-key":"test-val"
+}
+{
+  "_index" : "test_index",
+  "_type" : "_doc",
+  "_id" : "1",
+  "_version" : 1,
+  "result" : "created",
+  "_shards" : {
+    "total" : 2,
+    "successful" : 2,
+    "failed" : 0
+  },
+  "_seq_no" : 2,
+  "_primary_term" : 1
+}
+2、自动生成document id
+POST /test_index/_doc?pretty
+{
+  "test-key":"test-val"
+}
+{
+  "_index" : "test_index",
+  "_type" : "_doc",
+  "_id" : "VARAgnwB0oZrrWtReH5u",
+  "_version" : 1,
+  "result" : "created",
+  "_shards" : {
+    "total" : 2,
+    "successful" : 2,
+    "failed" : 0
+  },
+  "_seq_no" : 1,
+  "_primary_term" : 1
+}
+自动生成的id，采用GUID算法，长度为20个字符，URL安全，base64编码，GUID，分布式系统并行生成时不可能会发生冲突
+3、document的全量替换
+（1）语法与创建文档是一样的，如果document id不存在，那么就是创建；如果document id已经存在，那么就是全量替换操作，替换document的json串内容
+（2）document是不可变的，如果要修改document的内容，第一种方式就是全量替换，直接对document重新建立索引，替换里面所有的内容
+（3）es会将老的document标记为deleted，然后新增我们给定的一个document，当我们创建越来越多的document的时候，es会在适当的时机在后台自动删除标记为deleted的document
+4、document的强制创建
+（1）创建文档与全量替换的语法是一样的，有时我们只是想新建文档，不想替换文档，如果强制进行创建呢？
+（2）PUT /index/type/id?op_type=create，PUT /index/type/id/_create
+5、document的删除
+（1）DELETE /index/type/id
+（2）不会理解物理删除，只会将其标记为deleted，当数据越来越多的时候，在后台自动删除
+###############################################DocumentId###############################################
+
 =======================================================基本操作=======================================================
 
 =======================================================mapping映射管理=======================================================
-1、映射(mapping)介绍
-映射：创建索引的时候，可以预先定义字段的类型以及相关属性
-elasticsearch会根据json源数据的基础类型猜测你想要的字段映射，将输入的数据转换成可搜索的索引项，mapping就是我们自己定义的字段数据类型，同时告诉elasticsearch如何索引数据以及是否可以被搜索
-作用：会让索引建立的更加细致和完善
-类型：静态映射和动态映射
-2、内置映射类型(也就是数据类型)
+_all metadata的原理和作用========>
+GET /test_index/test_type/_search?q=test_field:test   //查找字段test_field的值中包含test的document
+GET /test_index/test_type/_search?q=+test_field:test  //查找字段test_field的值中包含test的document
+GET /test_index/test_type/_search?q=-test_field:test  //查找字段test_field的值中不包含test的document
+GET /test_index/test_type/_search?q=test              //直接可以搜索所有的field，任意一个field包含指定的关键字就可以搜索出来。
+真正在搜索的时候，不是对document中的每一个field都进行一次搜索的。es在插入一条document的时候，会自动将多个field的值，全部用字符串的方式串联起来，变成一个长的字符串，作为_all field的值，同时建立索引。
+后面如果在搜索的时候，没有对某个field指定搜索，就默认搜索_all field，其中是包含了所有field的值的（es7好像没有而这个元数据了）
+
+exact value========>
+2017-01-01，exact value，搜索的时候，必须输入2017-01-01，才能搜索出来；如果你输入一个01，是搜索不出来的
+
+full text========>
+（1）缩写 vs. 全程：cn vs. china
+（2）格式转化：like liked likes
+（3）大小写：Tom vs tom
+（4）同义词：like vs love
+2017-01-01，2017 01 01，搜索2017，或者01，都可以搜索出来
+china，搜索cn，也可以将china搜索出来
+likes，搜索like，也可以将likes搜索出来
+Tom，搜索tom，也可以将Tom搜索出来
+like，搜索love，同义词，也可以将like搜索出来
+就不是说单纯的只是匹配完整的一个值，而是可以对值进行拆分词语后（分词）进行匹配，也可以通过缩写、时态、大小写、同义词等进行匹配
+
+映射(mapping)介绍========>
+（1）往es里面直接插入数据，es会自动建立索引，同时建立type以及对应的mapping
+（2）mapping中就自动定义了每个field的数据类型
+（3）不同的数据类型（比如说text和date），可能有的是exact value，有的是full text
+（4）exact-value，在建立倒排索引的时候，分词的时候，是将整个值一起作为一个关键词建立到倒排索引中的；full-text，会经历各种各样的处理，分词，normaliztion（时态转换，同义词转换，大小写转换），才会建立到倒排索引中
+（5）同时呢，exact-value和full-text类型的field就决定了，在一个搜索过来的时候，对exact-value-field或者是full-text-field进行搜索的行为也是不一样的，会跟建立倒排索引的行为保持一致；比如说exact-value搜索的时候，就是直接按照整个值进行匹配，full-text-query-string，也会进行分词和normalization再去倒排索引中去搜索
+（6）可以用es的dynamic-mapping，让其自动建立mapping，包括自动设置数据类型；也可以提前手动创建index和type的mapping，自己对各个field进行设置，包括数据类型，包括索引行为，包括分词器，等等
+内置映射类型(也就是数据类型)
 string类型：text,keyword两种
-　　text类型：会进行分词，抽取词干，建立倒排索引
-　　keyword类型：就是一个普通字符串，只能完全匹配才能搜索到
+　　text类型：会进行分词，抽取词干，建立倒排索引（相当于full text）
+　　keyword类型：就是一个普通字符串，只能完全匹配才能搜索到（相当于exact value）
 数字类型：long,integer,short,byte,double,float
 日期类型：date
 bool(布尔)类型：boolean
@@ -590,6 +707,16 @@ binary(二进制)类型：binary
 复杂类型：object,nested
 geo(地区)类型：geo-point,geo-shape
 专业类型：ip,competion
+
+查看mapping结构========>
+GET /website/_mapping
+
+测试某索引中的某个字段的分词========>
+GET /website/_analyze
+{
+  "field": "title",
+  "text":"my first article"
+}
 =======================================================mapping映射管理=======================================================
 
 =======================================================正排、倒排索引=======================================================

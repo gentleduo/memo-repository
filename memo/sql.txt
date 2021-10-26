@@ -177,7 +177,7 @@ foreign key也有两个作用，一是约束作用（constraint），规范数�
 ##########################################################MySQL索引##########################################################
 磁盘IO与预读
 系统从磁盘读取数据到内存时是以磁盘块（block）为基本单位的，位于同一个磁盘块中的数据会被一次性读取出来，而不是需要什么取什么。InnoDB存储引擎中有页（Page）的概念，页是其磁盘管理的最小单位。InnoDB存储引擎中默认每个页的大小为16KB（oracle块大小默认8K），可通过参数innodb_page_size将页的大小设置为4K、8K、16K，
-在MySQL中可通过如下命令查看页的大小：mysql> show variables like 'innodb_page_size';
+在MySQL中可通过如下命令查看页的大小：mysql> show variables like 'innodb_page_size';show global status like 'innodb_page_size';
 而系统一个磁盘块的存储空间往往没有这么大，因此InnoDB每次申请磁盘空间时都会是若干地址连续磁盘块来达到页的大小16KB。InnoDB在把磁盘数据读入到磁盘时会以页为基本单位，在查询数据时如果一个页中的每条数据都能有助于定位数据记录的位置，这将会减少磁盘I/O次数，提高查询效率，而B-Tree结构的数据可以让系统高效的找到数据所在的磁盘块。
 先简单介绍一下磁盘IO和预读，磁盘读取数据靠的是机械运动，每次读取数据花费的时间可以分为寻道时间、旋转延迟、传输时间三个部分，寻道时间指的是磁臂移动到指定磁道所需要的时间，主流磁盘一般在5ms以下；旋转延迟就是我们经常听说的磁盘转速，比如一个磁盘7200转，表示每分钟能转7200次，也就是说1秒钟能转120次，旋转延迟就是1/120/2=4.17ms；传输时间指的是从磁盘读出或将数据写入磁盘的时间，一般在零点几毫秒，相对于前两个时间可以忽略不计。那么访问一次磁盘的时间，即一次磁盘IO的时间约等于5+4.17=9ms左右，听起来还挺不错的，但要知道一台500-MIPS（Million-Instructions-Per-Second）的机器每秒可以执行5亿条指令，因为指令依靠的是电的性质，换句话说执行一次IO的时间可以执行约450万条指令，数据库动辄十万百万乃至千万级数据，每次9毫秒的时间，显然是个灾难。考虑到磁盘IO是非常高昂的操作，计算机操作系统做了一些优化，当一次IO时，不光把当前磁盘地址的数据，而是把相邻的数据也都读取到内存缓冲区内，因为局部预读性原理告诉我们，当计算机访问一个地址的数据的时候，与其相邻的数据也会很快被访问到。每一次IO读取的数据我们称之为一页(page)。具体一页有多大数据跟操作系统有关，一般为4k或8k，也就是我们读取一页内的数据时候，实际上才发生了一次IO，这个理论对于索引的数据结构设计非常有帮助。
 索引的数据结构
@@ -255,97 +255,6 @@ InnoDB通过主键聚簇数据，如果没有定义主键，会选择一个唯�
 在InnoDb中，强制使用主键作为聚簇索引，B+Tree叶子节点存储就是主键数据，而二级索引的叶子节点存储的是主键的键值；
 在MyISAM中，主键索引与二级索引没什么区别，都是存储的数据行对应的地址。InnoDB的的二级索引的叶子节点存放的是KEY字段加主键值。因此，通过二级索引查询首先查到是主键值，然后InnoDB再根据查到的主键值通过主键索引找到相应的数据块。而MyISAM的二级索引叶子节点存放的还是列值与行号的组合，叶子节点中保存的是数据的物理地址。所以可以看出MYISAM的主键索引和二级索引没有任何区别，主键索引仅仅只是一个叫做PRIMARY的唯一、非空的索引，且MYISAM引擎中可以不设主键。
 
-回表查询
-由于InnoDB普通索引（非聚簇索引、二级索引）的叶子节点存储主键值、所以无法从普通索引直接定位行记录。（注意，不是存储行记录头指针，只有MyISAM的索引叶子节点才存储记录指针。）
-举个例子、不妨设有表：
-t(id PK, name KEY, sex, flag);
-其中id是聚集索引，name是普通索引。
-表中有四条记录：
-1, shenjian, m, A
-3, zhangsan, m, A
-5, lisi, m, A
-9, wangwu, f, B
-既然从普通索引无法直接定位行记录，那普通索引的查询过程是怎么样的呢？
-例如：
-select * from t where name='lisi';
-需要扫码两遍索引树：
-（1）先通过普通索引定位到主键值id=5；
-（2）在通过聚集索引定位到行记录；
-这就是所谓的回表查询，先定位主键值，再定位行记录，它的性能较扫一遍索引树更低。
-
-索引覆盖(Covering index)
-MySQL官网，在explain查询计划优化章节，即explain的输出结果Extra字段为Using index时，能够触发索引覆盖。类似的说法在SQL-Server官网也能找到。
-不管是SQL-Server官网，还是MySQL官网，都表达了：只需要在一棵索引树上就能获取SQL所需的所有列数据，无需回表，速度更快。
-例：
-+--------+---------------+------+-----+---------+----------------+
-| Field  | Type          | Null | Key | Default | Extra          |
-+--------+---------------+------+-----+---------+----------------+
-| id     | int(11)       | NO   | PRI | NULL    | auto_increment |
-| name   | varchar(20)   | YES  |     | NULL    |                |
-| dep_id | int(11)       | YES  | MUL | NULL    |                |
-| age    | int(11)       | YES  |     | NULL    |                |
-| salary | decimal(10,2) | YES  |     | NULL    |                |
-| cus_id | int(11)       | YES  |     | NULL    |                |
-+--------+---------------+------+-----+---------+----------------+
-
-第一个SQL语句：select id,dep_id from employee where dep_id = 1
-mysql> explain select id,dep_id from employee where dep_id = 1 ;
-+----+-------------+----------+------------+------+---------------+-----------+---------+-------+------+----------+-------------+
-| id | select_type | table    | partitions | type | possible_keys | key       | key_len | ref   | rows | filtered | Extra       |
-+----+-------------+----------+------------+------+---------------+-----------+---------+-------+------+----------+-------------+
-|  1 | SIMPLE      | employee | NULL       | ref  | idx_depid     | idx_depid | 5       | const |    3 |   100.00 | Using index |
-+----+-------------+----------+------------+------+---------------+-----------+---------+-------+------+----------+-------------+
-1 row in set, 1 warning (0.00 sec)
-能够命中dep_id索引，索引叶子节点存储了主键id，通过dep_id的索引树即可获取id和dep_id，无需回表，符合索引覆盖，效率较高。
-Extra：Using index
-
-第二个SQL语句：select id,dep_id,age from employee where dep_id = 1
-mysql> explain select id,dep_id,age from employee where dep_id = 1 ;
-+----+-------------+----------+------------+------+---------------+-----------+---------+-------+------+----------+-------+
-| id | select_type | table    | partitions | type | possible_keys | key       | key_len | ref   | rows | filtered | Extra |
-+----+-------------+----------+------------+------+---------------+-----------+---------+-------+------+----------+-------+
-|  1 | SIMPLE      | employee | NULL       | ref  | idx_depid     | idx_depid | 5       | const |    3 |   100.00 | NULL  |
-+----+-------------+----------+------------+------+---------------+-----------+---------+-------+------+----------+-------+
-1 row in set, 1 warning (0.00 sec)
-能够命中dep_id索引，索引叶子节点存储了主键id，但age字段必须回表查询才能获取到，不符合索引覆盖，需要再次通过id值扫码聚集索引获取age字段，效率会降低。
-Extra：Using NULL
-
-联合索引
-联合索引来说只不过比单值索引多了几列，而这些索引列全都出现在索引树上。对于联合索引，存储引擎会首先根据第一个索引列排序，如果第一列相等则再根据第二列排序，依次类推。
-例如：
-表T1：(a int primary key, b int, c int, d int, e varchar(20))
-create index idx_t1_bcd on t1(b,c,d):
-首先，表T1有字段a,b,c,d,e，其中a是主键，除e为varchar其余为int类型，并创建了一个联合索引idx_t1_bcd(b,c,d)，然后b、c、d三列作为联合索引，联合索引的所有索引列都出现在索引数上，并依次比较三列的大小。
-T1表的表数据如下：
-a	b 	c	d	d
-1	13	12	4	dll
-2	1	5	4	doc
-3	13	16	5	img
-4	12	14	3	xml
-5	1	1	4	txt
-6	13	16	1	exe
-7	5	3	6	pdf
-........
-
-bcd联合索引在B+树上的结构图：
-					1	56	90	
-					1			......
-					4			
-								
-		1	12	21				
-		1	14	1	......			
-		4	3					
-								
-1	1	5		12	13	13	13	
-1	5	3		14	12	16	16	
-4	4	6		3	4	1	5	
-5	2	7		4	1	6	3	
-对于联合索引，存储引擎会首先根据第一个索引列排序，如上图我们可以单看第一个索引列，横着看，如，1 1 5 12 13....他是单调递增的；如果第一列相等则再根据第二列排序，依次类推就构成了上图的索引树，上图中的b列都等于1时，则根据c排序，此时c列也相等则按d列排序，如：1 1 4 ，1 1 5，c=4在c=5前面，以及13 12 4,13 16 1,13 16 5就可以说明这种情况。`
-联合索引的查找方式
-当我们的SQL语言可以应用到索引的时候，比如 select * from T1 where b = 12 and c = 14 and d = 3; （b,c,d为联合索引）存储引擎首先从根节点（一般常驻内存）开始查找，第一个索引的第一个索引列为1,12大于1，第一个索引的第二个索引列为56,12小于56，于是从这俩索引的中间读到下一个节点的磁盘文件地址，从磁盘上Load这个节点，通常伴随一次磁盘IO，然后在内存里去查找。当Load叶子节点的第二个节点时又是一次磁盘IO，比较第一个元素，b=12,c=14,d=3完全符合，于是找到该索引下的data元素即ID值，再从主键索引树上找到最终数据。
-最左前缀匹配原则
-联合索引是首先使用多列索引的第一列构建的索引树，用上面idx_t1_bcd(b,c,d)的例子就是优先使用b列构建，当b列值相等时再以c列排序，若c列的值也相等则以d列排序。索引的第一列也就是b列可以说是从左到右单调递增的，但我们看c列和d列并没有这个特性，它们只能在b列值相等的情况下这个小范围内递增，由于联合索引是上述那样的索引构建方式及存储结构，所以联合索引只能从多列索引的第一列开始查找。所以如果你的查找条件不包含b列如（c,d）、(c）、(d)是无法应用缓存的，以及跨列也是无法完全用到索引如(b,d)，只会用到b列索引。
-
 创建索引
 create [UNIQUE] index 索引名称 ON 表名(字段(长度))
 查看索引
@@ -357,19 +266,15 @@ alter table tab_name add primary key(column_list)
 alter table tab_name add unque index_name(column_list)
 alter table tab_name add index index_name(column_list)
 alter table tab_name add fulltext index_name(column_list)
-
+建多列复合索引：
+create index idx_userid_order_id_createdate on test_order(user_id,order_id,create_date);
+create index idx_orderid_productname on test_orderdetail(order_id,product_name);
 ##########################################################MySQL索引##########################################################
 
 ######################################################mysql explain解析######################################################
 Explain
 使用explain关键字,可以模拟优化器执行的SQL语句，从而知道MYSQL是如何处理sql语句的，通过Explain可以分析查询语句或表结构的性能瓶颈
-作用：
-查看表的读取顺序
-数据读取操作的操作类型
-查看哪些索引可以使用
-查看哪些索引被实际使用
-查看表之间的引用
-查看每张表有多少行被优化器执行
+在explain命令后紧跟show warnings命令可以得到优化后的查询语句，从而看出优化器优化了什么。
 包含信息：
 1) id
 select查询的序列号、包含一组数字，表示查询中执行select子句或操作表的顺序
@@ -387,10 +292,11 @@ DERIVED：在from列表中包含的子查询被标记为derived(衍生)，把结
 UNION：若第二个select出现的union之后,则被标记为union，若union包含在from子句的子查询中,外层select将被标记为deriver
 UNION RESULT：从union表获取结果select，两个UNION合并的结果集在最后
 3) table
-显示这一行的数据是关于哪张表的
+显示这一行的数据是关于哪张表的。当from子句中有子查询时，table列是<derivenN>格式，表示当前查询依赖id=N的查询，于是先执行id=N的查询。当有union时，UNION RESULT的table列的值为<union1,2>，1和2表示参与union的select行id。
 4) partitions
 如果查询是基于分区表的话, 会显示查询访问的分区
-5) type(结果值最好到最差)
+5) type(结果值最好到最差，一般来说，得保证查询达到range级别，最好达到ref)
+null：mysql能够在优化阶段分解查询语句时便获取结果，在执行阶段用不着再访问表或索引。例如：在索引列中选取最小值，可以单独查找索引来完成，不需要在执行时访问表
 system：表中有一行记录(系统表)  这是const类型的特例,平时不会出现
 const：表示通过索引一次就找到了，const用于比较primary或者unique索引，直接查询主键或者唯一索引
 eq_ref：唯一性索引扫描，对于每个索引键,表中只有一条记录与之匹配，常见于主键或唯一索引扫描
@@ -401,178 +307,54 @@ ALL：将全表进行扫描,从硬盘当中读取数据，如果出现了All 切
 6) possible_keys
 显示可能应用在这张表中的索引,一个或者多个；查询涉及到的字段上若存在索引,则该索引将被列出,但不一定被查询实际使用；
 7) key
-实际使用的索引,如果为NULL,则没有使用索引；查询中若使用了覆盖索引 ,则该索引仅出现在key列表中；
-possible_keys与key的关系：理论应该用到哪些索引  实际用到了哪些索引
+实际使用的索引,如果为NULL,则没有使用索引；如果想强制mysql使用或忽视某个索引，在查询中使用force index、ignore index。例如：
+SELECT * FROM t_apply_info force index(ix_apply_info_phone) WHERE mobile_phone='13661850931' ORDER BY create_time desc limit 99000,10;
 8) key_len
 表示索引中使用的字节数,可通过该列计算查询中使用的索引长度(主要查看复合索引中有几个索引被用到)
+key_len计算规则如下：
+字符串，char(n)和varchar(n)，5.0.3以后版本中，n均代表字符数，而不是字节数，如果是utf-8，一个数字或字母占1个字节，一个汉字占3个字节
+char(n)：如果存汉字长度就是3n字节
+varchar(n)：如果存汉字则长度是3n + 2字节，加的2字节用来存储字符串长度，因为varchar是变长字符串
+数值类型
+tinyint：1字节
+smallint：2字节
+int：4字节
+bigint：8字节
+时间类型
+date：3字节
+timestamp：4字节
+datetime：8字节
+如果字段允许为NULL，需要1字节记录是否为NULL索引最大长度是768字节，当字符串过长时，mysql会做一个类似左前缀索引的处理，将前半部分的字符提取出来做索引。
 9) ref
 索引是否被引入到, 到底引用到了哪几个索引
 10) rows
 根据表统计信息及索引选用情况,大致估算出找到所需的记录所需要读取的行数，每张表有多少行被优化器查询过
 11) filtered
 满足查询的记录数量的比例，注意是百分比，不是具体记录数；值越大越好，filtered列的值依赖统计信息，并不十分准确
+是一个半分比的值，rows * filtered / 100可以估算出将要和explain中前一个表进行连接的行数（前一个表指explain中的id值比当前表id值小的表）。
 12) Extra
-Using filesort
-Using temporary
-use index
-using where
-using join buffer
-impossible where
-
-比如有如下两个表：
-mysql> desc employee;
-+--------+---------------+------+-----+---------+----------------+
-| Field  | Type          | Null | Key | Default | Extra          |
-+--------+---------------+------+-----+---------+----------------+
-| id     | int(11)       | NO   | PRI | NULL    | auto_increment |
-| name   | varchar(20)   | YES  |     | NULL    |                |
-| dep_id | int(11)       | YES  | MUL | NULL    |                |
-| age    | int(11)       | YES  |     | NULL    |                |
-| salary | decimal(10,2) | YES  |     | NULL    |                |
-| cus_id | int(11)       | YES  |     | NULL    |                |
-+--------+---------------+------+-----+---------+----------------+
-6 rows in set (0.00 sec)
-
-mysql> desc department;
-+----------+-------------+------+-----+---------+----------------+
-| Field    | Type        | Null | Key | Default | Extra          |
-+----------+-------------+------+-----+---------+----------------+
-| id       | int(11)     | NO   | PRI | NULL    | auto_increment |
-| deptName | varchar(30) | YES  |     | NULL    |                |
-| address  | varchar(40) | YES  |     | NULL    |                |
-+----------+-------------+------+-----+---------+----------------+
-3 rows in set (0.00 sec)
-
-检索语句：select e.dep_id from employee e, department d where e.dep_id = d.id的执行过程解析：
-第一条sql相当于执行：select id from department
-这是为了将department表中的id查询出来作为下一条sql查询的条件，由于id是主键，因此只要Full Index Scan即可
-第二条sql相当于执行：select dep_id from employee where dep_id = {ref:test_db.d.id}
-由于他是非唯一性索引扫描，并且条件是其他表的某个字段，所以他的type是ref，由于两条sql都只需要在一棵索引树上就能获取SQL所需的所有列数据，无需回表，所以Extra都是Using index
-mysql> explain select e.dep_id from employee e, department d where e.dep_id = d.id;
-+----+-------------+-------+------------+-------+---------------+-----------+---------+--------------+------+----------+-------------+
-| id | select_type | table | partitions | type  | possible_keys | key       | key_len | ref          | rows | filtered | Extra       |
-+----+-------------+-------+------------+-------+---------------+-----------+---------+--------------+------+----------+-------------+
-|  1 | SIMPLE      | d     | NULL       | index | PRIMARY       | PRIMARY   | 4       | NULL         |    5 |   100.00 | Using index |
-|  1 | SIMPLE      | e     | NULL       | ref   | idx_depid     | idx_depid | 5       | test_db.d.id |    2 |   100.00 | Using index |
-+----+-------------+-------+------------+-------+---------------+-----------+---------+--------------+------+----------+-------------+
-2 rows in set, 1 warning (0.00 sec)
-
-检索语句：select e.dep_id,d.address from employee e, department d where e.dep_id = d.id的执行过程解析：
-第一条sql相当于执行：select address, id from department
-由于这里面除了id外还有非索引字段address所以必须进行全表扫描(因为只有索引的数据结构才是有序的，可以利用B+Tree进行查找，而非索引字段的查询只能全表扫描从硬盘中一条一条将数据读取出来后和条件比对)
-第二条sql相当于执行：select dep_id from employee where dep_id = {ref:test_db.d.id}
-由于他是非唯一性索引扫描，并且条件是其他表的某个字段，所以他的type是ref，并且只需要在一棵索引树上就能获取SQL所需的所有列数据，无需回表，所以Extra是Using index
-mysql> explain select e.dep_id,d.address from employee e, department d where e.dep_id = d.id;
-+----+-------------+-------+------------+------+---------------+-----------+---------+--------------+------+----------+-------------+
-| id | select_type | table | partitions | type | possible_keys | key       | key_len | ref          | rows | filtered | Extra       |
-+----+-------------+-------+------------+------+---------------+-----------+---------+--------------+------+----------+-------------+
-|  1 | SIMPLE      | d     | NULL       | ALL  | PRIMARY       | NULL      | NULL    | NULL         |    5 |   100.00 | NULL        |
-|  1 | SIMPLE      | e     | NULL       | ref  | idx_depid     | idx_depid | 5       | test_db.d.id |    2 |   100.00 | Using index |
-+----+-------------+-------+------------+------+---------------+-----------+---------+--------------+------+----------+-------------+
-2 rows in set, 1 warning (0.00 sec)
-
-检索语句：select name from employee;
-没有命中任何索引，所需的列数据不是索引列，并且检索条件中也不包含索引，所以是全表扫描
-mysql> mysql> explain select name from employee;
-+----+-------------+----------+------------+------+---------------+------+---------+------+------+----------+-------+
-| id | select_type | table    | partitions | type | possible_keys | key  | key_len | ref  | rows | filtered | Extra |
-+----+-------------+----------+------------+------+---------------+------+---------+------+------+----------+-------+
-|  1 | SIMPLE      | employee | NULL       | ALL  | NULL          | NULL | NULL    | NULL |    8 |   100.00 | NULL  |
-+----+-------------+----------+------------+------+---------------+------+---------+------+------+----------+-------+
-1 row in set, 1 warning (0.00 sec)
-
-检索语句：select dep_id, name from employee where dep_id = 1;
-虽能够命中dep_id索引，但name字段必须回表查询才能获取到：先通过二级索引树获取叶子节点中存储的主键id，再通过主键id到聚集索引树上获取name。
-mysql> explain select dep_id, name from employee where dep_id = 1;
-+----+-------------+----------+------------+------+---------------+-----------+---------+-------+------+----------+-------+
-| id | select_type | table    | partitions | type | possible_keys | key       | key_len | ref   | rows | filtered | Extra |
-+----+-------------+----------+------------+------+---------------+-----------+---------+-------+------+----------+-------+
-|  1 | SIMPLE      | employee | NULL       | ref  | idx_depid     | idx_depid | 5       | const |    3 |   100.00 | NULL  |
-+----+-------------+----------+------------+------+---------------+-----------+---------+-------+------+----------+-------+
-1 row in set, 1 warning (0.00 sec)
-
-检索语句：select dep_id, id from employee where dep_id = 1;
-能够命中dep_id索引，索引叶子节点存储了主键id，通过dep_id的索引树即可获取dep_id和id，无需回表，符合索引覆盖，
-mysql> explain select dep_id, id from employee where dep_id = 1;
-+----+-------------+----------+------------+------+---------------+-----------+---------+-------+------+----------+-------------+
-| id | select_type | table    | partitions | type | possible_keys | key       | key_len | ref   | rows | filtered | Extra       |
-+----+-------------+----------+------------+------+---------------+-----------+---------+-------+------+----------+-------------+
-|  1 | SIMPLE      | employee | NULL       | ref  | idx_depid     | idx_depid | 5       | const |    3 |   100.00 | Using index |
-+----+-------------+----------+------------+------+---------------+-----------+---------+-------+------+----------+-------------+
-1 row in set, 1 warning (0.00 sec)
-
-explain select * from gap_lock_1 where year = '19';
-extra中的using index，using where，using index condition
-测试环境搭建
-　　测试表以及测试数据搭建，类似于订单表和订单明细表，暂时先用订单表做测试
-　　测试表结构
-create table test_order
-(
-    id int auto_increment primary key,
-    user_id int,
-    order_id int,
-    order_status tinyint,
-    create_date datetime
-);
-create table test_orderdetail
-(
-    id int auto_increment primary key,
-    order_id int,
-    product_name varchar(100),
-    cnt int,
-    create_date datetime
-);
-建多列复合索引：
-create index idx_userid_order_id_createdate on test_order(user_id,order_id,create_date);
-create index idx_orderid_productname on test_orderdetail(order_id,product_name);
-
-Using index 
-1，查询的列被索引覆盖，并且where筛选条件是索引的是前导列，Extra中为Using index
-explain select user_id,order_id,create_date from test_order where user_id = 1;
-
-Using where; Using index
-直接在二级索引(覆盖索引)上获取全部数据（即type为index的Full Index Scan）
-1，查询的列被索引覆盖，并且where筛选条件是索引列之一但是不是索引的不是前导列，Extra中为Using where; Using index，
-	意味着无法直接通过索引查找来查询到符合条件的数据
-explain select user_id,order_id,create_date from test_order where order_id = 1;
-2，查询的列被索引覆盖，并且where筛选条件是索引列前导列的一个范围，同样意味着无法直接通过索引查找查询到符合条件的数据
-explain select user_id,order_id,create_date from test_order where user_id > 1 and user_id < 5;
-
-NULL（既没有Using index，也没有Using where Using index，也没有using where）
-1，查询的列未被索引覆盖，并且where筛选条件是索引的前导列，
-	意味着用到了索引，但是部分字段未被索引覆盖，必须通过“回表”来实现，不是纯粹地用到了索引，也不是完全没用到索引，Extra中为NULL(没有信息)
-explain select user_id,order_id,create_date,order_status from test_order where user_id = 1;
-
-Using where
-没有用到索引，直接在主键索引上过滤数据（全表扫描），必带where子句
-1，查询的列未被索引覆盖，where筛选条件非索引的前导列，Extra中为Using where
-explain select user_id,order_id,create_date,order_status from test_order where order_id = 100;
-2，查询的列未被索引覆盖，where筛选条件非索引列，Extra中为Using where
-explain select user_id,order_id,create_date,order_status from test_order where order_status = 1;
-
-Using index condition
-1，查询的列不全在索引中，where条件中是一个前导列的范围
-explain select user_id,order_id,create_date,order_status from test_order where user_id > 1 and user_id < 5;
-2，查询列不完全被索引覆盖，查询条件完全可以使用到索引（进行索引查找）
-explain select order_id,product_name,cnt from test_orderdetail where order_id = 10900 and product_name like '%662eba6d%';
-using index conditoin 意味着查询列的某一部分无法直接使用索引
-上述case1中，
-　　如果禁用ICP（set optimizer_switch='index_condition_pushdown=off'），
-　　执行计划是using where，意味着全表扫描，如果启用ICP，执行计划为using index Condition，意味着在筛选的过程中实现过滤
-上述case2中
-　　第二个查询条件无法直接使用索引，隐含了一个查找+筛选的过程。
-　　两个case的共同点就是无法直接使用索引。
-
-结论：
-1,Extra中的为Using index的情况
-where筛选列是索引的前导列 &&查询列被索引覆盖 && where筛选条件是一个基于索引前导列的查询，意味着通过索引超找就能直接找到符合条件的数据，并且无须回表
-2,Extra中的为空的情况
-查询列存在未被索引覆盖&&where筛选列是索引的前导列，意味着通过索引超找并且通过“回表”来找到未被索引覆盖的字段，
-3,Extra中的为Using where Using index： 
-出现Using where Using index意味着是通过索引扫描（或者表扫描）来实现sql语句执行的，即便是索引前导列的索引范围查找也有一点范围扫描的动作，不管是前非索引前导列引起的，还是非索引列查询引起的。
+Using index：使用覆盖索引，如果select后面查询的字段都可以从这个索引的树中获取，这种情况一般可以说是用到了覆盖索引，extra里一般都有using index；覆盖索引一般针对的是辅助索引，整个查询结果只通过辅助索引就能拿到结果，不需要通过辅助索引树找到主键，再通过主键去主键索引树里获取其它字段值
+Using where：使用 where 语句来处理结果，并且查询的列未被索引覆盖（全表扫描）
+Using index condition：查询的列不完全被索引覆盖，where条件中是一个前导列的范围；
+Using temporary：mysql需要创建一张临时表来处理查询。出现这种情况一般是要进行优化的，首先是想到用索引来优化。
+Using filesort：将用外部排序而不是索引排序，数据较小时从内存排序，否则需要在磁盘完成排序。这种情况下一般也是要考虑使用索引来优化的。
+Select tables optimized away：使用某些聚合函数（比如 max、min）来访问存在索引的某个字段。（mysql能够在优化阶段分解查询语句时便获取结果）
 ######################################################mysql explain解析######################################################
 
-############################################################索引失效############################################################
+############################################################索引最佳实践############################################################
+1.全值匹配
+2.最左前缀法则：如果索引了多列，要遵守最左前缀法则。指的是查询从索引的最左前列开始并且不跳过索引中的列。
+3.不在索引列上做任何操作（计算、函数、（自动or手动）类型转换），会导致索引失效而转向全表扫描
+4.复合索引不能使用索引范围条件右边的列
+5.尽量使用覆盖索引（只访问索引的查询（索引列包含查询列）），减少 select * 语句
+6.mysql在使用不等于（！=或者<>），not in ，not exists 的时候无法使用索引会导致全表扫描，
+< 、>、<=、>=这些，mysql内部优化器会根据检索比例、表大小等多个因素整体评估是否使用索引
+7.is null,is not null 一般情况下也无法使用索引
+8.like以通配符开头（'$abc...'）mysql索引失效会变成全表扫描操作
+9.字符串不加单引号索引失效
+10.少用or或in，用它查询时，mysql不一定使用索引，mysql内部优化器会根据检索比例、表大小等多个因素整体评估是否使用索引
+############################################################索引最佳实践############################################################
+
 最佳左前缀法则
 组合索引,要遵守最左前缀法则,指的就是从索引的最左列开始 并且不跳过索引中的列
 跳过第一个,索引失效
@@ -936,553 +718,6 @@ for select * from employee e:
 EXISTS子查询只返回TRUE或FALSE，因此子查询中的SELECT *可以是SELECT 1或者其他
 ######################################################in与exists######################################################
 
-####################################################MySQL的四种事务隔离级别####################################################
-一、事务的基本要素（ACID）
-1、原子性（Atomicity）：事务开始后所有操作，要么全部做完，要么全部不做，不可能停滞在中间环节。事务执行过程中出错，会回滚到事务开始前的状态，所有的操作就像没有发生一样。也就是说事务是一个不可分割的整体，就像化学中学过的原子，是物质构成的基本单位。
-2、一致性（Consistency）：事务开始前和结束后，数据库的完整性约束没有被破坏 。比如A向B转账，不可能A扣了钱，B却没收到。
-3、隔离性（Isolation）：同一时间，只允许一个事务请求同一数据，不同的事务之间彼此没有任何干扰。比如A正在从一张银行卡中取钱，在A取钱的过程结束前，B不能向这张卡转账。
-4、持久性（Durability）：事务完成后，事务对数据库的所有更新将被保存到数据库，不能回滚。
-二、事务的并发问题
-1、脏读：事务A读取了事务B更新的数据，然后B回滚操作，那么A读取到的数据是脏数据
-2、不可重复读：事务 A 多次读取同一数据，事务 B 在事务A多次读取的过程中，对数据作了更新并提交，导致事务A多次读取同一数据时，结果 不一致。
-3、幻读：系统管理员A将数据库中所有学生的成绩从具体分数改为ABCDE等级，但是系统管理员B就在这个时候插入了一条具体分数的记录，当系统管理员A改结束后发现还有一条记录没有改过来，就好像发生了幻觉一样，这就叫幻读。
-小结：不可重复读的和幻读很容易混淆，不可重复读侧重于修改，幻读侧重于新增或删除。解决不可重复读的问题只需锁住满足条件的行，解决幻读需要锁表
-三、MySQL事务隔离级别
-事务隔离级别 	                脏读 	不可重复读 	幻读
-读未提交（read-uncommitted） 	是 	    是 	        是
-不可重复读（read-committed） 	否 	    是 	        是
-可重复读（repeatable-read） 	否 	    否 	        是
-串行化（serializable） 	        否 	    否 	        否
-mysql默认的事务隔离级别为repeatable-read
-关于幻读的理解：
-幻读，并不是说两次读取获取的结果集不同，幻读侧重的方面是某一次的select操作得到的结果所表征的数据状态无法支撑后续的业务操作。更为具体一些：select 某记录是否存在，不存在，准备插入此记录，但执行insert时发现此记录已存在，无法插入，此时就发生了幻读。
-例：
-step1 T1: SELECT * FROM `users` WHERE `id` = 1;
-step2 T2: INSERT INTO `users` VALUES (1, 'big cat');
-step3 T1: INSERT INTO `users` VALUES (1, 'big cat');
-step4 T1: SELECT * FROM `users` WHERE `id` = 1;
-T1：主事务，检测表中是否有id为1的记录，没有则插入，这是我们期望的正常业务逻辑。
-T2：干扰事务，目的在于扰乱T1的正常的事务执行。
-在RR隔离级别下，step1、step2是会正常执行的，step3则会报错主键冲突，对于T1的业务来说是执行失败的，这里T1就是发生了幻读，因为T1在step1中读取的数据状态并不能支撑后续的业务操作，T1：“见鬼了，我刚才读到的结果应该可以支持我这样操作才对啊，为什么现在不可以”。T1不敢相信的又执行了step4，发现和setp1读取的结果是一样的（RR下的MMVC机制）。此时，幻读无疑已经发生，T1无论读取多少次，都查不到id=1的记录，但它的确无法插入这条他通过读取来认定不存在的记录（此数据已被T2插入），对于T1来说，它幻读了。
-其实RR也是可以避免幻读的，通过对select操作手动加行X锁（SELECT ... FOR UPDATE这也正是SERIALIZABLE 隔离级别下会隐式为你做的事情），同时还需要知道，即便当前记录不存在，比如id = 1 是不存在的，当前事务也会获得一把记录锁（因为InnoDB的行锁锁定的是索引，故记录实体存在与否没关系，存在就加行X锁，不存在就加next-key lock间隙X锁），其他事务则无法插入此索引的记录，故杜绝了幻读。
-在SERIALIZABLE隔离级别下，step1执行时是会隐式的添加行(X)锁/gap(X)锁的，从而step2会被阻塞，step3会正常执行，待T1提交后，T2 才能继续执行（主键冲突执行失败），对于T1来说业务是正确的，成功的阻塞扼杀了扰乱业务的T2，对于T1来说他前期读取的结果是可以支撑其后续业务的。
-所以mysql的幻读并非什么读取两次返回结果集不同，而是事务在插入事先检测不存在的记录时，惊奇的发现这些数据已经存在了，之前的检测读获取到的数据如同鬼影一般。
-这里要灵活的理解读取的意思，第一次select是读取，第二次的insert其实也属于隐式的读取，只不过是在mysql的机制中读取的，插入数据也是要先读取一下有没有主键冲突才能决定是否执行插入。
-不可重复读侧重表达 读-读，幻读则是说 读-写，用写来证实读的是鬼影。
-
-补充：
-1、事务隔离级别为读未提交或读提交时，写数据只会锁住相应的行
-select @@tx_isolation;
-set @@session.tx_isolation = 'read-uncommitted';
-set @@session.tx_isolation = 'read-committed';
-start transaction;
-commit;
-2、事务隔离级别为可重复读时，如果检索条件有索引（包括主键索引）的时候，默认加锁方式是next-key 锁；如果检索条件没有索引，更新数据时会锁住整张表。一个间隙被事务加了锁，其他事务是不能在这个间隙插入记录的，这样可以防止幻读。
-select @@tx_isolation;
-set @@session.tx_isolation = 'repeatable-read';
-start transaction;
-commit;
-3、事务隔离级别为串行化时，读写数据都会锁住整张表
-4、隔离级别越高，越能保证数据的完整性和一致性，但是对并发性能的影响也越大。
-5、MYSQL MVCC实现机制参考链接：
-https://blog.csdn.net/SnailMann/article/details/94724197
-https://blog.csdn.net/whoamiyang/article/details/51901888
-6、关于next-key 锁可以参考链接：
-https://blog.csdn.net/bigtree_3721/article/details/73731377
-https://www.jianshu.com/p/0f3d45c645ac
-####################################################MySQL的四种事务隔离级别####################################################
-
-#########################################################MySQL锁机制#########################################################
-共享锁（S锁）：也叫读锁，就是多个事务对同一数据可以共享同一把锁，都能访问到数据，但是只能读，不可修改。
-排他锁（X锁）：也叫写锁，就是一个事务获取了一条数据的排他锁后，其他事务就获取不到了，并且获取了排他锁的这个事务能对他就行读写修改操作。
-（以上说的是行级的）
-注意：mysql InnoDB引擎默认的修改数据语句，update,delete,insert都会自动给涉及到的数据加上排他锁，select语句默认不会加任何锁类型，如果加排他锁可以使用select ...for update语句，加共享锁可以使用select ... lock in share mode语句。所以加过排他锁的数据行在其他事务种是不能修改数据的，也不能通过for update和lock in share mode锁的方式查询数据，但可以直接通过select ...from...查询数据，因为普通查询没有任何锁机制。
-MySql中锁与索引的关系
-MyISAM 操作数据都是使用表级锁，MyISAM总是一次性获得所需的全部锁，要么全部满足，要么全部等待。所以不会产生死锁，但是由于每操作一条记录就要锁定整个表，导致性能较低，并发不高。
-InnoDB 与 MyISAM 的最大不同有两点：一是 InnoDB 支持事务；二是 InnoDB 采用了行级锁。也就是你需要修改哪行，就可以只锁定哪行。
-在Mysql中，行级锁并不是直接锁记录，而是锁索引。InnoDB行锁是通过给索引项加锁实现的，索引分为主键索引和非主键索引两种，如果一条sql语句操作了主键索引，Mysql 就会锁定这条主键索引；如果一条语句操作了非主键索引，MySQL会先锁定该非主键索引，再锁定相关的主键索引。如果没有索引，InnoDB 会通过隐藏的聚簇索引来对记录加锁。也就是说：如果不通过索引条件检索数据，那么InnoDB将对表中所有数据加锁，实际效果跟表级锁一样。
-
-间隙锁（Gap Lock）是Innodb在可重复读提交下为了解决幻读问题时引入的锁机制，锁和间隙锁共同组成的（next-key lock）。
-在可重复读的事务级别下面，普通的select读的是快照，不存在幻读情况，但是如果加上for update的话，读取是已提交事务数据，gap锁保证for update情况下，不出现幻读。
-间隙锁的范围(x, y)，搭配上行锁就会变成(x, y]，这也叫next-key lock
-案例数据
-id(主键) 	c（普通索引） 	d（无索引）
-5 	        5 	            5
-10          10 	            10
-15 	        15 	            15
-20 	        20 	            20
-25 	        25 	            25
-CREATE TABLE `t`  (
- id bigint(20) NOT NULL,
- c int(11) NOT NULL,
- d int(11) NOT NULL,
- PRIMARY KEY (id) USING BTREE,
- INDEX idx_number(c) USING BTREE
-);
-start transaction;
-delete from t;
-insert into t values(5,5,5);
-insert into t values(10,10,10);
-insert into t values(15,15,15);
-insert into t values(20,20,20);
-insert into t values(25,25,25);
-commit;
-案例一：间隙锁死锁问题
-步骤 	事务A 	                                    事务B
-1 	    start transaction;
-        select * from t where id = 9 for update; 	-
-2 	    - 	                                        start transaction;
-                                                    select * from t where id = 6 for update;
-3 	    - 	                                        insert into t values(7,7,7);
-                                                    blocked
-4 	    insert into t values(7,7,7);
-        blocked                                     -
-不同于写锁相互之间是互斥的原则，间隙锁之间不是互斥的，如果一个事务A获取到了（5,10）之间的间隙锁，另一个事务B也可以获取到（5,10）之间的间隙锁。这时就可能会发生死锁问题，如下案例：
-事务A获取到（5,10）之间的间隙锁不允许其他的DDL操作，在事务提交，间隙锁释放之前，事务B也获取到了间隙锁（5,10），这时两个事务就处于死锁状态
-案例二： 等值查询（值不存在）—唯一索引
-步骤 	事务A 	                            事务B                              事务C
-1 	    start transaction;
-        update t set d=d+1 where id=7;      - 	                               -
-2 	    - 	                                insert into t values(8,8,8);
-                                            blocked  	                       -
-3 	    - 	                                - 	                               update t set d = d+ 1 where id = 10;
-加锁的范围是（5,10）的Gap Locks
-insert：无法将id为（5,10）的数据插入到表中
-update：无法将数据库中存在的数据的字段id变更成：（5,10）；如更新的数据在库中不存在则不会被锁
-delete：不会加锁
-案例三： 等值查询（值存在）—唯一索引
-步骤 	事务A 	                            事务B                              事务C
-1 	    start transaction;
-        update t set d=d+1 where id=10;     - 	                               -
-2 	    - 	                                insert into t values(6,6,6);
-                                            insert into t values(11,11,11);    -
-3 	    - 	                                - 	                               update t set d = d+ 1 where id = 10;
-加锁的范围是id=10的Record Locks
-insert：无法将id=10的数据插入到表中
-update：无法将数据库中存在的数据的字段id变更成：10（会被锁住）；如更新的数据在库中不存在则不会被锁
-delete：无法删除条件中包含id=10的数据
-案例四： 等值查询（值不存在）—普通索引
-步骤 	事务A 	                            事务B                              事务C
-1 	    start transaction;
-        update t set d=d+1 where c=7;       - 	                               -
-2 	    - 	                                insert into t values(8,8,8);
-                                            blocked  	                       -
-3 	    - 	                                - 	                               update t set d = d+ 1 where c = 10;
-加锁的范围是（5,10）的Gap Locks
-insert：无法将c为（5,10）的数据插入到表中
-update：无法将数据库中存在的数据的字段c变更成：（5,10）会被锁住；如更新的数据在库中不存在则不会被锁
-delete：不会加锁
-此时要注意的一点是普通索引会和聚簇索引组成了联合索引（联合索引会影响gap的范围），如：
-执行
-select * from t where c = 15 for update; 
-则：
-insert into t values(11,10,11);#阻塞   
-insert into t values(9,10,9);#非阻塞
-联合索引优先按照c列进行排序，如果c列相同，则按照id排序，因此(9,10)不在(10,10)到(15,15)的间隙中，而(11,10)在(10,10)到(15,15)的间隙中
-案例五： 等值查询（值存在）—普通索引
-步骤 	事务A 	                                      事务B                                   事务C
-1 	    start transaction;
-        select id from t where c = 5 for update;      - 	                                  -
-2 	    - 	                                          update t set d = d + 1 where id = 5;    -
-3 	    - 	                                          - 	                                  insert into values (7,7,7);
-                                                                                              blocked
-加锁的范围是（-∞，5）、（5,10）的Gap Locks和c=5的Record Locks组成的Next-Key Locks
-insert：无法将c为（-∞，5）、（5,10）的数据或者c=5的数据插入到表中
-update：无法将数据库中存在的数据的字段c变更成：5、（-∞，5）、（5,10）会被锁住；如更新的数据在库中不存在则不会被锁
-delete：无法删除条件中包含c=5的数据
-注意：
-如果在事务A中执行select id from t where c = 5 lock in share mode;
-因为加锁是对普通索引加锁，而且因为索引覆盖（检索结果中需要的字段在普通索引中就存在无需回表），因而没有对主键进行加锁，所以事务B执行正常
-lock in share mode如果检索结果中的字段可以通过覆盖索引取得无需回表的话就不会对主键索引加锁，for update则会将主键索引一同锁住。
-说明，lock in share mode中如果条件中包含普通索引，select结果中包含主键或普通索引，那仅仅锁住的是普通索引，可以对这一行中的其他字段进行修改。
-lock in share mode中如果select中包含其他字段，则需要回表检索，因此会对主键索引加锁，那就整个行都被锁住其他字段都不能修改，
-案例六： 范围查询—唯一索引
-步骤 	事务A 	                                                   事务B                                   事务C
-1 	    start transaction;
-        select * from t where id >= 10 and id <11 for update;      - 	                                   -
-2 	    - 	                                                       insert into values(8,8,8); /成功        -
-                                                                   insert into values(13,13,13); /阻塞 
-3 	    - 	                                                       - 	                                   update t set d = d+ 1 where id = 15;
-                                                                                                           blocked
-加锁的范围是[10,15]的Next-Key Locks
-如果where条件的范围为:id >= 7 and id <11则锁定的范围是：(5,10]和(10,15]
-注：索引上的范围查询会访问到不满足条件的第一个值为止
-案例七： 范围查询—普通索引
-步骤 	事务A 	                                                   事务B                                   事务C
-1 	    start transaction;
-        select * from t where c >= 10 and c <11 for update;      - 	                                   -
-2 	    - 	                                                       insert into values(8,8,8); /阻塞        -
-                                                                   insert into values(13,13,13); /阻塞 
-3 	    - 	                                                       - 	                                   update t set d = d+ 1 where id = 15;
-                                                                                                           blocked
-加锁的范围是（5,10]，（10，15]
-
-Next-Key Locks
-Next-Key Locks是在存储引擎innodb、事务级别在可重复读的情况下使用的数据库锁，官网上有介绍，Next-Key Locks是行锁和gap锁的组合。行锁是什么我们都很清楚，这篇文章主要简单分析一下mysql中的gap锁是什么。innodb默认的锁就是Next-Key locks。
-GAP锁
-gap锁，又称为间隙锁。存在的主要目的就是为了防止在可重复读的事务级别下，出现幻读问题。
-在可重复读的事务级别下面，普通的select读的是快照，不存在幻读情况，但是如果加上for update的话，读取是已提交事务数据，gap锁保证for update情况下，不出现幻读。
-那么gap锁到底是如何加锁的呢？
-假如是for update级别操作，先看看几条总结的何时加锁的规则。
-唯一索引
-精确等值检索，Next-Key Locks就退化为记录锁，不会加gap锁
-范围检索，会锁住where条件中相应的范围，范围中的记录以及间隙，换言之就是加上记录锁和gap 锁（至于区间是多大稍后讨论）。
-不走索引检索，全表间隙加gap锁、全表记录加记录锁
-非唯一索引
-精确等值检索，Next-Key Locks会对间隙加gap锁（至于区间是多大稍后讨论），以及对应检索到的记录加记录锁。
-范围检索，会锁住where条件中相应的范围，范围中的记录以及间隙，换言之就是加上记录锁和gap 锁（至于区间是多大稍后讨论）。
-非索引检索，全表间隙gap lock，全表记录record lock
-
-gap锁演示例子
-假如有以下一张表结构，主键简单点是字符，属性列只有一个数字，是非唯一索引。
-create table gap_table
-(
-  letter varchar(2) default '' not null primary key,
-  num int not null
-);
-
-create index gap_table_num_uindex  on gap_table (num);
-  
-INSERT INTO gap_table (letter, num) VALUES ('d', 3);
-INSERT INTO gap_table (letter, num) VALUES ('g', 6);
-INSERT INTO gap_table (letter, num) VALUES ('j', 8);
-
-无gap锁
-假如没有gap锁，也就是把事务级别调到读提交,执行以下两个session
-session1	                                                                 session2
-select * from gap_table where num=6 for update，结果是一条	 
- 	                                                                         INSERT INTO gap_table (letter, num) VALUES (’’, 6);
-select * from gap_table where num=6 for update，结果是二条，出现幻读
-
-非唯一索引等值检索gap锁（事务隔离级别为可重复读）
-假如有gap锁，演示一个非唯一索引等值检索gap锁。也就是把事务级别调到可重复读,执行以下两个session 
-session1	                                                                 session2
-select * from gap_table where num=6 for update，结果是一条。	 
- 	                                                                         INSERT INTO gap_table (letter, num) VALUES (’’, 6);gap锁住间隙，阻塞无法插入数据。
-select * from gap_table where num=6 for update，结果是一条。不出现幻读	
-
-唯一索引（主键）范围检索gap锁（事务隔离级别为可重复读）
-假如有gap锁，演示一个唯一索引范围检索gap锁。也就是把事务级别调到可重复读,执行以下两个session
-session1	                                                                 session2
-select * from gap_table where letter>‘d’ for update，结果是两条。	 
- 	                                                                         INSERT INTO gap_table (letter, num) VALUES (‘z’, 10);gap锁住间隙，阻塞无法插入数据。
-select * from gap_table where letter>‘d’ for update，结果是两条。不出现幻读	
-
-gap锁是如何锁区间？
-经过上面的演示可以知道gap锁的基本作用就是保证可重复读的情况下不出现幻读。那么还有一点就是gap是按照什么原则进行锁的呢？要了解gap锁的原则，需要先了解innodb中索引树的结构。innodb中索引树的结构分为主索引树和辅助索引树，辅助索引树的叶子节点中包含了主键数据，主键数据影响着叶子节点的排序，gap锁的关键就是锁住索引树的叶子节点之间的间隙，不让新的记录插入到间隙之中。
-
-非唯一索引gap锁原则分析
-情况1
-分别有两个session，session1执行以下语句:
-select * from gap_table where num=6 for update
-session2执行以下sql，执行成功：
-INSERT INTO gap_table (letter, num) VALUES ('a', 3);
-按照排序规则,叶子节点插入结构如下
-           3
-		   a
-		  |
-          |
-          |
-          ∨		  
-非唯一索引 3 6 8
-主键       d g j
-情况2
-分别有两个session，session1执行以下语句:
-select * from gap_table where num=6 for update
-session2执行以下sql，执行失败：
-INSERT INTO gap_table (letter, num) VALUES ('e', 3);
-按照排序规则，叶子节点应该插入如下地方，但是因为区间被锁插入失败。
-            3
-		    e
-		    |
-            |
-            |
-            ∨		  
-非唯一索引 3 6 8
-主键       d g j
-情况3
-分别有两个session，session1执行以下语句:
-select * from gap_table where num=6 for update
-session2执行以下sql，执行失败：
-INSERT INTO gap_table (letter, num) VALUES ('h', 6);
-按照排序规则，叶子节点应该插入如下地方，但是因为区间被锁插入失败。
-              6
-		      h
-		      |
-              |
-              |
-              ∨		  
-非唯一索引 3 6 8
-主键       d g j
-情况4
-分别有两个session，session1执行以下语句:
-select * from gap_table where num=6 for update
-session2执行以下sql，执行失败：
-INSERT INTO gap_table (letter, num) VALUES ('h', 7);
-按照排序规则，叶子节点应该插入如下地方，但是因为区间被锁插入失败。
-              7
-		      h
-		      |
-              |
-              |
-              ∨		  
-非唯一索引 3 6 8
-主键       d g j
-情况5
-分别有两个session，session1执行以下语句:
-select * from gap_table where num=6 for update
-session2执行以下sql，执行成功：
-INSERT INTO gap_table (letter, num) VALUES ('h', 9);
-按照排序规则,插入在未锁区间就能插入成功。
-                9
-		        h
-		        |
-                |
-                |
-                ∨		  
-非唯一索引 3 6 8
-主键       d g j
-总结
-当session1执行以下语句:
-select * from gap_table where num=6 for update
-锁住的区间如图所示。按照B+索引树排序规则，计算好叶子节点插入位置时，在被gap锁住的区间段内，不能插入任何数据，只有在gap锁释放时才能进行插入。
-             |    |
-		     |LOCK|
-		     |    |
-             |    |
-             |    |
-             ∨    ∨		  
-非唯一索引 3   6   8
-主键       d   g   j
-在上面的各种情况中锁住的区间其实是（3，d）到（6，g）和（6，g）到（8，j），落到这个区间段的叶子节点都是无法插入的。主键也作为一个信息参与到叶子节点的排序规则中。这里面边界都是开区间，插入（3，d），（8，j）的数据会报错主键重复而不是lock等待超时。
-
-唯一索引或者非唯一索引范围检索gap锁原则分析
-另一种会出现gap锁的情况就是使用索引时，用到范围检索，就会出现gap 锁。
-使用以下表结构。
-create table gap_tbz
-(
-  id   int default 0 not null
-    primary key,
-  name varchar(11) not null
-);
-
-INSERT INTO test.gap_tbz (id, name) VALUES (1, 'a');
-INSERT INTO test.gap_tbz (id, name) VALUES (5, 'h');
-INSERT INTO test.gap_tbz (id, name) VALUES (8, 'm');
-INSERT INTO test.gap_tbz (id, name) VALUES (11, 'ds');
-情况1
-分别有两个session，session1执行以下语句:
-select * from gap_tbz where id > 5 for update;
-session2执行以下sql，执行失败：
-insert into gap_tbz values(6,'cc');
-按照排序规则,这里应该是在主键索引树检索，叶子节点插入结构如下。由于session1执行了范围的for update sql语句，因此范围内添加了gap锁，gap锁的区间是id在（5，+无限）
-          6
-		  cc
-		  |
-          |
-          |
-          ∨		  
-主键   1 5 8 11
-       a h m ds
-当执行插入的id范围在5之前，如下sql,能够执行成功。
-insert into gap_tbz values(4,'cc');
-情况2
-分别有两个session，session1执行以下语句:
-select * from gap_tbz where id > 5 and id < 11 for update;
-session2执行以下sql，执行失败：
-#以下报错 lock等待超时
-insert into gap_tbz values(11,'cc');
-#以下报错 主键重复
-insert into gap_tbz values(5,'cc');
-#从两种报错来看也可以看出gap锁区间是左开右闭
-按照排序规则,这里应该是在主键索引树检索，由于session1执行了范围的for update sql语句，因此范围内添加了gap锁，gap锁的区间是id在（5，11]，唯一索引gap锁区间是左开右闭。
-#########################################################MySQL锁机制#########################################################
-
-##########################################################MySQL日志###########################################################
-MySQL中有六种日志文件，
-分别是：重做日志（redo log）、回滚日志（undo log）、二进制日志（binlog）、错误日志（errorlog）、慢查询日志（slow query log）、一般查询日志（general log），中继日志（relay log）。
-其中重做日志和回滚日志与事务操作息息相关，二进制日志也与事务操作有一定的关系，这三种日志，对理解MySQL中的事务操作有着重要的意义。
-这里简单总结一下这三者具有一定相关性的日志。
-
-重做日志（redo log）
-
-作用：
-　　确保事务的持久性。
-　　防止在发生故障的时间点，尚有脏页未写入磁盘，在重启mysql服务的时候，根据redo log进行重做，从而达到事务的持久性这一特性。
-内容：
-　　物理格式的日志，记录的是物理数据页面的修改的信息，其redo log是顺序写入redo log file的物理文件中去的。
-什么时候产生：
-　　事务开始之后就产生redo log，redo log的落盘并不是随着事务的提交才写入的，而是在事务的执行过程中，便开始写入redo log文件中。
-什么时候释放：
-　　当对应事务的脏页写入到磁盘之后，redo log的使命也就完成了，重做日志占用的空间就可以重用（被覆盖）。
-其他：
-　　很重要一点，redo log是什么时候写盘的？前面说了是在事物开始之后逐步写盘的。
-　　之所以说重做日志是在事务开始之后逐步写入重做日志文件，而不一定是事务提交才写入重做日志缓存，
-　　原因就是，重做日志有一个缓存区Innodb_log_buffer，Innodb_log_buffer的默认大小为8M(这里设置的16M),Innodb存储引擎先将重做日志写入innodb_log_buffer中。
-　　然后会通过以下三种方式将innodb日志缓冲区的日志刷新到磁盘
-　　1，Master Thread 每秒一次执行刷新Innodb_log_buffer到重做日志文件。
-　　2，每个事务提交时会将重做日志刷新到重做日志文件。
-　　3，当重做日志缓存可用空间 少于一半时，重做日志缓存被刷新到重做日志文件
-　　由此可以看出，重做日志通过不止一种方式写入到磁盘，尤其是对于第一种方式，Innodb_log_buffer到重做日志文件是Master Thread线程的定时任务。
-　　因此重做日志的写盘，并不一定是随着事务的提交才写入重做日志文件的，而是随着事务的开始，逐步开始的。
-　　另外引用《MySQL技术内幕 Innodb 存储引擎》（page37）上的原话：
-　　即使某个事务还没有提交，Innodb存储引擎仍然每秒会将重做日志缓存刷新到重做日志文件。
-　　这一点是必须要知道的，因为这可以很好地解释再大的事务的提交（commit）的时间也是很短暂的
-
-回滚日志（undo log）
-
-作用：
-　　保存了事务发生之前的数据的一个版本，可以用于回滚，同时可以提供多版本并发控制下的读（MVCC），也即非锁定读
-内容：
-　　逻辑格式的日志，在执行undo的时候，仅仅是将数据从逻辑上恢复至事务之前的状态，而不是从物理页面上操作实现的，这一点是不同于redo log的。
-什么时候产生：
-　　事务开始之前，将当前是的版本生成undo log，undo也会产生redo来保证undo log的可靠性
-什么时候释放：
-　　当事务提交之后，undo log并不能立马被删除，
-　　而是放入待清理的链表，由purge线程判断是否由其他事务在使用undo段中表的上一个事务之前的版本信息，决定是否可以清理undo log的日志空间。
-对应的物理文件：
-　　MySQL5.6之前，undo表空间位于共享表空间的回滚段中，共享表空间的默认的名称是ibdata，位于数据文件目录中。
-　　MySQL5.6之后，undo表空间可以配置成独立的文件，但是提前需要在配置文件中配置，完成数据库初始化后生效且不可改变undo log文件的个数
-　　如果初始化数据库之前没有进行相关配置，那么就无法配置成独立的表空间了。
-　　关于MySQL5.7之后的独立undo 表空间配置参数如下
-　　innodb_undo_directory = /data/undospace/ --undo独立表空间的存放目录
-　　innodb_undo_logs = 128 --回滚段为128KB
-　　innodb_undo_tablespaces = 4 --指定有4个undo log文件
-　　如果undo使用的共享表空间，这个共享表空间中又不仅仅是存储了undo的信息，共享表空间的默认为与MySQL的数据目录下面，其属性由参数innodb_data_file_path配置。
-其他：
-　　undo是在事务开始之前保存的被修改数据的一个版本，产生undo日志的时候，同样会伴随类似于保护事务持久化机制的redolog的产生。
-　　默认情况下undo文件是保持在共享表空间的，也即ibdatafile文件中，当数据库中发生一些大的事务性操作的时候，要生成大量的undo信息，全部保存在共享表空间中的。
-　　因此共享表空间可能会变的很大，默认情况下，也就是undo 日志使用共享表空间的时候，被“撑大”的共享表空间是不会也不能自动收缩的。
-　　因此，mysql5.7之后的“独立undo 表空间”的配置就显得很有必要了。
-
-二进制日志（binlog）：
-
-作用：
-　　1，用于复制，在主从复制中，从库利用主库上的binlog进行重播，实现主从同步。
-　　2，用于数据库的基于时间点的还原。
-内容：
-　　逻辑格式的日志，可以简单认为就是执行过的事务中的sql语句。
-　　但又不完全是sql语句这么简单，而是包括了执行的sql语句（增删改）反向的信息，
-　　也就意味着delete对应着delete本身和其反向的insert；update对应着update执行前后的版本的信息；insert对应着delete和insert本身的信息。
-　　在使用mysqlbinlog解析binlog之后一些都会真相大白。
-　　因此可以基于binlog做到类似于oracle的闪回功能，其实都是依赖于binlog中的日志记录。
-什么时候产生：
-　　事务提交的时候，一次性将事务中的sql语句（一个事物可能对应多个sql语句）按照一定的格式记录到binlog中。
-　　这里与redo log很明显的差异就是redo log并不一定是在事务提交的时候刷新到磁盘，redo log是在事务开始之后就开始逐步写入磁盘。
-　　因此对于事务的提交，即便是较大的事务，提交（commit）都是很快的，但是在开启了bin_log的情况下，对于较大事务的提交，可能会变得比较慢一些。
-　　这是因为binlog是在事务提交的时候一次性写入的造成的，这些可以通过测试验证。
-什么时候释放：
-　　binlog的默认是保持时间由参数expire_logs_days配置，也就是说对于非活动的日志文件，在生成时间超过expire_logs_days配置的天数之后，会被自动删除。
-对应的物理文件：
-　　配置文件的路径为log_bin_basename，binlog日志文件按照指定大小，当日志文件达到指定的最大的大小之后，进行滚动更新，生成新的日志文件。
-　　对于每个binlog日志文件，通过一个统一的index文件来组织。
-其他：
-　　二进制日志的作用之一是还原数据库的，这与redo log很类似，很多人混淆过，但是两者有本质的不同
-　　1，作用不同：redo log是保证事务的持久性的，是事务层面的，binlog作为还原的功能，是数据库层面的（当然也可以精确到事务层面的），虽然都有还原的意思，但是其保护数据的层次是不一样的。
-　　2，内容不同：redo log是物理日志，是数据页面的修改之后的物理记录，binlog是逻辑日志，可以简单认为记录的就是sql语句
-　　3，另外，两者日志产生的时间，可以释放的时间，在可释放的情况下清理机制，都是完全不同的。
-　　4，恢复数据时候的效率，基于物理日志的redo log恢复数据的效率要高于语句逻辑日志的binlog
-　　关于事务提交时，redo log和binlog的写入顺序，为了保证主从复制时候的主从一致（当然也包括使用binlog进行基于时间点还原的情况），是要严格一致的，
-　　MySQL通过两阶段提交过程来完成事务的一致性的，也即redo log和binlog的一致性的，理论上是先写redo log，再写binlog，两个日志都提交成功（刷入磁盘），事务才算真正的完成。
-##########################################################MySQL日志###########################################################
-
-##################################################MySQL-MVCC 多版本并发控制###################################################
-MVCC，全称Multi-Version Concurrency Control，即多版本并发控制。
-MVCC是一种并发控制的方法，一般在数据库管理系统中，实现对数据库的并发访问，在编程语言中实现事务内存。
-MVCC在MySQL InnoDB中的实现主要是为了提高数据库并发性能，用更好的方式去处理读-写冲突，做到即使有读写冲突时，也能做到不加锁，非阻塞并发读。
-
-在学习MVCC多版本并发控制之前，我们必须先了解一下，什么是MySQL InnoDB下的当前读和快照读
-当前读：
-像select 	(共享锁), select for update ; update, insert ,delete(排他锁)这些操作都是一种当前读，为什么叫当前读？就是它读取的是记录的最新版本，读取时还要保证其他并发事务不能修改当前记录，会对读取的记录进行加锁
-快照读：
-像不加锁的select操作就是快照读，即不加锁的非阻塞读；快照读的前提是隔离级别不是串行级别，串行级别下的快照读会退化成当前读；之所以出现快照读的情况，是基于提高并发性能的考虑，快照读的实现是基于多版本并发控制，即MVCC,可以认为MVCC是行锁的一个变种，但它在很多情况下，避免了加锁操作，降低了开销；既然是基于多版本，即快照读可能读到的并不一定是数据的最新版本，而有可能是之前的历史版本
-说白了MVCC就是为了实现读-写冲突不加锁，而这个读指的就是快照读, 而非当前读，当前读实际上是一种加锁的操作，是悲观锁的实现
-
-数据库并发场景有三种，分别为：
-读-读：不存在任何问题，也不需要并发控制
-读-写：有线程安全问题，可能会造成事务隔离性问题，可能遇到脏读，幻读，不可重复读
-写-写：有线程安全问题，可能会存在更新丢失问题，比如第一类更新丢失，第二类更新丢失
-
-多版本并发控制（MVCC）是一种用来解决读-写冲突的无锁并发控制，也就是为事务分配单向增长的时间戳，为每个修改保存一个版本，版本与事务时间戳关联，读操作只读该事务开始前的数据库的快照。 所以MVCC可以为数据库解决以下问题
-在并发读写数据库时，可以做到在读操作时不用阻塞写操作，写操作也不用阻塞读操作，提高了数据库并发读写的性能
-同时还可以解决脏读，幻读，不可重复读等事务隔离问题，但不能解决更新丢失问题
-总之，MVCC就是因为大牛们，不满意只让数据库采用悲观锁这样性能不佳的形式去解决读-写冲突问题，而提出的解决方案，所以在数据库中，因为有了MVCC，所以我们可以形成两个组合：
-MVCC + 悲观锁
-MVCC解决读写冲突，悲观锁解决写写冲突
-MVCC + 乐观锁
-MVCC解决读写冲突，乐观锁解决写写冲突
-
-MVCC的实现原理 
-MVCC的目的就是多版本并发控制，在数据库中的实现，就是为了解决读写冲突，它的实现原理主要是依赖记录中的3个隐式字段，undo日志 ，Read View 来实现的。所以我们先来看看这个三个point的概念：
-隐式字段
-每行记录除了我们自定义的字段外，还有数据库隐式定义的DB_TRX_ID,DB_ROLL_PTR,DB_ROW_ID等字段
-DB_TRX_ID
-6byte，最近修改(修改/插入)事务ID：记录创建这条记录/最后一次修改该记录的事务ID
-DB_ROLL_PTR
-7byte，回滚指针，指向这条记录的上一个版本（存储于rollback segment里）
-DB_ROW_ID
-6byte，隐含的自增ID（隐藏主键），如果数据表没有主键，InnoDB会自动以DB_ROW_ID产生一个聚簇索引
-实际还有一个删除flag隐藏字段, 既记录被更新或删除并不代表真的删除，而是删除flag变了
-undo日志
-undo log主要分为两种：
-insert undo log
-代表事务在insert新记录时产生的undo log, 只在事务回滚时需要，并且在事务提交后可以被立即丢弃
-update undo log
-事务在进行update或delete时产生的undo log; 不仅在事务回滚时需要，在快照读时也需要；所以不能随便删除，只有在快速读或事务回滚不涉及该日志时，对应的日志才会被purge线程统一清除
-purge
-    从前面的分析可以看出，为了实现InnoDB的MVCC机制，更新或者删除操作都只是设置一下老记录的deleted_bit，并不真正将过时的记录删除。
-    为了节省磁盘空间，InnoDB有专门的purge线程来清理deleted_bit为true的记录。为了不影响MVCC的正常工作，purge线程自己也维护了一个read view（这个read view相当于系统中最老活跃事务的read view）;如果某个记录的deleted_bit为true，并且DB_TRX_ID相对于purge线程的read view可见，那么这条记录一定是可以被安全清除的。
-对MVCC有帮助的实质是update undo log ，undo log实际上就是存在rollback segment中旧记录链，它的执行流程如下：
-一、 比如一个有个事务插入persion表插入了一条新记录，记录如下，name为Jerry, age为24岁，隐式主键是1，事务ID和回滚指针，我们假设为NULL
-二、 现在来了一个事务1对该记录的name做出了修改，改为Tom
-    在事务1修改该行(记录)数据时，数据库会先对该行加排他锁
-    然后把该行数据拷贝到undo log中，作为旧记录，既在undo log中有当前行的拷贝副本
-    拷贝完毕后，修改该行name为Tom，并且修改隐藏字段的事务ID为当前事务1的ID, 我们默认从1开始，之后递增，回滚指针指向拷贝到undo log的副本记录，既表示我的上一个版本就是它
-    事务提交后，释放锁
-三、 又来了个事务2修改person表的同一个记录，将age修改为30岁
-    在事务2修改该行数据时，数据库也先为该行加锁
-    然后把该行数据拷贝到undo log中，作为旧记录，发现该行记录已经有undo log了，那么最新的旧数据作为链表的表头，插在该行记录的undo log最前面
-    修改该行age为30岁，并且修改隐藏字段的事务ID为当前事务2的ID, 那就是2，回滚指针指向刚刚拷贝到undo log的副本记录
-    事务提交，释放锁
-从上面，我们就可以看出，不同事务或者相同事务的对同一记录的修改，会导致该记录的undo log成为一条记录版本线性表，既链表，undo log的链首就是最新的旧记录，链尾就是最早的旧记录（当然就像之前说的该undo log的节点可能是会purge线程清除掉，向图中的第一条insert undo log，其实在事务提交之后可能就被删除丢失了，不过这里为了演示，所以还放在这里）
-
-Read View(读视图)
-什么是Read View，说白了Read View就是事务进行快照读操作的时候生产的读视图(Read View)，在该事务执行的快照读的那一刻，会生成数据库系统当前的一个快照，记录并维护系统当前活跃事务的ID(当每个事务开启时，都会被分配一个ID, 这个ID是递增的，所以最新的事务，ID值越大)
-所以我们知道 Read View主要是用来做可见性判断的, 即当我们某个事务执行快照读的时候，对该记录创建一个Read View读视图，把它比作条件用来判断当前事务能够看到哪个版本的数据，既可能是当前最新的数据，也有可能是该行记录的undo log里面的某个版本的数据。
-Read View遵循一个可见性算法，主要是将要被修改的数据的最新记录中的DB_TRX_ID（即当前事务ID）取出来，与系统当前其他活跃事务的ID去对比（由Read View维护），如果DB_TRX_ID跟Read View的属性做了某些比较，不符合可见性，那就通过DB_ROLL_PTR回滚指针去取出Undo Log中的DB_TRX_ID再比较，即遍历链表的DB_TRX_ID（从链首到链尾，即从最近的一次修改查起），直到找到满足特定条件的DB_TRX_ID, 那么这个DB_TRX_ID所在的旧记录就是当前事务能看见的最新老版本
-ead View简单的理解成有三个全局属性
-trx_list（名字我随便取的）
-一个数值列表，用来维护Read View生成时刻系统正活跃的事务ID
-up_limit_id
-记录trx_list列表中事务ID最小的ID
-low_limit_id
-ReadView生成时刻系统尚未分配的下一个事务ID，也就是目前已出现过的事务ID的最大值+1
-首先比较DB_TRX_ID < up_limit_id, 如果小于，则当前事务能看到DB_TRX_ID 所在的记录，如果大于等于进入下一个判断
-接下来判断 DB_TRX_ID 大于等于 low_limit_id , 如果大于等于则代表DB_TRX_ID 所在的记录在Read View生成后才出现的，那对当前事务肯定不可见，如果小于则进入下一个判断
-判断DB_TRX_ID 是否在活跃事务之中，trx_list.contains(DB_TRX_ID)，如果在，则代表我Read View生成时刻，你这个事务还在活跃，还没有Commit，你修改的数据，我当前事务也是看不见的；如果不在，则说明，你这个事务在Read View生成之前就已经Commit了，你修改的结果，我当前事务是能看见的
-
-整体流程
-了解了隐式字段，undo log， 以及Read View的概念之后，就可以来看看MVCC实现的整体流程是怎么样了
-当事务2对某行数据执行了快照读，数据库为该行数据生成一个Read View读视图，假设当前事务ID为2，此时还有事务1和事务3在活跃中，事务4在事务2快照读前一刻提交更新了，所以Read View记录了系统当前活跃事务1，3的ID，维护在一个列表上，假设我们称为trx_list
-Read View不仅仅会通过一个列表trx_list来维护事务2执行快照读那刻系统正活跃的事务ID，还会有两个属性up_limit_id（记录trx_list列表中事务ID最小的ID），low_limit_id(记录trx_list列表中事务ID最大的ID，也有人说快照读那刻系统尚未分配的下一个事务ID也就是目前已出现过的事务ID的最大值+1，我更倾向于后者) ；所以在这里例子中up_limit_id就是1，low_limit_id就是4 + 1 = 5，trx_list集合的值是1,3
-例子中，只有事务4修改过该行记录，并在事务2执行快照读前，就提交了事务，所以当前该行当前数据的undo log如下图所示；我们的事务2在快照读该行记录的时候，就会拿该行记录的DB_TRX_ID去跟up_limit_id,low_limit_id和活跃事务ID列表(trx_list)进行比较，判断当前事务2能看到该记录的版本是哪个。
-所以先拿该记录DB_TRX_ID字段记录的事务ID 4去跟Read View的的up_limit_id比较，看4是否小于up_limit_id(1)，所以不符合条件，继续判断 4 是否大于等于 low_limit_id(5)，也不符合条件，最后判断4是否处于trx_list中的活跃事务, 最后发现事务ID为4的事务不在当前活跃事务列表中, 符合可见性条件，所以事务4修改后提交的最新结果对事务2快照读时是可见的，所以事务2能读到的最新数据记录是事务4所提交的版本，而事务4提交的版本也是全局角度上最新的版本
-也正是Read View生成时机的不同，从而造成RC,RR级别下快照读的结果的不同
-在RR级别下的某个事务的对某条记录的第一次快照读会创建一个快照及Read View, 将当前系统活跃的其他事务记录起来，此后在调用快照读的时候，还是使用的是同一个Read View，所以只要当前事务在其他事务提交更新之前使用过快照读，那么之后的快照读使用的都是同一个Read View，所以对之后的修改不可见；
-即RR级别下，快照读生成Read View时，Read View会记录此时所有其他活动事务的快照，这些事务的修改对于当前事务都是不可见的。而早于Read View创建的事务所做的修改均是可见
-而在RC级别下的，事务中，每次快照读都会新生成一个快照和Read View, 这就是我们在RC级别下的事务中可以看到别的事务提交的更新的原因
-总之在RC隔离级别下，是每个快照读都会生成并获取最新的Read View；而在RR隔离级别下，则是同一个事务中的第一个快照读才会创建Read View, 之后的快照读获取的都是同一个Read View。
-
-MVCC由于其实现原理,只支持read committed和repeatable read隔离等级,
-
-数据库只是频繁更新,没有插入新数据,但是为什么表空间占用会越来越大?
-如果你在数据库中执行了大事务, innodb就会把被修改数据的前映像存放到称为回滚段的公共表空间中,而且对于索引和表中的行的多个版本,如果innodb来不及purge,或者这些行因为要提供一致读而不能被purge,就会占用越来越多的空间,甚至有可能短时间撑爆你的硬盘.所以应用程序中需要合理控制事务的大小.
-
-能禁用MVCC吗?
-禁用MVCC可以降低innodb引擎的开销,而同时innodb又可以支持外键约束,可以实现自动恢复.MVCC本身不支持read uncommitted等级,所以可以通过设置transaction_isolation = read uncommitted 来禁用MVCC.但是任何改变innodb默认隔离等级的操作,都会起到innodb_locks_unsafe_for_binlog=off类似的效果,这会导致诸如insert into t select * from t_src 之类的语句不再给源表t_src加锁,也不再使用innodb的间隙锁,从而产生幻读,直接导致binlog中记录的sql语句不能正确的串行化,从而主从数据库的数据不再一致,而且基于binlog的增量备份也不再有效.所以除非不需要记录binlog,否则别这么做.当然我们可以这样做来优化从库的性能,因为从库不需要记录binlog.
-
-##################################################MySQL-MVCC 多版本并发控制###################################################
-
 #############################################show profile&performance_schema#############################################
 在MySQL5.7中， show profile 命令已经开始不推荐使用，MySQL使用performance_schema 中系统表的信息来替代show profile命令
 MySQL5.7尚且支持的show profile，show profile跟踪记录SQL执行情况的需要打开配置才能使用
@@ -1607,7 +842,7 @@ Index Nested-LoopJoin > Block Nested-Loop Join > Simple Nested-Loop Join
 3.由于用到索引，如果索引是辅助索引而且返回的数据还包括内层表的其他数据，则会回内层表查询数据，多了一些IO操作。
 
 四.Block Nested-Loop Join（减少内层表数据的循环次数，只有在join类型为all, index, range的时候才可以使用join buffer。）
-将外层循环的参与join的列以及查询的字段存入join buffer，内层循环的每一行与整个buffer中的记录做比较，从而减少内层循环的次数. 举例来说，外层循环的结果集是100行，使用NLJ算法需要扫描内部表100次，如果使用BNL算法，先把对Outer-Loop表(外部表)每次读取的10行记录放到join-buffer,然后在InnerLoop表(内部表)中直接匹配这10行数据，内存循环就可以一次与这10行进行比较,这样只需要比较10次，对内部表的扫描减少了9/10。（join buffer中只会保存参与join的列以及查询的字段, 并非整个数据行。）
+将外层循环的参与join的列以及查询的字段存入join buffer，内层循环的每一行与整个buffer中的记录做比较，从而减少内层循环的次数. 举例来说，外层循环的结果集是100行，使用NLJ算法需要扫描内部表100次，如果使用BNL算法，先把对Outer-Loop表(外部表)每次读取的10行记录放到join-buffer,然后在InnerLoop表(内部表)中直接匹配这10行数据，内层循环就可以一次与这10行进行比较,这样只需要比较10次，对内部表的扫描减少了9/10。（join buffer中只会保存参与join的列以及查询的字段, 并非整个数据行。）
 
 五.如何优化Join速度
 1.用小结果集驱动大结果集，减少外层循环的数据量，从而减少内层循环次数：如果小结果集和大结果集连接的列都是索引列，mysql在内连接时也会选择用小结果集驱动大结果集，因为索引查询的成本是比较固定的，这时候外层的循环越少，join的速度便越快。
@@ -1616,16 +851,429 @@ Index Nested-LoopJoin > Block Nested-Loop Join > Simple Nested-Loop Join
 4.减少不必要的字段查询：当用到BNLJ时，字段越少，join buffer 所缓存的数据就越多，内层表的循环次数就越少；
 #####################################################Mysql的join算法#####################################################
 
-#强制索引
-SELECT * FROM t_apply_info force index(ix_apply_info_phone) WHERE mobile_phone='13661850931' ORDER BY create_time desc limit 99000,10;
+####################################################MySQL的四种事务隔离级别####################################################
+一、事务的基本要素（ACID）
+1、原子性（Atomicity）：事务开始后所有操作，要么全部做完，要么全部不做，不可能停滞在中间环节。事务执行过程中出错，会回滚到事务开始前的状态，所有的操作就像没有发生一样。也就是说事务是一个不可分割的整体，就像化学中学过的原子，是物质构成的基本单位。
+2、一致性（Consistency）：事务开始前和结束后，数据库的完整性约束没有被破坏 。比如A向B转账，不可能A扣了钱，B却没收到。
+3、隔离性（Isolation）：同一时间，只允许一个事务请求同一数据，不同的事务之间彼此没有任何干扰。比如A正在从一张银行卡中取钱，在A取钱的过程结束前，B不能向这张卡转账。
+4、持久性（Durability）：事务完成后，事务对数据库的所有更新将被保存到数据库，不能回滚。
+二、事务的并发问题
+1、脏读：事务A读取了事务B更新的数据，然后B回滚操作，那么A读取到的数据是脏数据
+2、不可重复读：事务A多次读取同一数据，事务B在事务A多次读取的过程中，对数据作了更新并提交，导致事务A多次读取同一数据时，结果不一致。
+3、幻读：并不是说两次读取获取的结果集不同，幻读侧重的方面是某一次的select操作得到的结果所表征的数据状态无法支撑后续的业务操作。更为具体一些：select 某记录是否存在，不存在，准备插入此记录，但执行insert时发现此记录已存在，无法插入，此时就发生了幻读。
+三、MySQL事务隔离级别
+事务隔离级别 	                脏读 	不可重复读 	幻读
+读未提交（read-uncommitted） 	是 	    是 	        是
+不可重复读（read-committed） 	否 	    是 	        是
+可重复读（repeatable-read） 	否 	    否 	        是
+串行化（serializable） 	        否 	    否 	        否
+mysql默认的事务隔离级别为repeatable-read
+关于幻读的理解：
+幻读，并不是说两次读取获取的结果集不同，幻读侧重的方面是某一次的select操作得到的结果所表征的数据状态无法支撑后续的业务操作。更为具体一些：select 某记录是否存在，不存在，准备插入此记录，但执行insert时发现此记录已存在，无法插入，此时就发生了幻读。
+例：
+step1 T1: SELECT * FROM `users` WHERE `id` = 1;
+step2 T2: INSERT INTO `users` VALUES (1, 'big cat');
+step3 T1: INSERT INTO `users` VALUES (1, 'big cat');
+step4 T1: SELECT * FROM `users` WHERE `id` = 1;
+T1：主事务，检测表中是否有id为1的记录，没有则插入，这是我们期望的正常业务逻辑。
+T2：干扰事务，目的在于扰乱T1的正常的事务执行。
+在RR隔离级别下，step1、step2是会正常执行的，step3则会报错主键冲突，对于T1的业务来说是执行失败的，这里T1就是发生了幻读，因为T1在step1中读取的数据状态并不能支撑后续的业务操作，T1：“见鬼了，我刚才读到的结果应该可以支持我这样操作才对啊，为什么现在不可以”。T1不敢相信的又执行了step4，发现和setp1读取的结果是一样的（RR下的MMVC机制）。此时，幻读无疑已经发生，T1无论读取多少次，都查不到id=1的记录，但它的确无法插入这条他通过读取来认定不存在的记录（此数据已被T2插入），对于T1来说，它幻读了。
+其实RR也是可以避免幻读的，通过对select操作手动加行X锁（SELECT ... FOR UPDATE这也正是SERIALIZABLE 隔离级别下会隐式为你做的事情）。
+不可重复读侧重表达 读-读，幻读则是说读-写，用写来证实读的是鬼影。
 
-mysql> select max(id) from t_apply_info;
-+---------+
-| max(id) |
-+---------+
-| 1100000 |
-+---------+
-1 row in set (0.00 sec)
+补充：
+1、事务隔离级别为读未提交或读提交时，写数据只会锁住相应的行
+select @@tx_isolation;
+set @@session.tx_isolation = 'read-uncommitted';
+set @@session.tx_isolation = 'read-committed';
+start transaction;
+commit;
+2、事务隔离级别为可重复读时，如果检索条件有索引（包括主键索引）的时候，默认加锁方式是next-key 锁；如果检索条件没有索引，更新数据时会锁住整张表。一个间隙被事务加了锁，其他事务是不能在这个间隙插入记录的，这样可以防止幻读。
+select @@tx_isolation;
+set @@session.tx_isolation = 'repeatable-read';
+start transaction;
+commit;
+3、事务隔离级别为串行化时，读写数据都会锁住整张表
+4、隔离级别越高，越能保证数据的完整性和一致性，但是对并发性能的影响也越大。
+5、MYSQL MVCC实现机制参考链接：
+https://blog.csdn.net/SnailMann/article/details/94724197
+https://blog.csdn.net/whoamiyang/article/details/51901888
+6、关于next-key 锁可以参考链接：
+https://blog.csdn.net/bigtree_3721/article/details/73731377
+https://www.jianshu.com/p/0f3d45c645ac
+####################################################MySQL的四种事务隔离级别####################################################
 
+#########################################################MySQL锁机制#########################################################
+共享锁（S锁）：也叫读锁，就是多个事务对同一数据可以共享同一把锁，都能访问到数据，但是只能读，不可修改。
+排他锁（X锁）：也叫写锁，就是一个事务获取了一条数据的排他锁后，其他事务就获取不到了，并且获取了排他锁的这个事务能对他就行读写修改操作。
+（以上说的是行级的）
+注意：mysql InnoDB引擎默认的修改数据语句，update,delete,insert都会自动给涉及到的数据加上排他锁，select语句默认不会加任何锁类型，如果加排他锁可以使用select ...for update语句，加共享锁可以使用select ... lock in share mode语句。所以加过排他锁的数据行在其他事务种是不能修改数据的，也不能通过for update和lock in share mode锁的方式查询数据，但可以直接通过select ...from...查询数据，因为普通查询没有任何锁机制。
+MySql中锁与索引的关系
+MyISAM 操作数据都是使用表级锁，MyISAM总是一次性获得所需的全部锁，要么全部满足，要么全部等待。所以不会产生死锁，但是由于每操作一条记录就要锁定整个表，导致性能较低，并发不高。
+InnoDB与MyISAM的最大不同有两点：一是InnoDB支持事务；二是InnoDB采用了行级锁。也就是你需要修改哪行，就可以只锁定哪行。
+在Mysql中，行级锁并不是直接锁记录，而是锁索引。InnoDB行锁是通过给索引项加锁实现的，索引分为主键索引和非主键索引两种，如果一条sql语句操作了主键索引，Mysql就会锁定这条主键索引；如果一条语句操作了非主键索引，MySQL会先锁定该非主键索引，再锁定相关的主键索引。
 
- 
+Next-Key-Locks
+Next-Key-Locks是在存储引擎innodb、事务级别在可重复读的情况下使用的数据库锁，官网上有介绍，Next-Key-Locks是行锁和gap锁的组合。行锁是什么我们都很清楚，这篇文章主要简单分析一下mysql中的gap锁是什么。innodb默认的锁就是Next-Key-locks。
+GAP锁
+gap锁，又称为间隙锁。存在的主要目的就是为了防止在可重复读的事务级别下，出现幻读问题。在可重复读的事务级别下面，普通的select读的是快照，不存在幻读情况，但是如果加上for update的话，读取是已提交事务数据，gap锁保证for update情况下，不出现幻读。
+那么gap锁到底是如何加锁的呢？
+假如是for update级别操作，先看看几条总结的何时加锁的规则。
+唯一索引
+精确等值检索，Next-Key-Locks就退化为记录锁，不会加gap锁
+范围检索，会锁住where条件中相应的范围，范围中的记录以及间隙，换言之就是加上记录锁和gap锁（至于区间是多大稍后讨论）。
+不走索引检索，全表间隙加gap锁、全表记录加记录锁
+非唯一索引
+精确等值检索，Next-Key-Locks会对间隙加gap锁（至于区间是多大稍后讨论），以及对应检索到的记录加记录锁。
+范围检索，会锁住where条件中相应的范围，范围中的记录以及间隙，换言之就是加上记录锁和gap 锁（至于区间是多大稍后讨论）。
+非索引检索，全表间隙gap lock，全表记录record lock
+
+gap锁演示例子
+假如有以下一张表结构，主键简单点是字符，属性列只有一个数字，是非唯一索引。
+create table gap_table
+(
+  letter varchar(2) default '' not null primary key,
+  num int not null
+);
+
+create index gap_table_num_uindex  on gap_table (num);
+  
+INSERT INTO gap_table (letter, num) VALUES ('d', 3);
+INSERT INTO gap_table (letter, num) VALUES ('g', 6);
+INSERT INTO gap_table (letter, num) VALUES ('j', 8);
+
+无gap锁
+假如没有gap锁，也就是把事务级别调到读提交,执行以下两个session
+session1	                                                                 session2
+select * from gap_table where num=6 for update，结果是一条	 
+ 	                                                                         INSERT INTO gap_table (letter, num) VALUES (’e’, 6);
+select * from gap_table where num=6 for update，结果是二条，出现幻读
+
+非唯一索引等值检索gap锁（事务隔离级别为可重复读）
+假如有gap锁，演示一个非唯一索引等值检索gap锁。也就是把事务级别调到可重复读,执行以下两个session 
+session1	                                                                 session2
+select * from gap_table where num=6 for update，结果是一条。	 
+ 	                                                                         INSERT INTO gap_table (letter, num) VALUES (’e’, 6);gap锁住间隙，阻塞无法插入数据。
+select * from gap_table where num=6 for update，结果是一条。不出现幻读	
+
+唯一索引（主键）范围检索gap锁（事务隔离级别为可重复读）
+假如有gap锁，演示一个唯一索引范围检索gap锁。也就是把事务级别调到可重复读,执行以下两个session
+session1	                                                                 session2
+select * from gap_table where letter>'d' for update，结果是两条。	 
+ 	                                                                         INSERT INTO gap_table (letter, num) VALUES ('z', 10);gap锁住间隙，阻塞无法插入数据。
+select * from gap_table where letter>'d' for update，结果是两条。不出现幻读	
+
+gap锁是如何锁区间？
+经过上面的演示可以知道gap锁的基本作用就是保证可重复读的情况下select-for-update不出现幻读。那么还有一点就是gap是按照什么原则进行锁的呢？要了解gap锁的原则，需要先了解innodb中索引树的结构。innodb中索引树的结构分为主索引树和辅助索引树，辅助索引树的叶子节点中包含了主键数据，主键数据影响着叶子节点的排序，gap锁的关键就是锁住索引树的叶子节点之间的间隙，不让新的记录插入到间隙之中。
+
+非唯一索引gap锁原则分析
+情况1
+分别有两个session，session1执行以下语句:
+select * from gap_table where num=6 for update
+session2执行以下sql，执行成功：
+INSERT INTO gap_table (letter, num) VALUES ('a', 3);
+按照排序规则,叶子节点插入结构如下
+           3
+		   a
+		  |
+          |
+          |
+          ∨		  
+非唯一索引 3 6 8
+主键       d g j
+情况2
+分别有两个session，session1执行以下语句:
+select * from gap_table where num=6 for update
+session2执行以下sql，执行失败：
+INSERT INTO gap_table (letter, num) VALUES ('e', 3);
+按照排序规则，叶子节点应该插入如下地方，但是因为区间被锁插入失败。
+            3
+		    e
+		    |
+            |
+            |
+            ∨		  
+非唯一索引 3 6 8
+主键       d g j
+情况3
+分别有两个session，session1执行以下语句:
+select * from gap_table where num=6 for update
+session2执行以下sql，执行失败：
+INSERT INTO gap_table (letter, num) VALUES ('h', 6);
+按照排序规则，叶子节点应该插入如下地方，但是因为区间被锁插入失败。
+              6
+		      h
+		      |
+              |
+              |
+              ∨		  
+非唯一索引 3 6 8
+主键       d g j
+情况4
+分别有两个session，session1执行以下语句:
+select * from gap_table where num=6 for update
+session2执行以下sql，执行失败：
+INSERT INTO gap_table (letter, num) VALUES ('h', 7);
+按照排序规则，叶子节点应该插入如下地方，但是因为区间被锁插入失败。
+              7
+		      h
+		      |
+              |
+              |
+              ∨		  
+非唯一索引 3 6 8
+主键       d g j
+情况5
+分别有两个session，session1执行以下语句:
+select * from gap_table where num=6 for update
+session2执行以下sql，执行成功：
+INSERT INTO gap_table (letter, num) VALUES ('h', 9);
+按照排序规则,插入在未锁区间就能插入成功。
+                9
+		        h
+		        |
+                |
+                |
+                ∨		  
+非唯一索引 3 6 8
+主键       d g j
+总结
+当session1执行以下语句:
+select * from gap_table where num=6 for update
+锁住的区间如图所示。按照B+索引树排序规则，计算好叶子节点插入位置时，在被gap锁住的区间段内，不能插入任何数据，只有在gap锁释放时才能进行插入。
+             |    |
+		     |LOCK|
+		     |    |
+             |    |
+             |    |
+             ∨    ∨		  
+非唯一索引 3   6   8
+主键       d   g   j
+在上面的各种情况中锁住的区间其实是（3，d）到（6，g）和（6，g）到（8，j），落到这个区间段的叶子节点都是无法插入的。主键也作为一个信息参与到叶子节点的排序规则中。这里面边界都是开区间，插入（3，d），（8，j）的数据会报错主键重复而不是lock等待超时。
+
+唯一索引或者非唯一索引范围检索gap锁原则分析
+另一种会出现gap锁的情况就是使用索引时，用到范围检索，就会出现gap锁。
+使用以下表结构。
+create table gap_tbz
+(
+  id   int default 0 not null
+    primary key,
+  name varchar(11) not null
+);
+
+INSERT INTO test.gap_tbz (id, name) VALUES (1, 'a');
+INSERT INTO test.gap_tbz (id, name) VALUES (5, 'h');
+INSERT INTO test.gap_tbz (id, name) VALUES (8, 'm');
+INSERT INTO test.gap_tbz (id, name) VALUES (11, 'ds');
+情况1
+分别有两个session，session1执行以下语句:
+select * from gap_tbz where id > 5 for update;
+session2执行以下sql，执行失败：
+insert into gap_tbz values(6,'cc');
+按照排序规则,这里应该是在主键索引树检索，叶子节点插入结构如下。由于session1执行了范围的for update sql语句，因此范围内添加了gap锁，gap锁的区间是id在（5，+无限）
+          6
+		  cc
+		  |
+          |
+          |
+          ∨		  
+主键   1 5 8 11
+       a h m ds
+当执行插入的id范围在5之前，如下sql,能够执行成功。
+insert into gap_tbz values(4,'cc');
+情况2
+分别有两个session，session1执行以下语句:
+select * from gap_tbz where id > 5 and id < 11 for update;
+session2执行以下sql，执行失败：
+#以下报错 lock等待超时
+insert into gap_tbz values(11,'cc');
+#以下报错 主键重复
+insert into gap_tbz values(5,'cc');
+#从两种报错来看也可以看出gap锁区间是左开右闭
+按照排序规则,这里应该是在主键索引树检索，由于session1执行了范围的for update sql语句，因此范围内添加了gap锁，gap锁的区间是id在（5，11]，唯一索引gap锁区间是左开右闭。
+#########################################################MySQL锁机制#########################################################
+
+##################################################MySQL-MVCC 多版本并发控制###################################################
+MVCC，全称Multi-Version Concurrency Control，即多版本并发控制。
+MVCC是一种并发控制的方法，一般在数据库管理系统中，实现对数据库的并发访问，在编程语言中实现事务内存。
+MVCC在MySQL InnoDB中的实现主要是为了提高数据库并发性能，用更好的方式去处理读-写冲突，做到即使有读写冲突时，也能做到不加锁，非阻塞并发读。
+
+在学习MVCC多版本并发控制之前，我们必须先了解一下，什么是MySQL InnoDB下的当前读和快照读
+当前读：
+像select 	(共享锁), select for update ; update, insert ,delete(排他锁)这些操作都是一种当前读，为什么叫当前读？就是它读取的是记录的最新版本，读取时还要保证其他并发事务不能修改当前记录，会对读取的记录进行加锁
+快照读：
+像不加锁的select操作就是快照读，即不加锁的非阻塞读；快照读的前提是隔离级别不是串行级别，串行级别下的快照读会退化成当前读；之所以出现快照读的情况，是基于提高并发性能的考虑，快照读的实现是基于多版本并发控制，即MVCC,可以认为MVCC是行锁的一个变种，但它在很多情况下，避免了加锁操作，降低了开销；既然是基于多版本，即快照读可能读到的并不一定是数据的最新版本，而有可能是之前的历史版本
+说白了MVCC就是为了实现读-写冲突不加锁，而这个读指的就是快照读, 而非当前读，当前读实际上是一种加锁的操作，是悲观锁的实现
+
+数据库并发场景有三种，分别为：
+读-读：不存在任何问题，也不需要并发控制
+读-写：有线程安全问题，可能会造成事务隔离性问题，可能遇到脏读，幻读，不可重复读
+写-写：有线程安全问题，可能会存在更新丢失问题，比如第一类更新丢失，第二类更新丢失
+
+多版本并发控制（MVCC）是一种用来解决读-写冲突的无锁并发控制，也就是为事务分配单向增长的时间戳，为每个修改保存一个版本，版本与事务时间戳关联，读操作只读该事务开始前的数据库的快照。 所以MVCC可以为数据库解决以下问题
+在并发读写数据库时，可以做到在读操作时不用阻塞写操作，写操作也不用阻塞读操作，提高了数据库并发读写的性能
+同时还可以解决脏读，幻读，不可重复读等事务隔离问题，但不能解决更新丢失问题
+总之，MVCC就是因为大牛们，不满意只让数据库采用悲观锁这样性能不佳的形式去解决读-写冲突问题，而提出的解决方案，所以在数据库中，因为有了MVCC，所以我们可以形成两个组合：
+MVCC + 悲观锁
+MVCC解决读写冲突，悲观锁解决写写冲突
+MVCC + 乐观锁
+MVCC解决读写冲突，乐观锁解决写写冲突
+
+MVCC的实现原理 
+MVCC的目的就是多版本并发控制，在数据库中的实现，就是为了解决读写冲突，它的实现原理主要是依赖记录中的3个隐式字段，undo日志 ，Read View 来实现的。所以我们先来看看这个三个point的概念：
+隐式字段
+每行记录除了我们自定义的字段外，还有数据库隐式定义的DB_TRX_ID,DB_ROLL_PTR,DB_ROW_ID等字段
+DB_TRX_ID
+6byte，最近修改(修改/插入)事务ID：记录创建这条记录/最后一次修改该记录的事务ID
+DB_ROLL_PTR
+7byte，回滚指针，指向这条记录的上一个版本（存储于rollback segment里）
+DB_ROW_ID
+6byte，隐含的自增ID（隐藏主键），如果数据表没有主键，InnoDB会自动以DB_ROW_ID产生一个聚簇索引
+实际还有一个删除flag隐藏字段, 既记录被更新或删除并不代表真的删除，而是删除flag变了
+undo日志
+undo log主要分为两种：
+insert undo log
+代表事务在insert新记录时产生的undo log, 只在事务回滚时需要，并且在事务提交后可以被立即丢弃
+update undo log
+事务在进行update或delete时产生的undo log; 不仅在事务回滚时需要，在快照读时也需要；所以不能随便删除，只有在快速读或事务回滚不涉及该日志时，对应的日志才会被purge线程统一清除
+purge
+    从前面的分析可以看出，为了实现InnoDB的MVCC机制，更新或者删除操作都只是设置一下老记录的deleted_bit，并不真正将过时的记录删除。
+    为了节省磁盘空间，InnoDB有专门的purge线程来清理deleted_bit为true的记录。为了不影响MVCC的正常工作，purge线程自己也维护了一个read view（这个read view相当于系统中最老活跃事务的read view）;如果某个记录的deleted_bit为true，并且DB_TRX_ID相对于purge线程的read view可见，那么这条记录一定是可以被安全清除的。
+对MVCC有帮助的实质是update undo log ，undo log实际上就是存在rollback segment中旧记录链，它的执行流程如下：
+一、 比如一个有个事务插入persion表插入了一条新记录，记录如下，name为Jerry, age为24岁，隐式主键是1，事务ID和回滚指针，我们假设为NULL
+二、 现在来了一个事务1对该记录的name做出了修改，改为Tom
+    在事务1修改该行(记录)数据时，数据库会先对该行加排他锁
+    然后把该行数据拷贝到undo log中，作为旧记录，既在undo log中有当前行的拷贝副本
+    拷贝完毕后，修改该行name为Tom，并且修改隐藏字段的事务ID为当前事务1的ID, 我们默认从1开始，之后递增，回滚指针指向拷贝到undo log的副本记录，既表示我的上一个版本就是它
+    事务提交后，释放锁
+三、 又来了个事务2修改person表的同一个记录，将age修改为30岁
+    在事务2修改该行数据时，数据库也先为该行加锁
+    然后把该行数据拷贝到undo log中，作为旧记录，发现该行记录已经有undo log了，那么最新的旧数据作为链表的表头，插在该行记录的undo log最前面
+    修改该行age为30岁，并且修改隐藏字段的事务ID为当前事务2的ID, 那就是2，回滚指针指向刚刚拷贝到undo log的副本记录
+    事务提交，释放锁
+从上面，我们就可以看出，不同事务或者相同事务的对同一记录的修改，会导致该记录的undo log成为一条记录版本线性表，既链表，undo log的链首就是最新的旧记录，链尾就是最早的旧记录（当然就像之前说的该undo log的节点可能是会purge线程清除掉，向图中的第一条insert undo log，其实在事务提交之后可能就被删除丢失了，不过这里为了演示，所以还放在这里）
+
+Read View(读视图)
+什么是Read View，说白了Read View就是事务进行快照读操作的时候生产的读视图(Read View)，在该事务执行的快照读的那一刻，会生成数据库系统当前的一个快照，记录并维护系统当前活跃事务的ID(当每个事务开启时，都会被分配一个ID, 这个ID是递增的，所以最新的事务，ID值越大)
+所以我们知道 Read View主要是用来做可见性判断的, 即当我们某个事务执行快照读的时候，对该记录创建一个Read View读视图，把它比作条件用来判断当前事务能够看到哪个版本的数据，既可能是当前最新的数据，也有可能是该行记录的undo log里面的某个版本的数据。
+Read View遵循一个可见性算法，主要是将要被修改的数据的最新记录中的DB_TRX_ID（即当前事务ID）取出来，与系统当前其他活跃事务的ID去对比（由Read View维护），如果DB_TRX_ID跟Read View的属性做了某些比较，不符合可见性，那就通过DB_ROLL_PTR回滚指针去取出Undo Log中的DB_TRX_ID再比较，即遍历链表的DB_TRX_ID（从链首到链尾，即从最近的一次修改查起），直到找到满足特定条件的DB_TRX_ID, 那么这个DB_TRX_ID所在的旧记录就是当前事务能看见的最新老版本
+ead View简单的理解成有三个全局属性
+trx_list（名字我随便取的）
+一个数值列表，用来维护Read View生成时刻系统正活跃的事务ID
+up_limit_id
+记录trx_list列表中事务ID最小的ID
+low_limit_id
+ReadView生成时刻系统尚未分配的下一个事务ID，也就是目前已出现过的事务ID的最大值+1
+首先比较DB_TRX_ID < up_limit_id, 如果小于，则当前事务能看到DB_TRX_ID 所在的记录，如果大于等于进入下一个判断
+接下来判断 DB_TRX_ID 大于等于 low_limit_id , 如果大于等于则代表DB_TRX_ID 所在的记录在Read View生成后才出现的，那对当前事务肯定不可见，如果小于则进入下一个判断
+判断DB_TRX_ID 是否在活跃事务之中，trx_list.contains(DB_TRX_ID)，如果在，则代表我Read View生成时刻，你这个事务还在活跃，还没有Commit，你修改的数据，我当前事务也是看不见的；如果不在，则说明，你这个事务在Read View生成之前就已经Commit了，你修改的结果，我当前事务是能看见的
+
+整体流程
+了解了隐式字段，undo log， 以及Read View的概念之后，就可以来看看MVCC实现的整体流程是怎么样了
+当事务2对某行数据执行了快照读，数据库为该行数据生成一个Read View读视图，假设当前事务ID为2，此时还有事务1和事务3在活跃中，事务4在事务2快照读前一刻提交更新了，所以Read View记录了系统当前活跃事务1，3的ID，维护在一个列表上，假设我们称为trx_list
+Read View不仅仅会通过一个列表trx_list来维护事务2执行快照读那刻系统正活跃的事务ID，还会有两个属性up_limit_id（记录trx_list列表中事务ID最小的ID），low_limit_id(记录trx_list列表中事务ID最大的ID，也有人说快照读那刻系统尚未分配的下一个事务ID也就是目前已出现过的事务ID的最大值+1，我更倾向于后者) ；所以在这里例子中up_limit_id就是1，low_limit_id就是4 + 1 = 5，trx_list集合的值是1,3
+例子中，只有事务4修改过该行记录，并在事务2执行快照读前，就提交了事务，所以当前该行当前数据的undo log如下图所示；我们的事务2在快照读该行记录的时候，就会拿该行记录的DB_TRX_ID去跟up_limit_id,low_limit_id和活跃事务ID列表(trx_list)进行比较，判断当前事务2能看到该记录的版本是哪个。
+所以先拿该记录DB_TRX_ID字段记录的事务ID 4去跟Read View的的up_limit_id比较，看4是否小于up_limit_id(1)，所以不符合条件，继续判断 4 是否大于等于 low_limit_id(5)，也不符合条件，最后判断4是否处于trx_list中的活跃事务, 最后发现事务ID为4的事务不在当前活跃事务列表中, 符合可见性条件，所以事务4修改后提交的最新结果对事务2快照读时是可见的，所以事务2能读到的最新数据记录是事务4所提交的版本，而事务4提交的版本也是全局角度上最新的版本
+也正是Read View生成时机的不同，从而造成RC,RR级别下快照读的结果的不同
+在RR级别下的某个事务的对某条记录的第一次快照读会创建一个快照及Read View, 将当前系统活跃的其他事务记录起来，此后在调用快照读的时候，还是使用的是同一个Read View，所以只要当前事务在其他事务提交更新之前使用过快照读，那么之后的快照读使用的都是同一个Read View，所以对之后的修改不可见；
+即RR级别下，快照读生成Read View时，Read View会记录此时所有其他活动事务的快照，这些事务的修改对于当前事务都是不可见的。而早于Read View创建的事务所做的修改均是可见
+而在RC级别下的，事务中，每次快照读都会新生成一个快照和Read View, 这就是我们在RC级别下的事务中可以看到别的事务提交的更新的原因
+总之在RC隔离级别下，是每个快照读都会生成并获取最新的Read View；而在RR隔离级别下，则是同一个事务中的第一个快照读才会创建Read View, 之后的快照读获取的都是同一个Read View。
+
+MVCC由于其实现原理,只支持read committed和repeatable read隔离等级,
+
+数据库只是频繁更新,没有插入新数据,但是为什么表空间占用会越来越大?
+如果你在数据库中执行了大事务, innodb就会把被修改数据的前映像存放到称为回滚段的公共表空间中,而且对于索引和表中的行的多个版本,如果innodb来不及purge,或者这些行因为要提供一致读而不能被purge,就会占用越来越多的空间,甚至有可能短时间撑爆你的硬盘.所以应用程序中需要合理控制事务的大小.
+
+能禁用MVCC吗?
+禁用MVCC可以降低innodb引擎的开销,而同时innodb又可以支持外键约束,可以实现自动恢复.MVCC本身不支持read uncommitted等级,所以可以通过设置transaction_isolation = read uncommitted 来禁用MVCC.但是任何改变innodb默认隔离等级的操作,都会起到innodb_locks_unsafe_for_binlog=off类似的效果,这会导致诸如insert into t select * from t_src 之类的语句不再给源表t_src加锁,也不再使用innodb的间隙锁,从而产生幻读,直接导致binlog中记录的sql语句不能正确的串行化,从而主从数据库的数据不再一致,而且基于binlog的增量备份也不再有效.所以除非不需要记录binlog,否则别这么做.当然我们可以这样做来优化从库的性能,因为从库不需要记录binlog.
+
+##################################################MySQL-MVCC 多版本并发控制################################################### 
+
+##########################################################MySQL日志###########################################################
+MySQL中有六种日志文件，
+分别是：重做日志（redo log）、回滚日志（undo log）、二进制日志（binlog）、错误日志（errorlog）、慢查询日志（slow query log）、一般查询日志（general log），中继日志（relay log）。
+其中重做日志和回滚日志与事务操作息息相关，二进制日志也与事务操作有一定的关系，这三种日志，对理解MySQL中的事务操作有着重要的意义。
+这里简单总结一下这三者具有一定相关性的日志。
+
+重做日志（redo log）
+
+作用：
+　　确保事务的持久性。
+　　防止在发生故障的时间点，尚有脏页未写入磁盘，在重启mysql服务的时候，根据redo log进行重做，从而达到事务的持久性这一特性。
+内容：
+　　物理格式的日志，记录的是物理数据页面的修改的信息，其redo log是顺序写入redo log file的物理文件中去的。
+什么时候产生：
+　　事务开始之后就产生redo log，redo log的落盘并不是随着事务的提交才写入的，而是在事务的执行过程中，便开始写入redo log文件中。
+什么时候释放：
+　　当对应事务的脏页写入到磁盘之后，redo log的使命也就完成了，重做日志占用的空间就可以重用（被覆盖）。
+其他：
+　　很重要一点，redo log是什么时候写盘的？前面说了是在事物开始之后逐步写盘的。
+　　之所以说重做日志是在事务开始之后逐步写入重做日志文件，而不一定是事务提交才写入重做日志缓存，
+　　原因就是，重做日志有一个缓存区Innodb_log_buffer，Innodb_log_buffer的默认大小为8M(这里设置的16M),Innodb存储引擎先将重做日志写入innodb_log_buffer中。
+　　然后会通过以下三种方式将innodb日志缓冲区的日志刷新到磁盘
+　　1，Master Thread 每秒一次执行刷新Innodb_log_buffer到重做日志文件。
+　　2，每个事务提交时会将重做日志刷新到重做日志文件。
+　　3，当重做日志缓存可用空间 少于一半时，重做日志缓存被刷新到重做日志文件
+　　由此可以看出，重做日志通过不止一种方式写入到磁盘，尤其是对于第一种方式，Innodb_log_buffer到重做日志文件是Master Thread线程的定时任务。
+　　因此重做日志的写盘，并不一定是随着事务的提交才写入重做日志文件的，而是随着事务的开始，逐步开始的。
+　　另外引用《MySQL技术内幕 Innodb 存储引擎》（page37）上的原话：
+　　即使某个事务还没有提交，Innodb存储引擎仍然每秒会将重做日志缓存刷新到重做日志文件。
+　　这一点是必须要知道的，因为这可以很好地解释再大的事务的提交（commit）的时间也是很短暂的
+
+回滚日志（undo log）
+
+作用：
+　　保存了事务发生之前的数据的一个版本，可以用于回滚，同时可以提供多版本并发控制下的读（MVCC），也即非锁定读
+内容：
+　　逻辑格式的日志，在执行undo的时候，仅仅是将数据从逻辑上恢复至事务之前的状态，而不是从物理页面上操作实现的，这一点是不同于redo log的。
+什么时候产生：
+　　事务开始之前，将当前是的版本生成undo log，undo也会产生redo来保证undo log的可靠性
+什么时候释放：
+　　当事务提交之后，undo log并不能立马被删除，
+　　而是放入待清理的链表，由purge线程判断是否由其他事务在使用undo段中表的上一个事务之前的版本信息，决定是否可以清理undo log的日志空间。
+对应的物理文件：
+　　MySQL5.6之前，undo表空间位于共享表空间的回滚段中，共享表空间的默认的名称是ibdata，位于数据文件目录中。
+　　MySQL5.6之后，undo表空间可以配置成独立的文件，但是提前需要在配置文件中配置，完成数据库初始化后生效且不可改变undo log文件的个数
+　　如果初始化数据库之前没有进行相关配置，那么就无法配置成独立的表空间了。
+　　关于MySQL5.7之后的独立undo 表空间配置参数如下
+　　innodb_undo_directory = /data/undospace/ --undo独立表空间的存放目录
+　　innodb_undo_logs = 128 --回滚段为128KB
+　　innodb_undo_tablespaces = 4 --指定有4个undo log文件
+　　如果undo使用的共享表空间，这个共享表空间中又不仅仅是存储了undo的信息，共享表空间的默认为与MySQL的数据目录下面，其属性由参数innodb_data_file_path配置。
+其他：
+　　undo是在事务开始之前保存的被修改数据的一个版本，产生undo日志的时候，同样会伴随类似于保护事务持久化机制的redolog的产生。
+　　默认情况下undo文件是保持在共享表空间的，也即ibdatafile文件中，当数据库中发生一些大的事务性操作的时候，要生成大量的undo信息，全部保存在共享表空间中的。
+　　因此共享表空间可能会变的很大，默认情况下，也就是undo 日志使用共享表空间的时候，被“撑大”的共享表空间是不会也不能自动收缩的。
+　　因此，mysql5.7之后的“独立undo 表空间”的配置就显得很有必要了。
+
+二进制日志（binlog）：
+
+作用：
+　　1，用于复制，在主从复制中，从库利用主库上的binlog进行重播，实现主从同步。
+　　2，用于数据库的基于时间点的还原。
+内容：
+　　逻辑格式的日志，可以简单认为就是执行过的事务中的sql语句。
+　　但又不完全是sql语句这么简单，而是包括了执行的sql语句（增删改）反向的信息，
+　　也就意味着delete对应着delete本身和其反向的insert；update对应着update执行前后的版本的信息；insert对应着delete和insert本身的信息。
+　　在使用mysqlbinlog解析binlog之后一些都会真相大白。
+　　因此可以基于binlog做到类似于oracle的闪回功能，其实都是依赖于binlog中的日志记录。
+什么时候产生：
+　　事务提交的时候，一次性将事务中的sql语句（一个事物可能对应多个sql语句）按照一定的格式记录到binlog中。
+　　这里与redo log很明显的差异就是redo log并不一定是在事务提交的时候刷新到磁盘，redo log是在事务开始之后就开始逐步写入磁盘。
+　　因此对于事务的提交，即便是较大的事务，提交（commit）都是很快的，但是在开启了bin_log的情况下，对于较大事务的提交，可能会变得比较慢一些。
+　　这是因为binlog是在事务提交的时候一次性写入的造成的，这些可以通过测试验证。
+什么时候释放：
+　　binlog的默认是保持时间由参数expire_logs_days配置，也就是说对于非活动的日志文件，在生成时间超过expire_logs_days配置的天数之后，会被自动删除。
+对应的物理文件：
+　　配置文件的路径为log_bin_basename，binlog日志文件按照指定大小，当日志文件达到指定的最大的大小之后，进行滚动更新，生成新的日志文件。
+　　对于每个binlog日志文件，通过一个统一的index文件来组织。
+其他：
+　　二进制日志的作用之一是还原数据库的，这与redo log很类似，很多人混淆过，但是两者有本质的不同
+　　1，作用不同：redo log是保证事务的持久性的，是事务层面的，binlog作为还原的功能，是数据库层面的（当然也可以精确到事务层面的），虽然都有还原的意思，但是其保护数据的层次是不一样的。
+　　2，内容不同：redo log是物理日志，是数据页面的修改之后的物理记录，binlog是逻辑日志，可以简单认为记录的就是sql语句
+　　3，另外，两者日志产生的时间，可以释放的时间，在可释放的情况下清理机制，都是完全不同的。
+　　4，恢复数据时候的效率，基于物理日志的redo log恢复数据的效率要高于语句逻辑日志的binlog
+　　关于事务提交时，redo log和binlog的写入顺序，为了保证主从复制时候的主从一致（当然也包括使用binlog进行基于时间点还原的情况），是要严格一致的，
+　　MySQL通过两阶段提交过程来完成事务的一致性的，也即redo log和binlog的一致性的，理论上是先写redo log，再写binlog，两个日志都提交成功（刷入磁盘），事务才算真正的完成。
+##########################################################MySQL日志###########################################################

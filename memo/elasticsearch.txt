@@ -272,7 +272,7 @@ GET _cluster/health?level=shards
 # Explain 变红的原因
 GET /_cluster/allocation/explain
 （2）快速查看集群中有哪些索引
-GET /_cat/indices?v
+GET /_cat/indices?v&pretty
 （3）简单的索引操作
 创建索引：PUT /test_index?pretty
 删除索引：DELETE /test_index?pretty
@@ -708,6 +708,18 @@ binary(二进制)类型：binary
 geo(地区)类型：geo-point,geo-shape
 专业类型：ip,competion
 
+mapping的root object，包括：properties，metadata（_id，_source，_type），settings（number_of_shards）========>
+properties：
+type 字段类型
+index 是否分词
+analyzer 分词器类型
+_source：
+（1）查询的时候，直接可以拿到完整的document，不需要先拿document id，再发送一次请求拿document
+（2）partial update基于_source实现
+（3）reindex时，直接基于_source实现，不需要从数据库（或者其他外部存储）查询数据再修改
+（4）可以基于_source定制返回field
+（5）debug query更容易，因为可以直接看到_source
+
 查看mapping结构========>
 GET /website/_mapping
 
@@ -717,6 +729,35 @@ GET /website/_analyze
   "field": "title",
   "text":"my first article"
 }
+
+创建索引========>
+PUT /my_index
+{
+  "settings": {
+    "number_of_shards": 1,
+    "number_of_replicas": 0
+  },
+  "mappings": {
+    "properties": {
+      "my_field": {
+        "type": "text",
+        "index": true,
+		    "analyzer": "whitespace"
+      }
+    },
+    "_source": {"enabled": true}
+  }
+}
+
+修改索引========>
+PUT /my_index/_settings
+{
+    "number_of_replicas": 1
+}
+
+删除索引========>
+DELETE /my_index
+
 =======================================================mapping映射管理=======================================================
 
 =======================================================正排、倒排索引=======================================================
@@ -1053,3 +1094,55 @@ PUT my_index/_doc/1
 总结：
 match query搜索的时候，首先会解析查询字符串，进行分词，然后查询，而term query,输入的查询内容是什么，就会按照什么去查询，并不会解析查询内容，对它分词。
 =================================================term query与match query区别=================================================
+
+==============================================================分词==============================================================
+standard (过滤标点符号)
+GET /_analyze
+{
+  "analyzer": "standard",
+  "text": "The programmer's holiday is 1024!"
+}
+simple (过滤数字和标点符号)
+GET /_analyze
+{
+  "analyzer": "simple",
+  "text": "The programmer's holiday is 1024!"
+}
+whitespace (不过滤，按照空格分隔)
+GET /_analyze
+{
+  "analyzer": "whitespace",
+  "text": "The programmer's holiday is 1024!"
+}
+stop (过滤停顿单词及标点符号，例如is are等等)
+GET /_analyze
+{
+  "analyzer": "stop",
+  "text": "The programmer's holiday is 1024!"
+}
+keyword (视为一个整体不进行任何处理)
+GET /_analyze
+{
+  "analyzer": "keyword",
+  "text": "The programmer's holiday is 1024!"
+}
+中文分词
+因为 Elasticsearch 默认的分词器只能按照单字进行拆分，无法具体分析其语意等，所以我们使用analysis-icu来代替默认的分词器。
+GET /_analyze
+{
+  "analyzer": "standard",
+  "text": "南京市长江大桥"
+}
+通过命令./bin/elasticsearch-plugin install analysis-icu进行安装
+GET /_analyze
+{
+  "analyzer": "icu_analyzer",
+  "text": "南京市长江大桥"
+}
+其他的中文分词器
+elasticsearch-thulac-plugin 支持中文分词和词性标注功能
+https://github.com/microbun/elasticsearch-thulac-plugin
+elasticsearch-analysis-ik 支持热更新分词字典及自定义词库
+https://github.com/medcl/elasticsearch-analysis-ik
+
+==============================================================分词==============================================================

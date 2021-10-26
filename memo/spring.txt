@@ -174,6 +174,15 @@ public class Demo2Servlet extends HttpServlet {
 
 #######################<context:annotation-config/>、<context:component-scan>和<mvc:annotation-driven/>#######################
 
+###################################################GetMapping、@PostMapping###################################################
+@GetMapping
+用于将HTTP GET请求映射到特定处理程序方法的注释。
+具体来说，@GetMapping是一个作为快捷方式的组合注释@RequestMapping(method = RequestMethod.GET)。
+@PostMapping
+用于将HTTP POST请求映射到特定处理程序方法的注释。
+具体来说，@PostMapping是一个作为快捷方式的组合注释@RequestMapping(method = RequestMethod.POST)。
+###################################################GetMapping、@PostMapping###################################################
+
 ###################################################SpringMVC JSON&POJO转换###################################################
 springmvc中使用jackson的包进行json转换
 实现功能：

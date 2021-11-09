@@ -395,6 +395,55 @@ public class TestCreateObject {
 13 return
 ```
 
+案例5：
+
+```java
+package org.duo.classformat;
+
+public class SingletonInstance {
+
+    /**
+     * instance要加volatile修饰的原因；
+     * 其实new在转换成字节码后会变成下面的0,3,4,7四条指令,而invokespecial和astore_1有可能发生指令重排，如果invokespecial和astore_1发生指令重排会出现下面的问题：
+     * 现在有2个线程A,B
+     * A在执行new SingletonInstance的时候，B线程进来，此时A执行了new和astore_1没有执行invokespecial，
+     * 此时B线程判断instance不为null 直接返回一个未初始化的对象，就会出现问题
+     */
+    private volatile static SingletonInstance instance;
+
+    private SingletonInstance() {
+    }
+
+    public static SingletonInstance getInstance() {
+        // 不把锁加在方法上的原因：
+        // 缩小锁的粒度，如果将锁加在方法上那么所有调用getInstance的线程都要去竞争锁，但是其实除了第一次初始化instance对象，
+        // 其他的时候都可以通过空判断直接获得instance，所以同步块放在if判断之后
+        if (instance == null) {
+            synchronized (SingletonInstance.class) {
+                // 这里还需要对instance做一次空判断的原因
+                // 在上一个对instance做空判断之后，到给SingletonInstance.class加锁之间这段时间内，有可能有其他的线程调用了getInstance方法对instance进行了初始化操作
+                if (instance == null) {
+                    instance = new SingletonInstance();
+                }
+            }
+        }
+        return instance;
+    }
+
+    public static void main(String[] args) {
+        SingletonInstance instance = new SingletonInstance();
+    }
+}
+```
+
+```
+0 new #3 <org/duo/classformat/SingletonInstance>
+3 dup
+4 invokespecial #4 <org/duo/classformat/SingletonInstance.<init> : ()V>
+7 astore_1
+8 return
+```
+
 
 
 ### Heap
@@ -440,3 +489,288 @@ invoke
    JVM最难的指令
    lambda表达式或者反射或者其他动态语言scala kotlin，或者CGLib ASM，动态产生的class，会用到的指令
 
+# 类加载-初始化
+
+## class cycle
+
+class的加载主要分为下面三步：
+
+1. 装载(loading)
+
+   将class文件从硬盘load到内存
+
+2. 链接(linking)
+
+   1. 校验(verification)
+
+      校验load进内存的文件符不符合class文件的格式标准(CAFEBABE)
+
+   2. 准备(preparation)
+
+      class中静态变量赋默认值(注意是默认值，比如整型的默认值是0)
+
+   3. 解析(resolution)
+
+      将类、方法、属性等符号引用解析为指针、偏移量等内存地址的直接引用
+
+3. 初始化(initializing)
+
+   class中静态变量赋初始值
+
+## 类加载器
+
+JVM是按需动态加载：
+
+自底向上检查该类是否已经加载(child==>parent)
+
+自顶向下进行实际加载(parent==>child)
+
+注意父加载器不是父类，双亲委派是一个孩子向父亲方向查找，然后父亲向孩子方向加载的过程。
+
+双亲委派机制是为了保证每一个类在各个类加载器中都是同一个类。一个非常明显的目的就是保证java官方的类库<JAVA_HOME>\lib和扩展类库<JAVA_HOME>\lib\ext的加载安全性，不会被开发者覆盖。例如类java.lang.Object，它存放在rt.jar之中，无论哪个类加载器要加载这个类，最终都是委派给启动类加载器加载，因此Object类在程序的各种类加载器环境中都是同一个类。
+
+| 名称               | 范围                                                    |      |
+| ------------------ | ------------------------------------------------------- | ---- |
+| Bootstrap          | 加载lib/rt.jar等核心类，C++实现                         |      |
+| Extension          | 加载扩展jar包jre/lib/ext/*.jar，或由-Djava.ext.dirs指定 |      |
+| App                | 加载classpath指定内容                                   |      |
+| Custom ClassLoader | 自定义ClassLoader                                       |      |
+
+## 自定义类加载器
+
+```java
+package org.duo.classloader;
+
+import org.duo.Hello;
+
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.lang.reflect.Method;
+
+/**
+ * 通过继承ClassLoader的自定义classloder可以指定父classloder也可以使用默认的父classloder
+ * 如果需要指定父classloder则初始化自定义的classloder时使用带参数的构造方法：ClassLoader(ClassLoader parent)
+ * 如果使用默认的父classloder则使用无参的构造方法
+ * 在ClassLoader中无参的构造方法，实际会调用this(checkCreateClassLoader(), getSystemClassLoader());
+ * 而ClassLoader.getSystemClassLoader()返回的是AppClassLoader
+ * 所以自定义的classloder一般默认的父classloder是AppClassLoader
+ */
+public class CustomClassLoader extends ClassLoader {
+
+    @Override
+    /**
+     * 重写loadClass会打破双亲委派机制
+     * 所以一般的自定义ClassLoader只要继承ClassLoader并重写findClass方法
+     * 先将class文件以二进制的形式读入内存，然后再调用defineClass将二进制转化为类对象(byte[] -> Class clazz)
+     */
+    protected Class<?> findClass(String name) throws ClassNotFoundException {
+        File f = new File("D:\\intellij-workspace\\juc\\out\\production\\juc", name.replace(".", "\\").concat(".class"));
+        try {
+            FileInputStream fis = new FileInputStream(f);
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            int b = 0;
+            while ((b = fis.read()) != -1) {
+                baos.write(b);
+            }
+            byte[] bytes = baos.toByteArray();
+            baos.close();
+            fis.close();//可以写的更加严谨
+            return defineClass(name, bytes, 0, bytes.length);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return super.findClass(name); //throws ClassNotFoundException
+    }
+
+    public static void main(String[] args) throws Exception {
+
+        ClassLoader l = new CustomClassLoader();
+
+        //如果这个准备被加载的类：org.duo.Hello在当前classpath下，那么上面的findClass是执行不到的
+        //因为org.duo.Hello会被CustomClassLoader的父加载器：sun.misc.Launcher$AppClassLoader加载进来
+        Class clazz = l.loadClass("org.duo.Hello");
+        Hello h = (Hello) clazz.newInstance();
+        h.m();
+
+//        //如果这个准备被加载的类：org.duo.bytecode.ClassFormat不在当前classpath，那么上面的findClass将被执行
+//        //由于加载的类不在当前classpath中，所以需要反射才能执行被加载的类中的方法
+//        Class clazz = l.loadClass("org.duo.bytecode.ClassFormat");
+//        Method method = clazz.getMethod("print");
+//        method.invoke(clazz.newInstance());
+
+        System.out.println("ClassLoader.getSystemClassLoader ==>" + ClassLoader.getSystemClassLoader());
+        System.out.println(clazz.getName() + "的类加载器为：" + clazz.getClassLoader());
+    }
+}
+```
+
+class文件加密
+
+```java
+package org.duo.classloader;
+
+import org.duo.Hello;
+
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+
+/**
+ * 通过继承ClassLoader的自定义classloder可以指定父classloder也可以使用默认的父classloder
+ * 如果需要指定父classloder则初始化自定义的classloder时使用带参数的构造方法：ClassLoader(ClassLoader parent)
+ * 如果使用默认的父classloder则使用无参的构造方法
+ * 在ClassLoader中无参的构造方法，实际会调用this(checkCreateClassLoader(), getSystemClassLoader());
+ * 而ClassLoader.getSystemClassLoader()返回的是AppClassLoader
+ * 所以自定义的classloder一般默认的父classloder是AppClassLoader
+ */
+public class CustomClassLoaderWithEncription extends ClassLoader {
+
+    public static int seed = 0B10110110;
+
+    @Override
+    /**
+     * 重写loadClass会打破双亲委派机制
+     * 所以一般的自定义ClassLoader只要继承ClassLoader并重写findClass方法
+     * 先将class文件以二进制的形式读入内存，然后再调用defineClass将二进制转化为类对象(byte[] -> Class clazz)
+     */
+    protected Class<?> findClass(String name) throws ClassNotFoundException {
+        File f = new File("D:\\intellij-workspace\\jvm\\out\\production\\jvm", name.replace("\\.", "\\").concat(".msbclass"));
+        try {
+            FileInputStream fis = new FileInputStream(f);
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            int b = 0;
+            while ((b = fis.read()) != -1) {
+                //对读入的加密过的二进制再进行异或
+                baos.write(b ^ seed);
+            }
+            byte[] bytes = baos.toByteArray();
+            baos.close();
+            fis.close();//可以写的更加严谨
+            return defineClass(name, bytes, 0, bytes.length);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return super.findClass(name); //throws ClassNotFoundException
+    }
+
+    public static void main(String[] args) throws Exception {
+
+        encFile("org.duo.Hello");
+        ClassLoader l = new CustomClassLoaderWithEncription();
+
+        //如果这个准备被加载的类：org.duo.Hello在当前classpath下，那么上面的findClass是执行不到的
+        //因为org.duo.Hello会被CustomClassLoaderWithEncription的父加载器：sun.misc.Launcher$AppClassLoader加载进来
+        Class clazz = l.loadClass("org.duo.Hello");
+        Hello h = (Hello) clazz.newInstance();
+        h.m();
+
+        System.out.println("ClassLoader.getSystemClassLoader ==>" + ClassLoader.getSystemClassLoader());
+        System.out.println(clazz.getName() + "的类加载器为：" + clazz.getClassLoader());
+    }
+
+    /**
+     * 对生成的class文件进行加密
+     * 采用最简单的方式：对二进制的每一位进行异或(对异或完的值再进行异或就相当于解密)
+     *
+     * @param name 类名
+     * @throws Exception
+     */
+    private static void encFile(String name) throws Exception {
+        File f = new File("D:\\intellij-workspace\\jvm\\out\\production\\jvm", name.replace(".", "\\").concat(".class"));
+        FileInputStream fis = new FileInputStream(f);
+        FileOutputStream fos = new FileOutputStream(new File("D:\\intellij-workspace\\jvm\\out\\production\\jvm", name.replace(".", "\\").concat(".msbclass")));
+        int b = 0;
+        while ((b = fis.read()) != -1) {
+            fos.write(b ^ seed);
+        }
+        fis.close();
+        fos.close();
+    }
+}
+```
+
+双亲委派的打破
+
+1. 重写loadClass()可以打破双亲委派
+2. JDK1.2之前，自定义ClassLoader都必须重写loadClass()
+3. ThreadContextClassLoader可以实现基础类调用实现类代码，通过thread.setContextClassLoader指定
+4. Tomcat服务器在启动的时候可以加载多个WebApp，不同的WebApp可能会用到同一类库的不同版本，因此Tomcat自定义的classloader必须打破双亲委派(因为ClassLoader的委派机制，在第一次加载完某个类后是不会重复再加载的，所以如果不打破，无法实现加载同一类库的不同版本的要求)
+
+```java
+package org.duo.classloader;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+
+/**
+ * 重写ClassLoader的loadclass方法，模拟tomcat的热部署
+ */
+public class ClassReloading extends ClassLoader {
+
+    /**
+     * 重写loadClass打破双亲委派
+     */
+    public Class<?> loadClass(String name) throws ClassNotFoundException {
+
+        File f = new File("D:\\intellij-workspace\\juc\\out\\production\\juc", name.replace(".", "\\").concat(".class"));
+        //当目录中存在指定的class文件则加载，否则交给父ClassLoader加载
+        if (!f.exists()) return super.loadClass(name);
+        try {
+            InputStream is = new FileInputStream(f);
+            byte[] b = new byte[is.available()];
+            is.read(b);
+            return defineClass(name, b, 0, b.length);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return super.loadClass(name);
+    }
+
+    public static void main(String[] args) throws Exception {
+
+        //相当于tomcat启动后生成classloder
+        ClassReloading m = new ClassReloading();
+        Class clazz = m.loadClass("org.duo.bytecode.ClassFormat");
+
+        //当代码更新后会生成新的class文件，如果想实现热部署就必须重新加载更新后的class文件
+        //所有这里先new一个新的classloder赋值给该WebApp的类加载器(相当于将原来的类加载器对象废除)，然后再重新loading指定路径下的class
+        m = new ClassReloading();
+        Class clazzNew = m.loadClass("org.duo.bytecode.ClassFormat");
+
+        System.out.println(clazz == clazzNew);
+    }
+}
+```
+
+
+
+# JVM的执行模式
+
+## 解释器
+
+bytecode intepreter
+
+## JIT
+
+Just In-Time compiler
+
+## 混合模式
+
+1. 混合使用解释器+热点代码编译
+2. 源代码经javac编译成字节码，class文件
+3. 程序字节码经过JIT环境变量进行判断，是否属于热点代码
+   - 多次被调用的方法(方法计数器：监测方法执行频率)
+   - 多次被调用的循环(循环计数器：检测循环执行频率)
+4. 如果经判断属于热点代码，则直接由JIT编译为具体硬件处理器机器码
+5. 如果经判断不是热点代码，则直接由解释器解释执行
+
+## 参数
+
+- -Xmixed 默认为混合模式，开始解释执行，启动速度较快 对热点代码实行检测和编译
+- -Xint 使用编译模式，启动很快执行稍慢
+- -Xcomp 使用纯编译模式，执行很快，启动很慢
+- -XX:CompileThreshold = 10000

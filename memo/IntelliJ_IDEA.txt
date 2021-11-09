@@ -30,7 +30,7 @@ Ctrl + F12  IDEA中在类中查找方法（第一步：Ctrl + F12，第二步：
 Alt  + / 	    基础代码补全，默认为：Ctrl + Space在Windows系统上被输入法占用，故修改为：Alt  + /
 Alt  + 7        查看类中的所有方法
 Alt + Insert 	代码自动生成，如生成对象的 set / get 方法，构造函数，toString() 等
-Alt + F7        查找类 & 方法在哪里被使用
+Alt + F7        查找类或者方法在哪里被使用
 
 Ctrl + Alt + L 	格式化代码，可以对当前文件和整个包目录使用
 Ctrl + Alt + O 	优化导入的类，可以对当前文件和整个包目录使用

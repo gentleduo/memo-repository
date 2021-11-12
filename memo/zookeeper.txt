@@ -85,6 +85,7 @@ create -s /app2 "url2" 带序号
 zookeeper-api
 create	               在本地目录树中创建一个节点
 delete	               删除一个节点
+rmr                    删除节点及所包含的数据
 exists	               测试本地是否存在目标节点
 get/set data	       从目标节点上读取/写数据
 get/set ACL	           获取/设置目标节点访问控制列表信息

@@ -163,6 +163,30 @@ AUTO_OFFSET_RESET_CONFIG设置为earliest表示将从最小的offset开始消费
 启动kafka
 bin/kafka-server-start.sh -daemon  config/server.properties
 
+停止kafka
+bin/kafka-server-stop.sh
+
+创建topic
+bin/kafka-topics.sh --create --zookeeper server01:2181 --partitions 3 --replication-factor 2 --topic gentleduo-topic-1 
+
+删除topic
+bin/kafka-topics.sh --delete --zookeeper server01:2181 --topic test-topic-1
+
 kafka命令行consumer
 bin/kafka-console-consumer.sh --bootstrap-server server01:9092 --from-beginning --topic gentleduo-topic-1
 
+查看topic信息
+bin/kafka-topics.sh --list --zookeeper server01:2181
+bin/kafka-topics.sh --describe --zookeeper server01:2181 --topic gentleduo-topic-1
+bin/kafka-topics.sh --describe --zookeeper server01:2181 --topic __consumer_offsets
+
+解决kafka集群由于默认的__consumer_offsets这个topic的默认的副本数为1而存在的单点故障问题
+__consumer_offsets这个topic是由kafka自动创建的，默认50个，但是都存在一台kafka服务器上，经测试，如果将存储consumer_offsets的这台机器kill掉，所有的消费者都停止消费了。由于__consumer_offsets这个用于存储offset的分区是由kafka服务器默认自动创建的，那么它在创建该分区的时候，分区数是固定的50，副本数是通过server.properties中的offsets.topic.replication.factor指定的，它的默认值就是1。__consumer_offsets是一个非常重要的topic，如果只有一个副本的话，就存在单点故障，也就是如果该分区所在的节点宕机了的话，我们的消费者就无法正常消费数据了。
+
+如果你的__consumer_offsets这个topic已经被创建了，而且只存在一台broker上，如果你直接使用命令删除这个topic是会报错了，提示这是kafka内置的topic，禁止删除。可以停掉集群，在zookeeper中删除
+rmr /brokers/topics/__consumer_offsets
+rmr /config/topics/__consumer_offsets
+
+修改kafka的核心配置文件server.properties
+num.partitions=3
+offsets.topic.replication.factor=3

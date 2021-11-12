@@ -774,3 +774,34 @@ Just In-Time compiler
 - -Xint 使用编译模式，启动很快执行稍慢
 - -Xcomp 使用纯编译模式，执行很快，启动很慢
 - -XX:CompileThreshold = 10000
+
+
+
+
+
+# JVM分析
+
+## jstack
+
+可以使用jstack -l pid > jstack.tdump线程信息存入文件中，然后再从服务器下载到本地然后使用jvisualvm进行dump文件分析
+
+jstack入参说明
+
+- -F 当jstack [-l] pid没有相应的时候强制打印栈信息,如果直接jstack无响应时，用于强制jstack，一般情况不需要使用
+- -l 长列表. 打印关于锁的附加信息,例如属于java.util.concurrent的ownable synchronizers列表，会使得JVM停顿得长久得多（可能会差很多倍，比如普通的jstack可能几毫秒和一次GC没区别，加了-l 就是近一秒的时间），-l 建议不要用。一般情况不需要使用
+- -m 打印java和native c/c++ 框架的所有栈信息.可以打印JVM的堆栈,显示上Native的栈帧，一般应用排查不需要使用
+
+jstack出参说明
+
+- prio ： 表示线程优先级，就是Thread中定义的这个。
+- os_prio ： 表示操作系统级别的优先级
+- tid : 表示Java内的线程ID,同样在Thread类中
+- nid：表示操作系统级别的线程ID的16进制形式
+
+Top命令找出CPU占用较高的Java线程信息
+
+1. 第一步：首先使用top找出占用CPU较高的进程ID 
+2. 第二步：使用top -H -p pid查看该进程里占用CPU较高的线程ID 
+3. 第三步：把得到的线程ID转成16进制
+4. 第四步：在线程堆栈里找出线程ID对应的代码块，jstack -l 1541 | grep 0x610 -A 20
+

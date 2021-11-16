@@ -407,6 +407,9 @@ IA-32架构提供了几种机制用来强化或弱化内存排序模型，以处
 
 1. I/O指令、加锁指令、LOCK前缀以及串行化指令等，强制在处理器上进行较强的排序
 2. SFENCE指令（在Pentium III中引入）和LFENCE指令、MFENCE指令（在Pentium4和Intel Xeon处理器中引入）提供了某些特殊类型内存操作的排序和串行化功能
+   - sfence:  store| 在sfence指令前的写操作当必须在sfence指令后的写操作前完成。
+   - lfence：load | 在lfence指令前的读操作当必须在lfence指令后的读操作前完成。
+   - mfence：modify/mix | 在mfence指令前的读写操作当必须在mfence指令后的读写操作前完成。
 
 这些机制可以通过下面的方式使用：总线上的内存映射设备和其它I/O设备通常对向它们缓冲区写操作的顺序很敏感，I/O指令（IN指令和OUT指令）以下面的方式对这种访问执行强写操作的排序。在执行了一条I/O指令之前，处理器等待之前的所有指令执行完毕以及所有的缓冲区都被都被写入了内存。只有取指令和页表查询能够越过I/O指令，后续指令要等到I/O指令执行完毕才开始执行。
 
@@ -431,6 +434,207 @@ Thread-B读取变量i，那么：
 
 - Thread-B发现对应地址的缓存行被锁了，等待锁的释放，缓存一致性协议会保证它读取到最新的值
 
-### 总结：
+### 总结
 
-volatile通过LOCK#指令锁总线(或缓存行)，同时让其他线程高速缓存中的缓存行内容失效，然后向主存回写最新修改后的变量值，其他线程读取变量时发现对应地址的缓存行被锁，会等待锁的释放，然后通过缓存一致性协议保证读取到最新的值(即CPU得数据读取还是使用缓存一致性协议的)。加不加volatile缓存一致性协议(MESI)都存在，不加volatile由于MESI协议只可以保证缓存的一致性，但是无法保证实时性，所以会产生可见性问题。
+volatile通过LOCK#指令锁总线(或缓存行)，同时让其他线程高速缓存中的缓存行内容失效，然后向主存回写最新修改后的变量值，其他线程读取变量时发现对应地址的缓存行被锁，会等待锁的释放，然后通过缓存一致性协议保证读取到最新的值(即CPU的数据读取还是使用缓存一致性协议的)。加不加volatile缓存一致性协议(MESI)都存在，不加volatile由于MESI协议只可以保证缓存的一致性，但是无法保证实时性，所以会产生可见性问题。
+
+# 原子性
+
+# 可见性
+
+# 有序性
+
+## 指令重排序
+
+| 名称                    | 说明                                                         |
+| ----------------------- | ------------------------------------------------------------ |
+| 取指 IF                 | (InstrucTIon Fetch)从内存中取出指令                          |
+| 译码和取寄存器操作数 ID | (InstrucTIon Decode)把指令送到指令译码器进行译码，产生相应控制信号 |
+| 执行或者有效地址计算 EX | (InstrucTIon Execute)指令执行，在执行阶段的最常见部件为算术逻辑部件运算器(ArithmeTIc Logical Unit，ALU) |
+| 存储器访问 MEM          | 访存（Memory Access）是指存储器访问指令将数据从存储器中读出，或者写入存储器的过程 |
+| 写回 WB                 | 写回（Write-Back）是指将指令执行的结果写回通用寄存器组的过程 |
+
+单周期处理器(时钟周期1000ps)
+
+```
+IF ID EX MEM WB
+               IF ID EX MEM WB
+			                  IF ID EX MEM WB
+```
+
+流水线处理器(时钟周期200ps)指令不是一步可以执行完毕的，每个步骤涉及的硬件可能不同，指令的某一步骤在执行的时候，只会占用某个类型的硬件，例如：当A指令在取指的时候，B指令是可以进行译码、执行或者写回等操作的。所以可以使用流水线技术来执行指令。可以看到，当第2条指令执行时，第1条指令只是完成了取值操作。假如每个步骤需要1毫秒，那么如果指令2等待指令1执行完再执行，就需要等待5毫秒。而使用流水线后，只需要等待1毫秒。
+
+```
+IF ID EX MEM WB
+   IF ID EX  MEM WB
+      IF ID  EX  MEM WB
+```
+
+例如：A = B + C的处理，在ADD指令上的大叉表示一个中断，也就是在这里停顿了一下，因为R2中的数据还没准备好。由于ADD的延迟，后面的指令都要慢一个节拍。
+
+```
+LW  R1,B     IF ID EX MEM WB                     //LW表示load，把B的值加载到R1寄存器中
+LW  R2,C        IF ID EX  MEM WB                 //LW表示load，把C的值加载到R2寄存器中
+ADD R3,R1,R2       IF ID  X   EX MEM WB          //ADD是加法，把R1、R2的值相加，并存放到R3中
+SW  A,R3              IF  X   ID EX  MEM WB      //SW表示store存储，将R3寄存器的值保存到变量A中
+```
+
+再看复杂一点的情况
+
+```
+A = B + C 
+D = E + F
+LW  R1,B     IF ID EX MEM WB                     
+LW  R2,C        IF ID EX  MEM WB                 
+ADD R3,R1,R2       IF ID  X   EX MEM WB          
+SW  A,R3              IF  X   ID EX  MEM WB      
+LW  R4,E                  X   IF ID  EX  MEM WB 
+LW  R5,F                         IF  ID  EX  MEM WB
+ADD R6,R4,R5                         IF  ID  X   EX  MEM WB
+SW  D,R6                                 IF  X   ID  EX  MEM WB
+```
+
+可见上图中有不少停顿。为了减少停顿，我们只需要将LW R4,E和LW R5,F移动到前面执行。
+
+```
+LW  R1,B     IF ID EX MEM WB                     
+LW  R2,C        IF ID EX  MEM WB
+LW  R4,E           IF ID  EX  MEM WB                
+ADD R3,R1,R2          IF  ID  EX  MEM WB
+LW  R5,F                  IF  ID  EX  MEM WB       
+SW  A,R3                      IF  ID  EX  MEM WB      
+ADD R6,R4,R5                      IF  ID  EX  MEM WB
+SW  D,R6                              IF  ID  EX  MEM WB
+```
+
+可见指令重排序对提高CPU性能十分必要，但是要遵循happens-before规则
+
+1. 程序顺序原则：一个线程内保证语义的串行性(比如a=1;b=a+1;)
+2. volatile规则：volatile变量的写，先发生于读，这保证了volatile变量的可见性
+3. 锁规则：解锁（unlock）必然发生在随后的加锁（lock）前
+4. 传递性：A先于B，B先于C，那么A必然先于C
+5. 线程的start()方法先于它的每一个动作
+6. 线程的所有操作先于线程的终结（Thread.join()）
+7. 线程的中断（interrupt()）先于被中断线程的代码
+8. 对象的构造函数执行结束先于finalize()方法
+
+指令重排实例：
+
+```java
+package org.duo.ordering;
+
+public class Ordering {
+    private static int x = 0, y = 0;
+    private static int a = 0, b = 0;
+
+    public static void main(String[] args) throws InterruptedException {
+        int i = 0;
+        for (; ; ) {
+            i++;
+            x = 0;
+            y = 0;
+            a = 0;
+            b = 0;
+            Thread one = new Thread(new Runnable() {
+                public void run() {
+                    //由于线程one先启动，下面这句话让它等一等线程two. 可根据自己电脑的实际性能适当调整等待时间.
+                    //shortWait(100000);
+                    a = 1;
+                    x = b;
+                }
+            });
+
+            Thread other = new Thread(new Runnable() {
+                public void run() {
+                    b = 1;
+                    y = a;
+                }
+            });
+            one.start();
+            other.start();
+            one.join();
+            other.join();
+            String result = "第" + i + "次 (" + x + "," + y + "）";
+            if (x == 0 && y == 0) {
+                System.err.println(result);
+                break;
+            } else {
+                //System.out.println(result);
+            }
+        }
+    }
+    public static void shortWait(long interval) {
+        long start = System.nanoTime();
+        long end;
+        do {
+            end = System.nanoTime();
+        } while (start + interval >= end);
+    }
+}
+
+```
+
+## 如何保证特定情况下不乱序
+
+### 硬件层面
+
+1. SFENCE指令（在Pentium III中引入）和LFENCE指令、MFENCE指令
+2. LOCK前缀指令是一个Full Barrier，执行时会锁住内存子系统来确保执行顺序，甚至跨多个CPU。Software Locks通常使用了内存屏障或原子指令来实现变量可见性和保持程序顺序
+
+### JVM级别如何规范（JSR133）
+
+1. LoadLoad屏障：对于这样的语句Load1; LoadLoad; Load2， 在Load2及后续读取操作要读取的数据被访问前，保证Load1要读取的数据被读取完毕。
+2. StoreStore屏障：对于这样的语句Store1; StoreStore; Store2，在Store2及后续写入操作执行前，保证Store1的写入操作对其它处理器可见。
+3. LoadStore屏障：对于这样的语句Load1; LoadStore; Store2，在Store2及后续写入操作被刷出前，保证Load1要读取的数据被读取完毕。
+4. StoreLoad屏障：对于这样的语句Store1; StoreLoad; Load2， 在Load2及后续所有读取操作执行前，保证Store1的写入对所有处理器可见。
+
+### volatile的实现细节
+
+1. 字节码层面：ACC_VOLATILE
+
+2. JVM层面：volatile内存区的读写 都加屏障
+
+3. OS和硬件层面：在windows系统中利用lock指令实现(有可能linux的实现又不一样，JVM只定义了规范，在不同的操作系统及硬件上的实现也各不相同)
+
+4. 通过反汇编Java字节码，查看汇编层面对volatile关键字做了什么(windows系统)
+
+   - 下载hsdis工具
+
+   - 将hsdis-amd64.dll与hsdis-amd64.lib两个文件放在%JAVA_HOME%\jre\bin\server路径下
+
+   - 跑main函数之前，加入如下虚拟机参数：
+
+     -server
+
+     -Xcomp
+
+     -XX:+UnlockDiagnosticVMOptions
+
+     -XX:+PrintAssembly
+
+     -XX:CompileCommand=compileonly,*LazySingleton.getInstance
+
+     (它表示将LazySingleton类中的getInstance方法转换为汇编指令)
+
+
+```java
+public class LazySingleton {
+	private static volatile LazySingleton instance = null;
+	public static LazySingleton getInstance() {
+		if (instance == null) {
+			instance = new LazySingleton();
+		}
+		return instance;
+	}
+	public static void main(String[] args) {
+		LazySingleton.getInstance();
+	}
+}
+```
+
+### synchronized实现细节
+
+1. 字节码层面：ACC_SYNCHRONIZED、monitorenter、monitorexit
+2. JVM层面：C C++ 调用了操作系统提供的同步机制
+3. OS和硬件层面：X86 : lock cmpxchg / xxx
+

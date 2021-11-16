@@ -444,8 +444,6 @@ public class SingletonInstance {
 8 return
 ```
 
-
-
 ### Heap
 
 ### Method Area
@@ -746,8 +744,6 @@ public class ClassReloading extends ClassLoader {
 }
 ```
 
-
-
 # JVM的执行模式
 
 ## 解释器
@@ -775,9 +771,254 @@ Just In-Time compiler
 - -Xcomp 使用纯编译模式，执行很快，启动很慢
 - -XX:CompileThreshold = 10000
 
+# 对象的内存布局
 
+## 对象的创建过程
 
+1. class loading
+2. class linking(verification,preparation,resolution)
+3. class initializing
+4. 申请对象内存
+5. 成员变量赋默认值
+6. 调用构造方法<init>
+   1. 成员变量顺序赋初始值
+   2. 执行构造方法语句
 
+## 对象在内存中的存储布局
+
+### 观察虚拟机配置
+
+java -XX:+PrintCommandLineFlags --version
+
+### 普通对象
+
+1. 对象头：markword  8字节
+
+2. ClassPointer指针：-XX:+UseCompressedClassPointers 为4字节 不开启为8字节
+
+3. 实例数据
+
+   1. 引用类型：-XX:+UseCompressedOops 为4字节 不开启为8字节
+
+      Oops Ordinary Object Pointers
+
+4. Padding对齐，8的倍数
+
+### 数组对象
+
+1. 对象头：markword 8字节
+2. ClassPointer指针同上
+3. 数组长度：4字节
+4. 数组数据
+5. 对齐 8的倍数
+
+## 对象在内存中占用多少字节
+
+1. 新建项目ObjectSize （1.8）
+
+2. 创建文件ObjectSizeAgent
+
+   ```java
+   package com.mashibing.jvm.agent;
+   
+   import java.lang.instrument.Instrumentation;
+   
+   public class ObjectSizeAgent {
+       private static Instrumentation inst;
+   
+       public static void premain(String agentArgs, Instrumentation _inst) {
+           inst = _inst;
+       }
+   
+       public static long sizeOf(Object o) {
+           return inst.getObjectSize(o);
+       }
+   }
+   ```
+
+3. src目录下创建META-INF/MANIFEST.MF
+
+   ```
+   Manifest-Version: 1.0
+   Created-By: org.duo
+   Premain-Class: org.duo.jvm.agent.ObjectSizeAgent
+   
+   ```
+
+   注意Premain-Class这行必须是新的一行（回车 + 换行），确认idea不能有任何错误提示
+
+4. project structure - project settings - Artifacts设置完成后，继续点击Build–>Build Artifacts生成jar
+
+5. 在需要使用该Agent Jar的项目中引入该Jar包
+
+   project structure - project settings - library 添加该jar包
+
+6. 运行时需要该Agent Jar的类，加入VM参数：
+
+   ```
+   -javaagent:D:\intellij-workspace\agent\out\artifacts\agent_jar\agent.jar
+   ```
+
+7. 使用该类
+
+   ```java
+   package org.duo.jmm;
+   
+   import org.duo.jvm.agent.ObjectSizeAgent;
+   
+   public class SizeOfAnObject {
+   
+       public static void main(String[] args) {
+           System.out.println(ObjectSizeAgent.sizeOf(new Object()));
+           System.out.println(ObjectSizeAgent.sizeOf(new int[] {}));
+           System.out.println(ObjectSizeAgent.sizeOf(new P()));
+       }
+   
+       //一个Object占多少个字节
+       // -XX:+UseCompressedClassPointers -XX:+UseCompressedOops
+       // Oops = ordinary object pointers
+       private static class P {
+           //8 _markword
+           //4 _class pointer
+           int id;         //4
+           String name;    //4
+           int age;        //4
+           byte b1;        //1
+           byte b2;        //1
+           Object o;       //4
+           byte b3;        //1
+       }
+   }
+   ```
+
+## 对象头具体包括什么
+
+以32位的JDK为例
+
+| 锁状态   | 25bit                        | 4bit         | 1bit(是否偏向锁) | 2bit(锁标志位) |
+| -------- | ---------------------------- | ------------ | ---------------- | -------------- |
+| 轻量级锁 | 指向栈中锁记录的指针         | -            | -                | 00             |
+| 重量级锁 | 指向互斥量（重量级锁）的指针 | -            | -                | 10             |
+| GC标记   | 空                           | -            | -                | 11             |
+| 偏向锁   | 线程ID(23bit)-Epoch(2bit)    | 对象分代年龄 | 1                | 01             |
+| 无锁     | 对象的hashCode               | 对象分代年龄 | 0                | 01             |
+
+32位JDK的Mark Word
+
+|--------------------------------------------------------------------------------------------------------------------|----------------------------------|
+
+|                                             Mark Word (32 bits)                                                               |                 State                |
+
+| -------------------------------------------------------------------------------------------------------------------|----------------------------------|
+
+|                              hashcode:25                           |    age:4   |   biased_lock:0   |   01    |                Normal            |
+
+| -------------------------------------------------------------------------------------------------------------------|----------------------------------|
+
+|               thread:23          |        epoch:2             |    age:4   |   biased_lock:1   |   01    |                Biased              |
+
+| -------------------------------------------------------------------------------------------------------------------|----------------------------------|
+
+|                                                  ptr_to_lock_record:30                                          |   00   |    Lightweight Locked    |
+
+| -------------------------------------------------------------------------------------------------------------------|----------------------------------|
+
+|                                                  ptr_to_heavyweight_monitor:30                        |   10    |  Heavyweight Locked   |
+
+| -------------------------------------------------------------------------------------------------------------------|----------------------------------|
+
+|                                                                                                                                   |   11    |        Marked for GC       |
+
+| --------------------------------------------------------------------------------------------------------------------|---------------------------------|
+
+64位JDK的Mark Word
+
+|-------------------------------------------------------------------------------------------------------------------|-----------------------------------|
+
+|                                             Mark Word (64 bits)                                                               |                  State               |
+
+| -------------------------------------------------------------------------------------------------------------------|----------------------------------|
+
+|    unsed:25    |    hashcode:31    |    unsed:1  |  age:4   |   biased_lock:0     | 01     |                  Normal           |
+
+| -------------------------------------------------------------------------------------------------------------------|----------------------------------|
+
+|    unsed:54    |    epoch:2             |    unsed:1  |  age:4   |   biased_lock:1     | 01     |                  Biased            |
+
+| -------------------------------------------------------------------------------------------------------------------|----------------------------------|
+
+|                                                  ptr_to_lock_record:62                                          | 00     |    Lightweight Locked    |
+
+| -------------------------------------------------------------------------------------------------------------------|----------------------------------|
+
+|                                                  ptr_to_heavyweight_monitor:62                        | 10      |  Heavyweight Locked   |
+
+| -------------------------------------------------------------------------------------------------------------------|----------------------------------|
+
+|                                                                                                                                   | 11     |         Marked for GC       |
+
+| -------------------------------------------------------------------------------------------------------------------|----------------------------------|
+
+Monitor（管程）的基本概念：
+
+1. 管程：指的是管理共享变量以及对共享变量的操作过程，让他们支持并发。
+2. Java中的monitor:每个Java对象都可以关联一个monitor对象，如果对一个对象使用synchronized关键字，那个这个对象的对象头的markword就被设置指向monitor对象的指针。
+
+### synchronized的加锁过程分析：
+
+1. 刚开始Monitor中Owner为null
+2. 当Thread-2执行synchronized(obj)就会将Monitor的所有者Owner设置为Thread-2，Monitor中只能有一个Owner
+3. 在Thread-2上锁的过程中，如果Thread-3、Thread-4、Thread-5也来执行synchronized(obj)就会进入EntryList BLOCKED
+4. Thread-2执行完同步代码块的内容，然后唤醒EntryList中等待的线程来竞争锁
+5. WaitSet中的线程Thread-0、Thread-1是之前获得过锁，但条件不满足所以进入WAITING状态的线程
+6. 注意：
+   - synchronized必须是进入同一对象的monitor才有上述的效果
+   - 不加synchronized的对象不会关联监视器，不遵从以上规则
+
+### 轻量级锁：
+
+#### 加锁过程分析
+
+1. 在代码进入同步块的时候，如果同步对象锁状态为无锁状态（锁标志位为“01”状态，是否为偏向锁为“0”），虚拟机首先将在当前线程的栈帧中建立一个名为锁记录（Lock Record）的空间，用于存储锁对象目前的Mark Word的拷贝，官方称之为 Displaced Mark Word。
+2. 拷贝对象头中的Mark Word复制到锁记录中。
+3. 拷贝成功后，虚拟机将使用CAS操作尝试将对象的Mark Word更新为指向Lock Record的指针，并将Lock record里的owner指针指向object mark word。如果更新成功，则执行步骤（4），否则执行步骤（5）。
+4. 如果这个更新动作成功了，那么这个线程就拥有了该对象的锁，并且对象Mark Word的锁标志位设置为“00”，即表示此对象处于轻量级锁定状态，
+5. 如果这个更新操作失败了，虚拟机首先会检查对象的Mark  Word是否指向当前线程的栈帧，如果是就说明当前线程已经拥有了这个对象的锁，那就可以直接进入同步块继续执行。否则说明多个线程竞争锁，轻量级锁就要膨胀为重量级锁，锁标志的状态值变为“10”，Mark Word中存储的就是指向重量级锁（互斥量）的指针，后面等待锁的线程也要进入阻塞状态。  而当前线程便尝试使用自旋来获取锁，自旋就是为了不让线程阻塞，而采用循环去获取锁的过程。
+
+#### 解锁过程分析
+
+1. 通过CAS操作尝试把线程中复制的Displaced Mark Word对象替换当前的Mark Word。
+2. 如果替换成功，整个同步过程就完成了。
+3. 如果替换失败，说明有其他线程尝试过获取该锁（此时锁已膨胀），那就要在释放锁的同时，唤醒被挂起的线程。
+
+### 锁膨胀
+
+1. 当 Thread-1 进行轻量级加锁时，Thread-0 已经对该对象加了轻量级锁
+2. Thread1 为 Object 对象申请 Monitor 锁，让 Object 指向重量级锁地址,自己进入 Monitor 的 EntryList 阻塞等待
+3. 当 Thread-0 退出同步块解锁时，使用 CAS 将 Mark Word 的值恢复给对象头，必定失败。这时会进入重量级解锁流程，即按照  Monitor 地址找到 Monitor 对象，设置 Owner 为 null，唤醒 EntryList 中 BLOCKED 线程
+
+### 偏向锁
+
+引入偏向锁是为了在无多线程竞争的情况下尽量减少不必要的轻量级锁执行路径，因为轻量级锁的获取及释放依赖多次CAS原子指令，而偏向锁只需要在置换ThreadID的时候依赖一次CAS原子指令。轻量级锁是为了在线程交替执行同步块时提高性能，而偏向锁则是在只有一个线程执行同步块时进一步提高性能。
+
+- 轻量级锁
+  - 优点：轻量级别锁通过线程栈帧中的锁记录结构替代重量级锁，不需要关联monitor对象。
+  - 缺点：单个线程（没有其他线程与其竞争）使用轻量级锁，在**锁重入**的时候仍然需要执行CAS操作（栈帧中添加一个新的lock record）。
+  - 锁重入：同一线程多次对同一对象加锁。
+
+偏向锁为了克服轻量级锁的缺点而提出的。
+
+#### 加锁过程分析
+
+1. 访问Mark Word中偏向锁的标识是否设置成1，锁标志位是否为01——确认为可偏向状态。
+2. 如果为可偏向状态，则测试线程ID是否指向当前线程，如果是，进入步骤（5），否则进入步骤（3）。
+3. 如果线程ID并未指向当前线程，则通过CAS操作竞争锁。如果竞争成功，则将Mark Word中线程ID设置为当前线程ID，然后执行（5）；如果竞争失败，执行（4）。
+4. 如果CAS获取偏向锁失败，则表示有竞争。当到达全局安全点（safepoint）时获得偏向锁的线程被挂起，偏向锁升级为轻量级锁，然后被阻塞在安全点的线程继续往下执行同步代码。
+5. 执行同步代码。
+
+#### 解锁过程分析
+
+偏向锁的撤销在上述第四步骤中有提到**。**偏向锁只有遇到其他线程尝试竞争偏向锁时，持有偏向锁的线程才会释放锁，线程不会主动去释放偏向锁。偏向锁的撤销，需要等待全局安全点（在这个时间点上没有字节码正在执行），它会首先暂停拥有偏向锁的线程然后判断该线程是否仍然需要持有偏向锁，如果仍然需要持有偏向锁，则偏向锁升级为轻量级锁（标志位为“00”，偏向锁就是这个时候升级为轻量级锁的），如果不需要使用了，则可以将对象回复成无锁状态（标志位为“01”），然后重新偏向。
 
 # JVM分析
 

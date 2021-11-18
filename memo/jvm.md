@@ -1020,7 +1020,298 @@ Monitor（管程）的基本概念：
 
 偏向锁的撤销在上述第四步骤中有提到**。**偏向锁只有遇到其他线程尝试竞争偏向锁时，持有偏向锁的线程才会释放锁，线程不会主动去释放偏向锁。偏向锁的撤销，需要等待全局安全点（在这个时间点上没有字节码正在执行），它会首先暂停拥有偏向锁的线程然后判断该线程是否仍然需要持有偏向锁，如果仍然需要持有偏向锁，则偏向锁升级为轻量级锁（标志位为“00”，偏向锁就是这个时候升级为轻量级锁的），如果不需要使用了，则可以将对象回复成无锁状态（标志位为“01”），然后重新偏向。
 
-# JVM分析
+# GC Tuning
+
+## 垃圾发现
+
+- 引用计数法(reference count)：
+  - 引用计数器的实现很简单，对于一个对象A，只要有任何一个对象引用了A，则A的引用计数器就加1，当引用失效时，引用计数器就减1。只要对象A的引用计数器的值为0，则对象A就不可能再被使用。
+  - 引用计数法的问题：
+    1. 引用和去引用伴随加法和减法，影响性能
+    2. 很难处理循环引用
+- 根可达算法(Root Searching)
+  - which instances are root？
+    - JVM Stack
+    - native method stack
+    - run-time constant pool
+    - static references in method area
+    - clazz
+
+## 垃圾回收算法
+
+1. 标记清除(Mark-Sweep)：标记-清除算法是现代垃圾回收算法的思想基础。标记-清除算法将垃圾回收分为两个阶段：标记阶段和清除阶段。一种可行的实现是，在标记阶段，首先通过根节点，标记所有从根节点开始的可达对象。因此，未被标记的对象就是未被引用的垃圾对象。然后，在清除阶段，清除所有未被标记的对象。标记清除算法相对简单，在存活对象比较多的情况下效率较高，并且两遍扫描(一遍标记，一遍清除)，效率偏低，容易产生碎片。
+2. 复制算法(copying)：与标记-清除算法相比，复制算法是一种相对高效的回收方法，它将原有的内存空间分为两块，每次只使用其中一块，在垃圾回收时，将正在使用的内存中的存活对象复制到未使用的内存块中，之后，清除正在使用的内存块中的所有对象，交换两个内存的角色，完成垃圾回收。复制算法适用于存活对象较少的情况，只扫描一次且没有碎片，但是它最大的问题是：空间浪费、移动复制对象，需要调整对象引用。
+3. 标记压缩(Mark-Compact)：标记-压缩算法适合用于存活对象较多的场合，如老年代。它在标记-清除算法的基础上做了一些优化。和标记-清除算法一样，标记-压缩算法也首先需要从根节点开始，对所有可达对象做一次标记。但之后，它并不简单的清理未标记的对象，而是将所有的存活对象压缩到内存的一端。之后，清理边界外所有的空间。标记压缩算法不会产生碎片，方便对象分配，也不会造车空间浪费，但是需要扫描两次，并且移动对象，效率偏低。
+
+## 堆内逻辑分区
+
+新生代大量死去，少量存活，采用复制算法
+
+老年代存活率高，回收较少，采用MC或者MS
+
+```
+------------|-----------|-------------|---------------
+8           |  1        |  1          |     
+eden(伊甸)   |  survivor |  survivor   |  tenured(终身)
+--------------------------------------|---------------
+   new/young(新生代:1) -Xmn            |  old(老年代:2)  
+--------------------------------------|---------------
+                  -Xms - Xmx
+------------------------------------------------------	
+```
+
+MinorGC/YGC：年轻代空间耗尽时触发
+
+MajorGC/FGC：在老年代无法继续分配空间时触发，新生代和老年代同时进行回收	
+
+-XX:NewRatio：新生代(eden+2*s)和老年代的比值，例如：2表示 新生代:老年代=1:4，即年轻代占堆的1/5
+
+-XX:SurvivorRatio：设置两个Survivor区和eden的比，例如：8表示 两个Survivor:eden=2:8，即一个Survivor占年轻代的1/10
+
+-Xmn2G：设置年轻代大小为2G
+
+-Xms3550M：设置JVM初始内存为3550M。此值可以设置与-Xmx相同，以避免每次垃圾回收完成后JVM重新分配内存。
+
+-Xmx3550M：设置JVM最大可用内存为3550M。
+
+-Xss128K：设置每个线程的堆栈大小。JDK5.0以后每个线程堆栈大小为1M，以前每个线程堆栈大小为256K。更具应用的线程所需内存大小进行调整。在相同物理内存下，减小这个值能生成更多的线程。但是操作系统对一个进程内的线程数还是有限制的，不能无限生成，经验值在3000~5000左右。
+
+## YGC
+
+HotSpot JVM把年轻代分为了三部分：1个Eden区和2个Survivor区（分别叫from和to）默认比例为8：1；一般情况下，新创建的对象都会被分配到Eden区(一些大对象特殊处理),这些对象经过第一次Minor GC后，如果仍然存活，将会被移到Survivor区。对象在Survivor区中每熬过一次Minor GC，年龄就会增加1岁，当它的年龄增加到一定程度时，就会被移动到年老代中。因为年轻代中的对象基本都是朝生夕死的(80%以上)，所以在年轻代的垃圾回收算法使用的是复制算法，复制算法的基本思想就是将内存分为两块，每次只用其中一块，当这一块内存用完，就将还活着的对象复制到另外一块上面。复制算法不会产生内存碎片。在GC开始的时候，对象只会存在于Eden区和名为“From”的Survivor区，Survivor区“To”是空的。紧接着进行GC，Eden区中所有存活的对象都会被复制到“To”，而在“From”区中，仍存活的对象会根据他们的年龄值来决定去向。年龄达到一定值(年龄阈值，可以通过-XX:MaxTenuringThreshold来设置)的对象会被移动到年老代中，没有达到阈值的对象会被复制到“To”区域。经过这次GC后，Eden区和From区已经被清空。这个时候，“From”和“To”会交换他们的角色，也就是新的“To”就是上次GC前的“From”，新的“From”就是上次GC前的“To”。不管怎样，都会保证名为To的Survivor区域是空的。Minor GC会一直重复这样的过程，直到“To”区被填满，“To”区被填满之后，会将所有对象移动到年老代中。
+
+## 栈上分配
+
+1. 栈上分配指的是什么
+   - 标量替换：将线程中的私有对象打散，让它在栈上分配，而不是在堆上分配，也就是说，JVM不会创建对象，而会将该对象的成员变量以局部变量的形式分配在栈上。
+   - 逃逸分析：判断对象是否会被多个线程共享
+2. 栈上分配有什么好处
+   - 不需要GC介入去回收这个对象，出栈即释放资源，可以提高性能，原理：由于GC每次回收对象的时候，都会触发Stop The World，这时候所有线程都停止了，然后再去进行垃圾回收，如果对象频繁创建在我们的堆中，也就意味着也要频繁的暂停所有线程，这对于用户无非是非常影响体验的，栈上分配就是为了减少垃圾回收的次数
+3. 参数
+   - -XX:+DoEscapeAnalysis 开启逃逸分析；关闭逃逸分析则是-DoEscapeAnalysis
+   - -XX:+EliminateAllocations 开启标量替换
+   - -XX:+UseTLAB 开启栈上分配
+   - -XX:TLABWasteTargetPercent 占eden区的百分比，默认情况下仅占有整个Eden空间的1%
+
+## 常见的垃圾回收器
+
+### 年轻代常用的垃圾回收器
+
+1. Serial 年轻代 串行回收
+
+   a stop-the-world(STW), copying collector which uses a single GC thread(可以理解在进行回收的时候，其它的工作线程全部暂停)
+
+2. ParallelScavenge(PS) 年轻代 并行回收
+
+   a stop-the-world(STW), copying collector which uses multiple GC threads
+
+3. ParNew 年轻代 配合CMS的并行回收
+
+   a stop-the-world(STW), copying collector which uses multiple GC threads
+
+   it differs from "Parallel Scavenge" in that it has enhancements that make it usable with CMS
+
+   for example, "ParNew" does the synchronization needed so that it can run during the concurrent phases of CMS
+
+### 老年代常用的垃圾回收器
+
+1. SerialOld
+
+   a stop-the-world(STW), mark-sweep-compact collector that uses a single GC thread
+
+2. ParallelOld(PO)
+
+   a stop-the-world(STW), a compacting collector which uses multiple GC threads
+
+3. ConcurrentMarkSweep(CMS)
+
+   1.4版本后期引入，是里程碑式的GC，它开启了并发回收的过程，但不成熟，因此目前没有任何一个JDK版本的默认垃圾回收器是CMS。CMS主要是缩短stop-the-world(STW)的时间，CMS回收器存在的最大的问题：因为CMS采用的是标记清除(Mark-Sweep)算法，所以会产生内存碎片，当从eden区进入老年区的对象由于碎片问题找不到空间的时候就会使用SerialOld进行标记压缩，但是由于SerialOld是单线程，所以在内存比较大的情况下停顿时间就会很长。这个方案的解决方案是:降低触发CMS的阀值，保持老年代有足够的空间：-XX:CMSInitiatingOccupancyFraction=70是指设定CMS在对内存占用率达到70%的时候开始GC(因为CMS会有浮动垃圾,所以一般都较早启动GC);
+
+   CMS以下述四部实现a mostly concurrent, low-pause collector(并发的、低暂停的收集器)
+
+   1. 初始标记(initial mark):标记根对象，这个时候是stop-the-world(STW)的，但是由于根对象比较少所以停顿的时间很短
+   2. 并发标记(concurrent mark):和应用程序同时运行，即一边标记一边运行应用(这个时候由于应用在运行会不断的产生新的垃圾)，应用不会停只会慢一点
+   3. 重新标记(remark):标记在并发标记过程中产生的新垃圾，这个时候是stop-the-world(STW)的，由于新产生的垃圾并不多所以这个停顿的时间也不会很长
+   4. 并发清理(concurrent sweep):和应用程序同时运行，即一边清理一边运行应用(这个时候由于应用在运行会不断的产生新的垃圾：浮动垃圾)
+
+### 不分代的垃圾回收器
+
+1. G1(10ms)(逻辑上区分年轻代、老年代，物理上不区分)
+2. ZGC(1ms)PK C++(不分代)
+3. Shenandoah(不分代)
+4. Eplison(debug用)
+
+### 常见的垃圾回收器组合
+
+1. Serial + CMS
+2. Serial + SerialOld
+3. ParNew + CMS
+4. ParNew + SerialOld
+5. PS + SerialOld
+6. PS + ParallelOld
+
+### 常见垃圾回收器组合参数设定
+
+1. -XX:+UseSerialGC = Serial New(DefNew) + Serial Old
+
+   小型程序。默认情况下不会是这种选项，HotSpot会根据计算及配置和JDK版本自动选择收集器
+
+2. -XX:+UseParNewGC = ParNew + SerialOld
+
+   这组合已经很少用(在某些版本中已经废弃)
+
+3. -XX:+UseConc(urrent)MarkSweepGC = ParNew + CMS + Serial Old
+
+4. -XX:+UseParallelGC = ParallelScavenge + Parallel Old
+
+   1.8默认
+
+5. -XX:+UseParallelOldGC = ParallelScavenge + SerialOld Old
+
+6. -XX:+UseG1GC = G1
+
+7. Linux服务器中使用java -XX:+PrintCommandLineFlags -version无法打印默认GC的类型，但是可以通过jmap查看jvm采用的垃圾收集器
+   1.ps -ef|grep tomcat（获取tomcat的PID获得）
+   2.查看java垃圾收集器 jmap -heap pid
+   其中using thread-local object allocation下面就是采用的java垃圾收集器
+   比如Mark Sweep Compact GC、Concurrent Mark-Sweep GC、Garbage-First (G1) GC等
+
+## GC常用参数
+
+### 通用参数
+
+-Xmn -Xms -Xmx -Xss //年轻代 最小堆 最大堆 栈空间
+-XX:+UseTLAB //使用TLAB，默认打开
+-XX:+PrintTLAB //打印TLAB的使用情况
+-XX:TLABSize //设置TLAB大小
+-XX:+DisableExplictGC //System.gc()不管用 ，FGC
+-XX:+PrintFlagsFinal //打印所有系统最终参数值
+-XX:+PrintFlagsInitial //打印所有系统默认参数值
+-XX:+PrintGC //输出GC日志
+-XX:+PrintGCDetails //输出详细的GC日志信息
+-XX:+PrintHeapAtGC //在GC的前后打印出堆的信息，
+-XX:+PrintGCTimeStamps //输出GC的时间戳，以JVM启动时间为基准
+-XX:+PrintGCDateStamps //输出GC的时间戳，以日期的形式。
+-XX:+PrintGCApplicationConcurrentTime //打印应用程序时间
+-XX:+PrintGCApplicationStoppedTime  //打印暂停时长
+-XX:+PrintReferenceGC //记录回收了多少种不同引用类型的引用
+-XX:+PrintVMOptions //打印显式参数
+-XX:+PrintCommandLineFlags //打印显式隐式参数
+-verbose:class //类加载详细过程
+-Xloggc:/opt/log/gc.log //GC日志
+-XX:MaxTenuringThreshold //升代年龄，最大值15
+-XX:+UseSpining //开启自旋锁 
+-XX:PreBlockSpin  //更改自旋锁的自旋次数，使用这个参数必须先开启自旋锁
+-XX:CompileThreshold //通过JIT编译器，将方法编译成机器码的触发阀值，可以理解为调用方法的次数，例如调1000次，将方法编译为机器码
+-XX:+DoEscapeAnalysis //逃逸分析
+-XX:+EliminateAllocations //标量替换
+
+### Parallel常用参数
+
+-XX:SurvivorRatio  //新生代中Eden区域和Survivor区域(From区和To区)的比例，默认为8，就是Eden占新生代的8/10，From幸区和To幸存区各占新生代的1/10
+-XX:PreTenureSizeThreshold //大对象到底多大
+-XX:MaxTenuringThreshold   //该参数主要是控制新生代需要经历多少次GC晋升到老年代中的最大阈值
+-XX:+ParallelGCThreads     //并行收集器的线程数，同样适用于CMS，一般设为和CPU核数相同
+-XX:+UseAdaptiveSizePolicy //自动选择各区大小比例
+
+### CMS常用参数
+
+-XX:+UseConcMarkSweepGC                 // 使用CMS垃圾回收器
+-XX:ParallelCMSThreads                  // CMS线程数量
+-XX:CMSInitiatingOccupancyFraction      // 使用多少比例的老年代后开始CMS收集，默认是68%(近似值)，如果频繁发生SerialOld卡顿，应该调小。
+-XX:UseCMSCompactAtFullCollection       // 在FGC时进行压缩
+-XX:CMSFullGCsBeforeCompaction          // 多少次FGC之后进行压缩
+-XX:CMSClassUnloadingEnabled            // 
+-XX:CMSInitiatingPermOccupancyFraction  // 达到什么比例进行Perm回收
+GCTimeRatio                             // 设置GC时间占用程序运行时间的百分比
+-XX:MaxGCPauseMillis                    // 停顿时间，是一个建议时间，GC会尝试用各种手段达到这个时间，比如减少年轻代
+
+### G1常用参数
+
+-XX:UseG1GC                // 使用CMS垃圾回收器
+-XX:MaxGCPauseMillis       // 建议值，G1会尝试调整Young区的块数来达到这个值
+-XX:GCPauseIntervalMillis  // GC的间隔时间
+-XX:+G1HeapRegionSize      // 分区大小，建议逐渐增大该值，1 2 4 8 16 32。随着size增加，垃圾的存活时间更长，GC间隔更长，但每次GC的时间也会更长
+-XX:G1NewSizePercent       // 新生代最小比例，默认为5%
+-XX:G1MaxNewSizePercent    // 新生代最大比例，默认为60%
+-XX:GCTimeRatio            // GC时间建议比例，G1会根据这个值调整堆空间
+-XX:ConcGCThreads          // 线程数量
+-XX:InitiatingHeapOccupancyPercent  //启动G1的堆空间占用比例
+
+# JVM&GC分析
+
+## JVM参数
+
+HotSpot参数分类：
+
+1. 标准：-开头，所有的HotSpot都支持
+2. 非标准:-X开头，特定版本HotSpot支持特定命令
+3. 不稳定:-XX开头，下个版本可能取消
+4. 默认参数值：java -XX:+PrintFlagsInitial
+5. 最终参数值：java -XX:+PrintFlagsFinal -version
+6. 查找对应的参数：java -XX:+PrintFlagsFinal -version | grep GC
+
+## GC日志详解
+
+样例代码：
+
+```java
+import java.util.LinkedList;
+import java.util.List;
+
+public class HelloGC {
+
+	public static void main(String[] args) {
+		System.out.println("HelloGC");
+		List list = new LinkedList<>();
+		for (;;) {
+			byte[] bytes = new byte[1024 * 1024];
+			list.add(bytes);
+		}
+	}
+}
+```
+
+在linux环境javac编译后，执行以下命令：
+
+java -Xmn10M -Xms40M -Xmx60M -XX:+PrintCommandLineFlags -XX:+PrintGC HelloGC
+
+```
+[GC (Allocation Failure) [DefNew: 7675K->263K(9216K), 0.0020013 secs] 7675K->7431K(39936K), 0.0020304 secs] [Times: user=0.00 sys=0.00, real=0.00 secs]
+[Full GC (Allocation Failure) [Tenured: 50196K->50196K(51200K), 0.0013511 secs] 57608K->57596K(60416K), [Metaspace: 2510K->2510K(1056768K)], 0.0013692 secs] [Times: user=0.00 sys=0.00, real=0.00 secs]
+GC类型：GC、FullGC
+GC原因：Allocation Failure
+产生的年代：年轻代(DefNew)
+回收前后年轻代占用空间、年轻代总空间，以及回收时间：DefNew: 7675K->263K(9216K)
+回收前后堆占用空间、以及总堆空间：7675K->7431K(39936K)，注意第一次回收的时候old区还没有对象所有堆占用的空间等于年轻代占用的空间
+【Times: user=0.00 sys=0.00, real=0.00 secs】表示在linux中执行time ls命令分别在用户态、系统态以及总共花费的时间
+
+heap dump部分：
+Heap
+ def new generation   total 9216K, used 7723K [0x00000000fc400000, 0x00000000fce00000, 0x00000000fce00000)
+  eden space 8192K,  94% used [0x00000000fc400000, 0x00000000fcb8aec0, 0x00000000fcc00000)
+  from space 1024K,   0% used [0x00000000fcd00000, 0x00000000fcd00000, 0x00000000fce00000)
+  to   space 1024K,   0% used [0x00000000fcc00000, 0x00000000fcc00000, 0x00000000fcd00000)
+ tenured generation   total 51200K, used 50196K [0x00000000fce00000, 0x0000000100000000, 0x0000000100000000)
+   the space 51200K,  98% used [0x00000000fce00000, 0x00000000fff05098, 0x00000000fff05200, 0x0000000100000000)
+ Metaspace       used 2541K, capacity 4486K, committed 4864K, reserved 1056768K
+  class space    used 275K, capacity 386K, committed 512K, reserved 1048576K
+年轻代：def new generatio(total=eden space + 1个survivor)
+老年代：tenured generation
+元数据：Metaspace，class space指的是元数据区中专门存储类信息的空间
+[0x00000000fc400000, 0x00000000fcb8aec0, 0x00000000fcc00000)
+后面的内存地址指的是：起始地址，使用空间结束地址，整体空间结束地址
+used 2541K, capacity 4486K, committed 4864K, reserved 1056768K
+used 已经使用
+capacity 总容量
+committed 虚拟内存占用
+reserved 虚拟内存保留
+```
+
+设定GC日志参数
+-Xloggc:/opt/logs/gc-%t.log -XX:+UseGCLogFileRotation -XX:NumberOfGCLogFiles=5 -XX:GCLogFileSize=1K -XX:+PrintGCDetails -XX:+PrintGCDateStamps -XX:+PrintGCCause
+例如：
+java -Xmn10M -Xms40M -Xmx60M -XX:+PrintCommandLineFlags -Xloggc:/opt/logs/gc-%t.log -XX:+UseGCLogFileRotation -XX:NumberOfGCLogFiles=5 -XX:GCLogFileSize=1K -XX:+PrintGCDetails -XX:+PrintGCDateStamps -XX:+PrintGCCause HelloGC
 
 ## jstack
 
@@ -1046,3 +1337,51 @@ Top命令找出CPU占用较高的Java线程信息
 3. 第三步：把得到的线程ID转成16进制
 4. 第四步：在线程堆栈里找出线程ID对应的代码块，jstack -l 1541 | grep 0x610 -A 20
 
+## jconsole
+
+1. 在linux服务器中使用如下参数启动应用
+
+   java -Djava.rmi.server.hostname=192.168.56.110 -Dcom.sun.management.jmxremote -Dcom.sun.management.jmxremote.port=8999 -Dcom.sun.management.jmxremote.authenticate=false -Dcom.sun.management.jmxremote.ssl=false HelloGC
+
+2. 在windows环境中使用jdk自带的工具jconsole工具连接远程linux服务器(192.168.56.110:8999)
+
+## jvisualvm
+
+1. 远程分析
+
+   1. 在linux服务器中使用如下参数启动应用
+
+      java -Djava.rmi.server.hostname=192.168.56.110 -Dcom.sun.management.jmxremote -Dcom.sun.management.jmxremote.port=8999 -Dcom.sun.management.jmxremote.authenticate=false -Dcom.sun.management.jmxremote.ssl=false HelloGC
+
+   2. 在windows环境中使用jdk自带的工具jvisualvm工具连接远程linux服务器(192.168.56.110:8999 )
+
+2. 本地分析
+
+   1. 将linux服务器生成的dump文件下载的windows本地
+   2. 打开C:\Program Files\Java\jdk1.8.0_144\bin目录下的jvisualvm.exe，点击文件==>装入
+
+## jmap
+
+1. jmap -histo pid | head -20 //使用jmap找到堆中占用内存量最大的20个类(查找有多少个对象产生)
+
+   线上系统，jmap -histo可以执行（影响有，但是比较小）
+
+2. jmap -dump:format=b,file=/opt/heapDump.hprof pid
+
+   线上系统，内存特别大，堆转储文件命令：jmap -dump执行期间会对进程产生很大影响，甚至卡顿（所以线上系统慎用jmap），解决方案如下：
+
+   1. 设定参数HeapDumpOnOutOfMemoryError，OOM的时候会自动产生堆转储文件（也会有影响，也不建议）
+
+      比如：java -Xmn10M -Xms40M -Xmx60M -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/opt/java_heapdump.hprof HelloGC
+
+      - -XX:+HeapDumpOnOutOfMemoryError参数表示当JVM发生OOM时，自动生成DUMP文件。
+      - -XX:HeapDumpPath=${目录}参数表示生成DUMP文件的路径，也可以指定文件名称，例如：-XX:HeapDumpPath=${目录}/java_heapdump.hprof。如果不指定文件名，默认为：java_<pid>_<date>_<time>_heapDump.hprof。
+
+   2. 很多服务器备份(高可用)，停掉这台服务器对其他服务器不影响（比较好的方式）
+
+   3. 在线定位，比如阿里的arthas（在线定位很困难）
+
+## jhat
+
+1. jhat -J-mx512M xxx.hprof
+2. jhat命令会在linux服务器上启动一个web服务，在windows通过链接：http://192.168.56.110:7000访问（拉倒最后：找到对应的链接）

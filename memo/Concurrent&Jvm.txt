@@ -1531,7 +1531,7 @@ MajorGC/FGC:在老年代无法继续分配空间时触发，新生代和老年代同时进行回收
   设置两个Survivor区和eden的比
   8表示 两个Survivor:eden=2:8，即一个Survivor占年轻代的1/10
 -Xmn2G：设置年轻代大小为2G
--Xms3550M：设置JVM促使内存为3550M。此值可以设置与-Xmx相同，以避免每次垃圾回收完成后JVM重新分配内存。
+-Xms3550M：设置JVM初始内存为3550M。此值可以设置与-Xmx相同，以避免每次垃圾回收完成后JVM重新分配内存。
 -Xmx3550M：设置JVM最大可用内存为3550M。
 -Xss128K：设置每个线程的堆栈大小。JDK5.0以后每个线程堆栈大小为1M，以前每个线程堆栈大小为256K。更具应用的线程所需内存大小进行调整。在相同物理内存下，减小这个值能生成更多的线程。但是操作系统对一个进程内的线程数还是有限制的，不能无限生成，经验值在3000~5000左右。
 
@@ -1639,11 +1639,11 @@ G1是逻辑分代，物理不分代，除此之外不仅逻辑分代，而且物理分代。
 -XX:+UseParNewGC = ParNew + SerialOld
 这组合已经很少用(在某些版本中已经废弃)
 -XX:+UseConc(urrent)MarkSweepGC = ParNew + CMS + Serial Old
--XX:+UseParallelGC = ParallelScavenge + Parallel Old(1.8默认)[PS + SerialOld]
--XX:+UseParallelOldGC = ParallelScavenge + Parallel Old
+-XX:+UseParallelGC = ParallelScavenge + Parallel Old(1.8默认)
+-XX:+UseParallelOldGC = ParallelScavenge + SerialOld Old
 -XX:+UseG1GC = G1
 Linux中没有找到默认GC的查看方法，而windows中会打印UseParallelGC
-java +XX:+PrintCommandLineFlags -version
+java -XX:+PrintCommandLineFlags -version
 通过GC的日志来分辨
 Linux下1.8版本默认的垃圾回收器到底是什么：
 1.8.0_181默认 (看不出来)

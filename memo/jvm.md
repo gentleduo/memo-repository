@@ -893,6 +893,18 @@ java -XX:+PrintCommandLineFlags --version
 
 ## 对象头具体包括什么
 
+### 工具
+
+JOL = Java Object Layout
+
+```
+<dependency>
+    <groupId>org.openjdk.jol</groupId>
+    <artifactId>jol-core</artifactId>
+    <version>0.9</version>
+</dependency>
+```
+
 以32位的JDK为例
 
 | 锁状态   | 25bit                        | 4bit         | 1bit(是否偏向锁) | 2bit(锁标志位) |
@@ -1023,6 +1035,123 @@ http://openjdk.java.net/ -> Mercurial -> jdk8u -> hotspot -> browse -> /src/shar
 #### 解锁过程分析
 
 偏向锁的撤销在上述第四步骤中有提到**。**偏向锁只有遇到其他线程尝试竞争偏向锁时，持有偏向锁的线程才会释放锁，线程不会主动去释放偏向锁。偏向锁的撤销，需要等待全局安全点（在这个时间点上没有字节码正在执行），它会首先暂停拥有偏向锁的线程然后判断该线程是否仍然需要持有偏向锁，如果仍然需要持有偏向锁，则偏向锁升级为轻量级锁（标志位为“00”，偏向锁就是这个时候升级为轻量级锁的），如果不需要使用了，则可以将对象回复成无锁状态（标志位为“01”），然后重新偏向。
+
+#### 启动偏向锁设置
+
+JVM提供了参数- XX:+UseBiasedLocking以开启或者关闭偏向锁优化（默认开启），但jvm延迟了4s启动偏向锁，想要在程序一启动时，就启动偏向锁，有两种方式：
+
+- 程序启动时，让主线程睡眠超过4s，这样就会在jvm延迟启动偏向锁后，才开始运行程序。
+- 设置jvm启动参数，添加-XX:BiasedLockingStartupDelay=0，即设置延迟启动偏向锁的时间为0s，这样jvm启动时，偏向锁就会启动。
+
+#### 批量重偏向与批量撤销
+
+从偏向锁的加锁解锁过程中可看出，当只有一个线程反复进入同步块时，偏向锁带来的性能开销基本可以忽略，但是当有其他线程尝试获得锁时，就需要等到safe point时，再将偏向锁撤销为无锁状态或升级为轻量级，会消耗一定的性能，所以在多线程竞争频繁的情况下，偏向锁不仅不能提高性能，还会导致性能下降。于是，就有了批量重偏向与批量撤销的机制。
+
+批量重偏向(bulk rebias)：如果一个类的大量对象被一个线程T1执行了同步操作，也就是大量对象先偏向了T1，T1同步结束后，另一个线程也将这些对象作为锁对象进行操作，会导偏向锁重偏向的操作。
+
+批量撤销(bulk revoke)机制是为了解决：当一个偏向锁如果撤销次数到达40的时候就认为这个对象设计得有问题；那么JVM会把这个对象所对应的类所有的对象都撤销偏向锁；并且新实例化的对象也是不可偏向的。
+
+批量重偏向与批量撤销相关的JVM参数：
+
+1. BiasedLockingBulkRebiasThreshold：偏向锁批量重偏向的默认阀值为20次。
+2. BiasedLockingBulkRevokeThreshold：偏向锁批量撤销的默认阀值为40次。
+3. BiasedLockingDecayTime：距上次批量重偏向25秒内，撤销计数达到40，就会发生批量撤销。每隔(>=)25秒，会重置在[20, 40)内的计数，这意味着可以发生多次批量重偏向。
+
+epoch：每个class对象会有一个对应的epoch字段，每个处于偏向锁状态对象的Mark Word中也有该字段，其初始值为创建该对象时class中的epoch的值。每次发生批量重偏向时，就将class对象中的该值+1，同时遍历JVM中所有线程的栈，找到该class所有正处于偏向锁状态的锁实例对象，将其epoch字段改为新值。当触发批量重偏向的线程再次给该类的其他对象加锁时发现该对象的epoch值和class的epoch不相等，就知道发生了重偏向，将不会执行撤销偏向锁操作，而是直接将其markword的线程Id改成当前线程Id。每次执行批量撤销时，将class的markword修改为不可偏向无锁状态，也就是偏向标记位为0，锁标记位为01。接着遍历所有当前存活的线程的栈，找到该class所有正处于偏向锁状态的锁实例对象，执行偏向锁的撤销操作。
+
+示例代码
+
+```java
+package org.duo.markword;
+
+import org.openjdk.jol.info.ClassLayout;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.locks.LockSupport;
+
+public class BulkBias {
+
+    static Thread A;
+    static Thread B;
+    static Thread C;
+    static int loopFlag = 40;
+
+    public static void main(String[] args) {
+        try {
+            Thread.sleep(5000);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+
+        final List<Object> list = new ArrayList<>();
+        // 线程A：1-40加锁都是101，即偏向锁状态；线程A首次加的锁，并且没有别的线程竞争，所以对象头是偏向锁状态，对应的Thread Id为线程A
+        A = new Thread(() -> {
+            for (int i = 0; i < loopFlag; i++) {
+                BiasedLocking c = new BiasedLocking();
+                list.add(c);
+                System.out.println(String.format("加锁前第 %s 次 %s", String.valueOf(i + 1), ClassLayout.parseInstance(c).toPrintable()));
+                synchronized (c) {
+                    System.out.println(String.format("加锁中第 %s 次 %s", String.valueOf(i + 1), ClassLayout.parseInstance(c).toPrintable()));
+                }
+                System.out.println(String.format("加锁结束第 %s 次 %s", String.valueOf(i + 1), ClassLayout.parseInstance(c).toPrintable()));
+            }
+            System.out.println("============线程A=============");
+            //防止竞争 执行完后叫醒 线程B
+            LockSupport.unpark(B);
+        });
+        // 线程B：1-19都执行了锁撤销，第20再进行锁撤销的话就到达BiasedLockingBulkRebiasThreshold的次数，触发批量重偏向，线程id指向线程B；
+        B = new Thread(() -> {
+            //防止竞争 先睡眠线程B
+            LockSupport.park();
+            for (int i = 0; i < loopFlag; i++) {
+                BiasedLocking c = (BiasedLocking) list.get(i);
+                System.out.println(String.format("加锁前第 %s 次 %s", String.valueOf(i + 1), ClassLayout.parseInstance(c).toPrintable()));
+                synchronized (c) {
+                    System.out.println(String.format("加锁中第 %s 次 %s", String.valueOf(i + 1), ClassLayout.parseInstance(c).toPrintable()));
+                }
+                //前19次是轻量级锁，释放之后为无锁不可偏向
+                //但是第20次是偏向锁 偏向线程B 释放之后依然是偏向线程B
+                System.out.println(String.format("加锁结束第 %s 次 %s", String.valueOf(i + 1), ClassLayout.parseInstance(c).toPrintable()));
+            }
+            // 新创建的对象为无锁可偏向状态，并且epoch=01(10进制中的1)
+            System.out.println("新产生的对象" + ClassLayout.parseInstance(new BiasedLocking()).toPrintable());
+            System.out.println("============线程B=============");
+            //防止竞争 执行完后叫醒 线程C
+            LockSupport.unpark(C);
+        });
+        // 线程C：20-40又都执行了锁撤销，到达BiasedLockingBulkRevokeThreshold的次数，触发批量撤销
+        C = new Thread(() -> {
+            //防止竞争 先睡眠线程C
+            LockSupport.park();
+            // 如果在这里让线程休眠超过BiasedLockingDecayTime设定的时间(默认25s)，也就是说第一次触发批量重偏向后，25s内没有触发批量锁撤销，那么偏向锁撤销计数器会被重置
+            // 那么接下来的20次锁撤销会触发第二次批量重偏向
+            try {
+                Thread.sleep(25000);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+            for (int i = 20; i < loopFlag; i++) {
+                BiasedLocking c = (BiasedLocking) list.get(i);
+                System.out.println(String.format("加锁前第 %s 次 %s", String.valueOf(i + 1), ClassLayout.parseInstance(c).toPrintable()));
+                synchronized (c) {
+                    System.out.println(String.format("加锁中第 %s 次 %s", String.valueOf(i + 1), ClassLayout.parseInstance(c).toPrintable()));
+                }
+                System.out.println(String.format("加锁结束第 %s 次 %s", String.valueOf(i + 1), ClassLayout.parseInstance(c).toPrintable()));
+            }
+            // 如果，触发批量撤销，那么新创建的锁对象仍然为无锁不可偏向状态
+            // 如果，触发第二次批量重偏向(即线程C在运行前先睡眠25s)，那么新创建的对象为无锁可偏向状态，并且epoch=10(10进制中的2)
+            System.out.println("新产生的对象" + ClassLayout.parseInstance(new BiasedLocking()).toPrintable());
+        });
+        A.start();
+        B.start();
+        C.start();
+    }
+}
+
+class BiasedLocking {
+}
+```
 
 ### 锁重入
 

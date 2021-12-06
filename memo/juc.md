@@ -2810,6 +2810,457 @@ public abstract class AbstractQueuedSynchronizer
 
 ```
 
+# 异步执行任务
+
+## FutureTask
+
+FutureTask实现了RunnableFuture接口，即Runnable接口和Future接口。其中Runnable接口对应了FutureTask名字中的Task，代表FutureTask本质上也是表征了一个任务。而Future接口就对应了FutureTask名字中的Future，表示了我们对于这个任务可以执行某些操作，例如，判断任务是否执行完毕，获取任务的执行结果，取消任务的执行等。所以简单来说，FutureTask本质上就是一个Task，我们可以把它当做简单的Runnable对象来使用。但是它又同时实现了Future接口，因此我们可以对它所代表的Task进行额外的控制操作。
+
+```java
+package java.util.concurrent;
+import java.util.concurrent.locks.LockSupport;
+
+
+public class FutureTask<V> implements RunnableFuture<V> {
+    /**
+     * state属性是贯穿整个FutureTask的最核心的属性，该属性的值代表了任务在运行过程中的状态，
+     * 随着任务的执行，状态将不断地进行转变，从上面的定义中可以看出，总共有7种状态：包括了1个初始态，2个中间态和4个终止态。
+     * 注意，这里的执行完毕是指传入的Callable对象的call方法执行完毕，或者抛出了异常。所以这里的COMPLETING的名字显得有点迷惑性，它并不意味着任务正在执行中，而意味着call方法已经执行完毕，正在设置任务执行的结果。
+     * 而将一个任务的状态设置成终止态只有三种方法：
+     * set
+     * setException
+     * cancel
+     */
+    private volatile int state;                // 任务的状态
+    private static final int NEW          = 0; // 任务的初始状态
+    private static final int COMPLETING   = 1; // 正在设置任务结果
+    private static final int NORMAL       = 2; // 任务正常执行完毕
+    private static final int EXCEPTIONAL  = 3; // 任务执行过程中发生异常
+    private static final int CANCELLED    = 4; // 任务被取消
+    private static final int INTERRUPTING = 5; // 正在中断运行任务的线程
+    private static final int INTERRUPTED  = 6; // 任务被中断
+
+    /** 要执行的任务本身，即FutureTask中的“Task”部分，为Callable类型，这里之所以用Callable而不用Runnable是因为FutureTask实现了Future接口，需要获取任务的执行结果 */
+    private Callable<V> callable;
+    /** 任务的执行结果或者抛出的异常，为Object类型，也就是说outcome可以是任意类型的对象，所以当我们将正常的执行结果返回给调用者时，需要进行强制类型转换，返回由Callable定义的V类型 */
+    private Object outcome; // non-volatile, protected by state reads/writes
+    /** 任务的执行者 */
+    private volatile Thread runner;
+    /** 指向栈顶节点的指针 */
+    private volatile WaitNode waiters;
+
+    /**
+     * 根据任务的状态，汇报执行结果
+     */
+    @SuppressWarnings("unchecked")
+    private V report(int s) throws ExecutionException {
+        // 根据当前state状态，返回正常执行的结果，或者抛出指定的异常。
+        Object x = outcome;
+        if (s == NORMAL)
+            return (V)x;
+        if (s >= CANCELLED)
+            throw new CancellationException();
+        throw new ExecutionException((Throwable)x);
+    }
+
+    /**
+     * FutureTask共有2个构造函数，这2个构造函数一个是直接传入Callable对象, 一个是传入一个Runnable对象和一个指定的result, 然后通过Executors工具类将它适配成callable对象, 所以这两个构造函数的本质是一样的:
+     * 用传入的参数初始化callable成员变量
+     * 将FutureTask的状态设为NEW
+     */
+    public FutureTask(Callable<V> callable) {
+        if (callable == null)
+            throw new NullPointerException();
+        this.callable = callable;
+        this.state = NEW;       // ensure visibility of callable
+    }
+
+    public FutureTask(Runnable runnable, V result) {
+        this.callable = Executors.callable(runnable, result);
+        this.state = NEW;       // ensure visibility of callable
+    }
+
+    /*
+     * 判断任务是否被取消
+     */
+    public boolean isCancelled() {
+        return state >= CANCELLED;
+    }
+
+    /*
+     * 判断任务是否已经执行完毕
+     */
+    public boolean isDone() {
+        return state != NEW;
+    }
+
+    /*
+     * 取消正在执行的任务
+     * 
+     * FutureTask实现cancel方法的几个规范
+     * 首先，对于“任务已经执行完成了或者任务已经被取消过了，则cancel操作一定是失败的(返回false)”这两条，是通过简单的判断state值是否为NEW实现的，因为我们前面说过了，只要state不为NEW，说明任务已经执行完毕了。从代码中可以看出，只要state不为NEW，则直接返回false。
+     * 其次，如果state还是NEW状态，则根据mayInterruptIfRunning的值将state的状态由NEW设置成INTERRUPTING或者CANCELLED
+     * 总结，ancel方法实际上完成以下两种状态转换之一:
+     * 1.NEW -> CANCELLED (对应于mayInterruptIfRunning=false)
+     * 2.NEW -> INTERRUPTING -> INTERRUPTED (对应于mayInterruptIfRunning=true)
+     * 对于第一条路径，虽说cancel方法最终返回了true，但它只是简单的把state状态设为CANCELLED，并不会中断线程的执行。但是这样带来的后果是，任务即使执行完毕了，也无法设置任务的执行结果，因为前面分析run方法的时候，设置任务结果有一个中间态，而这个中间态的设置，是以当前state状态为NEW为前提的。
+     * 对于第二条路径，虽说对正在执行的线程发出了中断信号，但是，响不响应这个中断是由执行任务的线程自己决定的。当线程在执行过程中被中断的话，无论线程有没有响应中断都是拿不到执行结果的，因为无论set还是setException都要求设置前线程的状态为NEW
+     */
+    public boolean cancel(boolean mayInterruptIfRunning) {
+        // 在以下三种情况之一的，cancel操作一定是失败的：
+        // 1.任务已经执行完成了
+        // 2.任务已经被取消过了
+        // 3.任务因为某种原因不能被取消
+        // 其它情况下，cancel操作将返回true。值得注意的是，cancel操作返回true并不代表任务真的就是被取消了，这取决于发动cancel状态时，任务所处的状态：
+        // 如果发起cancel时任务还没有开始运行，则随后任务就不会被执行；
+        // 如果发起cancel时任务已经在运行了，则这时就需要看mayInterruptIfRunning参数了：
+        // 1.如果mayInterruptIfRunning 为true, 则当前在执行的任务会被中断
+        // 2.如果mayInterruptIfRunning 为false, 则可以允许正在执行的任务继续运行，直到它执行完
+        if (!(state == NEW &&
+              UNSAFE.compareAndSwapInt(this, stateOffset, NEW,
+                  mayInterruptIfRunning ? INTERRUPTING : CANCELLED)))
+            return false;
+        try {    // in case call to interrupt throws exception
+            if (mayInterruptIfRunning) {
+                // 中断当前正在执行任务的线程，最后将state的状态设为INTERRUPTED
+                try {
+                    Thread t = runner;
+                    if (t != null)
+                        t.interrupt();
+                } finally { // final state
+                    UNSAFE.putOrderedInt(this, stateOffset, INTERRUPTED);
+                }
+            }
+        } finally {
+            // 中断操作完成后，还需要通过finishCompletion()来唤醒所有在Treiber栈中等待的线程
+            finishCompletion();
+        }
+        return true;
+    }
+
+    /**
+     * 获取执行结果
+     */
+    public V get() throws InterruptedException, ExecutionException {
+        int s = state;
+        // 当任务还没有执行完毕或者正在设置执行结果时，使用awaitDone方法等待任务进入终止态，注意，awaitDone的返回值是任务的状态，而不是任务的结果。任务进入终止态之后，就根据任务的执行结果来返回计算结果或者抛出异常。
+        if (s <= COMPLETING)
+            s = awaitDone(false, 0L);
+        return report(s);
+    }
+
+    /**
+     * @throws CancellationException {@inheritDoc}
+     */
+    public V get(long timeout, TimeUnit unit)
+        throws InterruptedException, ExecutionException, TimeoutException {
+        if (unit == null)
+            throw new NullPointerException();
+        int s = state;
+        if (s <= COMPLETING &&
+            (s = awaitDone(true, unit.toNanos(timeout))) <= COMPLETING)
+            throw new TimeoutException();
+        return report(s);
+    }
+
+    /**
+     * Protected method invoked when this task transitions to state
+     * {@code isDone} (whether normally or via cancellation). The
+     * default implementation does nothing.  Subclasses may override
+     * this method to invoke completion callbacks or perform
+     * bookkeeping. Note that you can query status inside the
+     * implementation of this method to determine whether this task
+     * has been cancelled.
+     */
+    protected void done() { }
+
+    /**
+     * 任务执行成功，就使用set(result)设置结果
+     */
+    protected void set(V v) {
+        // 开始通过CAS操作将state属性由原来的NEW状态修改为COMPLETING状态，COMPLETING是一个非常短暂的中间态，表示正在设置执行的结果。
+        if (UNSAFE.compareAndSwapInt(this, stateOffset, NEW, COMPLETING)) {
+            // 状态设置成功后，就把任务执行结果赋值给outcome, 然后直接把state状态设置成NORMAL
+            outcome = v;
+            UNSAFE.putOrderedInt(this, stateOffset, NORMAL); // final state
+            // 调用了finishCompletion()来完成执行结果的设置
+            finishCompletion();
+        }
+    }
+
+    /**
+     * 任务执行失败，用setException(ex)设置抛出的异常
+     */
+    protected void setException(Throwable t) {
+        // 开始通过CAS操作将state属性由原来的NEW状态修改为COMPLETING状态，COMPLETING是一个非常短暂的中间态，表示正在设置执行的结果。
+        if (UNSAFE.compareAndSwapInt(this, stateOffset, NEW, COMPLETING)) {
+            // 状态设置成功后，就把异常对象赋值给outcome, 然后直接把state状态设置成EXCEPTIONAL
+            outcome = t;
+            UNSAFE.putOrderedInt(this, stateOffset, EXCEPTIONAL); // final state
+            // 调用了finishCompletion()来完成执行结果的设置
+            finishCompletion();
+        }
+    }
+
+    /*
+     * 由于FutureTask实现了RunnableFuture，RunnableFuture继承了Runnable，而线程池只执行Runnable的run方法，所以run方法，是FutureTask放入线程池后执行的第一个方法。
+     *
+     */
+    public void run() { 
+        // 状态必须是NEW(新建)状态，能且成功的将其runner修改为当前线程
+        // 代表FutureTask保存了当前正在执行他的线程，所以就可以通过runner对象，在cancel中中断线程
+        if (state != NEW ||
+            !UNSAFE.compareAndSwapObject(this, runnerOffset,
+                                         null, Thread.currentThread()))
+            return;
+        try {
+            Callable<V> c = callable;
+            // 查看内部执行的执行体，即用户定义的函数callable是否为空，且当前状态是否已经被改变。即执行前状态必须是NEW
+            if (c != null && state == NEW) {
+                V result;
+                boolean ran;
+                try {
+                    // 执行用户定义函数
+                    result = c.call();
+                    // 执行成功
+                    ran = true;
+                } catch (Throwable ex) {
+                    // 捕捉用户定义的函数执行的异常结果
+                    result = null;
+                    // 标志执行失败
+                    ran = false;
+                    // 设置执行失败的结果outcome
+                    setException(ex);
+                }
+                if (ran)
+                    // 执行成功，设置正常执行结果outcome
+                    set(result);
+            }
+        } finally {
+            // 执行完毕后，不持有Thread的引用，方便垃圾回收(这个FutureTask已经执行完了，可以被回收掉了，如果在这个FutureTask内还持有Thread的引用那就不能进行垃圾回收，所以这里要将将要被垃圾回收掉的FutureTask对象中的runner设置为空)
+            runner = null;
+            // 判断状态是否被中断，如果是中断处理，那么调用handlePossibleCancellationInterrupt处理中断信息。
+            // 注意：如果已经在set方法或者setException方法中将state状态设置成NORMAL或者EXCEPTIONAL了的话就无法再被别的线程取消了，因为在cancel方法中需要通过CAS操作将state的状态从NEW修改到INTERRUPTING或者CANCELLED。
+            int s = state;
+            if (s >= INTERRUPTING)
+                handlePossibleCancellationInterrupt(s);
+        }
+    }
+
+    /**
+     * Executes the computation without setting its result, and then
+     * resets this future to initial state, failing to do so if the
+     * computation encounters an exception or is cancelled.  This is
+     * designed for use with tasks that intrinsically execute more
+     * than once.
+     *
+     * @return {@code true} if successfully run and reset
+     */
+    protected boolean runAndReset() {
+        if (state != NEW ||
+            !UNSAFE.compareAndSwapObject(this, runnerOffset,
+                                         null, Thread.currentThread()))
+            return false;
+        boolean ran = false;
+        int s = state;
+        try {
+            Callable<V> c = callable;
+            if (c != null && s == NEW) {
+                try {
+                    c.call(); // don't set result
+                    ran = true;
+                } catch (Throwable ex) {
+                    setException(ex);
+                }
+            }
+        } finally {
+            // runner must be non-null until state is settled to
+            // prevent concurrent calls to run()
+            runner = null;
+            // state must be re-read after nulling runner to prevent
+            // leaked interrupts
+            s = state;
+            if (s >= INTERRUPTING)
+                handlePossibleCancellationInterrupt(s);
+        }
+        return ran && s == NEW;
+    }
+
+    /**
+     * 自旋等待，直到state状态转换成终止态
+     */
+    private void handlePossibleCancellationInterrupt(int s) {
+        // 该方法是一个自旋操作，如果当前的state状态是INTERRUPTING在原地自旋，直到state状态转换成终止态
+        if (s == INTERRUPTING)
+            while (state == INTERRUPTING)
+                Thread.yield(); // wait out pending interrupt
+    }
+
+    /**
+     * 在FutureTask中，队列的实现是一个单向链表，它表示所有等待任务执行完毕的线程的集合。FutureTask实现了Future接口，可以获取Task的执行结果，那么如果获取结果时，任务还没有执行完毕怎么办呢？那么获取结果的线程就会在一个等待队列中挂起，直到任务执行完毕被唤醒。这一点有点类似于AQS中的sync queue。
+     * 并发编程中使用队列通常是将当前线程包装成某种类型的数据结构扔到等待队列中
+     *FutureTask中的这个单向链表是当做栈来使用的，确切来说是当做Treiber栈来使用的，(可以简单的把Treiber栈当做是一个线程安全的栈，它使用CAS来完成入栈出栈操作)。为啥要使用一个线程安全的栈呢，因为同一时刻可能有多个线程都在获取任务的执行结果，如果任务还在执行过程中，则这些线程就要被包装成WaitNode扔到Treiber栈的栈顶，即完成入栈操作，这样就有可能出现多个线程同时入栈的情况，因此需要使用CAS操作保证入栈的线程安全，对于出栈的情况也是同理。由于FutureTask中的队列本质上是一个Treiber栈，那么使用这个队列就只需要一个指向栈顶节点的指针就行了，在FutureTask中，就是waiters属性：
+     * /** Treiber stack of waiting threads */
+     * private volatile WaitNode waiters;
+     */
+    static final class WaitNode {
+        volatile Thread thread;
+        volatile WaitNode next;
+        WaitNode() { thread = Thread.currentThread(); }
+    }
+
+    /**
+     * 完成执行结果的设置
+     */
+    private void finishCompletion() {
+        for (WaitNode q; (q = waiters) != null;) {
+            // 将waiters属性的值由原值设置为null, 我们知道，waiters属性指向了Treiber栈的栈顶节点，可以说是代表了整个Treiber栈，将该值设为null的目的就是清空整个栈。如果设置不成功，则if语句块不会被执行，又进行下一轮for循环，而下一轮for循环的判断条件又是waiters!=null，并且为下一次CAS操作重新给q赋值 ，由此我们知道，虽然最外层的for循环乍只是为了确保waiters属性被成功设置成null，本质上相当于一个自旋操作。
+            if (UNSAFE.compareAndSwapObject(this, waitersOffset, q, null)) {
+                // 将waiters属性设置成null以后，接下来的死循环才是真正的遍历节点，可以看出，循环内部就是一个普通的遍历链表的操作，Treiber栈里面存放的WaitNode代表了当前等待任务执行结束的线程，这个循环的作用也正是遍历链表中所有等待的线程，并唤醒他们。
+                for (;;) {
+                    Thread t = q.thread;
+                    if (t != null) {
+                        q.thread = null;
+                        LockSupport.unpark(t);
+                    }
+                    WaitNode next = q.next;
+                    if (next == null)
+                        break;
+                    q.next = null; // unlink to help gc
+                    q = next;
+                }
+                break;
+            }
+        }
+
+        // 将Treiber栈中所有挂起的线程都唤醒后，下面就是执行done方法：
+        // 这个方法是一个空方法，从注释上看，它是提供给子类覆写的，以实现一些任务执行结束前的额外操作。
+        done();
+        // done方法之后就是callable属性的清理了（callable = null）。
+        callable = null;        // to reduce footprint
+    }
+
+    /**
+     * FutureTask中会涉及到两类线程，一类是执行任务的线程，它只有一个，FutureTask的run方法就由该线程来执行；一类是获取任务执行结果的线程，它可以有多个，这些线程可以并发执行，每一个线程都是独立的，都可以调用get方法来获取任务的执行结果。如果任务还没有执行完，则这些线程就需要进入Treiber栈中挂起，直到任务执行结束，或者等待的线程自身被中断。
+     *
+     */
+    private int awaitDone(boolean timed, long nanos)
+        throws InterruptedException {
+        final long deadline = timed ? System.nanoTime() + nanos : 0L;
+        WaitNode q = null;
+        boolean queued = false;
+        for (;;) {
+            // 首先一开始，先检测当前线程是否被中断了，这是因为get方法是阻塞式的，如果等待的任务还没有执行完，则调用get方法的线程会被扔到Treiber栈中挂起等待，直到任务执行完毕。但是，如果任务迟迟没有执行完毕，则我们也有可能直接中断在Treiber栈中的线程，以停止等待。
+            if (Thread.interrupted()) {
+                // 当检测到线程被中断后，调用了removeWaiter:
+                // removeWaiter的作用是将参数中的node从等待队列（即Treiber栈）中移除。如果此时线程还没有进入Treiber栈，则q=null，那么removeWaiter(q)啥也不干。
+                removeWaiter(q);
+                // 直接抛出InterruptedException异常
+                throw new InterruptedException();
+            }
+
+            int s = state;
+            // 如果任务已经进入终止态（s > COMPLETING），我们就直接返回任务的状态;
+            if (s > COMPLETING) {
+                if (q != null)
+                    q.thread = null;
+                return s;
+            }
+            // 任务执行完成，正在设置任务结果阶段，在原地自旋等待(用的是Thread.yield)
+            // 否则，如果任务正在设置执行结果（s == COMPLETING），我们就让出当前线程的CPU资源继续等待
+            else if (s == COMPLETING) // cannot time out yet
+                Thread.yield();
+            // 否则，就说明任务还没有执行，或者任务正在执行过程中，那么这时，如果q现在还为null, 说明当前线程还没有进入等待队列，于是新建了一个WaitNode, WaitNode的构造函数之前已经看过了，就是生成了一个记录了当前线程的节点；
+            else if (q == null)
+                q = new WaitNode();
+            // 如果q不为null，说明代表当前线程的WaitNode已经被创建出来了，则接下来如果queued=false，表示当前线程还没有入队
+            else if (!queued)
+                // 通过CAS操作将新建的q节点添加到waiters链表的头节点之前，其实就是Treiber栈的入栈操作
+                // 这个CAS操作就是为了保证同一时刻如果有多个线程在同时入栈，则只有一个能够操作成功，也即Treiber栈的规范。
+                queued = UNSAFE.compareAndSwapObject(this, waitersOffset,
+                                                     q.next = waiters, q);
+            // 如果timed为true表示，执行带超时时间的get
+            else if (timed) {
+                nanos = deadline - System.nanoTime();
+                if (nanos <= 0L) {
+                    removeWaiter(q);
+                    return state;
+                }
+                // 获取任务执行结果的线程就会在Treiber栈中被LockSupport.park(this)挂起了
+                LockSupport.parkNanos(this, nanos);
+            }
+            // 以上的条件都不满足(对应任务还没有执行完)，执行不带超时时间的get
+            else
+                // 获取任务执行结果的线程就会在Treiber栈中被LockSupport.park(this)挂起了
+                // 被挂起的线程在下面两种情况被唤醒：
+                // 1.任务执行完毕了，在finishCompletion方法中会唤醒所有在Treiber栈中等待的线程
+                // 2.等待的线程自身因为被中断等原因而被唤醒
+                LockSupport.park(this);
+        }
+    }
+
+    /**
+     * 将当前线程从等待的Treiber栈中移除
+     */
+    private void removeWaiter(WaitNode node) {
+        if (node != null) {
+            // 把要出栈的WaitNode的thread属性设置为null
+            node.thread = null;
+            retry:
+            for (;;) {          // restart on removeWaiter race
+                // 如果要删除的节点就位于栈顶，由于一开始我们就将该节点的thread属性设为了null，因此，前面的q.thread != null 和 pred != null都不满足，直接进入到最后一个else if 分支：采用了CAS比较，将栈顶元素设置成原栈顶节点的下一个节点。
+                // 如果要删除的节点不在栈顶，当要移除的节点不在栈顶时，会一直遍历整个链表，直到找到q.thread == null的节点，找到之后将进入else if (pred != null)，这里因为节点不在栈顶，则其必然是有前驱节点pred的，这时，只是简单的让前驱节点指向当前节点的下一个节点，从而将目标节点从链表中剔除。
+                for (WaitNode pred = null, q = waiters, s; q != null; q = s) {
+                    s = q.next;
+                    // 当前节点的thread不为空，将pred设置为当前节点继续循环
+                    if (q.thread != null)
+                        pred = q;
+                    // 当前节点的thread为空，前一个节点不为空
+                    else if (pred != null) {
+                        // 将前一个节点的next指向当前节点的下一个节点(相当于删除链表中node.thread==null的节点)
+                        pred.next = s;
+                        // 注意，后面多加的那个if判断是很有必要的，因为removeWaiter方法并没有加锁，所以可能有多个线程在同时执行，WaitNode的两个成员变量thread和next都被设置成volatile，这保证了它们的可见性，如果在这时发现了pred.thread==null，那就意味着它已经被另一个线程标记了，将在另一个线程中被拿出waiters链表，而当前目标节点的原后继节点现在是接在这个pred节点上的，因此，如果pred已经被其他线程标记为要拿出去的节点，我们现在这个线程再继续往后遍历就没有什么意义了，所以这时就调到retry处，从头再遍历。如果pred节点没有被其他线程标记，那我们就接着往下遍历，直到整个链表遍历完。
+                        if (pred.thread == null) // check for race
+                            continue retry;
+                    }
+                    else if (!UNSAFE.compareAndSwapObject(this, waitersOffset,
+                                                          q, s))
+                        // 当CAS操作不成功时，程序会回到retry处重来
+                        // 但即使CAS操作成功了，程序依旧会遍历完整个链表，找寻node.thread == null 的节点，并将它们一并从链表中剔除。
+                        continue retry;
+                }
+                break;
+            }
+        }
+    }
+
+    // Unsafe mechanics
+    private static final sun.misc.Unsafe UNSAFE;
+    // state属性代表了任务的状态
+    private static final long stateOffset;
+    // runner属性代表了执行FutureTask中的Task的线程
+    // 记录执行任务的线程的原因：为了中断或者取消任务做准备的，只有知道了执行任务的线程是谁，才能去中断它。
+    private static final long runnerOffset;
+    // waiters属性代表了指向栈顶节点的指针
+    private static final long waitersOffset;
+    static {
+        try {
+            UNSAFE = sun.misc.Unsafe.getUnsafe();
+            Class<?> k = FutureTask.class;
+            stateOffset = UNSAFE.objectFieldOffset
+                (k.getDeclaredField("state"));
+            runnerOffset = UNSAFE.objectFieldOffset
+                (k.getDeclaredField("runner"));
+            waitersOffset = UNSAFE.objectFieldOffset
+                (k.getDeclaredField("waiters"));
+        } catch (Exception e) {
+            throw new Error(e);
+        }
+    }
+
+}
+```
+
 
 
 # Java常用线程池体系
@@ -5125,6 +5576,8 @@ public class ScheduledThreadPoolExecutor
      * 因为ScheduledThreadPoolExecutor继承自ThreadPoolExecutor，所以这里都是调用的ThreadPoolExecutor类的构造方法。注意传入的阻塞队列是DelayedWorkQueue类型的对象。
      */
     public ScheduledThreadPoolExecutor(int corePoolSize) {
+        // 这里直接调用父类也就是ThreadPoolExecutor的构造方法，而在ThreadPoolExecutor中，只有当workQueue为有限队列时候非核心线程数：maximumPoolSize才有效，
+        // ScheduledThreadPoolExecutor里面的DelayedWorkQueue是自定义的队列，而且DelayedWorkQueue的构造方法中没有限制队列大小的变量，所以这里的队列为无限队列，所以它的非核心线程数以及超时时间参数都是无效的。
         super(corePoolSize, Integer.MAX_VALUE, 0, NANOSECONDS,
               new DelayedWorkQueue());
     }
@@ -6161,7 +6614,7 @@ public RunnableScheduledFuture<?> take() throws InterruptedException {
 }
 ```
 
-在ThreadPoolExecutor的getTask方法中，工作线程会循环地从workQueue中取任务。但定时任务却不同，因为如果一旦getTask方法取出了任务就开始执行了，而这时可能还没有到执行的时间，所以在take方法中，要保证只有在到指定的执行时间的时候任务才可以被取走。再来说一下leader的作用，这里的leader是为了减少不必要的定时等待，当一个线程成为leader时，它只等待下一个节点的时间间隔，但其它线程无限期等待。"leader线程必须在从take()或poll()返回之前signal其它线程，除非其他线程成为了leader。举例来说，如果没有leader，那么在执行take时，都要执行available.awaitNanos(delay)，假设当前线程执行了该段代码，这时还没有signal，第二个线程也执行了该段代码，则第二个线程也要被阻塞。多个这时执行该段代码是没有作用的，因为只能有一个线程会从take中返回queue[0]（因为有lock），其他线程这时再返回for循环执行时取的queue[0]，已经不是之前的queue[0]了，然后又要继续阻塞。所以，为了不让多个线程频繁的做无用的定时等待，这里增加了leader，如果leader不为空，则说明队列中第一个节点已经在等待出队，这时其它的线程会一直阻塞，减少了无用的阻塞。
+在ThreadPoolExecutor的getTask方法中，工作线程会循环地从workQueue中取任务。但定时任务却不同，在take方法中，要保证只有在到指定的执行时间的时候任务才可以被取走。再来说一下leader的作用，这里的leader是为了减少不必要的定时等待，当一个线程成为leader时，它只等待下一个节点的时间间隔，但其它线程无限期等待。leader线程必须在从take()或poll()返回之前signal其它线程，除非其他线程成为了leader。举例来说，如果没有leader，当十个线程在等待同一个任务的时候，都会执行available.awaitNanos(delay)，那么在delay时间后十个线程又被同时唤醒但是只有一个线程能拿到任务，这是完全不合理的，所以这里增加了leader，如果leader不为空，则说明队列中第一个节点已经在等待出队，这时其它的线程会一直阻塞，减少了无用的阻塞。
 
 poll方法
 

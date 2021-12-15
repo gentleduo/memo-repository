@@ -1,6 +1,7 @@
  **************************************************************python环境安装**************************************************************
 1.下载python
 wget https://www.python.org/ftp/python/3.6.8/Python-3.6.8.tgz
+wget https://www.python.org/ftp/python/3.8.12/Python-3.8.12.tgz
 wget https://www.python.org/ftp/python/2.7.12/Python-2.7.12.tgz
 
 2.准备必要的库文件

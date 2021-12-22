@@ -83,6 +83,13 @@ kafka-console-producer.sh --brokerlist server01:9092 --topic gentleduo-topic-1
 kafka-console-consumer.sh --zookeeper server01:2181 --topic gentleduo-topic-1
 kafka-console-consumer.sh --bootstrap-server server01:9092 --topic gentleduo-topic-1
 kafka-console-consumer.sh --bootstrap-server server01:9092 --from-beginning --topic gentleduo-topic-1
+#查询消费者组
+kafka-consumer-groups.sh --bootstrap-server server01:9092 --list
+#查询消费者组详情
+#LogEndOffset 下一条将要被加入到日志的消息的位移
+#CurrentOffset 当前消费的位移
+#LAG 消息堆积量：消息中间件服务端中所留存的消息与消费掉的消息之间的差值即为消息堆积量也称之为消费滞后量
+kafka-consumer-groups.sh --bootstrap-server server01:9092 --describe --group groupname
 ```
 
 # Kafka架构深入

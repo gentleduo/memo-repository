@@ -1,0 +1,35 @@
+###########################################win10电脑查看内存型号###########################################
+cmd ==> wmic memorychip get * /value
+内存规格  使用频率(MHz)
+DDR2      533-800
+DDR3      1066-1600
+DDR4      2133-4266
+
+wmic命令========>
+// 可显示主机序列号
+wmic bios get serialnumber
+// 可显示主机型号
+wmic csproduct get vendor,name,identifyingnumber
+// 可显示内存信息
+wmic memorychip get capacity,manufacturer,devicelocator
+// wmic cpu list brief
+可显示CPU信息
+// 仅显示CPU名称
+wmic cpu get name
+// 可显示硬盘信息
+wmic diskdrive get caption,size,interfacetype
+// 可显示网卡信息
+wmic nic list brief
+// 可查看主板信息
+wmic BASEBOARD get Manufacturer^,Product^,Version^,SerialNumber /value
+// 可查看屏幕分辨率
+wmic desktopmonitor where status='ok' get screenheight,screenwidth
+// 将wmic bios list full命令运行结果输出到C盘temp命令下名为bios.txt的文件中(备注：如文件路径如包含"-"、"/"等字符需用双引号。)
+wmic /output:c:\temp\bios.txt bios list full
+###########################################win10电脑查看内存型号###########################################
+
+###########################################win10电脑查看硬盘信息###########################################
+1、以管理员身份运行Windows PowerShell，输入并回车运行以下命令：Get-PhysicalDisk；
+2、在检测到的磁盘列表中即可看到MediaType(SSD:固定硬盘；HDD:机械硬盘)
+###########################################win10电脑查看硬盘信息###########################################
+

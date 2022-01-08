@@ -3000,6 +3000,7 @@ ulimit -a
 设置的是当前shell的当前用户的打开的最大限制
 修改linux最大文件句柄数
 ulimit -n 65535
+ulimit -SHn 65536
 进程级打开文件句柄数量永久生效的修改方法，修改文件，文件末尾加入配置内容：
 # vim /etc/security/limits.conf
 * soft nofile 65535

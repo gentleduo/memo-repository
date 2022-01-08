@@ -1,2 +1,9 @@
-DST=destination，目的地
-SRC=source，源
+DST=destination, 目的地
+SRC=source, 源
+associate=动词
+manual=手动的, 手册, 手工; manual page: 手册页
+provide=提供、规定
+several=一些、几个
+order=动词: 订购, 责令, 订, 指令, 定, 勒令; 名词: 命令, 顺序
+even if=即时
+poll=轮询, 投票

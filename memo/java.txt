@@ -524,14 +524,24 @@ if (classStringArrayList.equals(classIntegerArrayList)) {
 public class Generic<T>{ 
     //key这个成员变量的类型为T,T的类型由外部指定  
     private T key;
+	public Generic() { // 不明确指定类的泛型
+	}
     public Generic(T key) { //泛型构造方法形参key的类型也为T，T的类型由外部指定
         this.key = key;
     }
+	public void setKey(T t) {
+		this.key = t;
+	}
     public T getKey(){ //泛型方法getKey的返回值类型为T，T的类型由外部指定
         return key;
     }
 	public void showKeyValue1(Generic<Number> obj) {
 		System.out.println("key value is " + obj.getKey());
+	}
+	public static void main(String[] args) {
+		Generic generic = new Generic();
+		generic.setKey("11111");
+		System.out.println(generic.getKey());
 	}
 }
 //泛型的类型参数只能是类类型（包括自定义类），不能是简单类型
@@ -540,6 +550,25 @@ Generic<Integer> genericInteger = new Generic<Integer>(123456);
 //传入的实参类型需与泛型的类型参数类型相同，即为String.
 Generic<String> genericString = new Generic<String>("key_vlaue");
 定义的泛型类，就一定要传入泛型类型实参么？并不是这样，在使用泛型的时候如果传入泛型实参，则会根据传入的泛型实参做相应的限制，此时泛型才会起到本应起到的限制作用。如果不传入泛型类型实参的话，在泛型类中使用泛型的方法或成员变量定义的类型可以为任何的类型。
+实例化的时候也可以不指定泛型：如果实例化的时候不明确指定类的泛型，那么认为此泛型为Object类型。
+
+继承=====>
+如果指定父类泛型，那么子类就不需要再指定泛型了，可以直接使用
+public class SubGeneric1 extends Generic<Integer> {
+	public static void main(String[] args) {
+		SubGeneric1 subGeneric1 = new SubGeneric1();
+		subGeneric1.setKey(123);
+		System.out.println(subGeneric1.getKey());
+	}
+}
+父类如果不制定泛型，那么子类也会变成一个泛型类，这个E的类型可以在创建子类对象的时候确定
+public class SubGeneric2<E> extends Generic<E>{
+	public static void main(String[] args) {
+		SubGeneric2<Integer> subGeneric2 = new SubGeneric2<>();
+		subGeneric2.setKey(123);
+		System.out.println(subGeneric2.getKey());
+	}
+}
 
 泛型接口=====>
 泛型接口与泛型类的定义及使用基本相同。泛型接口常被用在各种类的生产器中，可以看一个例子：
@@ -587,6 +616,13 @@ public void showKeyValue1(Generic<?> obj) {
 	System.out.println("key value is " + obj.getKey());
 }
 类型通配符一般是使用？代替具体的类型实参，注意了，此处’？’是类型实参，而不是类型形参。再直白点的意思就是，此处的？和Number、String、Integer一样都是一种实际的类型，可以把？看成所有类型的父类。是一种真实的类型。可以解决当具体类型不确定的时候，这个通配符就是?；当操作类型时，不需要使用类型的具体功能时，只使用Object类中的功能。那么可以用?通配符来表未知类型。
+于是可知：A和B是子类和父类的关系，G<A>和G<B>不存在子类父类关系，加入通配符?后，G<?>就变成了G<A>和G<B>的父类
+public void norm(List<?> list) {
+	list.add(null); // 当方法的参数是包含通配符的泛型时，只能添加null
+	// list.add("1"); // 报错，不能随意的添加数据
+	// 读取数据
+	Object object = list.get(0);
+}
 
 泛型方法=====>
 泛型方法，是在调用方法的时候指明泛型的具体类型 。
@@ -725,6 +761,7 @@ public class StaticGenerator<T> {
 
 泛型上下边界=====>
 在使用泛型的时候，还可以为传入的泛型类型实参进行上下边界的限制，如：类型实参只准传入某种类型的父类或某种类型的子类。
+泛型的上限：
 public void showKeyValue1(Generic<? extends Number> obj){
     System.out.println("key value is " + obj.getKey());
 }
@@ -749,6 +786,40 @@ public class Generic<T extends Number>{
 }
 //这一行代码也会报错，因为String不是Number的子类
 Generic<String> generic1 = new Generic<String>("11111");
+public class Person {
+}
+public class Student extends Person{
+}
+import java.util.ArrayList;
+import java.util.List;
+public class LimitTest {
+
+	public static void main(String[] args) {
+		//
+		List<Object> aList = new ArrayList<>();
+		List<Person> pList = new ArrayList<>();
+		List<Student> sList = new ArrayList<>();
+		/**
+		 * 泛型的下限： List<? extends Person>: 就相当于： List<? extends
+		 * Person>是List<Person>的父类，是List<Student>的父类
+		 */
+		List<? extends Person> list1 = null;
+		// list1 = aList; // 报错
+		list1 = pList;
+		list1 = sList;
+
+		/**
+		 * 泛型的上限： List<? super Person>: 就相当于： List<? super
+		 * Person>是List<Person>的父类，是List<Object>的父类
+		 */
+		List<? super Person> list2 = null;
+		list2 = aList;
+		list2 = pList;
+		// list2 = sList; // 报错
+
+	}
+
+}
 再来一个泛型方法的例子：
 //在泛型方法中添加上下边界限制的时候，必须在权限声明与返回值之间的<T>上添加上下边界，即在泛型声明的时候添加
 //public <T> T showKeyName(Generic<T extends Number> container)，编译器会报错："Unexpected bound"

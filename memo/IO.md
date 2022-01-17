@@ -1,8 +1,24 @@
-
-
-
-
 # 虚拟文件系统，文件描述符，IO重定向
+
+## 文件描述符表、文件表、索引结点表
+
+进程打开一个文件，会与三个表发生关联，分别是：文件描述符表、文件表、索引结点表。他们的存放地点：
+每个进程都有一个属于自己的文件描述符表。
+文件表存放在内核空间，由系统里的所有进程共享。
+索引结点表也存放在内核空间，由所有进程所共享。
+
+1. 文件描述符表：该表记录进程打开的文件。它的表项里面有一个指针，指向存放在内核空间的文件表中的一个表项。它向用户提供一个简单的文件描述符，使得用户可以通过方便地访问一个文件。当进程使用open打开一个文件时，内核就会在这个表中添加一个表项。如果对同一个文件打开多次，那么将有多个表项。
+2. 文件表：文件表保存了进程对文件读写的偏移量。该表还保存了进程对文件的存取权限。比如，进程以O_RDONLY方式打开文件，这将记录到对应的文件表表项中。
+3. 索引结点表(inode节点)：在文件系统中，也是有一个索引结点表的。这两个索引结点表有千丝万缕的关系。因为内存中的索引结点表的每一个表项都是从文件系统中读入的，并且两个索引结点表有一对一的关系。所以，内存中的索引结点表的每一个表项都对应一个具体的文件。
+
+上面所说的三个表的功能，使得三个表紧密地联系在一起，文件描述符表项有一个指针指向文件表表项，文件表表项有一个指针指向索引结点表表项。
+
+使用说明：
+
+1. 不同的进程打开同一个文件：那么他们应该有各自对应的文件表表项。因为文件表表项记录了进程读写文件时的偏移量和存取权限。多个进程不可能共享一个文件偏移量。另外他们各自打开文件的权限也可能是不同的，有的是为了读、有的为了写，有的为了读写。所以，他们应该有不同的文件表表项。此外，因为是同一个文件，所以，多个进程会共享同一个索引结点表项。即他们的文件表表项指针会指向同一个索引结点
+2. 使用dup函数复制一个文件描述符：复制得到的文件描述符和原描述符共享文件偏移量和一些状态。所以dup的作用仅仅是复制一个文件描述符表项，而不会复制一个文件表表项。（dup函数是一个很重要的函数。平时我们在shell里面通过 >  来进行重定向，就是通过dup函数来实现的。）
+3. 同一个进程多次打开同一个文件：每打开一次同一个文件，内核就会在文件表中增加一个表项。这是因为每次open文件时使用了不同的读写权限，而读写权限是保存在文件表表项里面的。
+4. 父进程使用fork创建子进程：由于fork一个子进程，子进程将复制父进程的绝大部分东西（除了进程ID、进程的父进程ID、一些时间属性、文件锁）。所以子进程复制了父进程的整个文件描述符表。
 
 ## kernel
 
@@ -12,13 +28,9 @@
 
 ## inode id
 
-## pagecache
-
-## dirty
-
 ## 文件类型
 
-1. -：普通文件（可执行、图片、文本）
+1. -：普通文件 REG（可执行、图片、文本）
 
 2. d：目录
 
@@ -220,13 +232,128 @@
    [root@localhost /]# losetup -d /dev/loop0
    ```
 
-5. c：字符设备
+5. c：字符设备 CHAR
 
 6. s：socket
 
 7. p：pipeline
 
 8. eventpool：
+
+## lsof
+
+lsof可以显示进程打开了哪些文件
+
+比如：lsof -p $$
+
+$$表示当前bash进程的进程ID号
+
+示例1：
+
+1. 在当前cash下，利用exec命令使用文件描述符8读取ooxx.txt文件中的内容
+2. cd到/proc/$$/fd目录，ll后可以见到当前进程除了0:标准输入、1:标准输出、2:标准错误等文件描述符外，又增加了文件描述符8
+3. 使用lsof命令可以看FD(u表示读写,r表示只读)、TYPE、OFFSET等具体信息(-p:进程号 -op:进程读取的文件的偏移量)
+4. 通过read a 0<&8命令读取当前进程的文件描述符中的数据作为read的输入，并赋给变量a(read命令的特点是读到换行符就结束)
+5. 通过echo $a查看a的值
+6. 通过lsof -op $$再一次确认文件描述符8的OFFSET，发现OFFSET的值已经改变了
+7. 再开一个新的bash，同样用利用exec命令使用文件描述符6读取ooxx.txt文件中的内容
+8. 然后用lsof -op $$查看OFFSET发现为0，说明在不同的bash(不同的进程)下读取同一个文件，会各自维护自己的OFFSET
+
+```bash
+[root@server03 opt]# cat ooxx.txt
+11111111
+22222223444
+
+[root@server03 opt]# exec 8<ooxx.txt
+[root@server03 opt]# cd /proc/$$/fd
+[root@server03 fd]# ll
+total 0
+lrwx------. 1 root root 64 Jan 17 15:53 0 -> /dev/pts/0
+lrwx------. 1 root root 64 Jan 17 15:53 1 -> /dev/pts/0
+lrwx------. 1 root root 64 Jan 17 15:53 2 -> /dev/pts/0
+lrwx------. 1 root root 64 Jan 17 15:56 255 -> /dev/pts/0
+lr-x------. 1 root root 64 Jan 17 16:03 8 -> /opt/ooxx.txt
+[root@server03 fd]# lsof -p $$
+COMMAND  PID USER   FD   TYPE DEVICE  SIZE/OFF     NODE NAME
+bash    1275 root  cwd    DIR    0,3         0    17930 /proc/1275/fd
+bash    1275 root  rtd    DIR  253,0       252       64 /
+bash    1275 root  txt    REG  253,0    960472 50332870 /usr/bin/bash
+bash    1275 root  mem    REG  253,0 106176928    32642 /usr/lib/locale/locale-archive
+bash    1275 root  mem    REG  253,0     61560  2114148 /usr/lib64/libnss_files-2.17.so
+bash    1275 root  mem    REG  253,0   2156272    32652 /usr/lib64/libc-2.17.so
+bash    1275 root  mem    REG  253,0     19248    32659 /usr/lib64/libdl-2.17.so
+bash    1275 root  mem    REG  253,0    174520    32775 /usr/lib64/libtinfo.so.5.9
+bash    1275 root  mem    REG  253,0    163312  2114136 /usr/lib64/ld-2.17.so
+bash    1275 root  mem    REG  253,0     26970 33655849 /usr/lib64/gconv/gconv-modules.cache
+bash    1275 root    0u   CHR  136,0       0t0        3 /dev/pts/0
+bash    1275 root    1u   CHR  136,0       0t0        3 /dev/pts/0
+bash    1275 root    2u   CHR  136,0       0t0        3 /dev/pts/0
+bash    1275 root    8r   REG  253,0        22 17909683 /opt/ooxx.txt
+bash    1275 root  255u   CHR  136,0       0t0        3 /dev/pts/0
+[root@server03 fd]# lsof -op $$
+COMMAND  PID USER   FD   TYPE DEVICE OFFSET     NODE NAME
+bash    1275 root  cwd    DIR    0,3           17930 /proc/1275/fd
+bash    1275 root  rtd    DIR  253,0              64 /
+bash    1275 root  txt    REG  253,0        50332870 /usr/bin/bash
+bash    1275 root  mem    REG  253,0           32642 /usr/lib/locale/locale-archive
+bash    1275 root  mem    REG  253,0         2114148 /usr/lib64/libnss_files-2.17.so
+bash    1275 root  mem    REG  253,0           32652 /usr/lib64/libc-2.17.so
+bash    1275 root  mem    REG  253,0           32659 /usr/lib64/libdl-2.17.so
+bash    1275 root  mem    REG  253,0           32775 /usr/lib64/libtinfo.so.5.9
+bash    1275 root  mem    REG  253,0         2114136 /usr/lib64/ld-2.17.so
+bash    1275 root  mem    REG  253,0        33655849 /usr/lib64/gconv/gconv-modules.cache
+bash    1275 root    0u   CHR  136,0    0t0        3 /dev/pts/0
+bash    1275 root    1u   CHR  136,0    0t0        3 /dev/pts/0
+bash    1275 root    2u   CHR  136,0    0t0        3 /dev/pts/0
+bash    1275 root    8r   REG  253,0    0t0 17909683 /opt/ooxx.txt
+bash    1275 root  255u   CHR  136,0    0t0        3 /dev/pts/0
+[root@server03 /]# read a 0<&8
+[root@server03 /]# echo $a
+11111111
+[root@server03 /]# lsof -op $$
+COMMAND  PID USER   FD   TYPE DEVICE OFFSET     NODE NAME
+bash    1275 root  cwd    DIR  253,0              64 /
+bash    1275 root  rtd    DIR  253,0              64 /
+bash    1275 root  txt    REG  253,0        50332870 /usr/bin/bash
+bash    1275 root  mem    REG  253,0           32642 /usr/lib/locale/locale-archive
+bash    1275 root  mem    REG  253,0         2114148 /usr/lib64/libnss_files-2.17.so
+bash    1275 root  mem    REG  253,0           32652 /usr/lib64/libc-2.17.so
+bash    1275 root  mem    REG  253,0           32659 /usr/lib64/libdl-2.17.so
+bash    1275 root  mem    REG  253,0           32775 /usr/lib64/libtinfo.so.5.9
+bash    1275 root  mem    REG  253,0         2114136 /usr/lib64/ld-2.17.so
+bash    1275 root  mem    REG  253,0        33655849 /usr/lib64/gconv/gconv-modules.cache
+bash    1275 root    0u   CHR  136,0    0t0        3 /dev/pts/0
+bash    1275 root    1u   CHR  136,0    0t0        3 /dev/pts/0
+bash    1275 root    2u   CHR  136,0    0t0        3 /dev/pts/0
+bash    1275 root    8r   REG  253,0    0t9 17909683 /opt/ooxx.txt
+bash    1275 root  255u   CHR  136,0    0t0        3 /dev/pts/0
+
+login as: root
+root@192.168.56.112's password:
+Last login: Mon Jan 17 15:53:41 2022 from 192.168.56.1
+[root@server03 ~]# exec 6</opt/ooxx.txt
+[root@server03 ~]# lsof -op $$
+COMMAND  PID USER   FD   TYPE DEVICE OFFSET     NODE NAME
+bash    1356 root  cwd    DIR  253,0        33574977 /root
+bash    1356 root  rtd    DIR  253,0              64 /
+bash    1356 root  txt    REG  253,0        50332870 /usr/bin/bash
+bash    1356 root  mem    REG  253,0           32642 /usr/lib/locale/locale-arch                                                                                        ive
+bash    1356 root  mem    REG  253,0         2114148 /usr/lib64/libnss_files-2.1                                                                                        7.so
+bash    1356 root  mem    REG  253,0           32652 /usr/lib64/libc-2.17.so
+bash    1356 root  mem    REG  253,0           32659 /usr/lib64/libdl-2.17.so
+bash    1356 root  mem    REG  253,0           32775 /usr/lib64/libtinfo.so.5.9
+bash    1356 root  mem    REG  253,0         2114136 /usr/lib64/ld-2.17.so
+bash    1356 root  mem    REG  253,0        33655849 /usr/lib64/gconv/gconv-modu                                                                                        les.cache
+bash    1356 root    0u   CHR  136,1    0t0        4 /dev/pts/1
+bash    1356 root    1u   CHR  136,1    0t0        4 /dev/pts/1
+bash    1356 root    2u   CHR  136,1    0t0        4 /dev/pts/1
+bash    1356 root    6r   REG  253,0    0t0 17909683 /opt/ooxx.txt
+bash    1356 root  255u   CHR  136,1    0t0        4 /dev/pts/1
+```
+
+## pagecache
+
+## dirty
 
 
 

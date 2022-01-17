@@ -1539,6 +1539,10 @@ docker run -it  --runtime=nvidia -e NVIDIA_VISIBLE_DEVICES=1 需要启动的dock
 多显卡机器上，如果显卡０正在被其他程序占用，但是程序指定显卡０，你就可以加这个命令，只启动部分显卡，docker里面看到cuda０编号就是你启动外部１编号．
 ##################################################nvidia docker指定显卡启动##################################################
 
+##################################################VirtualBox 中虚拟机硬盘空间不足扩容##################################################
+D:\oracle\VirtualBox>VBoxManage modifyhd  D:\server03\server03.vdi --resize 30720
+##################################################VirtualBox 中虚拟机硬盘空间不足扩容##################################################
+
 创建用于挂载的目录
 sudo mkdir /my/mysql/datadir #用于挂载mysql数据文件
 sudo mkdir /my/mysql/conf.d #用于挂载mysql配置文件
@@ -1556,3 +1560,4 @@ docker run --name mysql5.7 -p 12345:3306 -e MYSQL_ROOT_PASSWORD=123456 -d mysql:
 -v：挂载宿主目录到容器目录
 -e：设置环境变量，此处指定root密码
 -d：后台运行容器
+

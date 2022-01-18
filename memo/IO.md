@@ -353,7 +353,29 @@ bash    1356 root  255u   CHR  136,1    0t0        4 /dev/pts/1
 
 ## pagecache
 
+pcstat工具安装
+
+1. 在windows环境下使用代理下载pcstat.x86_64
+
+   https://github.com/tobert/pcstat/raw/2014-05-02-01/pcstat.x86_64
+
+2. 上产至linux服务器
+
+3. mv pcstat.x86_64 pcstat
+
+4. chmod 755 pcstat
+
+5. cp ./pcstat /usr/bin
+
 ## dirty
+
+
+
+
+
+
+
+管道：前一个命令的输出为第二个命令的输入
 
 
 

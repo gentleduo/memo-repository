@@ -1,3 +1,5 @@
+
+
 # 虚拟文件系统，文件描述符，IO重定向
 
 ## 文件描述符表、文件表、索引结点表
@@ -780,15 +782,150 @@ nr_dirty_background_threshold 191024
 1. vm.dirty_background_ratio = 10  是内存可以填充脏数据的百分比。这些脏数据稍后会写入磁盘，pdflush/flush/kdmflush这些后台进程会稍后清理脏数据。比如，内存为32G，那么有3.2G的脏数据可以待着内存里，超过3.2G的话就会有后台进程来清理。
 2. vm.dirty_ratio = 30 是可以用脏数据填充的绝对最大系统内存量，当系统到达此点时，必须将所有脏数据提交到磁盘，同时所有新的I/O块都会被阻塞，直到脏数据被写入磁盘。这通常是长I/O卡顿的原因，但这也是保证内存中不会存在过量脏数据的保护机制。
 3. vm.dirty_background_bytes和vm.dirty_bytes是另一种指定这些参数的方法。如果设置_bytes版本，则_ratio版本将变为0，反之亦然。
-4. vm.dirty_expire_centisecs = 3000 指定脏数据能存活的时间。在这里它的值是30秒。当pdflush/flush/kdmflush在运行的时候，他们会检查是否有数据超过这个时限，如果有则会把它异步地写到磁盘中。毕竟数据在内存里待太久也会有丢失风险。
-5. vm.dirty_writeback_centisecs = 500 指定多长时间pdflush/flush/kdmflush这些进程会唤醒一次，然后检查是否有缓存需要清理。（单位：1/100s）
+4. vm.dirty_expire_centisecs = 3000 指定脏数据能存活的时间。在这里它的值是30秒。当pdflush/flush/kdmflush在运行时，他们会检查是否有数据超过这个时限，如果有则会把它异步地写到磁盘中。毕竟数据在内存里待太久也会有丢失风险。（单位：厘秒，即：1/100s，所以默认3000为3000*1/3000秒即30秒）
+5. vm.dirty_writeback_centisecs = 500 指定多长时间pdflush/flush/kdmflush这些进程会唤醒一次，然后检查是否有缓存需要清理。（单位：厘秒，即：1/100s，所以默认500为500*1/100秒即5秒）
 
-pdflush写入硬盘看两个参数：
+pdflush写入硬盘由vm.dirty_background_ratio和vm.dirty_expire_centisecs一起来作用，一个表示大小比例，一个表示时间；即满足其中任何一个的条件都达到刷盘的条件。如果只有参数 vm.dirty_background_ratio ，也就是说cache中的数据需要超过这个阀值才会满足刷磁盘的条件；如果数据一直没有达到这个阀值，那相当于cache中的数据就永远无法持久化到磁盘，这种情况下，一旦服务器重启，那么cache中的数据必然丢失。结合以上情况，所以添加了一个数据过期时间参数。当数据量没有达到阀值，但是达到了我们设定的过期时间，同样可以实现数据刷盘。这样可以有效的解决上述存在的问题，其实这种设计在绝大部分框架中都有。
 
-1. 数据在页缓存中是否超出dirty_expire_centisecs ，如果是，标记为脏页缓存;
-2. 脏页缓存是否达到工作内存的dirty_background_ratio;
+实验环境准备：
+
+临时修改内核配置项目
+
+sysctl -w vm.dirty_background_ratio=30
+
+sysctl -w vm.dirty_writeback_centisecs=50000
+
+sysctl -w vm.dirty_expire_centisecs=30000
+
+永久修改内核配置项目
+
+vim /etc/sysctl.conf
+
+sysctl -w vm.dirty_background_ratio = 30
+
+sysctl -w vm.dirty_writeback_centisecs = 50000
+
+sysctl -w vm.dirty_expire_centisecs = 30000
+
+sysctl -p /etc/sysctl.conf
+
+查看内存中有多少脏数据
+
+cat /proc/vmstat | egrep "dirty|writeback"
+
+实验1：
+
+- 启动一个/bin/bash，执行start.sh
+
+```bash
+[root@server03 io]# ./start.sh 1
+```
+
+start.sh
+
+```shell
+#! /bin/bash
+
+rm -fr *out*
+javac OSFileIO.java
+strace -ff -o out java OSFileIO $1
+```
+
+OSFileIO.java
+
+```java
+import java.io.BufferedOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.nio.charset.StandardCharsets;
+
+public class OSFileIO {
 
 
+    static byte[] data = "123456789\n".getBytes(StandardCharsets.UTF_8);
+    static String path = "/opt/io/out.txt";
+
+    public static void main(String[] args) throws Exception {
+
+        switch (args[0]) {
+            case "0":
+                testBasicFileIO();
+                break;
+            case "1":
+                testBufferedFileIO();
+                break;
+            default:
+        }
+    }
+
+    public static void testBasicFileIO() throws Exception {
+        File file = new File(path);
+        FileOutputStream out = new FileOutputStream(file);
+        while (true) {
+            out.write(data);
+        }
+    }
+
+    public static void testBufferedFileIO() throws Exception {
+        File file = new File(path);
+        BufferedOutputStream out = new BufferedOutputStream(new FileOutputStream(file));
+        while (true) {
+            out.write(data);
+        }
+    }
+}
+```
+
+- 启动命令：ll -h && pcstat out.txt观察缓存情况，
+
+```bash
+
+[root@server03 io]# ll -h && pcstat out.txt
+total 4.0G
+-rw-r--r--. 1 root root 1.4K Jan 21 09:23 OSFileIO.class
+-rw-r--r--. 1 root root 1.1K Jan 21 08:55 OSFileIO.java
+-rw-r--r--. 1 root root 9.5K Jan 21 09:23 out.1348
+-rw-r--r--. 1 root root  18M Jan 21 09:23 out.1349
+-rw-r--r--. 1 root root 4.2K Jan 21 09:23 out.1350
+-rw-r--r--. 1 root root  930 Jan 21 09:23 out.1351
+-rw-r--r--. 1 root root 1.1K Jan 21 09:23 out.1352
+-rw-r--r--. 1 root root  974 Jan 21 09:23 out.1353
+-rw-r--r--. 1 root root 9.1K Jan 21 09:23 out.1354
+-rw-r--r--. 1 root root 6.2K Jan 21 09:23 out.1355
+-rw-r--r--. 1 root root  930 Jan 21 09:23 out.1356
+-rw-r--r--. 1 root root  54K Jan 21 09:23 out.1357
+-rw-r--r--. 1 root root 2.2G Jan 21 09:23 out.txt
+-rwxr-xr-x. 1 root root   82 Jan 20 10:39 start.sh
+|----------+----------------+------------+-----------+---------|
+| Name     | Size           | Pages      | Cached    | Percent |
+|----------+----------------+------------+-----------+---------|
+| out.txt  | 2358408780     | 575784     | 575784    | 100.000 |
+|----------+----------------+------------+-----------+---------|
+```
+
+- 在页缓存还没有超出dirty_expire_centisecs、并且脏页缓存还没有达到工作内存的dirty_background_ratio的时候，强行断电关机
+
+- 重新启动后观察out.txt，发现文件的大小为0，所有数据全部丢失
+
+```bash
+
+[root@server03 io]# ll -h
+total 12K
+-rw-r--r--. 1 root root 1.4K Jan 21 09:23 OSFileIO.class
+-rw-r--r--. 1 root root 1.1K Jan 21 08:55 OSFileIO.java
+-rw-r--r--. 1 root root    0 Jan 21 09:23 out.1348
+-rw-r--r--. 1 root root    0 Jan 21 09:23 out.1349
+-rw-r--r--. 1 root root    0 Jan 21 09:23 out.1350
+-rw-r--r--. 1 root root    0 Jan 21 09:23 out.1351
+-rw-r--r--. 1 root root    0 Jan 21 09:23 out.1352
+-rw-r--r--. 1 root root    0 Jan 21 09:23 out.1353
+-rw-r--r--. 1 root root    0 Jan 21 09:23 out.1354
+-rw-r--r--. 1 root root    0 Jan 21 09:23 out.1355
+-rw-r--r--. 1 root root    0 Jan 21 09:23 out.1356
+-rw-r--r--. 1 root root    0 Jan 21 09:23 out.1357
+-rw-r--r--. 1 root root    0 Jan 21 09:23 out.txt
+-rwxr-xr-x. 1 root root   82 Jan 20 10:39 start.sh
+```
 
 
 

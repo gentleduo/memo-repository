@@ -927,39 +927,177 @@ total 12K
 -rwxr-xr-x. 1 root root   82 Jan 20 10:39 start.sh
 ```
 
+实验2：
+
+- 内核参数：
+
+```basn
+[root@localhost io]# sysctl -a | grep dirty
+sysctl: reading key "net.ipv6.conf.all.stable_secret"
+sysctl: reading key "net.ipv6.conf.default.stable_secret"
+sysctl: reading key "net.ipv6.conf.enp0s3.stable_secret"
+sysctl: reading key "net.ipv6.conf.enp0s8.stable_secret"
+sysctl: reading key "net.ipv6.conf.lo.stable_secret"
+vm.dirty_background_bytes = 0
+vm.dirty_background_ratio = 10
+vm.dirty_bytes = 0
+vm.dirty_expire_centisecs = 3000
+vm.dirty_ratio = 30
+vm.dirty_writeback_centisecs = 500
+```
+
+- OSFileIO.java 
+
+由于代码值输出100万次"123456789\n"后就进入阻塞状态，所以脏页的数量肯定不满足vm.dirty_background_ratio设定的值
+
+```java
+import java.io.BufferedOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.nio.charset.StandardCharsets;
+
+public class OSFileIO {
 
 
-管道：前一个命令的输出为第二个命令的输入
+    static byte[] data = "123456789\n".getBytes(StandardCharsets.UTF_8);
+    static String path = "/opt/io/out.txt";
+
+    public static void main(String[] args) throws Exception {
+
+        switch (args[0]) {
+            case "0":
+                testBasicFileIO();
+                break;
+            case "1":
+                testBufferedFileIO();
+                break;
+            default:
+        }
+    }
+
+    public static void testBasicFileIO() throws Exception {
+        File file = new File(path);
+        FileOutputStream out = new FileOutputStream(file);
+//        while (true) {
+//            out.write(data);
+//        }
+        for (int i = 0; i < 1000000; i++) {
+            out.write(data);
+        }
+        System.in.read();
+    }
+
+    public static void testBufferedFileIO() throws Exception {
+        File file = new File(path);
+        BufferedOutputStream out = new BufferedOutputStream(new FileOutputStream(file));
+//        while (true) {
+//            out.write(data);
+//        }
+        for (int i = 0; i < 1000000; i++) {
+            out.write(data);
+        }
+        System.in.read();
+    }
+}
+```
+
+- 启动start.sh  ./start.sh 1
+
+```shell
+#!/bin/bash
+
+rm -fr *out*
+javac OSFileIO.java
+strace -ff -o out java OSFileIO $1
+```
+
+- 新开一个bash窗口使用ll -laht && cat /proc/vmstat | egrep "dirty|writeback"观察脏页情况，在vm.dirty_expire_centisecs设定的时间后(30S)，强行关机
+
+```bash
+[root@localhost io]# ll -laht && cat /proc/vmstat | egrep "dirty|writeback"
+total 17M
+-rw-r--r--. 1 root root 118K Jan 23 14:32 out.1393
+-rw-r--r--. 1 root root 7.4K Jan 23 14:32 out.1386
+-rw-r--r--. 1 root root 8.7K Jan 23 14:32 out.1390
+-rw-r--r--. 1 root root 6.4K Jan 23 14:32 out.1391
+-rw-r--r--. 1 root root 239K Jan 23 14:31 out.1385
+-rw-r--r--. 1 root root 9.6M Jan 23 14:31 out.txt
+drwxr-xr-x. 2 root root  240 Jan 23 14:31 .
+-rw-r--r--. 1 root root  930 Jan 23 14:31 out.1392
+-rw-r--r--. 1 root root  974 Jan 23 14:31 out.1389
+-rw-r--r--. 1 root root 1.1K Jan 23 14:31 out.1388
+-rw-r--r--. 1 root root  930 Jan 23 14:31 out.1387
+-rw-r--r--. 1 root root 9.4K Jan 23 14:31 out.1384
+-rw-r--r--. 1 root root 1.6K Jan 23 14:31 OSFileIO.class
+-rw-r--r--. 1 root root 1.4K Jan 23 14:31 OSFileIO.java
+-rwxr--r--. 1 root root   81 Jan 23 13:15 start.sh
+drwxr-xr-x. 3 root root   16 Jan 23 13:06 ..
+nr_dirty 4
+nr_writeback 0
+nr_writeback_temp 0
+nr_dirty_threshold 261710
+nr_dirty_background_threshold 87236
+```
+
+- 重新启动服务器，进入到/opt/io目录下，发现数据已经被刷入磁盘了，这是因为虽然不满足vm.dirty_background_ratio设定的阈值，但是达到了设定的过期时间vm.dirty_expire_centisecs，同样可以实现数据刷盘。
+
+```bash
+
+[root@localhost ~]# ll /opt/io/
+total 17284
+-rw-r--r--. 1 root root    1570 Jan 23 14:31 OSFileIO.class
+-rw-r--r--. 1 root root    1425 Jan 23 14:31 OSFileIO.java
+-rw-r--r--. 1 root root    9566 Jan 23 14:31 out.1384
+-rw-r--r--. 1 root root  244291 Jan 23 14:31 out.1385
+-rw-r--r--. 1 root root    7374 Jan 23 14:32 out.1386
+-rw-r--r--. 1 root root     930 Jan 23 14:31 out.1387
+-rw-r--r--. 1 root root    1054 Jan 23 14:31 out.1388
+-rw-r--r--. 1 root root     974 Jan 23 14:31 out.1389
+-rw-r--r--. 1 root root    8858 Jan 23 14:32 out.1390
+-rw-r--r--. 1 root root    6462 Jan 23 14:32 out.1391
+-rw-r--r--. 1 root root     930 Jan 23 14:31 out.1392
+-rw-r--r--. 1 root root  226939 Jan 23 14:32 out.1393
+-rw-r--r--. 1 root root 9999990 Jan 23 14:31 out.txt
+-rwxr--r--. 1 root root      81 Jan 23 13:15 start.sh
+```
 
 
 
-linux中每启动一个bash代表一个进程，在当前bash中再启动一个/bin/bash那么相当于再fork出来一个进程，并且跟原来的进程是父子关系(可以通过pstree观察)
 
-由于进程间的隔离机制，所以在父进程中定义的变量，在子进程中是看不到的，比如:
 
-在父进程中定义变量a
 
-a=1
 
-echo $a
 
-在当前bash下启动一个新的bash
 
-/bin/bash
 
-此时在子进程中a是没有定义的
 
-echo $a
 
-再退回到父进程中，export a之后，在进入子进程的话，a就可见了
 
-exit
 
-export a
 
-/bin/bash
 
-echo $a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

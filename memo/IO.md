@@ -1064,7 +1064,353 @@ total 17284
 
 
 
+# Socket编程BIO及TCP参数
 
+实验：
+
+服务端代码:
+
+```java
+package org.duo.bio;
+
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.net.InetSocketAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.net.StandardSocketOptions;
+import java.util.Arrays;
+
+public class SocketIOPropertites {
+
+    private static final int RECEIVE_BUFFER = 10;
+    private static final int SO_TIMEOUT = 0;
+    private static final boolean REUSE_ADDR = false;
+    // 请求的连接数量非常大，资源不够时，允许排队的连接数
+    private static final int BACK_LOG = 2;
+    private static final boolean CLI_KEEPALIVE = false;
+    // 是否优先发送数据进行试探
+    private static final boolean CLI_OOB = false;
+    // 通过ss -natp可以看到Recv-Q，Recv-Q和CLI_REC_BUF的关系？
+    private static final int CLI_REC_BUF = 20;
+    private static final boolean CLI_REUSE_ADDR = false;
+    // 通过ss -natp可以看到Send-Q，Send-Q和CLI_SEND_BUF的关系？
+    private static final int CLI_SEND_BUF = 20;
+    private static final boolean CLI_LINGER = true;
+    private static final int CLI_LINGER_N = 0;
+    // 客户端读取数据的超时时间，0：表示阻塞等待
+    private static final int CLI_TIMEOUT = 0;
+    private static final boolean CLI_NO_DELAY = false;
+
+//    StandardSocketOptions.TCP_NODELAY
+
+    public static void main(String[] args) {
+        ServerSocket server = null;
+        try {
+            server = new ServerSocket();
+            server.bind(new InetSocketAddress(9090), BACK_LOG);
+            server.setReceiveBufferSize(RECEIVE_BUFFER);
+            server.setReuseAddress(REUSE_ADDR);
+            server.setSoTimeout(SO_TIMEOUT);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        System.out.println("server up use 9090!");
+
+        while (true) {
+            try {
+
+                System.in.read();
+
+                Socket client = server.accept();
+                System.out.println("client port:" + client.getPort());
+
+                client.setKeepAlive(CLI_KEEPALIVE);
+                client.setOOBInline(CLI_OOB);
+                client.setReceiveBufferSize(CLI_REC_BUF);
+                client.setReuseAddress(CLI_REUSE_ADDR);
+                client.setSendBufferSize(CLI_SEND_BUF);
+                client.setSoLinger(CLI_LINGER, CLI_LINGER_N);
+                client.setSoTimeout(CLI_TIMEOUT);
+                client.setTcpNoDelay(CLI_NO_DELAY);
+
+                new Thread(() -> {
+                    while (true) {
+                        try {
+                            InputStream in = client.getInputStream();
+                            BufferedReader reader = new BufferedReader(new InputStreamReader(in));
+                            char[] data = new char[1024];
+                            int num = reader.read(data);
+
+                            if (num > 0) {
+                                System.out.println("client read some data is :" + num + " val :" + new String(data, 0, num));
+                            } else if (num == 0) {
+                                System.out.println("client read nothing!");
+                                continue;
+                            } else {
+                                System.out.println("client read -1...");
+                                client.close();
+                                break;
+                            }
+                        } catch (IOException e) {
+                            e.printStackTrace();
+                        }
+                    }
+                }).start();
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+
+        }
+    }
+}
+
+```
+
+客服端代码：
+
+```java
+package org.duo.bio;
+
+import java.io.*;
+import java.net.Socket;
+
+public class SocketClient {
+
+    public static void main(String[] args) {
+
+        try {
+            Socket client = new Socket("192.168.56.112", 9090);
+
+            client.setSendBufferSize(20);
+            client.setTcpNoDelay(false);
+            OutputStream out = client.getOutputStream();
+
+            InputStream in = System.in;
+            BufferedReader reader = new BufferedReader(new InputStreamReader(in));
+
+            while (true) {
+                String line = reader.readLine();
+                if (line != null) {
+                    byte[] bb = line.getBytes();
+                    for (byte b : bb) {
+                        out.write(b);
+                    }
+                }
+            }
+        } catch (IOException ioException) {
+            ioException.printStackTrace();
+        }
+
+    }
+}
+```
+
+运行服务端代码：
+
+```bash
+[root@server03 ~]# ss -natp
+State      Recv-Q Send-Q                                       Local Address:Port                                                      Peer Address:Port
+LISTEN     0      128                                                      *:111                                                                  *:*                   users:(("rpcbind",pid=657,fd=4),("systemd",pid=1,fd=39))
+LISTEN     0      128                                                      *:22                                                                   *:*                   users:(("sshd",pid=992,fd=3))
+LISTEN     0      100                                              127.0.0.1:25                                                                   *:*                   users:(("master",pid=1231,fd=13))
+ESTAB      0      0                                           192.168.56.112:22                                                        192.168.56.1:51140               users:(("sshd",pid=1388,fd=3))
+ESTAB      0      64                                          192.168.56.112:22                                                        192.168.56.1:63220               users:(("sshd",pid=1412,fd=3))
+ESTAB      0      0                                           192.168.56.112:22                                                        192.168.56.1:51105               users:(("sshd",pid=1301,fd=3))
+ESTAB      0      0                                           192.168.56.112:22                                                        192.168.56.1:50697               users:(("sshd",pid=1063,fd=3))
+LISTEN     0      128                                                     :::111                                                                 :::*                   users:(("rpcbind",pid=657,fd=6),("systemd",pid=1,fd=41))
+LISTEN     0      128                                                     :::22                                                                  :::*                   users:(("sshd",pid=992,fd=4))
+LISTEN     0      100                                                    ::1:25                                                                  :::*                   users:(("master",pid=1231,fd=14))
+LISTEN     0      2                                                       :::9090                                                                :::*                   users:(("java",pid=1377,fd=5))
+[root@server03 ~]# jps
+1440 Jps
+1377 SocketIOPropertites
+[root@server03 ~]# lsof -op 1377
+COMMAND  PID USER   FD   TYPE             DEVICE     OFFSET      NODE NAME
+java    1377 root  cwd    DIR              253,0            100781673 /opt/io
+java    1377 root  rtd    DIR              253,0                   64 /
+java    1377 root  txt    REG              253,0             53223730 /usr/local/java/jdk1.8.0_144/bin/java
+java    1377 root  mem    REG              253,0                32642 /usr/lib/locale/locale-archive
+java    1377 root  mem    REG              253,0              5309195 /usr/local/java/jdk1.8.0_144/jre/lib/amd64/libnet.so
+java    1377 root  mem    REG              253,0             83904872 /usr/local/java/jdk1.8.0_144/jre/lib/rt.jar
+java    1377 root  mem    REG              253,0              5665416 /usr/local/java/jdk1.8.0_144/jre/lib/amd64/libzip.so
+java    1377 root  mem    REG              253,0              2114148 /usr/lib64/libnss_files-2.17.so
+java    1377 root  mem    REG              253,0              5665449 /usr/local/java/jdk1.8.0_144/jre/lib/amd64/libjava.so
+java    1377 root  mem    REG              253,0              5309196 /usr/local/java/jdk1.8.0_144/jre/lib/amd64/libverify.so
+java    1377 root  mem    REG              253,0              2114160 /usr/lib64/librt-2.17.so
+java    1377 root  mem    REG              253,0                32663 /usr/lib64/libm-2.17.so
+java    1377 root  mem    REG              253,0             35290966 /usr/local/java/jdk1.8.0_144/jre/lib/amd64/server/libjvm.so
+java    1377 root  mem    REG              253,0                32652 /usr/lib64/libc-2.17.so
+java    1377 root  mem    REG              253,0                32659 /usr/lib64/libdl-2.17.so
+java    1377 root  mem    REG              253,0              5302306 /usr/local/java/jdk1.8.0_144/lib/amd64/jli/libjli.so
+java    1377 root  mem    REG              253,0              2114156 /usr/lib64/libpthread-2.17.so
+java    1377 root  mem    REG              253,0              2114136 /usr/lib64/ld-2.17.so
+java    1377 root  mem    REG              253,0              1437184 /tmp/hsperfdata_root/1377
+java    1377 root    0u   CHR              136,0        0t0         3 /dev/pts/0
+java    1377 root    1u   CHR              136,0        0t0         3 /dev/pts/0
+java    1377 root    2u   CHR              136,0        0t0         3 /dev/pts/0
+java    1377 root    3r   REG              253,0 0t62392257  83904872 /usr/local/java/jdk1.8.0_144/jre/lib/rt.jar
+java    1377 root    4u  unix 0xffff88020f703400        0t0     18888 socket
+java    1377 root    5u  IPv6              18890        0t0       TCP *:websm (LISTEN)
+[root@server03 ~]# tcpdump -nn -i enp0s8 port 9090
+tcpdump: verbose output suppressed, use -v or -vv for full protocol decode
+listening on enp0s8, link-type EN10MB (Ethernet), capture size 262144 bytes
+```
+
+- 运行客户端代码，向服务器建立连接
+
+```bash
+[root@server01 io]# java org.duo.bio.SocketClient
+
+```
+
+- 在服务端运行tcpdump命令抓取客户端与服务器之间传输的数据包发现，客户端和服务器已经通过三次握手建立连接，并且通过ss命令可以看到，在内核状态中由客户端：192.168.56.110:54882发起的请求已经和服务器：192.168.56.112:9090建立好了连接，（状态是：ESTAB）但是这个socket没有分配给具体的进程去使用（即：没有被接受）。
+
+```bash
+[root@server03 ~]# tcpdump -nn -i enp0s8 port 9090
+tcpdump: verbose output suppressed, use -v or -vv for full protocol decode
+listening on enp0s8, link-type EN10MB (Ethernet), capture size 262144 bytes
+19:12:17.148445 IP 192.168.56.110.54882 > 192.168.56.112.9090: Flags [S], seq 1580823001, win 29200, options [mss 1460,sackOK,TS val 2993185 ecr 0,nop,wscale 7], length 0
+19:12:17.148465 IP 192.168.56.112.9090 > 192.168.56.110.54882: Flags [S.], seq 188039735, ack 1580823002, win 1152, options [mss 1460,sackOK,TS val 3177786 ecr 2993185,nop,wscale 0], length 0
+19:12:17.148681 IP 192.168.56.110.54882 > 192.168.56.112.9090: Flags [.], ack 1, win 229, options [nop,nop,TS val 2993186 ecr 3177786], length 0
+[root@server03 ~]# ss -natp
+State      Recv-Q Send-Q                                       Local Address:Port                                                      Peer Address:Port
+LISTEN     0      128                                                      *:111                                                                  *:*                   users:(("rpcbind",pid=657,fd=4),("systemd",pid=1,fd=39))
+LISTEN     0      128                                                      *:22                                                                   *:*                   users:(("sshd",pid=992,fd=3))
+LISTEN     0      100                                              127.0.0.1:25                                                                   *:*                   users:(("master",pid=1231,fd=13))
+ESTAB      0      0                                           192.168.56.112:22                                                        192.168.56.1:51140               users:(("sshd",pid=1388,fd=3))
+ESTAB      0      64                                          192.168.56.112:22                                                        192.168.56.1:63220               users:(("sshd",pid=1412,fd=3))
+ESTAB      0      0                                           192.168.56.112:22                                                        192.168.56.1:51105               users:(("sshd",pid=1301,fd=3))
+ESTAB      0      0                                           192.168.56.112:22                                                        192.168.56.1:50697               users:(("sshd",pid=1063,fd=3))
+LISTEN     0      128                                                     :::111                                                                 :::*                   users:(("rpcbind",pid=657,fd=6),("systemd",pid=1,fd=41))
+LISTEN     0      128                                                     :::22                                                                  :::*                   users:(("sshd",pid=992,fd=4))
+LISTEN     0      100                                                    ::1:25                                                                  :::*                   users:(("master",pid=1231,fd=14))
+LISTEN     1      2                                                       :::9090                                                                :::*                   users:(("java",pid=1377,fd=5))
+ESTAB      0      0                                    ::ffff:192.168.56.112:9090                                             ::ffff:192.168.56.110:54882
+```
+
+- 客户端向服务器发送数据包：
+
+```bash
+[root@server01 io]# java org.duo.bio.SocketClient
+123131
+
+```
+
+通过tcpdump发现数据通过tcp传输到了服务器，并且通过ss命令可以看到该连接对应的Recv-Q为6，说明这6个字节已经被内核收到了。这就说明就算socket没有被具体的进程接受、没有对应的文件描述符，但是其实在内核中已经完成了数据的传输。这就是常说的tcp是面向连接的，在完成三次握手，双方开辟完资源后（在内核中开辟了缓冲区等），就算应用程序没有接受但是在内核中也会有资源去完成等待或者接受。
+
+通过lsof -op PID发现由于服务端阻塞在System.in.read();还没有调用server.accept();所以还没有分配文件描述符
+
+```bash
+[root@server03 ~]# tcpdump -nn -i enp0s8 port 9090
+tcpdump: verbose output suppressed, use -v or -vv for full protocol decode
+listening on enp0s8, link-type EN10MB (Ethernet), capture size 262144 bytes
+19:12:17.148445 IP 192.168.56.110.54882 > 192.168.56.112.9090: Flags [S], seq 1580823001, win 29200, options [mss 1460,sackOK,TS val 2993185 ecr 0,nop,wscale 7], length 0
+19:12:17.148465 IP 192.168.56.112.9090 > 192.168.56.110.54882: Flags [S.], seq 188039735, ack 1580823002, win 1152, options [mss 1460,sackOK,TS val 3177786 ecr 2993185,nop,wscale 0], length 0
+19:12:17.148681 IP 192.168.56.110.54882 > 192.168.56.112.9090: Flags [.], ack 1, win 229, options [nop,nop,TS val 2993186 ecr 3177786], length 0
+19:25:37.694947 IP 192.168.56.110.54882 > 192.168.56.112.9090: Flags [P.], seq 1:2, ack 1, win 229, options [nop,nop,TS val 3793738 ecr 3177786], length 1
+19:25:37.694974 IP 192.168.56.112.9090 > 192.168.56.110.54882: Flags [.], ack 2, win 1151, options [nop,nop,TS val 3978333 ecr 3793738], length 0
+19:25:37.695194 IP 192.168.56.110.54882 > 192.168.56.112.9090: Flags [P.], seq 2:7, ack 1, win 229, options [nop,nop,TS val 3793739 ecr 3978333], length 5
+19:25:37.734871 IP 192.168.56.112.9090 > 192.168.56.110.54882: Flags [.], ack 7, win 1146, options [nop,nop,TS val 3978373 ecr 3793739], length 0
+[root@server03 ~]# ss -natp
+State      Recv-Q Send-Q                                       Local Address:Port                                                      Peer Address:Port
+LISTEN     0      128                                                      *:111                                                                  *:*                   users:(("rpcbind",pid=657,fd=4),("systemd",pid=1,fd=39))
+LISTEN     0      128                                                      *:22                                                                   *:*                   users:(("sshd",pid=992,fd=3))
+LISTEN     0      100                                              127.0.0.1:25                                                                   *:*                   users:(("master",pid=1231,fd=13))
+ESTAB      0      0                                           192.168.56.112:22                                                        192.168.56.1:51140               users:(("sshd",pid=1388,fd=3))
+ESTAB      0      64                                          192.168.56.112:22                                                        192.168.56.1:63220               users:(("sshd",pid=1412,fd=3))
+ESTAB      0      0                                           192.168.56.112:22                                                        192.168.56.1:51105               users:(("sshd",pid=1301,fd=3))
+ESTAB      0      0                                           192.168.56.112:22                                                        192.168.56.1:50697               users:(("sshd",pid=1063,fd=3))
+LISTEN     0      128                                                     :::111                                                                 :::*                   users:(("rpcbind",pid=657,fd=6),("systemd",pid=1,fd=41))
+LISTEN     0      128                                                     :::22                                                                  :::*                   users:(("sshd",pid=992,fd=4))
+LISTEN     0      100                                                    ::1:25                                                                  :::*                   users:(("master",pid=1231,fd=14))
+LISTEN     1      2                                                       :::9090                                                                :::*                   users:(("java",pid=1377,fd=5))
+ESTAB      6      0                                    ::ffff:192.168.56.112:9090                                             ::ffff:192.168.56.110:54882
+[root@server03 ~]# lsof -op 1377
+COMMAND  PID USER   FD   TYPE             DEVICE     OFFSET      NODE NAME
+java    1377 root  cwd    DIR              253,0            100781673 /opt/io
+java    1377 root  rtd    DIR              253,0                   64 /
+java    1377 root  txt    REG              253,0             53223730 /usr/local/java/jdk1.8.0_144/bin/java
+java    1377 root  mem    REG              253,0                32642 /usr/lib/locale/locale-archive
+java    1377 root  mem    REG              253,0              5309195 /usr/local/java/jdk1.8.0_144/jre/lib/amd64/libnet.so
+java    1377 root  mem    REG              253,0             83904872 /usr/local/java/jdk1.8.0_144/jre/lib/rt.jar
+java    1377 root  mem    REG              253,0              5665416 /usr/local/java/jdk1.8.0_144/jre/lib/amd64/libzip.so
+java    1377 root  mem    REG              253,0              2114148 /usr/lib64/libnss_files-2.17.so
+java    1377 root  mem    REG              253,0              5665449 /usr/local/java/jdk1.8.0_144/jre/lib/amd64/libjava.so
+java    1377 root  mem    REG              253,0              5309196 /usr/local/java/jdk1.8.0_144/jre/lib/amd64/libverify.so
+java    1377 root  mem    REG              253,0              2114160 /usr/lib64/librt-2.17.so
+java    1377 root  mem    REG              253,0                32663 /usr/lib64/libm-2.17.so
+java    1377 root  mem    REG              253,0             35290966 /usr/local/java/jdk1.8.0_144/jre/lib/amd64/server/libjvm.so
+java    1377 root  mem    REG              253,0                32652 /usr/lib64/libc-2.17.so
+java    1377 root  mem    REG              253,0                32659 /usr/lib64/libdl-2.17.so
+java    1377 root  mem    REG              253,0              5302306 /usr/local/java/jdk1.8.0_144/lib/amd64/jli/libjli.so
+java    1377 root  mem    REG              253,0              2114156 /usr/lib64/libpthread-2.17.so
+java    1377 root  mem    REG              253,0              2114136 /usr/lib64/ld-2.17.so
+java    1377 root  mem    REG              253,0              1437184 /tmp/hsperfdata_root/1377
+java    1377 root    0u   CHR              136,0        0t0         3 /dev/pts/0
+java    1377 root    1u   CHR              136,0        0t0         3 /dev/pts/0
+java    1377 root    2u   CHR              136,0        0t0         3 /dev/pts/0
+java    1377 root    3r   REG              253,0 0t62392257  83904872 /usr/local/java/jdk1.8.0_144/jre/lib/rt.jar
+java    1377 root    4u  unix 0xffff88020f703400        0t0     18888 socket
+java    1377 root    5u  IPv6              18890        0t0       TCP *:websm (LISTEN)
+```
+
+- 在服务端输入回车后，由于调用了server.accept();就会分配一个文件描述符，然后客户端发送的被缓冲在内核的数据也就能通过分配给文件描述符读取到了。通过 ss -natp也可以看到之前的socket也被分配给了进程：1377；且通过lsof也可以看到进程：1377中新增了一个文件描述符：6
+
+```bash
+[root@server03 io]# java org.duo.bio.SocketIOPropertites
+server up use 9090!
+
+client port:54882
+client read some data is :6 val :123131
+[root@server03 ~]# ss -natp
+State      Recv-Q Send-Q                                       Local Address:Port                                                      Peer Address:Port
+LISTEN     0      128                                                      *:111                                                                  *:*                   users:(("rpcbind",pid=657,fd=4),("systemd",pid=1,fd=39))
+LISTEN     0      128                                                      *:22                                                                   *:*                   users:(("sshd",pid=992,fd=3))
+LISTEN     0      100                                              127.0.0.1:25                                                                   *:*                   users:(("master",pid=1231,fd=13))
+ESTAB      0      0                                           192.168.56.112:22                                                        192.168.56.1:51140               users:(("sshd",pid=1388,fd=3))
+ESTAB      0      64                                          192.168.56.112:22                                                        192.168.56.1:63220               users:(("sshd",pid=1412,fd=3))
+ESTAB      0      0                                           192.168.56.112:22                                                        192.168.56.1:51105               users:(("sshd",pid=1301,fd=3))
+ESTAB      0      0                                           192.168.56.112:22                                                        192.168.56.1:50697               users:(("sshd",pid=1063,fd=3))
+LISTEN     0      128                                                     :::111                                                                 :::*                   users:(("rpcbind",pid=657,fd=6),("systemd",pid=1,fd=41))
+LISTEN     0      128                                                     :::22                                                                  :::*                   users:(("sshd",pid=992,fd=4))
+LISTEN     0      100                                                    ::1:25                                                                  :::*                   users:(("master",pid=1231,fd=14))
+LISTEN     0      2                                                       :::9090                                                                :::*                   users:(("java",pid=1377,fd=5))
+ESTAB      0      0                                    ::ffff:192.168.56.112:9090                                             ::ffff:192.168.56.110:54882               users:(("java",pid=1377,fd=6))
+[root@server03 ~]# lsof -op 1377
+COMMAND  PID USER   FD   TYPE             DEVICE     OFFSET      NODE NAME
+java    1377 root  cwd    DIR              253,0            100781673 /opt/io
+java    1377 root  rtd    DIR              253,0                   64 /
+java    1377 root  txt    REG              253,0             53223730 /usr/local/java/jdk1.8.0_144/bin/java
+java    1377 root  mem    REG              253,0                32642 /usr/lib/locale/locale-archive
+java    1377 root  mem    REG              253,0              5309195 /usr/local/java/jdk1.8.0_144/jre/lib/amd64/libnet.so
+java    1377 root  mem    REG              253,0             83904872 /usr/local/java/jdk1.8.0_144/jre/lib/rt.jar
+java    1377 root  mem    REG              253,0              5665416 /usr/local/java/jdk1.8.0_144/jre/lib/amd64/libzip.so
+java    1377 root  mem    REG              253,0              2114148 /usr/lib64/libnss_files-2.17.so
+java    1377 root  mem    REG              253,0              5665449 /usr/local/java/jdk1.8.0_144/jre/lib/amd64/libjava.so
+java    1377 root  mem    REG              253,0              5309196 /usr/local/java/jdk1.8.0_144/jre/lib/amd64/libverify.so
+java    1377 root  mem    REG              253,0              2114160 /usr/lib64/librt-2.17.so
+java    1377 root  mem    REG              253,0                32663 /usr/lib64/libm-2.17.so
+java    1377 root  mem    REG              253,0             35290966 /usr/local/java/jdk1.8.0_144/jre/lib/amd64/server/libjvm.so
+java    1377 root  mem    REG              253,0                32652 /usr/lib64/libc-2.17.so
+java    1377 root  mem    REG              253,0                32659 /usr/lib64/libdl-2.17.so
+java    1377 root  mem    REG              253,0              5302306 /usr/local/java/jdk1.8.0_144/lib/amd64/jli/libjli.so
+java    1377 root  mem    REG              253,0              2114156 /usr/lib64/libpthread-2.17.so
+java    1377 root  mem    REG              253,0              2114136 /usr/lib64/ld-2.17.so
+java    1377 root  mem    REG              253,0              1437184 /tmp/hsperfdata_root/1377
+java    1377 root    0u   CHR              136,0        0t0         3 /dev/pts/0
+java    1377 root    1u   CHR              136,0        0t0         3 /dev/pts/0
+java    1377 root    2u   CHR              136,0        0t0         3 /dev/pts/0
+java    1377 root    3r   REG              253,0 0t30056619  83904872 /usr/local/java/jdk1.8.0_144/jre/lib/rt.jar
+java    1377 root    4u  unix 0xffff88020f703400        0t0     18888 socket
+java    1377 root    5u  IPv6              18890        0t0       TCP *:websm (LISTEN)
+java    1377 root    6u  IPv6              20028        0t0       TCP server03:websm->server01:54882 (ESTABLISHED)
+[root@server03 ~]#
+
+
+```
 
 
 

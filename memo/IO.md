@@ -1,5 +1,3 @@
-
-
 # 虚拟文件系统，文件描述符，IO重定向
 
 ## 文件描述符表、文件表、索引结点表
@@ -1420,23 +1418,183 @@ socket是一个四元组：客户端IP+客户端PORT:服务器IP+服务器PORT
 
 java进程在执行accept之后，可以拿到内核分配的文件描述符，然后在java中将得到的文件描述符包装成了socket对象，文件描述符在每个进程内都是唯一的。文件描述符可以理解为指向内核中的四元组。
 
+# 多路复用器
 
+## NIO
 
+NIO模型下的java代码：
 
+```java
+package org.duo.nio;
 
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.net.StandardSocketOptions;
+import java.nio.ByteBuffer;
+import java.nio.channels.ServerSocketChannel;
+import java.nio.channels.SocketChannel;
+import java.util.Arrays;
+import java.util.LinkedList;
 
+public class ServerSocketIO {
 
+    public static void main(String[] args) throws IOException, InterruptedException {
 
+        LinkedList<SocketChannel> clients = new LinkedList<>();
 
+        ServerSocketChannel ss = ServerSocketChannel.open(); // listen socket
+        ss.bind(new InetSocketAddress(9090));
+        ss.configureBlocking(false); // 重点 OS NONBLOCKING
 
+//        ss.setOption(StandardSocketOptions.TCP_NODELAY, false);
 
+        while (true) {
+//            Thread.sleep(1000);
+            SocketChannel client = ss.accept();//连接socket
+            if (client == null) {
+//                System.out.println("null......");
+            } else {
+                client.configureBlocking(false); // 重点
+                int port = client.socket().getPort();
+                System.out.println("client port = " + port);
+                clients.add(client);
+            }
 
+            ByteBuffer buffer = ByteBuffer.allocateDirect(4096);
 
+            for (SocketChannel c : clients) {
+                int num = c.read(buffer); //非阻塞
+                if (num > 0) {
+                    buffer.flip();
+                    byte[] aaa = new byte[buffer.limit()];
+                    buffer.get(aaa);
+                    String b = new String(aaa);
+                    System.out.println(c.socket().getPort() + " : " + b);
+                    buffer.clear();
+                }
+            }
+        }
+    }
+}
+```
 
+## select 
 
+synchronous I/O multiplexing
 
+int select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds, struct timeval *timeout);
 
+描述：
 
+select() and pselect() allow a program to monitor multiple file descriptors, waiting until one or more of the file descriptors become "ready" for some class of I/O operation (e.g., input possible). A file descriptor is considered ready if it is possible to perform the corresponding I/O operation (e.g., read(2)) without blocking.
+
+参数：
+
+An fd_set is a fixed size buffer.  Executing FD_CLR() or FD_SET() with a value of fd that is negative or is equal to or larger than FD_SETSIZE  will  result in undefined behavior.  Moreover, POSIX requires fd to be a valid file descriptor(fd_set 是一个固定大小的缓冲区。 当fd 为负数或等于或大于FD_SETSIZE 的值执行FD_CLR()或FD_SET()将导致未定义的行为。即：传入select的fd的数量不能超过FD_SETSIZE ，这就是select的限制)
+
+注意在使用man查询内核函数的时候除了需要yum install man还需要yum install man-pages
+
+## poll
+
+wait for some event on a file descriptor
+
+int poll(struct pollfd *fds, nfds_t nfds, int timeout);
+
+描述：
+
+poll() performs a similar task to select(2): it waits for one of a set of file descriptors to become ready to perform I/O.
+
+小结：无论是NIO、SELECT、POLL都是要遍历所有的IO询问状态，不同的地方在于，NIO的时候要轮询所有的Channel然后依次调用read访问询问内核是否有数据达到，所以会发生n次系统调用；而SELECT会先通过一次系统调用(其实每次调用select也会遍历所有需要监听的fd，只是这个遍历是发生在内核中)拿到传入select中的所有Channel中有数据到达的m个Channel，然后再对这m个Channel进行读操作。假设有n个Channel，NIO的时间复杂度是O(n)而SELECT是O(1)+O(m)。
+
+select、poll的弊端：
+
+1. 每次都要重复传递fds
+2. 每次内核被调用后，都要触发一次针对传入的fds的全量遍历的过程
+
+## 中断
+
+cpu中断的类型
+
+1. 软中断：如果应用程序(即：app)想调用内核(即：kernel)的方法的话就会触发软中断，其实就是cpu从app中读到了int:80指令(CPU指令集中的一个)，然后再根据中断类型号从中断向量表(即中断服务程序入口地址表)中获取中断向量(存放中断服务程序的首地址称为中断向量)，最后将程序流程转向中断服务程序的入口地址(这个入口地址可能就是kernel的select，read函数在内存中的地址，可以理解为callback函数，这里就完成了一次syscall即：用户态、内核态的切换)。由于中断向量表是由是由操作系统在初始化阶段来填写，可以在操作系统层面灵活修改，因此，不同的系统的中断向量表可能是不同的。
+
+   ```mermaid
+   graph LR
+   CPU[cpu] -->|读取到程序中的一个指令:int 80| APP[app]
+   CPU[cpu] -->|中断类型号| TABLE[中断向量表]
+   TABLE[中断向量表] -->|中断向量| CPU[cpu]
+   CPU[cpu] -->|调用| KERNEL[kernel]
+   ```
+
+2. 硬中断：时钟中断，即在cpu中有一个晶振(晶体振荡器)，可能每秒钟会完成1万次有规律的振荡，每一次振荡就会产生一次中断，就会造成一次进程的切换(即多个进程轮流使用CPU，在一个时间片后切换到下一个进程。并且同样会根据中断类型号从中断向量表中获取中断向量，转向中断服务程序的入口地址：这里可能包括保护现场等一系列操作)。这就是单核的CPU也能同时运行多个程序的原因。
+
+3. IO中断：鼠标、键盘、网卡。比如网卡中有数据到达之后就会触发中断；鼠标在桌面滑动的时候也会触发中断。
+
+   网卡触发中断的级别：
+
+   1. package：有数据到达就产生中断
+   2. buffer：网卡缓冲区满了后就触发中断
+   3. 轮询：数据太快，频繁触发中断造成不必要的资源浪费，所以会关闭中断然后周期性的读取数据
+
+总结：
+
+有中断就会有回调函数(即：中断服务程序)，在epoll之前的callback(即：nio、select、poll)只是将网卡发来的数据，执行内核的网络协议栈将数据放入FD的buffer中(这些都是在内核中完成)，所以某一时间从app(用户态)询问内核某一个或者多个FD是否有R/W事件的时候，会有状态返回。如果内核在callback处理中再加入将有事件到来的文件描述符放到另外一个集合中，那么用户再调用多轮复用器的时候内核就不需要再遍历了而是直接返回有事件的文件描述符的集合。
+
+## epoll
+
+epoll - I/O event notification facility
+
+描述：
+
+The  epoll API performs a similar task to poll(2): monitoring multiple file descriptors to see if I/O is possible on any of them.  The epoll API can be used either as an edge-triggered or a level-triggered interface and scales well to large numbers of watched file descriptors.
+
+epoll实际下会调用下面三个函数
+
+### epoll_create
+
+open an epoll file descriptor
+
+描述：
+
+On success, these system calls return a nonnegative file descriptor.
+
+返回值：
+
+On success, these system calls return a nonnegative file descriptor.  On error, -1 is returned, and errno is set to indicate the error.
+
+在内核中开辟空间，管理文件描述符，这就避免了select的时候重复传递fds
+
+### epoll_ctl
+
+control interface for an epoll descriptor
+
+描述：
+
+This  system  call  performs control operations on the epoll(7) instance referred to by the file descriptor epfd.  It requests that the operation op be per formed for the target file descriptor, fd.
+
+返回值：
+
+When successful, epoll_ctl() returns zero.  When an error occurs, epoll_ctl() returns -1 and errno is set appropriately.
+
+向epoll_create创建的文件描述符所指向的空间中增加、修改、删除文件描述符
+
+### epoll_wait
+
+wait for an I/O event on an epoll file descriptor
+
+描述：
+
+The  epoll_wait()  system call waits for events on the epoll(7) instance referred to by the file descriptor epfd.  The memory area pointed to by events will contain the events that will be available for the caller.  Up to maxevents are returned by epoll_wait().  The maxevents argument must be greater than zero.
+
+返回值：
+
+When successful, epoll_wait() returns the number of file descriptors ready for the requested I/O, or zero if no file  descriptor  became  ready  during  the requested timeout milliseconds.  When an error occurs, epoll_wait() returns -1 and errno is set appropriately.
+
+在epoll的多路复用器实现方式中，中断的回调函数(中断向量)里面已经将有事件到达的文件描述符移到了一个集合中，所以在调用epoll_wait的时候就不需要再循环遍历了，可以直接拿到有事件到达的文件描述符的集合。
+
+```mermaid
+graph LR
+listen[listen] -->|返回:fd4| epoll_create[epoll_create] -->|返回:fd6| epoll_ctl[eopll_ctl] -->|ADD fd4到fd6| epoll_wait[eopll_wait] -->|返回有事件到达的FD的集合| event_list[event_list]
+```
 
 
 

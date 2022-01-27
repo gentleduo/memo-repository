@@ -822,6 +822,8 @@ cat /proc/vmstat | egrep "dirty|writeback"
 
 start.sh
 
+strace命令会追踪内核调用
+
 ```shell
 #! /bin/bash
 
@@ -839,7 +841,6 @@ import java.io.FileOutputStream;
 import java.nio.charset.StandardCharsets;
 
 public class OSFileIO {
-
 
     static byte[] data = "123456789\n".getBytes(StandardCharsets.UTF_8);
     static String path = "/opt/io/out.txt";
@@ -1596,23 +1597,583 @@ graph LR
 listen[listen] -->|返回:fd4| epoll_create[epoll_create] -->|返回:fd6| epoll_ctl[eopll_ctl] -->|ADD fd4到fd6| epoll_wait[eopll_wait] -->|返回有事件到达的FD的集合| event_list[event_list]
 ```
 
+### 实验1
 
+使用poll模式启动server，并且在客户端关闭socket后，服务端不关闭socket，观察tcp状态
 
+SocketMultiplexingSingleThread.java
 
+```java
+package org.duo.nio;
 
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.nio.ByteBuffer;
+import java.nio.channels.SelectionKey;
+import java.nio.channels.Selector;
+import java.nio.channels.ServerSocketChannel;
+import java.nio.channels.SocketChannel;
+import java.util.Iterator;
+import java.util.Set;
 
+/**
+ * 多路复用器监听的文件描述符的上限：
+ *
+ * /proc/sys/fs/epoll/max_user_watches (since Linux 2.6.28)
+ * This  specifies  a limit on the total number of file descriptors that a user can register across all epoll instances on the system.  The limit is per
+ *  real user ID.  Each registered file descriptor costs roughly 90 bytes on a 32-bit kernel, and roughly 160 bytes on a 64-bit kernel.   Currently,  the
+ *  default value for max_user_watches is 1/25 (4%) of the available low memory, divided by the registration cost in bytes.
+ *
+ * 这指定了每个用户可以在系统上的所有epoll实例中注册的文件描述符总数的限制。在32位内核上大约需要90个字节，在64位内核上大约需要160个字节。
+ * 目前，max_user_watches的默认值为可用低内存的1/25(4%)除以注册成本（以字节为单位）
+ */
+public class SocketMultiplexingSingleThread {
 
+    private ServerSocketChannel server = null;
+    // 内核的多路复用器被java抽象成了Selector (select poll epoll)
+    // 可以根据JVM启动参数设置该java进程是使用poll还是epoll：
+    // -Djava.nio.channels.spi.SelectorProvider=sun.nio.ch.EPollSelectorProvider
+    // -Djava.nio.channels.spi.SelectorProvider=sun.nio.ch.PollSelectorProvider
+    private Selector selector = null;
+    int port = 9090;
 
+    public void initServer() {
+        try {
+            // 以下的三步会在内核中创建一个listen状态的FD4(server)；
+            server = ServerSocketChannel.open();
+            server.configureBlocking(false);
+            server.bind(new InetSocketAddress(port));
 
+            /*
+            java会优先选择epoll，但是可以通过设置-D进行修正
+            如果在epoll模型下，open相当于调用内核的epoll_create创建了一个新的文件描述符FD5(之后注册在该selector中的fd实际上是放在fd5中)
+             */
+            selector = Selector.open(); //
+            /*
+            如果使用的是select或者poll的模型：会在jvm里开辟一个数据将fd4放进去，
+            如果使用的是epoll模型：那么相当于调用内核的epoll_ctl(fd5,ADD,fd4,EPOLLIN)
+             */
+            server.register(selector, SelectionKey.OP_ACCEPT);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
 
+    public void start() {
+        initServer();
+        System.out.println("服务器启动了......");
+        try {
+            while (true) {
+                Set<SelectionKey> keys = selector.keys();
+                System.out.println(keys.size() + " size");
+                /*
+                1.调用多路复用器(select,poll or epoll)
+                如果使用的是select,poll模型：select其实调的是内核的select(fds)方法
+                如果使用的是epoll模型：其实调的是内核的epoll_wait
+                2.select的参数可以带时间，表示阻塞多少毫秒；如果为零，则无限期阻塞； 不能为负
+                可以调用此选择器的wakeup方法结束阻塞
+                 */
+                while (selector.select(500) > 0) {
+                    // 返回有状态的文件描述符的集合
+                    Set<SelectionKey> selectionKeys = selector.selectedKeys();
+                    Iterator<SelectionKey> iter = selectionKeys.iterator();
+                    // 因此多路复用器返回的只是状态，应用程序还得通过系统调用将内核缓冲池中的数据读到应用程序自己的内存里面。
+                    while (iter.hasNext()) {
+                        SelectionKey key = iter.next();
+                        iter.remove();
+                        if (key.isAcceptable()) {
+                            /*
+                            如果接受一个新的连接：
+                            如果使用的是select,poll模型：因为它们内核没有空间，那么jvm会将它保存在和前面fd4一样的集合中
+                            如果使用的是epoll模型：那么相当于调用内核的epoll_ctl(fd5,ADD,fd6,EPOLLIN)
+                             */
+                            acceptHandler(key);
+                        } else if (key.isReadable()) {
+                            readHandler(key);
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
 
+    public void acceptHandler(SelectionKey key) {
 
+        try {
+            ServerSocketChannel ssc = (ServerSocketChannel) key.channel();
+            SocketChannel client = ssc.accept();
+            client.configureBlocking(false);
+            ByteBuffer buffer = ByteBuffer.allocateDirect(8192);
+            client.register(selector, SelectionKey.OP_READ, buffer);
+            System.out.println("--------------------------------------------------");
+            System.out.println("新的客户端：" + client.getRemoteAddress());
+            System.out.println("--------------------------------------------------");
+        } catch (IOException ioException) {
+            ioException.printStackTrace();
+        }
+    }
 
+    public void readHandler(SelectionKey key) {
 
+        SocketChannel client = (SocketChannel) key.channel();
+        ByteBuffer buffer = (ByteBuffer) key.attachment();
+        buffer.clear();
+        int read = 0;
+        try {
+            while (true) {
+                read = client.read(buffer);
+                if (read > 0) {
+                    buffer.flip();
+                    while (buffer.hasRemaining()) {
+                        client.write(buffer);
+                    }
+                    buffer.clear();
+                } else if (read == 0) {
+                    break;
+                } else {
+                    //client.close();
+                    break;
+                }
+            }
+        } catch (IOException ioException) {
+            ioException.printStackTrace();
+        }
 
+    }
 
+    public static void main(String[] args) {
 
+        SocketMultiplexingSingleThread thread = new SocketMultiplexingSingleThread();
+        thread.start();
+    }
+}
+```
 
+1. 使用poll模式启动server
+
+```bash
+[root@server03 io]# javac org/duo/nio/SocketMultiplexingSingleThread.java && strace -ff -o poll java -Djava.nio.channels.spi.SelectorProvider=sun.nio.ch.PollSelectorProvider org.duo.nio.SocketMultiplexingSingleThread
+服务器启动了......
+```
+
+2.在同一台服务器上使用nc工具连接server，并测试数据传输
+
+```bash
+[root@server03 ~]# nc localhost 9090
+hello world
+hello world
+```
+
+3.使用ss观察tcp状态：可以看到有以下两个文件描述符
+
+- 进程:2288(nc进程)中有一个local:52774到local:9090的文件描述符，状态是ESTAB
+- 进程:2278(java进程)中有一个local:9090到local:52774的文件描述符，状态是ESTAB
+
+```bash
+[root@server03 ~]# ss -natp
+State      Recv-Q Send-Q                                       Local Address:Port                                                      Peer Address:Port
+LISTEN     0      128                                                      *:111                                                                  *:*                   users:(("rpcbind",pid=656,fd=4),("systemd",pid=1,fd=40))
+LISTEN     0      128                                                      *:22                                                                   *:*                   users:(("sshd",pid=998,fd=3))
+LISTEN     0      100                                              127.0.0.1:25                                                                   *:*                   users:(("master",pid=1224,fd=13))
+ESTAB      0      0                                           192.168.56.112:22                                                        192.168.56.1:50008               users:(("sshd",pid=1310,fd=3))
+ESTAB      0      0                                           192.168.56.112:22                                                        192.168.56.1:50145               users:(("sshd",pid=1913,fd=3))
+ESTAB      0      0                                           192.168.56.112:22                                                        192.168.56.1:50147               users:(("sshd",pid=1945,fd=3))
+ESTAB      0      64                                          192.168.56.112:22                                                        192.168.56.1:50171               users:(("sshd",pid=2242,fd=3))
+LISTEN     0      128                                                     :::111                                                                 :::*                   users:(("rpcbind",pid=656,fd=6),("systemd",pid=1,fd=42))
+LISTEN     0      128                                                     :::22                                                                  :::*                   users:(("sshd",pid=998,fd=4))
+LISTEN     0      100                                                    ::1:25                                                                  :::*                   users:(("master",pid=1224,fd=14))
+LISTEN     0      50                                                      :::9090                                                                :::*                   users:(("java",pid=2278,fd=4))
+ESTAB      0      0                                                      ::1:52774                                                              ::1:9090                users:(("nc",pid=2288,fd=3))
+ESTAB      0      0                                                      ::1:9090                                                               ::1:52774               users:(("java",pid=2278,fd=7))
+```
+
+4.关闭客户端的socket连接：
+
+```bash
+[root@server03 ~]# nc localhost 9090
+hello world
+hello world
+^C
+[root@server03 ~]#
+```
+
+5.再次观察tcp状态：可以看到由于服务器没有关闭socket，所以主动关闭socket的一方会一直停留在FIN-WAIT-2状态而服务器端则一直停留在CLOSE-WAIT状态
+
+```bash
+[root@server03 ~]# ss -natp
+State      Recv-Q Send-Q                                       Local Address:Port                                                      Peer Address:Port
+LISTEN     0      128                                                      *:111                                                                  *:*                   users:(("rpcbind",pid=656,fd=4),("systemd",pid=1,fd=40))
+LISTEN     0      128                                                      *:22                                                                   *:*                   users:(("sshd",pid=998,fd=3))
+LISTEN     0      100                                              127.0.0.1:25                                                                   *:*                   users:(("master",pid=1224,fd=13))
+ESTAB      0      0                                           192.168.56.112:22                                                        192.168.56.1:50008               users:(("sshd",pid=1310,fd=3))
+ESTAB      0      0                                           192.168.56.112:22                                                        192.168.56.1:50145               users:(("sshd",pid=1913,fd=3))
+ESTAB      0      64                                          192.168.56.112:22                                                        192.168.56.1:50147               users:(("sshd",pid=1945,fd=3))
+ESTAB      0      0                                           192.168.56.112:22                                                        192.168.56.1:50171               users:(("sshd",pid=2242,fd=3))
+LISTEN     0      128                                                     :::111                                                                 :::*                   users:(("rpcbind",pid=656,fd=6),("systemd",pid=1,fd=42))
+LISTEN     0      128                                                     :::22                                                                  :::*                   users:(("sshd",pid=998,fd=4))
+LISTEN     0      100                                                    ::1:25                                                                  :::*                   users:(("master",pid=1224,fd=14))
+LISTEN     0      50                                                      :::9090                                                                :::*                   users:(("java",pid=2278,fd=4))
+FIN-WAIT-2 0      0                                                      ::1:52774                                                              ::1:9090
+CLOSE-WAIT 0      0                                                      ::1:9090                                                               ::1:52774               users:(("java",pid=2278,fd=7))
+```
+
+分析strace跟踪的内核调用结果：
+
+1. socket(AF_INET6, SOCK_STREAM, IPPROTO_IP) = 4
+
+   ServerSocketChannel.open()会在内核中创建一个文件描述符:4
+
+2. fcntl(4, F_SETFL, O_RDWR|O_NONBLOCK)    = 0 
+
+   设置为非阻塞，对应java中的：server.configureBlocking(false);
+
+3. bind(4, {sa_family=AF_INET6, sin6_port=htons(9090), inet_pton(AF_INET6, "::", &sin6_addr), sin6_flowinfo=htonl(0), sin6_scope_id=0}, 28) = 0
+
+   listen(4, 50) 
+
+   将文件描述符:4绑定9090端口，对应java中的：server.bind(new InetSocketAddress(port));
+
+4. 在poll模型中中，selector = Selector.open();和server.register(selector, SelectionKey.OP_ACCEPT);没有系统调用，都是在jvm中完成。
+
+5. poll([{fd=5, events=POLLIN}, {fd=4, events=POLLIN}], 2, 500) = 1 ([{fd=4, revents=POLLIN}])
+
+   有客户端连接进来后触发poll返回1，对应java中的：selector.select(500) 返回1
+
+6. accept(4, {sa_family=AF_INET6, sin6_port=htons(52780), inet_pton(AF_INET6, "::1", &sin6_addr), sin6_flowinfo=htonl(0), sin6_scope_id=0}, [28]) = 7
+
+   accept返回一个新的客户端连接(文件描述符:7)，相当于Java中的serverSocketChannel.accept()后得到一个SocketChannel
+
+7. fcntl(7, F_SETFL, O_RDWR|O_NONBLOCK)    = 0
+
+   对文件描述符:7做非阻塞处理，相当于java中的client.configureBlocking(false);
+
+8. poll([{fd=5, events=POLLIN}, {fd=4, events=POLLIN}, {fd=7, events=POLLIN}], 3, 500) = 1 ([{fd=7, revents=POLLIN}])
+
+   表示当文件描述符:7中有事件的时候，多路复用器在执行select时会返回文件描述符:7
+
+### 实验2
+
+使用poll模式启动server，并且在客户端关闭socket后，服务端也正常关闭socket，观察tcp状态
+
+SocketMultiplexingSingleThread.java
+
+```java
+package org.duo.nio;
+
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.nio.ByteBuffer;
+import java.nio.channels.SelectionKey;
+import java.nio.channels.Selector;
+import java.nio.channels.ServerSocketChannel;
+import java.nio.channels.SocketChannel;
+import java.util.Iterator;
+import java.util.Set;
+
+/**
+ * 多路复用器监听的文件描述符的上限：
+ *
+ * /proc/sys/fs/epoll/max_user_watches (since Linux 2.6.28)
+ * This  specifies  a limit on the total number of file descriptors that a user can register across all epoll instances on the system.  The limit is per
+ *  real user ID.  Each registered file descriptor costs roughly 90 bytes on a 32-bit kernel, and roughly 160 bytes on a 64-bit kernel.   Currently,  the
+ *  default value for max_user_watches is 1/25 (4%) of the available low memory, divided by the registration cost in bytes.
+ *
+ * 这指定了每个用户可以在系统上的所有epoll实例中注册的文件描述符总数的限制。在32位内核上大约需要90个字节，在64位内核上大约需要160个字节。
+ * 目前，max_user_watches的默认值为可用低内存的1/25(4%)除以注册成本（以字节为单位）
+ */
+public class SocketMultiplexingSingleThread {
+
+    private ServerSocketChannel server = null;
+    // 内核的多路复用器被java抽象成了Selector (select poll epoll)
+    // 可以根据JVM启动参数设置该java进程是使用poll还是epoll：
+    // -Djava.nio.channels.spi.SelectorProvider=sun.nio.ch.EPollSelectorProvider
+    // -Djava.nio.channels.spi.SelectorProvider=sun.nio.ch.PollSelectorProvider
+    private Selector selector = null;
+    int port = 9090;
+
+    public void initServer() {
+        try {
+            // 以下的三步会在内核中创建一个listen状态的FD4(server)；
+            server = ServerSocketChannel.open();
+            server.configureBlocking(false);
+            server.bind(new InetSocketAddress(port));
+
+            /*
+            java会优先选择epoll，但是可以通过设置-D进行修正
+            如果在epoll模型下，open相当于调用内核的epoll_create创建了一个新的文件描述符FD5(之后注册在该selector中的fd实际上是放在fd5中)
+             */
+            selector = Selector.open(); //
+            /*
+            如果使用的是select或者poll的模型：会在jvm里开辟一个数据将fd4放进去，
+            如果使用的是epoll模型：那么相当于调用内核的epoll_ctl(fd5,ADD,fd4,EPOLLIN)
+             */
+            server.register(selector, SelectionKey.OP_ACCEPT);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public void start() {
+        initServer();
+        System.out.println("服务器启动了......");
+        try {
+            while (true) {
+                Set<SelectionKey> keys = selector.keys();
+//                System.out.println(keys.size() + " size");
+                /*
+                1.调用多路复用器(select,poll or epoll)
+                如果使用的是select,poll模型：select其实调的是内核的select(fds)方法
+                如果使用的是epoll模型：其实调的是内核的epoll_wait
+                2.select的参数可以带时间，表示阻塞多少毫秒；如果为零，则无限期阻塞； 不能为负
+                可以调用此选择器的wakeup方法结束阻塞
+                 */
+                while (selector.select(500) > 0) {
+                    // 返回有状态的文件描述符的集合
+                    Set<SelectionKey> selectionKeys = selector.selectedKeys();
+                    Iterator<SelectionKey> iter = selectionKeys.iterator();
+                    // 因此多路复用器返回的只是状态，应用程序还得通过系统调用将内核缓冲池中的数据读到应用程序自己的内存里面。
+                    while (iter.hasNext()) {
+                        SelectionKey key = iter.next();
+                        iter.remove();
+                        if (key.isAcceptable()) {
+                            /*
+                            如果接受一个新的连接：
+                            如果使用的是select,poll模型：因为它们内核没有空间，那么jvm会将它保存在和前面fd4一样的集合中
+                            如果使用的是epoll模型：那么相当于调用内核的epoll_ctl(fd5,ADD,fd6,EPOLLIN)
+                             */
+                            acceptHandler(key);
+                        } else if (key.isReadable()) {
+                            readHandler(key);
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    public void acceptHandler(SelectionKey key) {
+
+        try {
+            ServerSocketChannel ssc = (ServerSocketChannel) key.channel();
+            SocketChannel client = ssc.accept();
+            client.configureBlocking(false);
+            ByteBuffer buffer = ByteBuffer.allocateDirect(8192);
+            client.register(selector, SelectionKey.OP_READ, buffer);
+            System.out.println("--------------------------------------------------");
+            System.out.println("新的客户端：" + client.getRemoteAddress());
+            System.out.println("--------------------------------------------------");
+        } catch (IOException ioException) {
+            ioException.printStackTrace();
+        }
+    }
+
+    public void readHandler(SelectionKey key) {
+
+        SocketChannel client = (SocketChannel) key.channel();
+        ByteBuffer buffer = (ByteBuffer) key.attachment();
+        buffer.clear();
+        int read = 0;
+        try {
+            while (true) {
+                read = client.read(buffer);
+                if (read > 0) {
+                    buffer.flip();
+                    while (buffer.hasRemaining()) {
+                        client.write(buffer);
+                    }
+                    buffer.clear();
+                } else if (read == 0) {
+                    break;
+                } else {
+                    client.close();
+                    break;
+                }
+            }
+        } catch (IOException ioException) {
+            ioException.printStackTrace();
+        }
+
+    }
+
+    public static void main(String[] args) {
+
+        SocketMultiplexingSingleThread thread = new SocketMultiplexingSingleThread();
+        thread.start();
+    }
+}
+```
+
+1. 使用epoll模式启动server
+
+   ```bash
+   [root@server03 io]# javac org/duo/nio/SocketMultiplexingSingleThread.java && strace -ff -o epoll java org.duo.nio.SocketMultiplexingSingleThread
+   服务器启动了......
+   ```
+
+2. 在同一台服务器上使用nc工具连接server，并测试数据传输
+
+   ```bash
+   [root@server03 ~]# nc localhost 9090
+   hello world
+   hello world
+   ```
+
+3. 使用ss观察tcp状态：可以看到有以下两个文件描述符
+
+   - 进程:2396(nc进程)中有一个local:52778到local:9090的文件描述符，状态是ESTAB
+
+   - 进程:2384(java进程)中有一个local:9090到local:52778的文件描述符，状态是ESTAB
+
+   ```bash
+   [root@server03 ~]# ss -natp
+   State      Recv-Q Send-Q                                       Local Address:Port                                                      Peer Address:Port
+   LISTEN     0      128                                                      *:111                                                                  *:*                   users:(("rpcbind",pid=656,fd=4),("systemd",pid=1,fd=40))
+   LISTEN     0      128                                                      *:22                                                                   *:*                   users:(("sshd",pid=998,fd=3))
+   LISTEN     0      100                                              127.0.0.1:25                                                                   *:*                   users:(("master",pid=1224,fd=13))
+   ESTAB      0      0                                           192.168.56.112:22                                                        192.168.56.1:50008               users:(("sshd",pid=1310,fd=3))
+   ESTAB      0      0                                           192.168.56.112:22                                                        192.168.56.1:50145               users:(("sshd",pid=1913,fd=3))
+   ESTAB      0      0                                           192.168.56.112:22                                                        192.168.56.1:50147               users:(("sshd",pid=1945,fd=3))
+   ESTAB      0      64                                          192.168.56.112:22                                                        192.168.56.1:50171               users:(("sshd",pid=2242,fd=3))
+   LISTEN     0      128                                                     :::111                                                                 :::*                   users:(("rpcbind",pid=656,fd=6),("systemd",pid=1,fd=42))
+   LISTEN     0      128                                                     :::22                                                                  :::*                   users:(("sshd",pid=998,fd=4))
+   LISTEN     0      100                                                    ::1:25                                                                  :::*                   users:(("master",pid=1224,fd=14))
+   LISTEN     0      50                                                      :::9090                                                                :::*                   users:(("java",pid=2384,fd=4))
+   ESTAB      0      0                                                      ::1:9090                                                               ::1:52778               users:(("java",pid=2384,fd=7))
+   ESTAB      0      0                                                      ::1:52778                                                              ::1:9090                users:(("nc",pid=2396,fd=3))
+   ```
+
+4. 关闭客户端的socket连接
+
+   ```bash
+   [root@server03 ~]# nc localhost 9090
+   hello world
+   hello world
+   ^C
+   [root@server03 ~]#
+   
+   ```
+
+5. 再次观察tcp状态：客户端进程中的local:52778到local:9090的文件描述符先是进入TIME-WAIT状态，在2MSL后关闭。
+
+   ```bash
+   [root@server03 ~]# ss -natp
+   State      Recv-Q Send-Q                                       Local Address:Port                                                      Peer Address:Port
+   LISTEN     0      128                                                      *:111                                                                  *:*                   users:(("rpcbind",pid=656,fd=4),("systemd",pid=1,fd=40))
+   LISTEN     0      128                                                      *:22                                                                   *:*                   users:(("sshd",pid=998,fd=3))
+   LISTEN     0      100                                              127.0.0.1:25                                                                   *:*                   users:(("master",pid=1224,fd=13))
+   ESTAB      0      0                                           192.168.56.112:22                                                        192.168.56.1:50008               users:(("sshd",pid=1310,fd=3))
+   ESTAB      0      0                                           192.168.56.112:22                                                        192.168.56.1:50145               users:(("sshd",pid=1913,fd=3))
+   ESTAB      0      0                                           192.168.56.112:22                                                        192.168.56.1:50147               users:(("sshd",pid=1945,fd=3))
+   ESTAB      0      64                                          192.168.56.112:22                                                        192.168.56.1:50171               users:(("sshd",pid=2242,fd=3))
+   LISTEN     0      128                                                     :::111                                                                 :::*                   users:(("rpcbind",pid=656,fd=6),("systemd",pid=1,fd=42))
+   LISTEN     0      128                                                     :::22                                                                  :::*                   users:(("sshd",pid=998,fd=4))
+   LISTEN     0      100                                                    ::1:25                                                                  :::*                   users:(("master",pid=1224,fd=14))
+   LISTEN     0      50                                                      :::9090                                                                :::*                   users:(("java",pid=2384,fd=4))
+   TIME-WAIT  0      0                                                      ::1:52778  
+   [root@server03 ~]# ss -natp
+   State      Recv-Q Send-Q                                       Local Address:Port                                                      Peer Address:Port
+   LISTEN     0      128                                                      *:111                                                                  *:*                   users:(("rpcbind",pid=656,fd=4),("systemd",pid=1,fd=40))
+   LISTEN     0      128                                                      *:22                                                                   *:*                   users:(("sshd",pid=998,fd=3))
+   LISTEN     0      100                                              127.0.0.1:25                                                                   *:*                   users:(("master",pid=1224,fd=13))
+   ESTAB      0      0                                           192.168.56.112:22                                                        192.168.56.1:50008               users:(("sshd",pid=1310,fd=3))
+   ESTAB      0      0                                           192.168.56.112:22                                                        192.168.56.1:50145               users:(("sshd",pid=1913,fd=3))
+   ESTAB      0      0                                           192.168.56.112:22                                                        192.168.56.1:50147               users:(("sshd",pid=1945,fd=3))
+   ESTAB      0      64                                          192.168.56.112:22                                                        192.168.56.1:50171               users:(("sshd",pid=2242,fd=3))
+   LISTEN     0      128                                                     :::111                                                                 :::*                   users:(("rpcbind",pid=656,fd=6),("systemd",pid=1,fd=42))
+   LISTEN     0      128                                                     :::22                                                                  :::*                   users:(("sshd",pid=998,fd=4))
+   LISTEN     0      100                                                    ::1:25                                                                  :::*                   users:(("master",pid=1224,fd=14))
+   LISTEN     0      50                                                      :::9090                                                                :::*                   users:(("java",pid=2384,fd=4))
+   ```
+
+分析strace跟踪的内核调用结果：
+
+1. socket(AF_INET6, SOCK_STREAM, IPPROTO_IP) = 4
+
+   ServerSocketChannel.open()会在内核中创建一个文件描述符:4
+
+2. fcntl(4, F_SETFL, O_RDWR|O_NONBLOCK)    = 0
+
+   设置为非阻塞，对应java中的：server.configureBlocking(false);
+
+3. bind(4, {sa_family=AF_INET6, sin6_port=htons(9090), inet_pton(AF_INET6, "::", &sin6_addr), sin6_flowinfo=htonl(0), sin6_scope_id=0}, 28) = 0
+
+   listen(4, 50)
+
+   将文件描述符:4绑定9090端口，对应java中的：server.bind(new InetSocketAddress(port));
+
+4.  epoll_create(256)                       = 7
+
+   epoll_create创建了一个新的文件描述符(该进程的eventpoll，用户管理该进程的所有文件描述符)，对应java中的：selector = Selector.open();
+
+5. epoll_ctl(7, EPOLL_CTL_ADD, 4, {EPOLLIN, {u32=4, u64=6744024928841891844}}) = 0
+
+   将之前生成的文件描述符:4(ServerSocketChannel)注册到文件描述符:7(eventpoll)中
+
+6. epoll_wait(7, [{EPOLLIN, {u32=4, u64=6744024928841891844}}], 8192, 500) = 1
+
+   有客户端连接进来后触发poll返回1，对应java中的：selector.select(500) 返回1
+
+7.  accept(4, {sa_family=AF_INET6, sin6_port=htons(52782), inet_pton(AF_INET6, "::1", &sin6_addr), sin6_flowinfo=htonl(0), sin6_scope_id=0}, [28]) = 8
+
+   accept返回一个新的客户端连接(文件描述符:8)，相当于Java中的serverSocketChannel.accept()后得到一个SocketChannel
+
+8. fcntl(8, F_SETFL, O_RDWR|O_NONBLOCK)    = 0
+
+   对文件描述符:8做非阻塞处理，相当于java中的client.configureBlocking(false);
+
+9. epoll_ctl(7, EPOLL_CTL_ADD, 8, {EPOLLIN, {u32=8, u64=8}}) = 0
+
+   将客户端连接:8(SocketChannel)注册到文件描述符:7(eventpoll)中
+
+10. epoll_wait(7, [{EPOLLIN, {u32=8, u64=8}}], 8192, 500) = 1
+
+    表示当文件描述符:8中有事件的时候，多路复用器在执行select时会返回文件描述符:8
+
+### tcp协议
+
+#### 三次握手过程：
+
+1. 主机A发送位码为SYN＝1,随机产生Seq Number=XXX的数据包到服务器，主机B由SYN＝1知道，A要求建立联机，主机A的状态变为SYN_SENT；
+2. 主机B收到请求后要确认联机信息，向A发送Ack Number=(主机A的Seq+1),SYN=1,ACK=1,随机产生Seq Number=YYY的包，此时主机B的状态变为SYN_RCVD；
+3. 主机A收到后检查Ack Number是否正确，即第一次发送的Seq Number+1,以及位码ACK是否为1，若正确，主机A状态变为ESTABLISHED；主机A会再发送Ack Number=(主机B的Seq Number+1),ACK=1，主机B收到后确认Ack Number与ACK=1，若正确，主机B状态变为ESTABLISHED，连接建立成功；
+
+#### 四次挥手的过程：
+
+1. 首先客户端想要释放连接，向服务器端发送一段TCP报文，其中：标记位为FIN，表示“请求释放连接“；随后客户端进入FIN-WAIT-1阶段，即半关闭阶段。并且停止在客户端到服务器端方向上发送数据，但是客户端仍然能接收从服务器端传输过来的数据。
+
+   注意：这里不发送的是正常连接时传输的数据(非确认报文)，而不是一切数据，所以客户端仍然能发送ACK确认报文。
+
+2. 服务器端接收到从客户端发出的TCP报文之后，确认了客户端想要释放连接，随后服务器端结束ESTABLISHED阶段，进入CLOSE-WAIT阶段（半关闭状态）并返回一段TCP报文，其中：标记位为ACK，表示“接收到客户端发送的释放连接的请求”；客户端收到从服务器端发出的TCP报文之后，确认了服务器收到了客户端发出的释放连接请求，随后客户端结束FIN-WAIT-1阶段，进入FIN-WAIT-2阶段，此时连接已经断开了一半了。如果服务器还有数据要发送给客户端，就会继续发送；
+
+3. 服务器在将数据发送完成后将释放服务器端到客户端方向上的连接，于是再次向客户端发出一段TCP报文，其中：标记位为FIN，表示“已经准备好释放连接了”。随后服务器端结束CLOSE-WAIT阶段，进入LAST-ACK阶段。并且停止在服务器端到客户端的方向上发送数据，但是服务器端仍然能够接收从客户端传输过来的数据。
+
+4. 客户端收到从服务器端发出的TCP报文，确认了服务器端已做好释放连接的准备，结束FIN-WAIT-2阶段，进入TIME-WAIT阶段，并向服务器端发送一段报文，其中：标记位为ACK，表示“接收到服务器准备好释放连接的信号”。随后客户端开始在TIME-WAIT阶段等待2MSL（TIME-WAIT出现在主动关闭连接的一方）
+
+#### 为什么“握手”是三次，“挥手”却要四次？
+
+TCP建立连接时之所以只需要"三次握手"，是因为在第二次"握手"过程中，服务器端发送给客户端的TCP报文是以SYN与ACK作为标志位的。SYN是请求连接标志，表示服务器端同意建立连接；ACK是确认报文，表示告诉客户端，服务器端收到了它的请求报文。即SYN建立连接报文与ACK确认接收报文是在同一次"握手"当中传输的，所以"三次握手"不多也不少，正好让双方明确彼此信息互通。
+
+TCP释放连接时之所以需要“四次挥手”,是因为FIN释放连接报文与ACK确认接收报文是分别由第二次和第三次"握手"传输的。为何建立连接时一起传输，释放连接时却要分开传输？建立连接时，被动方服务器端结束CLOSED阶段进入“握手”阶段并不需要任何准备，可以直接返回SYN和ACK报文，开始建立连接。释放连接时，被动方服务器，突然收到主动方客户端释放连接的请求时并不能立即释放连接，因为还有必要的数据需要处理，所以服务器先返回ACK确认收到报文，经过CLOSE-WAIT阶段准备好释放连接之后，才能返回FIN释放连接报文。
+
+#### 为什么客户端在TIME-WAIT阶段要等2MSL?
+
+为的是确认服务器端是否收到客户端发出的ACK确认报文。当客户端发出最后的ACK确认报文时，并不能确定服务器端能够收到该段报文。所以客户端在发送完ACK确认报文之后，会设置一个时长为2MSL的计时器。MSL指的是Maximum Segment Lifetime：一段TCP报文在传输过程中的最大生命周期。2MSL即是服务器端发出为FIN报文和客户端发出的ACK确认报文所能保持有效的最大时长。服务器端在1MSL内没有收到客户端发出的ACK确认报文，就会再次向客户端发出FIN报文；如果客户端在2MSL内，再次收到了来自服务器端的FIN报文，说明服务器端由于各种原因没有接收到客户端发出的ACK确认报文。客户端再次向服务器端发出ACK确认报文，计时器重置，重新开始2MSL的计时；否则客户端在2MSL内没有再次收到来自服务器端的FIN报文，说明服务器端正常接收了ACK确认报文，客户端可以进入CLOSED阶段，完成“四次挥手”。所以，客户端要经历时长为2SML的TIME-WAIT阶段；这也是为什么客户端比服务器端晚进入CLOSED阶段的原因。
+
+MSL是Maximum-Segment-Lifetime英文的缩写，中文可以译为“报文最大生存时间”，他是任何报文在网络上存在的最长时间，超过这个时间报文将被丢弃。因为tcp报文（segment）是ip数据报（datagram）的数据部分，而ip头中有一个TTL域，TTL是time-to-live的缩写，中文可以译为“生存时间”，这个生存时间是由源主机设置初始值但不是存的具体时间，而是存储了一个ip数据报可以经过的最大路由数，每经过一个处理他的路由器此值就减1，当此值为0则数据报将被丢弃，同时发送ICMP报文通知源主机。RFC-793中规定MSL为2分钟，实际应用中常用的是30秒，1分钟和2分钟等。
+
+#### SYN和FIN占一个序列号的原因：
+
+TCP是一个支持可靠数据传输的网络协议，怎么做到可靠传输？主要是靠“确认”这个步骤来做到的，也就是ACK号。用ACK号来表达我这边已经收到了你传过来的东西，注意这里的东西是一个广义的概念，包含了数据和命令两种内容。在可靠的TCP传输过程中，用于建立和释放这个可靠通道的东西就是命令。这两和过程都是需要双方主动参与和确认回复的，当一方说我想开始一段可靠连接，并且给予了相关自己的情况数据，另外一方，则需要对这一命令进行确认，确认只能通过确认号来做。这个事情在断开连接的时候也是一样的。我们知道TCP除了SYN和FIN还有其它的标志，为什么他们不需要占用一个序列号呢？首先，ACK就不用说了，它本身就是为了确认这个动作而生的，如果再给它一个序列号，就意味着还要给这一序列号进行ACK，这是一个很奇怪的事情。PSH,URG是一个属性，一个附加在一段数据传输上的属性，它不属于命令或数据，RST比较特殊，它似乎是一个命令，但是基本上如果需要用这个命令的时候，TCP的可靠性也基本没有了，所以对这个命令进行确认已经无意义啦。总的来说，TCP是用“确认”这个手段来保证可靠的，在TCP整个过程中，我们需要确认SYN,FIN,两个命令，以及数据传输，这样才能保证可靠。
+
+#### 序列号和确认号
+
+序列号（Sequence Number）代表的是发出的并且被对方确认好的数据长度
+
+确认号（Acknowledgment Number）代表的是自己接受到的并且确认好的数据长度
 
 
 

@@ -2133,48 +2133,6 @@ public class SocketMultiplexingSingleThread {
 
     表示当文件描述符:8中有事件的时候，多路复用器在执行select时会返回文件描述符:8
 
-### tcp协议
-
-#### 三次握手过程：
-
-1. 主机A发送位码为SYN＝1,随机产生Seq Number=XXX的数据包到服务器，主机B由SYN＝1知道，A要求建立联机，主机A的状态变为SYN_SENT；
-2. 主机B收到请求后要确认联机信息，向A发送Ack Number=(主机A的Seq+1),SYN=1,ACK=1,随机产生Seq Number=YYY的包，此时主机B的状态变为SYN_RCVD；
-3. 主机A收到后检查Ack Number是否正确，即第一次发送的Seq Number+1,以及位码ACK是否为1，若正确，主机A状态变为ESTABLISHED；主机A会再发送Ack Number=(主机B的Seq Number+1),ACK=1，主机B收到后确认Ack Number与ACK=1，若正确，主机B状态变为ESTABLISHED，连接建立成功；
-
-#### 四次挥手的过程：
-
-1. 首先客户端想要释放连接，向服务器端发送一段TCP报文，其中：标记位为FIN，表示“请求释放连接“；随后客户端进入FIN-WAIT-1阶段，即半关闭阶段。并且停止在客户端到服务器端方向上发送数据，但是客户端仍然能接收从服务器端传输过来的数据。
-
-   注意：这里不发送的是正常连接时传输的数据(非确认报文)，而不是一切数据，所以客户端仍然能发送ACK确认报文。
-
-2. 服务器端接收到从客户端发出的TCP报文之后，确认了客户端想要释放连接，随后服务器端结束ESTABLISHED阶段，进入CLOSE-WAIT阶段（半关闭状态）并返回一段TCP报文，其中：标记位为ACK，表示“接收到客户端发送的释放连接的请求”；客户端收到从服务器端发出的TCP报文之后，确认了服务器收到了客户端发出的释放连接请求，随后客户端结束FIN-WAIT-1阶段，进入FIN-WAIT-2阶段，此时连接已经断开了一半了。如果服务器还有数据要发送给客户端，就会继续发送；
-
-3. 服务器在将数据发送完成后将释放服务器端到客户端方向上的连接，于是再次向客户端发出一段TCP报文，其中：标记位为FIN，表示“已经准备好释放连接了”。随后服务器端结束CLOSE-WAIT阶段，进入LAST-ACK阶段。并且停止在服务器端到客户端的方向上发送数据，但是服务器端仍然能够接收从客户端传输过来的数据。
-
-4. 客户端收到从服务器端发出的TCP报文，确认了服务器端已做好释放连接的准备，结束FIN-WAIT-2阶段，进入TIME-WAIT阶段，并向服务器端发送一段报文，其中：标记位为ACK，表示“接收到服务器准备好释放连接的信号”。随后客户端开始在TIME-WAIT阶段等待2MSL（TIME-WAIT出现在主动关闭连接的一方）
-
-#### 为什么“握手”是三次，“挥手”却要四次？
-
-TCP建立连接时之所以只需要"三次握手"，是因为在第二次"握手"过程中，服务器端发送给客户端的TCP报文是以SYN与ACK作为标志位的。SYN是请求连接标志，表示服务器端同意建立连接；ACK是确认报文，表示告诉客户端，服务器端收到了它的请求报文。即SYN建立连接报文与ACK确认接收报文是在同一次"握手"当中传输的，所以"三次握手"不多也不少，正好让双方明确彼此信息互通。
-
-TCP释放连接时之所以需要“四次挥手”,是因为FIN释放连接报文与ACK确认接收报文是分别由第二次和第三次"握手"传输的。为何建立连接时一起传输，释放连接时却要分开传输？建立连接时，被动方服务器端结束CLOSED阶段进入“握手”阶段并不需要任何准备，可以直接返回SYN和ACK报文，开始建立连接。释放连接时，被动方服务器，突然收到主动方客户端释放连接的请求时并不能立即释放连接，因为还有必要的数据需要处理，所以服务器先返回ACK确认收到报文，经过CLOSE-WAIT阶段准备好释放连接之后，才能返回FIN释放连接报文。
-
-#### 为什么客户端在TIME-WAIT阶段要等2MSL?
-
-为的是确认服务器端是否收到客户端发出的ACK确认报文。当客户端发出最后的ACK确认报文时，并不能确定服务器端能够收到该段报文。所以客户端在发送完ACK确认报文之后，会设置一个时长为2MSL的计时器。MSL指的是Maximum Segment Lifetime：一段TCP报文在传输过程中的最大生命周期。2MSL即是服务器端发出为FIN报文和客户端发出的ACK确认报文所能保持有效的最大时长。服务器端在1MSL内没有收到客户端发出的ACK确认报文，就会再次向客户端发出FIN报文；如果客户端在2MSL内，再次收到了来自服务器端的FIN报文，说明服务器端由于各种原因没有接收到客户端发出的ACK确认报文。客户端再次向服务器端发出ACK确认报文，计时器重置，重新开始2MSL的计时；否则客户端在2MSL内没有再次收到来自服务器端的FIN报文，说明服务器端正常接收了ACK确认报文，客户端可以进入CLOSED阶段，完成“四次挥手”。所以，客户端要经历时长为2SML的TIME-WAIT阶段；这也是为什么客户端比服务器端晚进入CLOSED阶段的原因。
-
-MSL是Maximum-Segment-Lifetime英文的缩写，中文可以译为“报文最大生存时间”，他是任何报文在网络上存在的最长时间，超过这个时间报文将被丢弃。因为tcp报文（segment）是ip数据报（datagram）的数据部分，而ip头中有一个TTL域，TTL是time-to-live的缩写，中文可以译为“生存时间”，这个生存时间是由源主机设置初始值但不是存的具体时间，而是存储了一个ip数据报可以经过的最大路由数，每经过一个处理他的路由器此值就减1，当此值为0则数据报将被丢弃，同时发送ICMP报文通知源主机。RFC-793中规定MSL为2分钟，实际应用中常用的是30秒，1分钟和2分钟等。
-
-#### SYN和FIN占一个序列号的原因：
-
-TCP是一个支持可靠数据传输的网络协议，怎么做到可靠传输？主要是靠“确认”这个步骤来做到的，也就是ACK号。用ACK号来表达我这边已经收到了你传过来的东西，注意这里的东西是一个广义的概念，包含了数据和命令两种内容。在可靠的TCP传输过程中，用于建立和释放这个可靠通道的东西就是命令。这两和过程都是需要双方主动参与和确认回复的，当一方说我想开始一段可靠连接，并且给予了相关自己的情况数据，另外一方，则需要对这一命令进行确认，确认只能通过确认号来做。这个事情在断开连接的时候也是一样的。我们知道TCP除了SYN和FIN还有其它的标志，为什么他们不需要占用一个序列号呢？首先，ACK就不用说了，它本身就是为了确认这个动作而生的，如果再给它一个序列号，就意味着还要给这一序列号进行ACK，这是一个很奇怪的事情。PSH,URG是一个属性，一个附加在一段数据传输上的属性，它不属于命令或数据，RST比较特殊，它似乎是一个命令，但是基本上如果需要用这个命令的时候，TCP的可靠性也基本没有了，所以对这个命令进行确认已经无意义啦。总的来说，TCP是用“确认”这个手段来保证可靠的，在TCP整个过程中，我们需要确认SYN,FIN,两个命令，以及数据传输，这样才能保证可靠。
-
-#### 序列号和确认号
-
-序列号（Sequence Number）代表的是发出的并且被对方确认好的数据长度
-
-确认号（Acknowledgment Number）代表的是自己接受到的并且确认好的数据长度
-
 ### 实验3
 
 SocketMultiplexingMultiThread.java
@@ -2945,6 +2903,2703 @@ public class SelectorThread implements Runnable {
     }
 }
 ```
+
+# tcp/ip
+
+## 三次握手过程：
+
+1. 主机A发送位码为SYN＝1,随机产生Seq Number=XXX的数据包到服务器，主机B由SYN＝1知道，A要求建立联机，主机A的状态变为SYN_SENT；
+2. 主机B收到请求后要确认联机信息，向A发送Ack Number=(主机A的Seq+1),SYN=1,ACK=1,随机产生Seq Number=YYY的包，此时主机B的状态变为SYN_RCVD；
+3. 主机A收到后检查Ack Number是否正确，即第一次发送的Seq Number+1,以及位码ACK是否为1，若正确，主机A状态变为ESTABLISHED；主机A会再发送Ack Number=(主机B的Seq Number+1),ACK=1，主机B收到后确认Ack Number与ACK=1，若正确，主机B状态变为ESTABLISHED，连接建立成功；
+
+## 四次挥手的过程：
+
+1. 首先客户端想要释放连接，向服务器端发送一段TCP报文，其中：标记位为FIN，表示“请求释放连接“；随后客户端进入FIN-WAIT-1阶段，即半关闭阶段。并且停止在客户端到服务器端方向上发送数据，但是客户端仍然能接收从服务器端传输过来的数据。
+
+   注意：这里不发送的是正常连接时传输的数据(非确认报文)，而不是一切数据，所以客户端仍然能发送ACK确认报文。
+
+2. 服务器端接收到从客户端发出的TCP报文之后，确认了客户端想要释放连接，随后服务器端结束ESTABLISHED阶段，进入CLOSE-WAIT阶段（半关闭状态）并返回一段TCP报文，其中：标记位为ACK，表示“接收到客户端发送的释放连接的请求”；客户端收到从服务器端发出的TCP报文之后，确认了服务器收到了客户端发出的释放连接请求，随后客户端结束FIN-WAIT-1阶段，进入FIN-WAIT-2阶段，此时连接已经断开了一半了。如果服务器还有数据要发送给客户端，就会继续发送；
+
+3. 服务器在将数据发送完成后将释放服务器端到客户端方向上的连接，于是再次向客户端发出一段TCP报文，其中：标记位为FIN，表示“已经准备好释放连接了”。随后服务器端结束CLOSE-WAIT阶段，进入LAST-ACK阶段。并且停止在服务器端到客户端的方向上发送数据，但是服务器端仍然能够接收从客户端传输过来的数据。
+
+4. 客户端收到从服务器端发出的TCP报文，确认了服务器端已做好释放连接的准备，结束FIN-WAIT-2阶段，进入TIME-WAIT阶段，并向服务器端发送一段报文，其中：标记位为ACK，表示“接收到服务器准备好释放连接的信号”。随后客户端开始在TIME-WAIT阶段等待2MSL（TIME-WAIT出现在主动关闭连接的一方）
+
+## 为什么“握手”是三次，“挥手”却要四次？
+
+TCP建立连接时之所以只需要"三次握手"，是因为在第二次"握手"过程中，服务器端发送给客户端的TCP报文是以SYN与ACK作为标志位的。SYN是请求连接标志，表示服务器端同意建立连接；ACK是确认报文，表示告诉客户端，服务器端收到了它的请求报文。即SYN建立连接报文与ACK确认接收报文是在同一次"握手"当中传输的，所以"三次握手"不多也不少，正好让双方明确彼此信息互通。
+
+TCP释放连接时之所以需要“四次挥手”,是因为FIN释放连接报文与ACK确认接收报文是分别由第二次和第三次"握手"传输的。为何建立连接时一起传输，释放连接时却要分开传输？建立连接时，被动方服务器端结束CLOSED阶段进入“握手”阶段并不需要任何准备，可以直接返回SYN和ACK报文，开始建立连接。释放连接时，被动方服务器，突然收到主动方客户端释放连接的请求时并不能立即释放连接，因为还有必要的数据需要处理，所以服务器先返回ACK确认收到报文，经过CLOSE-WAIT阶段准备好释放连接之后，才能返回FIN释放连接报文。
+
+## 为什么客户端在TIME-WAIT阶段要等2MSL?
+
+为的是确认服务器端是否收到客户端发出的ACK确认报文。当客户端发出最后的ACK确认报文时，并不能确定服务器端能够收到该段报文。所以客户端在发送完ACK确认报文之后，会设置一个时长为2MSL的计时器。MSL指的是Maximum Segment Lifetime：一段TCP报文在传输过程中的最大生命周期。2MSL即是服务器端发出为FIN报文和客户端发出的ACK确认报文所能保持有效的最大时长。服务器端在1MSL内没有收到客户端发出的ACK确认报文，就会再次向客户端发出FIN报文；如果客户端在2MSL内，再次收到了来自服务器端的FIN报文，说明服务器端由于各种原因没有接收到客户端发出的ACK确认报文。客户端再次向服务器端发出ACK确认报文，计时器重置，重新开始2MSL的计时；否则客户端在2MSL内没有再次收到来自服务器端的FIN报文，说明服务器端正常接收了ACK确认报文，客户端可以进入CLOSED阶段，完成“四次挥手”。所以，客户端要经历时长为2SML的TIME-WAIT阶段；这也是为什么客户端比服务器端晚进入CLOSED阶段的原因。
+
+MSL是Maximum-Segment-Lifetime英文的缩写，中文可以译为“报文最大生存时间”，他是任何报文在网络上存在的最长时间，超过这个时间报文将被丢弃。因为tcp报文（segment）是ip数据报（datagram）的数据部分，而ip头中有一个TTL域，TTL是time-to-live的缩写，中文可以译为“生存时间”，这个生存时间是由源主机设置初始值但不是存的具体时间，而是存储了一个ip数据报可以经过的最大路由数，每经过一个处理他的路由器此值就减1，当此值为0则数据报将被丢弃，同时发送ICMP报文通知源主机。RFC-793中规定MSL为2分钟，实际应用中常用的是30秒，1分钟和2分钟等。
+
+## SYN和FIN占一个序列号的原因：
+
+TCP是一个支持可靠数据传输的网络协议，怎么做到可靠传输？主要是靠“确认”这个步骤来做到的，也就是ACK号。用ACK号来表达我这边已经收到了你传过来的东西，注意这里的东西是一个广义的概念，包含了数据和命令两种内容。在可靠的TCP传输过程中，用于建立和释放这个可靠通道的东西就是命令。这两和过程都是需要双方主动参与和确认回复的，当一方说我想开始一段可靠连接，并且给予了相关自己的情况数据，另外一方，则需要对这一命令进行确认，确认只能通过确认号来做。这个事情在断开连接的时候也是一样的。我们知道TCP除了SYN和FIN还有其它的标志，为什么他们不需要占用一个序列号呢？首先，ACK就不用说了，它本身就是为了确认这个动作而生的，如果再给它一个序列号，就意味着还要给这一序列号进行ACK，这是一个很奇怪的事情。PSH,URG是一个属性，一个附加在一段数据传输上的属性，它不属于命令或数据，RST比较特殊，它似乎是一个命令，但是基本上如果需要用这个命令的时候，TCP的可靠性也基本没有了，所以对这个命令进行确认已经无意义啦。总的来说，TCP是用“确认”这个手段来保证可靠的，在TCP整个过程中，我们需要确认SYN,FIN,两个命令，以及数据传输，这样才能保证可靠。
+
+## 序列号和确认号
+
+序列号（Sequence Number）代表的是发出的并且被对方确认好的数据长度
+
+确认号（Acknowledgment Number）代表的是自己接受到的并且确认好的数据长度
+
+## TIME_WAIT有关的参数
+
+在机器上执行以下任意命令，就可以看到这个此机器上的TIME_WAIT的数量
+
+```bash
+[root@server01 ~]# netstat -apn | grep TIME_WAIT | wc -l
+0
+[root@server01 ~]# ss -ant  | grep TIME-WAIT | wc -l
+0
+[root@server01 ~]# cat /proc/net/sockstat
+sockets: used 171
+TCP: inuse 4 orphan 0 tw 0 alloc 8 mem 1
+UDP: inuse 6 mem 0
+UDPLITE: inuse 0
+RAW: inuse 0
+FRAG: inuse 0 memory 0
+[root@server01 ~]#
+```
+
+### net.ipv4.tcp_timestamps
+
+#### 开启时间戳选项
+
+要开启tcp这个选项，需要将内核参数`net.ipv4.tcp_timestamps`设置成1(`sysctl -w net.ipv4.tcp_timestamps=1`)，可以通过以下两个命令来查看当前的内核参数设置:
+
+```bash
+$ sysctl net.ipv4.tcp_timestamps
+net.ipv4.tcp_timestamps = 1
+$ cat /proc/sys/net/ipv4/tcp_timestamps
+1
+```
+
+#### 实现细节
+
+假设A与B建立连接，在建立连接伊始A发送的SYN包中，就会带上时间戳字段TSval，B在回复SYN/ACK中会将A发来的TSval放在TSecr(echo reply)中，并同时带上新的时间戳字段TSval。
+
+#### 实际抓包
+
+在使用tcpdump抓包中，可以很清晰地看到选项字段里带的TSval和TSecr：
+
+```bash
+[root@server01 home]# tcpdump -nn -i enp0s8 port 8085
+tcpdump: verbose output suppressed, use -v or -vv for full protocol decode
+listening on enp0s8, link-type EN10MB (Ethernet), capture size 262144 bytes
+09:20:13.558754 IP 192.168.56.112.55326 > 192.168.56.110.8085: Flags [S], seq 3940056058, win 29200, options [mss 1460,sackOK,TS val 4294787354 ecr 0,nop,wscale 7], length 0
+09:20:13.558772 IP 192.168.56.110.8085 > 192.168.56.112.55326: Flags [S.], seq 208694481, ack 3940056059, win 28960, options [mss 1460,sackOK,TS val 431562 ecr 4294787354,nop,wscale 7], length 0
+09:20:13.558953 IP 192.168.56.112.55326 > 192.168.56.110.8085: Flags [.], ack 1, win 229, options [nop,nop,TS val 4294787354 ecr 431562], length 0
+09:20:13.559045 IP 192.168.56.112.55326 > 192.168.56.110.8085: Flags [P.], seq 1:181, ack 1, win 229, options [nop,nop,TS val 4294787354 ecr 431562], length 180
+09:20:13.559051 IP 192.168.56.110.8085 > 192.168.56.112.55326: Flags [.], ack 181, win 235, options [nop,nop,TS val 431562 ecr 4294787354], length 0
+09:20:13.560312 IP 192.168.56.110.8085 > 192.168.56.112.55326: Flags [P.], seq 1:18, ack 181, win 235, options [nop,nop,TS val 431564 ecr 4294787354], length 17
+09:20:13.560488 IP 192.168.56.112.55326 > 192.168.56.110.8085: Flags [.], ack 18, win 229, options [nop,nop,TS val 4294787356 ecr 431564], length 0
+09:20:13.560533 IP 192.168.56.110.8085 > 192.168.56.112.55326: Flags [P.], seq 18:284, ack 181, win 235, options [nop,nop,TS val 431564 ecr 4294787356], length 266
+09:20:13.560667 IP 192.168.56.112.55326 > 192.168.56.110.8085: Flags [.], ack 284, win 237, options [nop,nop,TS val 4294787356 ecr 431564], length 0
+09:20:13.560673 IP 192.168.56.110.8085 > 192.168.56.112.55326: Flags [P.], seq 284:319, ack 181, win 235, options [nop,nop,TS val 431564 ecr 4294787356], length 35
+09:20:13.560755 IP 192.168.56.110.8085 > 192.168.56.112.55326: Flags [F.], seq 319, ack 181, win 235, options [nop,nop,TS val 431564 ecr 4294787356], length 0
+09:20:13.560912 IP 192.168.56.112.55326 > 192.168.56.110.8085: Flags [.], ack 319, win 237, options [nop,nop,TS val 4294787356 ecr 431564], length 0
+09:20:13.561004 IP 192.168.56.112.55326 > 192.168.56.110.8085: Flags [F.], seq 181, ack 320, win 237, options [nop,nop,TS val 4294787356 ecr 431564], length 0
+09:20:13.561011 IP 192.168.56.110.8085 > 192.168.56.112.55326: Flags [.], ack 182, win 235, options [nop,nop,TS val 431564 ecr 4294787356], length 0
+
+```
+
+而在没有开启时间戳选项(B没有开启)的交互中，A收到B的回包不带时间戳选项，后续再发的包，也就不再带时间戳选项了：
+
+```bash
+[root@server01 home]# sysctl -w net.ipv4.tcp_timestamps=0
+net.ipv4.tcp_timestamps = 0
+[root@server01 home]# nohup python3 tcp_app.py >log 2>&1 &
+[3] 1127
+[root@server01 home]# tcpdump -nn -i enp0s8 port 8085
+tcpdump: verbose output suppressed, use -v or -vv for full protocol decode
+listening on enp0s8, link-type EN10MB (Ethernet), capture size 262144 bytes
+09:23:27.983691 IP 192.168.56.112.55328 > 192.168.56.110.8085: Flags [S], seq 866788712, win 29200, options [mss 1460,sackOK,TS val 14483 ecr 0,nop,wscale 7], length 0
+09:23:27.983711 IP 192.168.56.110.8085 > 192.168.56.112.55328: Flags [S.], seq 4050425417, ack 866788713, win 29200, options [mss 1460,nop,nop,sackOK,nop,wscale 7], length 0
+09:23:27.983902 IP 192.168.56.112.55328 > 192.168.56.110.8085: Flags [.], ack 1, win 229, length 0
+09:23:27.983997 IP 192.168.56.112.55328 > 192.168.56.110.8085: Flags [P.], seq 1:181, ack 1, win 229, length 180
+09:23:27.984003 IP 192.168.56.110.8085 > 192.168.56.112.55328: Flags [.], ack 181, win 237, length 0
+09:23:27.985356 IP 192.168.56.110.8085 > 192.168.56.112.55328: Flags [P.], seq 1:18, ack 181, win 237, length 17
+09:23:27.985544 IP 192.168.56.112.55328 > 192.168.56.110.8085: Flags [.], ack 18, win 229, length 0
+09:23:27.985576 IP 192.168.56.110.8085 > 192.168.56.112.55328: Flags [P.], seq 18:284, ack 181, win 237, length 266
+09:23:27.985710 IP 192.168.56.112.55328 > 192.168.56.110.8085: Flags [.], ack 284, win 237, length 0
+09:23:27.985717 IP 192.168.56.110.8085 > 192.168.56.112.55328: Flags [P.], seq 284:319, ack 181, win 237, length 35
+09:23:27.985842 IP 192.168.56.112.55328 > 192.168.56.110.8085: Flags [.], ack 319, win 237, length 0
+09:23:27.985869 IP 192.168.56.110.8085 > 192.168.56.112.55328: Flags [F.], seq 319, ack 181, win 237, length 0
+09:23:27.986113 IP 192.168.56.112.55328 > 192.168.56.110.8085: Flags [F.], seq 181, ack 320, win 237, length 0
+09:23:27.986121 IP 192.168.56.110.8085 > 192.168.56.112.55328: Flags [.], ack 182, win 237, length 0
+```
+
+#### 注意点
+
+1. TSval并非真正的时间戳，而是由时间戳依据一定算法算出来的一个值，与时间戳有同等的特性，即随时间单调递增；
+2. 只有在TCP连接的客户端和服务器端都打开`net.ipv4.tcp_timestamps`，时间戳选项才会生效;
+3. 关于TSecr，一说只有在ACK标志的包中才会带，由于实际中基本没有不带ACK的包(除了第一个sync)，所以无法验证;
+4. 如果一个ACK包是回复之前收到的多个数据包，则此时的TSecr取值算法可参考[此](https://www.freesoft.org/CIE/RFC/1323/10.htm)，一般使用最早收到的那个TSval。
+
+#### 作用
+
+##### 精确计算RTT(Round-Trip Time)
+
+在没有时间戳时计算RTT使用的方法是在包发送时记录下时间，RTT为收到ACK的时间减去发送时记录的时间。这种方法在出现丢失重传时，会导致RTT计算出现偏差，因为不确定ACK的回包是因为收到了最开始发的包，还是收到了重传后的包。而时间戳选项可以很方便的使用TSecr来计算精准的RTT，当然，由于TSval并非真正的时间戳，所以计算时并非直接相减，而是使用相应的算法计算出RTT。
+
+##### PAWS(Protection Against Wrapped Sequence numbers)
+
+TCP的头部信息中序列号占用4个字节，即每传输4G的数据之后，序列号又要从头开始了(考虑到开始时随机选取的序列号，这个数字一般比4G小)。考虑在一个高速网络中，某一个数据包A发生了超时重传，过了一段时间，此时序列号已经过了一轮又回到A了，之前丢失的包如果此时被收到就会被当成合法的包加以使用，这就是PAWS要解决的问题。在添加了时间戳的选项的包中，PAWS在处理逻辑中添加了一条如下规则：如果收到的包的TSval小于最近一次收到的时间戳，则认为是不合法的，这就保证之前的包不会被当成合法的包。(这中间还有一些细节的处理，比如何时更新最近一次收到的时间戳，对于重传情况的处理等，可以参考具体的RFC文档)
+
+### net.ipv4.tcp_tw_reuse
+
+#### 现象
+
+众所周知，可用的端口号有65535个，而实际能用的端口数还受`net.ipv4.ip_local_port_range`和`net.ipv4.ip_local_reserved_ports`影响。为了探究reuse选项对TIME_WAIT的影响，可以进行如下实验：
+
+1. 在server01中启动一个web服务；
+2. 将server03的可用端口改成10个；
+3. 并关闭server03的reuse选项；
+4. 接下来从server03向server01连续发起请求
+5. 可以发现很快就会报错：curl: (7) Failed connect to 192.168.56.110:8085/getapp; Cannot assign requested address
+
+这个步骤有时能一直请求，需要抓包看一下主动断开的是哪一方，如果是服务端主动断开，则TIME_WAIT在服务端，所以你的请求会持续成功
+
+```bash
+[root@server01 home]# nohup python3 tcp_app.py >console.log 2>&1 &
+[1] 3277
+```
+
+```bash
+[root@server03 entrypoint.d]# sysctl net.ipv4.ip_local_port_range
+net.ipv4.ip_local_port_range = 32768    60999
+[root@server03 entrypoint.d]# sysctl -w net.ipv4.ip_local_port_range="34000 34009"
+net.ipv4.ip_local_port_range = 34000 34009
+[root@server03 entrypoint.d]# sysctl -w net.ipv4.tcp_tw_reuse=0
+net.ipv4.tcp_tw_reuse = 0
+[root@server03 entrypoint.d]#  for ((i=0;i<1000;i++)); do if [ "$(curl -sL -w '%{http_code}' 192.168.56.110:8085/getapp -o /dev/null)" = "200" ]; then echo "Success"; else echo "Fail"; fi; done;
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+......
+```
+
+接下来打开reuse再试一次：这次出现了很奇怪的现象，发现成功发起了10次请求之后与之前一样开始报错，但是在大约过了1秒左右，又开始能成功请求10个，然后继续报错，如此往复。这个现象与之前网上查阅到的 “如果开启reuse，那么TIME_WAIT将在1秒之后重用” 这个说法很吻合。以上实验的基础是服务端和客户端都打开了tcp_timestamps这个选项，如果某一方关闭timestamps，reuse还能起作用吗？从结果上看，如果关闭了timestamps选项，则reuse也不起作用了，与没有打开reuse现象一样，即在前10次成功请求之后的请求全都报错了。
+
+```bash
+[root@server03 entrypoint.d]# sysctl -w net.ipv4.tcp_tw_reuse=1
+net.ipv4.tcp_tw_reuse = 1
+[root@server03 entrypoint.d]#  for ((i=0;i<1000;i++)); do if [ "$(curl -sL -w '%{http_code}' 192.168.56.110:8085/getapp -o /dev/null)" = "200" ]; then echo "Success"; else echo "Fail"; fi; done;
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+```
+
+#### 代码
+
+tcp相关的内核代码错综复杂，目前还无法从头到尾梳理一遍，只能从现象上找到对应的代码来佐证，所以我们从这个报错入手。Cannot assign requested address这个在内核代码中并没有找到对应的字符串，只是从众多的注释上看，可以知道EADDRNOTAVAIL这个错误码就代表了这个报错。另外一方面，搜索tcp_tw_reuse这个关键字，我们可以找到以下代码：
+
+net/ipv4/tcp_ipv4.c
+
+```c
+int tcp_twsk_unique(struct sock *sk, struct sock *sktw, void *twp)
+{
+	const struct tcp_timewait_sock *tcptw = tcp_twsk(sktw);
+	struct tcp_sock *tp = tcp_sk(sk);
+
+	/* With PAWS, it is safe from the viewpoint
+	   of data integrity. Even without PAWS it is safe provided sequence
+	   spaces do not overlap i.e. at data rates <= 80Mbit/sec.
+
+	   Actually, the idea is close to VJ's one, only timestamp cache is
+	   held not per host, but per port pair and TW bucket is used as state
+	   holder.
+
+	   If TW bucket has been already destroyed we fall back to VJ's scheme
+	   and use initial timestamp retrieved from peer table.
+	 */
+	if (tcptw->tw_ts_recent_stamp &&
+	    (twp == NULL || (sysctl_tcp_tw_reuse &&
+			     get_seconds() - tcptw->tw_ts_recent_stamp > 1))) {
+		tp->write_seq = tcptw->tw_snd_nxt + 65535 + 2;
+		if (tp->write_seq == 0)
+			tp->write_seq = 1;
+		tp->rx_opt.ts_recent	   = tcptw->tw_ts_recent;
+		tp->rx_opt.ts_recent_stamp = tcptw->tw_ts_recent_stamp;
+		sock_hold(sktw);
+		return 1;
+	}
+
+	return 0;
+}
+```
+
+而此函数的调用处，在返回0时会返回`EADDRNOTAVAIL`错误码，所以这块可以猜到应该就是判断TIME_WAIT是否可以重用的代码
+
+net/ipv4/inet_hashtables.c
+
+```c
+static int __inet_check_established(struct inet_timewait_death_row *death_row,
+				    struct sock *sk, __u16 lport,
+				    struct inet_timewait_sock **twp)
+{
+	// skip something
+	/* Check TIME-WAIT sockets first. */
+	sk_nulls_for_each(sk2, node, &head->twchain) {
+		tw = inet_twsk(sk2);
+
+		if (INET_TW_MATCH(sk2, net, hash, acookie,
+					saddr, daddr, ports, dif)) {
+			if (twsk_unique(sk, sk2, twp)) // 这个函数也就是上面看到的tcp_twsk_unique函数
+				goto unique;
+			else
+				goto not_unique;
+		}
+	}
+	// skip something
+unique:
+	// skip something
+	return 0;
+
+not_unique:
+	spin_unlock(lock);
+	return -EADDRNOTAVAIL;
+}
+```
+
+回过头来，我们看一下`tcp_twsk_unique`返回1的条件：
+
+**`tcptw->tw_ts_recent_stamp`**： 搜索这个变量的赋值情况，都是在saw_tstamp为真是才会赋值，猜想这个saw_tstamp即为是否打开了timestamps选项，所以这个`tcptw->tw_ts_recent_stamp`只有在打开timestamps才会有值；
+
+**`twp == NULL || (sysctl_tcp_tw_reuse && get_seconds() - tcptw->tw_ts_recent_stamp > 1)`**，这个twp不考虑是什么，如果要让sysctl_tcp_tw_reuse选项发生作用，这个twp必须不为空，所以这个条件的意思就是如果开启了reuse选项，并且当前时间(get_seconds)是在tw_ts_recent_stamp这个时间一秒之后，则为真；这是否与之前我们看到的现象1秒之后所有请求成功了相关呢？
+
+以上是从现象再搜索代码猜测的结果，细节上应该还有些出入，但大概的情况应该也是这样了。
+
+#### 总结
+
+对于`net.ipv4.tcp_tw_reuse`，其作用是在TIME_WAIT状态1秒之后即可重用端口，达到快速回收TIME_WAIT端口的作用，避免出现无端口可用的情况，但是reuse的生效条件是通信双方都开启了timestamps选项。
+
+### net.ipv4.tcp_tw_recycle
+
+#### 实验1：
+
+1. 开启net.ipv4.tcp_tw_reuse关闭net.ipv4.tcp_tw_recycle
+2. 由于在TIME_WAIT状态1秒之后即可重用端口，达到快速回收TIME_WAIT端口的作用，所有在一秒之后又会有成功的请求
+
+```bash
+[root@server03 entrypoint.d]# sysctl -w net.ipv4.tcp_tw_reuse=1                                                                                                         net.ipv4.tcp_tw_reuse = 1
+[root@server03 entrypoint.d]# sysctl -w net.ipv4.tcp_tw_recycle=1
+net.ipv4.tcp_tw_recycle = 1
+[root@server03 entrypoint.d]#  for ((i=0;i<1000;i++)); do if [ "$(curl -sL -w '%{http_code}' 192.168.56.110:8085/getapp -o /dev/null)" = "200" ]; then echo "Success"; else echo "Fail"; fi; done;
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+......
+```
+
+
+
+```bash
+[root@server03 ~]# ss -nat | grep TIME-WAIT
+TIME-WAIT  0      0      192.168.56.112:34005              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34009              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34004              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34001              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34007              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34003              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34000              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34008              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34006              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34002              192.168.56.110:8085
+[root@server03 ~]# ss -nat | grep TIME-WAIT
+TIME-WAIT  0      0      192.168.56.112:34005              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34009              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34004              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34001              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34007              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34003              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34000              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34008              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34006              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34002              192.168.56.110:8085
+[root@server03 ~]# ss -nat | grep TIME-WAIT
+TIME-WAIT  0      0      192.168.56.112:34005              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34009              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34004              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34001              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34007              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34003              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34000              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34008              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34006              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34002              192.168.56.110:8085
+[root@server03 ~]# ss -nat | grep TIME-WAIT
+TIME-WAIT  0      0      192.168.56.112:34005              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34009              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34004              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34001              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34007              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34003              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34000              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34008              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34006              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34002              192.168.56.110:8085
+[root@server03 ~]# ss -nat | grep TIME-WAIT
+TIME-WAIT  0      0      192.168.56.112:34005              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34009              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34004              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34001              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34007              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34003              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34000              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34008              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34006              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34002              192.168.56.110:8085
+[root@server03 ~]# ss -nat | grep TIME-WAIT
+TIME-WAIT  0      0      192.168.56.112:34005              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34009              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34004              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34001              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34007              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34003              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34000              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34008              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34006              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34002              192.168.56.110:8085
+[root@server03 ~]# ss -nat | grep TIME-WAIT
+TIME-WAIT  0      0      192.168.56.112:34005              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34009              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34004              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34001              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34007              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34003              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34000              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34008              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34006              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34002              192.168.56.110:8085
+[root@server03 ~]# ss -nat | grep TIME-WAIT
+[root@server03 ~]#
+
+```
+
+#### 实验2：
+
+1. 关闭net.ipv4.tcp_tw_reuse开启net.ipv4.tcp_tw_recycle
+2. 由于开启了recycle选项，同样可以达到可以快速回收TIME_WAIT的端口的效果，他与reuse的不同在于reuse在ss中还能看到TIME_WAIT，只是可以复用这些端口，而recycle是直接回收了，使用ss可能已经看不到了。
+3. 如果关闭timestamps：发现这些TIME_WAIT又回来了，所以也是在timestamps打开的情况下recycle才能生效！
+
+```bash
+[root@server03 entrypoint.d]# sysctl -w net.ipv4.tcp_tw_reuse=0
+net.ipv4.tcp_tw_reuse = 0
+[root@server03 entrypoint.d]# sysctl -w net.ipv4.tcp_tw_recycle=1
+net.ipv4.tcp_tw_recycle = 1
+[root@server03 entrypoint.d]# sysctl -w net.ipv4.ip_local_port_range="34000 34009"
+net.ipv4.ip_local_port_range = 34000 34009
+[root@server03 entrypoint.d]#  for ((i=0;i<1000;i++)); do if [ "$(curl -sL -w '%{http_code}' 192.168.56.110:8085/getapp -o /dev/null)" = "200" ]; then echo "Success"; else echo "Fail"; fi; done;
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Success
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+Fail
+[root@server03 entrypoint.d]#
+```
+
+
+
+```bash
+[root@server03 ~]# ss -nat | grep TIME-WAIT
+TIME-WAIT  0      0      192.168.56.112:34005              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34009              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34004              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34001              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34007              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34003              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34000              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34008              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34006              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34002              192.168.56.110:8085
+[root@server03 ~]# ss -nat | grep TIME-WAIT
+TIME-WAIT  0      0      192.168.56.112:34005              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34009              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34004              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34001              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34007              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34003              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34000              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34008              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34006              192.168.56.110:8085
+TIME-WAIT  0      0      192.168.56.112:34002              192.168.56.110:8085
+[root@server03 ~]# ss -nat | grep TIME-WAIT
+[root@server03 ~]# ss -nat | grep TIME-WAIT
+[root@server03 ~]# ss -nat | grep TIME-WAIT
+[root@server03 ~]# ss -nat | grep TIME-WAIT
+[root@server03 ~]#
+```
+
+#### 代码
+
+net/ipv4/tcp_minisocks.c
+
+```c
+/*
+ * Move a socket to time-wait or dead fin-wait-2 state.
+ */
+void tcp_time_wait(struct sock *sk, int state, int timeo)
+{
+	struct inet_timewait_sock *tw = NULL;
+	const struct inet_connection_sock *icsk = inet_csk(sk);
+	const struct tcp_sock *tp = tcp_sk(sk);
+	int recycle_ok = 0;
+
+	if (tcp_death_row.sysctl_tw_recycle && tp->rx_opt.ts_recent_stamp)
+		recycle_ok = icsk->icsk_af_ops->remember_stamp(sk);
+
+	if (tcp_death_row.tw_count < tcp_death_row.sysctl_max_tw_buckets)
+		tw = inet_twsk_alloc(sk, state);
+
+	if (tw != NULL) {
+		// skip something
+
+		if (recycle_ok) {
+			tw->tw_timeout = rto;
+		} else {
+			tw->tw_timeout = TCP_TIMEWAIT_LEN;
+			if (state == TCP_TIME_WAIT)
+				timeo = TCP_TIMEWAIT_LEN;
+		}
+
+		inet_twsk_schedule(tw, &tcp_death_row, timeo,
+				   TCP_TIMEWAIT_LEN);
+		inet_twsk_put(tw);
+	} else {
+		/* Sorry, if we're out of memory, just CLOSE this
+		 * socket up.  We've got bigger problems than
+		 * non-graceful socket closings.
+		 */
+		LIMIT_NETDEBUG(KERN_INFO "TCP: time wait bucket table overflow\n");
+	}
+
+	tcp_update_metrics(sk);
+	tcp_done(sk);
+}
+```
+
+留意recycle_ok变量，从条件上可以看出，如果开启了recycle选项，并且`tp->rx_opt.ts_recent_stamp`不为空，则recycle_ok为真，继而对应的TIME_WAIT超时时间为rto，否则为TCP_TIMEWAIT_LEN。
+
+这里有三个问题：
+
+1. **tp->rx_opt.ts_recent_stamp**这个变量的值是什么：从代码中搜索，这个值的赋值为之前我们看到的tw_ts_recent_stamp，即开启timestamps选项时收到的最近一个包的时间戳，只有开启了timestamps这个变量才有值
+2. **rto**和**TCP_TIMEWAIT_LEN**是多少：TCP_TIMEWAIT_LEN很容易搜索到是60秒，而rto呢？rto为Retransmission TimeOut，即重传超时，他是一个动态计算的值，在网络较好的情况下这个值一般都小于1秒，具体的算法可以查看参考文章。
+3. **tcp_v4_remember_stamp**何时返回真：这里有一个`inet_getpeer(inet->daddr, 1)`函数，如果取到了peer信息，则返回真，否则返回0。
+
+上面的代码，我们还能看到另外一个内核选项的作用`net.ipv4.tcp_max_tw_buckets`，当TIME_WAIT超过max_tw_buckets数量时，就不会再转入TIME_WAIT状态，而是报一条overflow的报错，这个报错可以在系统的/var/log/message里看到。
+
+#### 总结
+
+对于`net.ipv4.tcp_tw_recycle`选项，其作用是在将TIME_WAIT的超时时间设置成rto，而非60秒，而rto一般情况下会小于1秒，所以recycle经常能够快速回收处理TIME_WAIT状态的端口。而timestamps同样必须打开recycle才能生效。另外一种不生效的情况是`inet_getpeer`函数无法获取到对应的信息时，recycle也不会生效。
+
+### 如何测试TIME_WAIT的超时时间
+
+使用curl的`--local-port`选项可以大概地看出TIME_WAIT的超时时间
+
+```bash
+for ((i=0;i< 1000;i++)); do date; curl --local-port 54539  http://192.168.56.110; sleep 1; done;
+```
+
+查看两次正常返回的时间差即为TIME_WAIT状态的超时时间，这个在linux上是宏定义的60秒，无法修改。
+
+### 开启recycle对于NAT网络的影响
+
+对于服务器来说，如果同时开启了recycle和timestamps选项，则会开启一种称之为per-host的PAWS机制。与PAWS机制一样，per-host的PAWS机制是针对同一来源的包，只接收时间戳大于最近一次收到时间戳的包。但对于NAT网络来说，服务器认为的同一个来源，在NAT网关后面可能是多台客户机，而这些机器无法保证在时间戳上的单调递增，从而导致了某些客户机连接失败的情况，这也是作为服务端不推荐打开recycle的原因。
+
+### 总结
+
+在任何情况下打开reuse就够了，recycle不管是做为服务端还是做为客户端都不建议打开，除非你知道这意味着什么。而对于无法控制的服务端并且没有开启timestamps选项，可以通过减少tw_buckets来降低端口不可用的情况，但这相当于去掉了TIME_WAIT机制，带来的副作用可想而知。
 
 
 

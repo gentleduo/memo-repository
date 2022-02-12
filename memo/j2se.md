@@ -480,5 +480,418 @@ public class Hero {
 
 被它修饰的Annotation将具有继承性。如果某个类使用了被@Inherited修饰的Annotation，则子类将自动具有该注解。（使用得极少）
 
+# 发射
+
+## 发射的引入
+
+考虑一个美团外卖在线支付的场景：可能美团会跟很多的支付机构合作，所以美团会规定一个支付的接口类：
+
+```java 
+package org.duo.reflect;
+
+/**
+ * 接口的指定方：美团外卖
+ */
+public interface Mtwm {
+
+    // 在线支付功能：
+    void payOnline();
+}
+```
+
+各个支付机构分别实现：
+
+```java 
+package org.duo.reflect;
+
+public class AliPay implements Mtwm{
+    @Override
+    public void payOnline() {
+        System.out.println("我已经点了外卖，正在使用支付宝支付");
+    }
+}
+```
+
+```java 
+package org.duo.reflect;
+
+public class WeChat implements Mtwm {
+
+    @Override
+    public void payOnline() {
+        System.out.println("我已经点了外卖，正在使用微信支付");
+    }
+}
+```
+
+```java 
+package org.duo.reflect;
+
+public class BankCard implements Mtwm {
+
+    @Override
+    public void payOnline() {
+        System.out.println("我已经点了外卖，正在使用招商银行信用卡支付");
+    }
+}
+```
+
+最后由美团来调用：
+
+```java 
+package org.duo.reflect;
+
+public class TestMain {
+
+    public static void main(String[] args) {
+
+        // 定义一个字符串，用来模拟前台的支付方式：
+        String str = "支付宝";
+
+        if ("微信".equals(str)) {
+            // 微信支付
+            pay(new WeChat());
+        }
+
+        if ("支付宝".equals(str)) {
+            // 支付宝支付
+            pay(new AliPay());
+        }
+
+        if ("招商银行".equals(str)) {
+            // 招商银行支付
+            pay(new BankCard());
+        }
+    }
+
+    // 微信支付
+    public static void pay(WeChat weChat) {
+        weChat.payOnline();
+    }
+
+    // 支付宝支付
+    public static void pay(AliPay aliPay) {
+        aliPay.payOnline();
+    }
+
+    // 招商银行支付
+    public static void pay(BankCard bankCard) {
+        bankCard.payOnline();
+    }
+}
+```
+
+上面的写法代码扩展性太差，增加一种合作方式就要改代码，所以可以通过多态来修改：
+
+```java 
+package org.duo.reflect;
+
+public class TestMain {
+
+    public static void main(String[] args) {
+
+        // 定义一个字符串，用来模拟前台的支付方式：
+        String str = "支付宝";
+
+        if ("微信".equals(str)) {
+            // 微信支付
+            pay(new WeChat());
+        }
+
+        if ("支付宝".equals(str)) {
+            // 支付宝支付
+            pay(new AliPay());
+        }
+
+        if ("招商银行".equals(str)) {
+            // 招商银行支付
+            pay(new BankCard());
+        }
+    }
+
+    public static void pay(Mtwm mtwm) {
+        mtwm.payOnline();
+    }
+}
+```
+
+多态确实可以提高代码的扩展性，但是扩展性没有达到最好：比如增加了合作机构还是要改代码；可以利用发射机制进行改进
+
+```java 
+package org.duo.reflect;
+
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+
+public class ReflectDemo {
+
+    public static void main(String[] args) throws ClassNotFoundException, NoSuchMethodException, InstantiationException, IllegalAccessException, InvocationTargetException {
+        // 定义一个字符串，用来模拟前台的支付方式：
+        String str = "org.duo.reflect.AliPay"; // 字符串：实际上就是支付宝的全限定路径
+        //下面的代码就是利用发射：
+        Class clazz = Class.forName(str);
+        Object o = clazz.newInstance();
+        Method method = clazz.getMethod("payOnline");
+        method.invoke(o);
+    }
+}
+```
+
+## 获取字节码信息的四种方式
+
+```java 
+package org.duo.reflect02;
+
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
+
+import static java.lang.annotation.ElementType.*;
+import static java.lang.annotation.ElementType.LOCAL_VARIABLE;
+
+@Target({TYPE, FIELD, METHOD, PARAMETER, CONSTRUCTOR, LOCAL_VARIABLE})
+@Retention(RetentionPolicy.RUNTIME)
+public @interface MyAnnotation {
+    String value();//属性
+}
+```
+
+```java
+package org.duo.reflect02;
+
+public interface MyInterface {
+
+    void myMethod();
+}
+
+```
+
+```java 
+package org.duo.reflect02;
+
+import java.io.Serializable;
+
+/**
+ * 作为父类
+ */
+public class Person implements Serializable {
+
+    //属性
+    private int age;
+    public String name;
+
+    private void eat() {
+        System.out.println("Person---eat");
+    }
+
+    public void sleep() {
+        System.out.println("Person---sleep");
+    }
+}
+
+```
+
+```java 
+package org.duo.reflect02;
+
+/**
+ * Student作为子类
+ */
+@MyAnnotation("hello")
+public class Student extends Person implements MyInterface {
+
+    //属性：
+    private int sno;//学号
+    double height;//身高
+    protected double weight;//体重
+    public double score;//成绩
+
+    //方法；
+    @MyAnnotation("himethod")
+    public String showInfo() {
+        return "我是一名三好学生";
+    }
+
+    public String showInfo(int a, int b) {
+        return "重载方法======我是一名三好学生";
+    }
+
+    private void work() {
+        System.out.println("我以后会找工作-->成为码农");
+    }
+
+    void happy() {
+        System.out.println("做人最重要的就是开心每一天");
+    }
+
+    protected int getSno() {
+        return this.sno;
+    }
+
+    //构造器：
+    public Student() {
+        System.out.println("空参构造器");
+    }
+
+    public Student(double weight, double height) {
+        this.weight = weight;
+        this.height = height;
+    }
+
+    private Student(int sno) {
+        this.sno = sno;
+    }
+
+    Student(int sno, double weight) {
+        this.sno = sno;
+        this.weight = weight;
+    }
+
+    protected Student(int sno, double height, double weight) {
+        this.sno = sno;
+    }
+
+    @Override
+    @MyAnnotation("hellomyMethod")
+    public void myMethod() {
+        System.out.println("我重写了myMethod方法。。");
+    }
+
+    @Override
+    public String toString() {
+        final StringBuilder sb = new StringBuilder("Student{");
+        sb.append("sno=").append(sno);
+        sb.append(", height=").append(height);
+        sb.append(", weight=").append(weight);
+        sb.append(", score=").append(score);
+        sb.append('}');
+        return sb.toString();
+    }
+}
+```
+
+```java
+package org.duo.reflect02;
+
+public class TestMain {
+
+    public static void main(String[] args) throws ClassNotFoundException {
+
+        // 获取Person的字节码信息
+        // 方式1：通过getClass()方法获取
+        Person p = new Person();
+        Class c1 = p.getClass();
+        System.out.println(c1);
+
+        // 方式2：通过内置Class属性：
+        Class c2 = Person.class;
+        System.out.println(c2);
+
+        System.out.println(c1 == c2);
+        // 方式3：调用Class类提供的静态方法forName
+        Class c3 = Class.forName("org.duo.reflect02.Person");
+
+        // 方式4：利用类的加载器
+        ClassLoader classLoader = TestMain.class.getClassLoader();
+        Class c4 = classLoader.loadClass("org.duo.reflect02.Person");
+
+        // 方式1、2不常用，方式3用得最多，方式4了解即可
+    }
+}
+```
+
+## 可以作为Class类的实例的种类：
+
+1. 类：外部类、内部类
+2. 接口
+3. 注解
+4. 数组
+5. 基本数据类型
+6. void
+
+```java
+package org.duo.reflect02;
+
+public class Demo {
+
+    public static void main(String[] args) {
+
+        // 类
+        Class c1 = Person.class;
+        // 接口
+        Class c2 = Comparable.class;
+        // 注解
+        Class c3 = Override.class;
+        // 数组
+        int[] arr1 = {1, 2, 3};
+        Class c4 = arr1.getClass();
+        int[] arr2 = {5, 6, 7};
+        Class c5 = arr2.getClass();
+        System.out.println(c4 == c5); // 同一维度，同一元素类型，得到的字节码就是一个
+        // 基本数据类型
+        Class c6 = int.class;
+        // void
+        Class c7 = void.class;
+    }
+}
+```
+
+## 获取运行时类的完整结构
+
+### 获取构造器和创建对象
+
+```java
+package org.duo.reflect02;
+
+import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
+
+public class Test01 {
+
+    public static void main(String[] args) throws NoSuchMethodException, InvocationTargetException, InstantiationException, IllegalAccessException {
+
+        // 获取字节码信息：
+        Class clazz = Student.class;
+        // 通过字节码信息可以获取构造器：
+        // getConstructors只能获取当前运行时类的被public修饰的构造器
+        Constructor[] c1 = clazz.getConstructors();
+        for (Constructor c : c1) {
+            System.out.println(c);
+        }
+        System.out.println("--------------------------");
+        // getDeclaredConstructors可以获取运行时类的全部修饰符的构造器
+        Constructor[] c2 = clazz.getDeclaredConstructors();
+        for (Constructor c : c2) {
+            System.out.println(c);
+        }
+        System.out.println("--------------------------");
+        // 获取指定的构造器：
+        // 不传入参数：得到空构造器
+        Constructor con1 = clazz.getConstructor();
+        System.out.println(con1);
+        // 得到两个参数的有参构造器
+        Constructor con2 = clazz.getConstructor(double.class, double.class);
+        System.out.println(con2);
+        // 得到一个参数的有参构造器，并且是private修饰的
+        Constructor con3 = clazz.getDeclaredConstructor(int.class);
+        System.out.println(con3);
+        System.out.println("--------------------------");
+        // 拿到构造器后就可以创建对象了
+        // 使用空构造器创建对象
+        Object o1 = con1.newInstance();
+        System.out.println(o1);
+        System.out.println("--------------------------");
+        Object o2 = con2.newInstance(1.3, 3.123);
+        System.out.println(o2);
+    }
+}
+```
+
+### 获取属性和对属性进行赋值
+
+### 获取方法和调用方法
+
+### 获取类的接口，所在包，注解
+
 
 

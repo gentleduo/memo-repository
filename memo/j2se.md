@@ -942,9 +942,9 @@ public class Hero {
 
 被它修饰的Annotation将具有继承性。如果某个类使用了被@Inherited修饰的Annotation，则子类将自动具有该注解。（使用得极少）
 
-# 发射
+# 反射
 
-## 发射的引入
+## 反射的引入
 
 考虑一个美团外卖在线支付的场景：可能美团会跟很多的支付机构合作，所以美团会规定一个支付的接口类：
 
@@ -1515,5 +1515,446 @@ public class Test04 {
 }
 ```
 
+## 应用
 
+### 数据准备
+
+准备一张表，并且插入22万条数据
+
+```sql
+DROP TABLE IF EXISTS `t_user`;
+CREATE TABLE `t_user` (
+`user_id` int(11) NOT NULL,
+`user_name` varchar(64) DEFAULT NULL,
+`password` varchar(256) DEFAULT NULL,
+`sex` tinyint(4) DEFAULT NULL,
+`age` int(11) DEFAULT NULL,
+PRIMARY KEY (`user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+```
+
+```java
+package org.duo.reflect;
+
+import java.sql.*;
+
+public class AddRecord {
+
+    public static void main(String[] args) throws Exception {
+
+        Connection connection = null;
+        PreparedStatement stmt = null;
+
+        try {
+            Class.forName("com.mysql.cj.jdbc.Driver").newInstance();
+            String dbConnStr = "jdbc:mysql://192.168.56.110:3306/test_db?useUnicode=true&characterEncoding=utf-8&useServerPrepStmts=true&serverTimezone=Asia/Shanghai";
+            connection = DriverManager.getConnection(dbConnStr, "root", "123456");
+            String sql = "insert into t_user(user_id,user_name,password) values(?,?,?)";
+            stmt = connection.prepareStatement(sql);
+            for (int i = 0; i < 220000; i++) {
+                stmt.setInt(1, i);
+                stmt.setString(2, "user_name" + i);
+                stmt.setString(3, "password" + i);
+                stmt.executeUpdate();
+                System.out.println("插入成功" + i);
+            }
+        } catch (Exception ex) {
+            ex.printStackTrace();
+        } finally {
+            if (stmt != null) {
+                stmt.close();
+            }
+            if (connection != null) {
+                connection.close();
+            }
+        }
+    }
+}
+```
+
+### 实验1
+
+原生方式：查询出表中前5万条数据，实例化成对象并打印总共的耗时
+
+```java
+package org.duo.reflect.step01.entity;
+
+public class UserEntity {
+    
+    public int _userId;
+
+    public String _userName;
+
+    public String _password;
+}
+```
+
+```java
+package org.duo.reflect.step01;
+
+import org.duo.reflect.step01.entity.UserEntity;
+
+import java.sql.*;
+
+public class App {
+
+    public static void main(String[] args) throws Exception {
+
+        Connection connection = null;
+        Statement statement = null;
+        ResultSet resultSet = null;
+        try {
+            Class.forName("com.mysql.cj.jdbc.Driver").newInstance();
+            String dbConnStr = "jdbc:mysql://192.168.56.110:3306/test_db?useUnicode=true&characterEncoding=utf-8&useServerPrepStmts=true&serverTimezone=Asia/Shanghai";
+            connection = DriverManager.getConnection(dbConnStr, "root", "123456");
+            statement = connection.createStatement();
+            String sql = "select * from t_user limit 50000";
+            resultSet = statement.executeQuery(sql);
+            long start = System.currentTimeMillis();
+            while (resultSet.next()) {
+                UserEntity userEntity = new UserEntity();
+                userEntity._userId = resultSet.getInt("user_id");
+                userEntity._userName = resultSet.getString("user_name");
+                userEntity._password = resultSet.getString("password");
+            }
+
+            long end = System.currentTimeMillis();
+            // 耗时在100~150ms之间
+            System.out.println("实例化花费时间 = " + (end - start) + "ms");
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            if (resultSet != null) {
+                resultSet.close();
+            }
+            if (statement != null) {
+                statement.close();
+            }
+            if (connection != null) {
+                connection.close();
+            }
+        }
+    }
+}
+```
+
+### 实验2
+
+反射：查询出表中前5万条数据，然后通过反射机制将数据库字段中的值赋值给对象，并打印总共的耗时
+
+相比实验1，使用反射后耗时会增加一倍
+
+```java
+package org.duo.reflect.step02.entity;
+
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
+
+@Target(ElementType.FIELD)
+@Retention(RetentionPolicy.RUNTIME)
+public @interface Column {
+
+    String name();
+}
+```
+
+```java
+package org.duo.reflect.step02.entity;
+
+public class UserEntity {
+
+    @Column(name = "user_id")
+    public int _userId;
+
+    @Column(name = "user_name")
+    public String _userName;
+
+    @Column(name = "password")
+    public String _password;
+}
+```
+
+```java
+package org.duo.reflect.step02.entity;
+
+import java.lang.reflect.Field;
+import java.sql.ResultSet;
+
+public class EntityHelper {
+
+    /**
+     * 通过在函数的参数中引入泛型，提高泛化能力
+     * 调用时只需要传入具体entity类的class对象即可，该方法不需要再修改
+     */
+    public <T> T create(Class<T> entityClazz, ResultSet rs) throws Exception {
+
+        if (rs == null) {
+            return null;
+        }
+
+        Object entity = entityClazz.newInstance();
+        Field[] fields = entity.getClass().getFields();
+
+        for (Field field : fields) {
+            // 获取字段上的注解
+            Column annotation = field.getAnnotation(Column.class);
+            if (annotation == null) {
+                continue;
+            }
+            // 获取数据库字段名(注解中的name属性即为数据库中的字段名
+            String colName = annotation.name();
+            // 从数据库中获取列值
+            Object colVal = rs.getObject(colName);
+
+            if (colVal == null) {
+                continue;
+            }
+            field.set(entity, colVal);
+        }
+
+        return (T) entity;
+    }
+}
+```
+
+```java
+package org.duo.reflect.step02;
+
+import org.duo.reflect.step02.entity.EntityHelper;
+import org.duo.reflect.step02.entity.UserEntity;
+
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.ResultSet;
+import java.sql.Statement;
+
+public class App {
+
+    public static void main(String[] args) throws Exception {
+
+        Connection connection = null;
+        Statement statement = null;
+        ResultSet resultSet = null;
+        try {
+            Class.forName("com.mysql.cj.jdbc.Driver").newInstance();
+            String dbConnStr = "jdbc:mysql://192.168.56.110:3306/test_db?useUnicode=true&characterEncoding=utf-8&useServerPrepStmts=true&serverTimezone=Asia/Shanghai";
+            connection = DriverManager.getConnection(dbConnStr, "root", "123456");
+            statement = connection.createStatement();
+            String sql = "select * from t_user limit 50000";
+            resultSet = statement.executeQuery(sql);
+            EntityHelper helper = new EntityHelper();
+            long start = System.currentTimeMillis();
+            while (resultSet.next()) {
+                helper.create(UserEntity.class, resultSet);
+            }
+
+            long end = System.currentTimeMillis();
+            // 耗时在200~250ms之间
+            System.out.println("实例化花费时间 = " + (end - start) + "ms");
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            if (resultSet != null) {
+                resultSet.close();
+            }
+            if (statement != null) {
+                statement.close();
+            }
+            if (connection != null) {
+                connection.close();
+            }
+        }
+    }
+}
+```
+
+### 实验3
+
+javassist操作字节码生成对象字节码：既能利用反射的优点又不影响性能。
+
+```java
+package org.duo.reflect.step03.entity;
+
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
+
+@Target(ElementType.FIELD)
+@Retention(RetentionPolicy.RUNTIME)
+public @interface Column {
+
+    String name();
+}
+```
+
+```java
+package org.duo.reflect.step03.entity;
+
+public class UserEntity {
+
+    @Column(name = "user_id")
+    public int _userId;
+
+    @Column(name = "user_name")
+    public String _userName;
+
+    @Column(name = "password")
+    public String _password;
+}
+```
+
+```java
+package org.duo.reflect.step03.entity;
+
+import java.sql.ResultSet;
+
+public abstract class AbstractEntityHelper {
+
+    public abstract Object create(ResultSet rs);
+}
+```
+
+```java
+package org.duo.reflect.step03.entity;
+
+import javassist.*;
+
+import java.lang.reflect.Field;
+import java.sql.ResultSet;
+import java.util.HashMap;
+import java.util.Map;
+
+public class EntityHelperFactory {
+
+    private static final Map<Class<?>, AbstractEntityHelper> _entityHelperMap = new HashMap<>();
+
+    private EntityHelperFactory() {
+    }
+
+    public static AbstractEntityHelper getEntityHelper(Class<?> entityClass) throws Exception {
+        if (null == entityClass) {
+            return null;
+        }
+
+        AbstractEntityHelper helperObj = _entityHelperMap.get(entityClass);
+        if (helperObj != null) {
+            return helperObj;
+        }
+
+        ClassPool pool = ClassPool.getDefault();
+        pool.appendSystemPath();
+
+        pool.importPackage(ResultSet.class.getName());
+        pool.importPackage(entityClass.getName());
+
+        CtClass abstractEntityHelperClazz = pool.getCtClass(AbstractEntityHelper.class.getName());
+        final String helperImplClazzName = entityClass.getName() + "_Helper";
+
+        CtClass helperClazz = pool.makeClass(helperImplClazzName, abstractEntityHelperClazz);
+        CtConstructor constructor = new CtConstructor(new CtClass[0], helperClazz);
+
+        constructor.setBody("{}");
+        helperClazz.addConstructor(constructor);
+
+        final StringBuilder sb = new StringBuilder();
+        sb.append("public Object create(java.sql.ResultSet rs) throws Exception {\n");
+        sb.append(entityClass.getName())
+                .append(" obj = new ")
+                .append(entityClass.getName())
+                .append("();\n");
+
+        Field[] fArr = entityClass.getFields();
+
+        for (Field f : fArr) {
+            Column annoColumn = f.getAnnotation(Column.class);
+            if (annoColumn == null) {
+                continue;
+            }
+            String colName = annoColumn.name();
+            if (f.getType() == Integer.TYPE) {
+                sb.append("obj.")
+                        .append(f.getName())
+                        .append(" = rs.getInt(\"")
+                        .append(colName)
+                        .append("\");\n");
+            } else if (f.getType().equals(String.class)) {
+                sb.append("obj.")
+                        .append(f.getName())
+                        .append(" = rs.getString(\"")
+                        .append(colName)
+                        .append("\");\n");
+            } else {
+
+                // 可以继续扩充内容
+            }
+        }
+
+        sb.append("return obj;\n");
+        sb.append("}");
+
+        CtMethod cm = CtNewMethod.make(sb.toString(), helperClazz);
+        helperClazz.addMethod(cm);
+        Class<?> javaClazz = helperClazz.toClass();
+        helperObj = (AbstractEntityHelper) javaClazz.newInstance();
+
+        _entityHelperMap.put(entityClass, helperObj);
+        return helperObj;
+    }
+}
+```
+
+```java
+package org.duo.reflect.step03;
+
+import org.duo.reflect.step03.entity.AbstractEntityHelper;
+import org.duo.reflect.step03.entity.EntityHelperFactory;
+import org.duo.reflect.step03.entity.UserEntity;
+
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.ResultSet;
+import java.sql.Statement;
+
+public class App {
+
+    public static void main(String[] args) throws Exception {
+
+        Connection connection = null;
+        Statement statement = null;
+        ResultSet resultSet = null;
+        try {
+            Class.forName("com.mysql.cj.jdbc.Driver").newInstance();
+            String dbConnStr = "jdbc:mysql://192.168.56.110:3306/test_db?useUnicode=true&characterEncoding=utf-8&useServerPrepStmts=true&serverTimezone=Asia/Shanghai";
+            connection = DriverManager.getConnection(dbConnStr, "root", "123456");
+            statement = connection.createStatement();
+            String sql = "select * from t_user limit 50000";
+            resultSet = statement.executeQuery(sql);
+            AbstractEntityHelper helper = EntityHelperFactory.getEntityHelper(UserEntity.class);
+            long start = System.currentTimeMillis();
+            while (resultSet.next()) {
+                UserEntity userEntity = (UserEntity) helper.create(resultSet);
+            }
+
+            long end = System.currentTimeMillis();
+            // 耗时在100ms左右
+            System.out.println("实例化花费时间 = " + (end - start) + "ms");
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            if (resultSet != null) {
+                resultSet.close();
+            }
+            if (statement != null) {
+                statement.close();
+            }
+            if (connection != null) {
+                connection.close();
+            }
+        }
+    }
+}
+```
 

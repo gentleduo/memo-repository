@@ -34,6 +34,10 @@ Alt + F7        查找类或者方法在哪里被使用
 
 Ctrl + Alt + L 	格式化代码，可以对当前文件和整个包目录使用
 Ctrl + Alt + O 	优化导入的类，可以对当前文件和整个包目录使用
+	如果要设置自动导入和自动清除无用导入，需要在File -> Settings -> Editer -> General -> Auto Import中设置：
+	Add unambiguous imports on the fly ==> 实时添加导入
+	Optimize imports on the fly        ==> 自动清除无用导入
+	这两个配置是跟着项目走的，在这个项目中设置的，只会对当前项目有效，对其他项目无效。
 Ctrl + Alt + B 	在某个调用的方法名（或者类名、接口名）上使用会跳到具体的实现处，可以跳过接口（也可以使用：Ctrl + Alt + 鼠标左键）
 Ctrl + Alt + T 	对选中的代码弹出环绕选项弹出层
 

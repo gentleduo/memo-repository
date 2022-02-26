@@ -1625,7 +1625,7 @@ import java.util.Set;
  *  default value for max_user_watches is 1/25 (4%) of the available low memory, divided by the registration cost in bytes.
  *
  * 这指定了每个用户可以在系统上的所有epoll实例中注册的文件描述符总数的限制。在32位内核上大约需要90个字节，在64位内核上大约需要160个字节。
- * 目前，max_user_watches的默认值为可用低内存的1/25(4%)除以注册成本（以字节为单位）
+ * 目前，max_user_watches的默认值为可用内存的1/25(4%)除以注册成本（以字节为单位）
  */
 public class SocketMultiplexingSingleThread {
 
@@ -1881,7 +1881,7 @@ import java.util.Set;
  *  default value for max_user_watches is 1/25 (4%) of the available low memory, divided by the registration cost in bytes.
  *
  * 这指定了每个用户可以在系统上的所有epoll实例中注册的文件描述符总数的限制。在32位内核上大约需要90个字节，在64位内核上大约需要160个字节。
- * 目前，max_user_watches的默认值为可用低内存的1/25(4%)除以注册成本（以字节为单位）
+ * 目前，max_user_watches的默认值为可用的内存的1/25(4%)除以注册成本（以字节为单位）
  */
 public class SocketMultiplexingSingleThread {
 
@@ -2159,7 +2159,7 @@ import java.util.Set;
  * default value for max_user_watches is 1/25 (4%) of the available low memory, divided by the registration cost in bytes.
  * <p>
  * 这指定了每个用户可以在系统上的所有epoll实例中注册的文件描述符总数的限制。在32位内核上大约需要90个字节，在64位内核上大约需要160个字节。
- * 目前，max_user_watches的默认值为可用低内存的1/25(4%)除以注册成本（以字节为单位）
+ * 目前，max_user_watches的默认值为可用的内存的1/25(4%)除以注册成本（以字节为单位）
  */
 public class SocketMultiplexingMultiThread {
 

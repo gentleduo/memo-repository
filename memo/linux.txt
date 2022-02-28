@@ -2336,6 +2336,18 @@ pvmove  /dev/sdb1:0-3841   /dev/sde     # 将/dev/sdb上0-3841编号的PE全部�
 vgreduce  vg1 /dev/sde1   # 从vg1 中移出/dev/sde1;注意不是vgremove，该命令是删除vg的。
 pvremove  /dev/sde1  # 移出该pv
 pvdisplay   # 列表中已经没有了/dev/sde1
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+umount /dev/mapper/vg0-lv_home
+
+lvreduce -L 50G /dev/vg0/lv_root
+lvreduce -L 50G /dev/mapper/vg0-lv_root
+
+lvcreate -l 100%FREE -n lv_app vg0
+mkfs.xfs -f /dev/mapper/vg0-lv_app
+mkdir /app
+mount -t xfs /dev/mapper/vg0-lv_app /app
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 ######################################################【linux】lvm############################################
 
 ######################################################【linux】DNS############################################

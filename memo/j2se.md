@@ -2010,3 +2010,103 @@ public class App {
 }
 ```
 
+# 虚引用
+
+虚引用需要java.lang.ref.PhantomReference类来实现，虚引用顾名思义，就是形同虚设，与其他几种引用都不同，虚引用并不会决定对象的生命周期。如果一个对象被虚引用持有，那么它就像没有没有被任何引用一样，在任何时候都可能被垃圾回收器回收。虚引用不能单独使用也不能通过它访问对象，虚引用必须和引用队列（ReferenceQueue）联合使用。
+
+虚引用的主要作用是跟踪对象被垃圾回收的状态，仅仅是提供了一种确保对象被finalize以后，做某些事情的机制。PhantomRefernce的get方法总是返回null,因此无法访问对应的引用对象。
+
+```mermaid
+classDiagram
+	Reference --|> Object
+	ReferenceQueue --|> Object
+	SoftReference --|> Reference
+	WeakReference --|> Reference
+	PhantomReference --|> Reference
+```
+
+```java
+package org.duo;
+
+import java.lang.ref.ReferenceQueue;
+import java.lang.ref.WeakReference;
+
+public class ReferenceQueueDemo {
+
+    public static void main(String[] args) {
+
+        Object o1 = new Object();
+        ReferenceQueue<Object> referenceQueue = new ReferenceQueue<>();
+        // 相当于WeakReference:weakReference对象引用了Object:o1
+        WeakReference<Object> weakReference = new WeakReference<>(o1,referenceQueue);
+        System.out.println("***************GC回收前***************");
+        System.out.println(o1);
+        System.out.println(weakReference);
+        // PhantomRefernce的get方法总是返回null,因此无法访问对应的引用对象
+        System.out.println(weakReference.get());
+        System.out.println(referenceQueue.poll());
+
+        System.out.println("***************启动GC***************");
+        o1 = null;
+        System.gc();
+        try {
+            Thread.sleep(500); //确保GC都执行完了
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+        // GC回收后会将WeakReference对象添加到ReferenceQueue引用队列。
+        System.out.println(o1);
+        System.out.println(weakReference);
+        System.out.println(weakReference.get());
+        System.out.println(referenceQueue.poll());
+    }
+}
+```
+
+```java
+package org.duo;
+
+import java.lang.ref.PhantomReference;
+import java.lang.ref.ReferenceQueue;
+
+public class PhantomReferenceTest {
+
+    Object o1 = new Object();
+    ReferenceQueue<Object> referenceQueue = new ReferenceQueue<>();
+    // 相当于PhantomReference:phantomReference对象引用了Object:o1
+    PhantomReference<Object> phantomReference = new PhantomReference<>(o1, referenceQueue);
+
+    public void start() {
+        new Thread(() -> {
+            System.out.println("phantomReference.get() = " + phantomReference.get());
+            PhantomReference<Object> curReference = null;
+//            try {
+//                // ReferenceQueue的Remove、poll是阻塞方法。
+//                // 当垃圾回收器决定对PhantomReference对象进行回收时，会将其插入ReferenceQueue中。
+//                curReference = (PhantomReference<Object>) referenceQueue.remove();
+//            } catch (InterruptedException e) {
+//                e.printStackTrace();
+//            }
+            curReference = (PhantomReference<Object>) referenceQueue.poll();
+            System.out.println("虚引用被回收，curReference" + curReference);
+        }).start();
+    }
+
+    public static void main(String[] args) {
+        PhantomReferenceTest test = new PhantomReferenceTest();
+        System.out.println(test.phantomReference);
+        test.start();
+        test.o1 = null;
+        System.gc();
+        try {
+            Thread.sleep(500); //确保GC都执行完了
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+    }
+
+}
+```
+
+
+

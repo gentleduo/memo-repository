@@ -605,7 +605,134 @@ wait --> start
 [S3-Vlanif3]ip address 192.168.3.1 24
 [S3-Vlanif3]quit
 
+#### 配置基于MAC地址的VLAN
 
+实验：3-5
+
+[Huawei]vlan batch 100 200
+[Huawei]interface GigabitEthernet 0/0/2
+[Huawei-GigabitEthernet0/0/2]port link-type access
+[Huawei-GigabitEthernet0/0/2]port default vlan 200
+[Huawei]interface GigabitEthernet 0/0/1
+[Huawei-GigabitEthernet0/0/1]port link-type access
+[Huawei-GigabitEthernet0/0/1]port default vlan 100
+[Huawei]interface GigabitEthernet 0/0/4
+[Huawei-GigabitEthernet0/0/4]port link-type trunk
+[Huawei-GigabitEthernet0/0/4]port trunk allow-pass vlan all
+[Huawei]interface GigabitEthernet 0/0/3
+[Huawei-GigabitEthernet0/0/3]port link-type trunk
+[Huawei-GigabitEthernet0/0/3]port trunk allow-pass vlan all
+
+[Huawei]vlan batch 100 200
+[Huawei]interface GigabitEthernet 0/0/2
+[Huawei-GigabitEthernet0/0/2]port link-type trunk
+[Huawei-GigabitEthernet0/0/2]port trunk allow-pass vlan all
+[Huawei]vlan batch 100 200
+[Huawei]interface GigabitEthernet 0/0/2
+[Huawei-GigabitEthernet0/0/2]port link-type trunk
+[Huawei-GigabitEthernet0/0/2]port trunk allow-pass vlan all
+
+[Huawei]sysname SwitchA
+[SwitchA]vlan 100
+[SwitchA-vlan100]mac-vlan mac-address 5489-98E9-2F5D
+[SwitchA-vlan100]quit
+[SwitchA]vlan 200
+[SwitchA-vlan200]mac-vlan mac-address 5489-98F7-37B7
+[SwitchA]interface GigabitEthernet 0/0/1
+基于MAC划分VLAN只能应用在类型为hybrid的接口
+[SwitchA-GigabitEthernet0/0/1]port link-type hybrid 
+对VLAN为100、200的报文，剥掉VLAN Tag
+[SwitchA-GigabitEthernet0/0/1]port hybrid untagged vlan 100 200
+[SwitchA-GigabitEthernet0/0/1]mac-vlan enable
+[SwitchA]display current-configuration
+
+[Huawei]sysname SwitchB
+[SwitchB]vlan 100
+[SwitchB-vlan100]mac-vlan mac-address 5489-98E9-2F5D
+[SwitchB-vlan100]quit
+[SwitchB]vlan 200
+[SwitchB-vlan200]mac-vlan mac-address 5489-98F7-37B7
+[SwitchB]interface GigabitEthernet 0/0/1
+[SwitchB-GigabitEthernet0/0/1]port link-type hybrid 
+[SwitchB-GigabitEthernet0/0/1]port hybrid untagged vlan 100 200
+[SwitchB-GigabitEthernet0/0/1]mac-vlan enable
+[SwitchB]display current-configuration
+
+设置VLAN间的路由
+[Huawei]interface Vlanif 100
+[Huawei-Vlanif100]ip address 192.168.100.1 24
+[Huawei-Vlanif100]quit
+[Huawei]interface Vlanif 200
+[Huawei-Vlanif200]ip address 192.168.200.1 24
+
+### 高速以太网
+
+#### 100M以太网
+
+1. 100BASE-T是在双绞线上传送100Mb/s基带信号的星型拓扑的以太网，仍使用IEEE802.3的CSMA/CD协议，它又称为快速以太网（FastEthernet）。
+2. 使用交换机组建的100BASE-T以太网，可在全双工方式下工作而无冲突发生。因此，CSMA/CD协议对全双工方式工作的快速以太网是不起作用的。因为其帧格式和以太网一样，所以依然称交换机组件的网络为以太网。
+3. 以太网的最短帧和带宽和链路长度有关，100M以太网比10M以太网速率提高10倍，要想和10M以太网兼容，就要确保最短帧也是64字节，那就将电缆最大长度由1000m降到100m，缩短以太网的争用期，从而使最短帧依然是64字节。
+
+快速以太网100M带宽，有以下标准：
+
+| 名称       | 传播介质 | 网段最大长度 | 特点                                         |
+| ---------- | -------- | ------------ | -------------------------------------------- |
+| 100BASE-TX | 铜缆     | 100米        | 两对UTP5类线或屏蔽双绞线                     |
+| 100BASE-T4 | 铜缆     | 100米        | 4对UTP3类线或5类线                           |
+| 100BASE-FX | 光纤     | 2000米       | 两根光纤，发送和接受各用一个，全双工，长距离 |
+
+#### 吉比特以太网
+
+吉比特以太网的标准IEEE802.3 z有以下几个特点：
+
+1. 允许在1Gb/s下全双工和半双工两种方式工作。
+2. 使用IEEE802.3协议规定的帧格式。
+3. 在半双工方式下使用CSMA/CD协议（全双工方式不需要使用CSMA/CD协议）。
+4. 与10BASE-T和100BASE-T技术向后兼容。
+
+吉比特以太网1000M带宽，有以下标准：
+
+| 名称       | 传播介质 | 网段最大长度 | 特点                                     |
+| ---------- | -------- | ------------ | ---------------------------------------- |
+| 100BASE-SX | 光纤     | 550米        | 多模光纤（10和62.5μm）                   |
+| 100BASE-LX | 光纤     | 5000米       | 单模光纤（10μm）多模光纤（50μm和62.5μm） |
+| 100BASE-CX | 铜线     | 25米         | 使用两对屏蔽双绞线电缆STP                |
+| 100BASE-T  | 铜线     | 100米        | 使用4对UTP5类线                          |
+
+- 吉比特以太网工作在半双工时，就必须进行碰撞检测，数据速率提高了，要想和10M以太网兼容，就要确保最短帧也是64字节，这只能减少最大电缆长度，以太网最大电缆长度就要缩短到10m，短到几乎没有什么实用价值。吉比特以太网为了增加最大传输距离，将最短帧增加到4096比特。
+- 当数据帧长度小于512字节（即4096比特）时，在FCS域后面添加“载波延伸” 域。主机发送完短数据帧之后，继续发送载波延伸信号，冲突信号传回来时，发送端就能感知到了。
+- 如果发送的数据帧都是64字节的短报文，那么链路的利用率就很低，因为“载波延伸”域将占用大量的带宽。
+- 千兆以太网标准中，引入了“分组突发”（packet bursting）机制来改善这个问题。这就是当很多短帧要发送时，第一个短帧采用上面所说的载波延伸的方法进行填充，随后的一些短帧则可以一个接一个发送，它们之间只需要留有必要的帧间最小间隔即可。
+- 当吉比特以太网工作在全双工方式时（即通信双方可同时进行发送和接收数据），不使用载波延伸和分组突发。
+
+#### 10吉比特以太网和更快的以太网
+
+10 吉比特以太网（10GE）并非把吉比特以太网的速率简单地提高到 10 倍，其主要特点有：
+
+1. 与 10 Mbit/s、100 Mbit/s 和 1 Gbit/s 以太网的帧格式完全相同。
+2. 保留了 802.3 标准规定的以太网最小和最大帧长，便于升级。
+3. 不再使用铜线而只使用光纤作为传输媒体。
+4. 只工作在全双工方式，因此没有争用问题，也不使用 CSMA/CD 协议。 
+
+10GE的物理层标准
+
+| 名称        | 传播介质 | 网段最大长度 | 特点                        |
+| ----------- | -------- | ------------ | --------------------------- |
+| 10GBASE-SR  | 光缆     | 300米        | 多模光纤（0.85μm）          |
+| 10GBASE-LR  | 光缆     | 10千米       | 单模光纤（1.3μm）           |
+| 10GBASE-ER  | 光缆     | 40千米       | 单模光纤（1.5μm）           |
+| 10GBASE-CX4 | 铜缆     | 15米         | 使用4对双芯同轴电缆(twinax) |
+| 10GBASE-T   | 铜缆     | 100米        | 使用4对6A类UTP双绞线        |
+
+40GE/10GE 的物理层标准
+
+| 物理层                     | 40GE        | 100GE                        |
+| -------------------------- | ----------- | ---------------------------- |
+| 在背板上传输至少超过 1 m   | 40GBASE-KR4 |                              |
+| 在铜缆上传输至少超过 7 m   | 40GBASE-CR4 | 100GBASE-CR10                |
+| 在多模光纤上传输至少 100 m | 40GBASE-SR4 | 100GBASE-SR10，*100GBASE-SR4 |
+| 在单模光纤上传输至少 10 km | 40GBASE-LR4 | 100GBASE-LR4                 |
+| 在单模光纤上传输至少 40 km | *40GBASE-ER | 100GBASE-ER4                 |
 
 
 

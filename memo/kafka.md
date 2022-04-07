@@ -87,18 +87,18 @@ kafka-topics.sh --zookeeper server01:2181/kafka --delete --topic gentleduo-topic
 #修改分区数
 kafka-topics.sh --zookeeper server01:2181/kafka --alter --topic first --partitions 6
 #发送消息
-kafka-console-producer.sh --brokerlist server01:9092/kafka --topic gentleduo-topic-1
+kafka-console-producer.sh --brokerlist server01:9092 --topic gentleduo-topic-1
 #消费消息（--from-beginning：会把主题中以往所有的数据都读取出来。）
 kafka-console-consumer.sh --zookeeper server01:2181/kafka --topic gentleduo-topic-1
-kafka-console-consumer.sh --bootstrap-server server01:9092/kafka --topic gentleduo-topic-1
-kafka-console-consumer.sh --bootstrap-server server01:9092/kafka --from-beginning --topic gentleduo-topic-1
+kafka-console-consumer.sh --bootstrap-server server01:9092 --topic gentleduo-topic-1
+kafka-console-consumer.sh --bootstrap-server server01:9092 --from-beginning --topic gentleduo-topic-1
 #查询消费者组
-kafka-consumer-groups.sh --bootstrap-server server01:9092/kafka --list
+kafka-consumer-groups.sh --bootstrap-server server01:9092 --list
 #查询消费者组详情
 #LogEndOffset 下一条将要被加入到日志的消息的位移
 #CurrentOffset 当前消费的位移
 #LAG 消息堆积量：消息中间件服务端中所留存的消息与消费掉的消息之间的差值即为消息堆积量也称之为消费滞后量
-kafka-consumer-groups.sh --bootstrap-server server01:9092/kafka --describe --group groupname
+kafka-consumer-groups.sh --bootstrap-server server01:9092 --describe --group groupname
 ```
 
 # Kafka架构深入

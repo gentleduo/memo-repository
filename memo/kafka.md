@@ -99,6 +99,8 @@ kafka-consumer-groups.sh --bootstrap-server server01:9092 --list
 #CurrentOffset 当前消费的位移
 #LAG 消息堆积量：消息中间件服务端中所留存的消息与消费掉的消息之间的差值即为消息堆积量也称之为消费滞后量
 kafka-consumer-groups.sh --bootstrap-server server01:9092 --describe --group groupname
+#通过kafka-dump-log.sh查看.index及.log中的内容
+kafka-dump-log.sh --files 00000000000000000000.index
 ```
 
 # Kafka架构深入
@@ -180,6 +182,56 @@ Kafka中消息是以topic进行分类的，生产者生产消息，消费者消�
 
 index和log文件以当前segment的第一条消息的offset命名。".index"文件存储大量的索引信息，".log"文件存储大量的数据，索引文件中的元数据指向对应数据文件中message的物理偏移地址。
 
+```bash
+#通过lsof可以看出来.indx使用的是mmap，而.log使用的是普通的io
+[root@server01 kafka_2.11-2.1.0]# lsof -Pnp 3012 | grep gentleduo
+java    3012 root  mem       REG              253,0  10485756 101271713 /data/kafka/data/gentleduo-topic-1-1/00000000000000000000.timeindex
+java    3012 root  mem       REG              253,0  10485760 101271712 /data/kafka/data/gentleduo-topic-1-1/00000000000000000000.index
+java    3012 root  mem       REG              253,0  10485756  68361464 /data/kafka/data/gentleduo-topic-1-0/00000000000000000000.timeindex
+java    3012 root  mem       REG              253,0  10485760  68361463 /data/kafka/data/gentleduo-topic-1-0/00000000000000000000.index
+java    3012 root  128u      REG              253,0         0  68361462 /data/kafka/data/gentleduo-topic-1-0/00000000000000000000.log
+java    3012 root  129u      REG              253,0         0 101271711 /data/kafka/data/gentleduo-topic-1-1/00000000000000000000.log
+#通过kafka-dump-log.sh查看.index及.log中的内容
+#通过.index文件可以定位到offset在log文件中对应的position，但是并不是每个offset都会记录position，所以不能绝对定位，所以消费的时候从最接近的offset(比如消费者需要从offset==150开始消费，但是目前只记录了offset==108的position，那么就会从offset==108的position的位置开始读)开始，通过RandomAccessFile的seek方法读取文件，最后通过sendfile发送(零拷贝技术，即：FileChannel的transferTo)。
+[root@server01 gentleduo-topic-1-0]# kafka-dump-log.sh --files 00000000000000000000.index
+Dumping 00000000000000000000.index
+offset: 54 position: 4158
+offset: 108 position: 8316
+offset: 162 position: 12474
+offset: 216 position: 16632
+offset: 270 position: 20790
+offset: 324 position: 24948
+offset: 378 position: 29106
+offset: 432 position: 33264
+offset: 486 position: 37422
+offset: 540 position: 41580
+offset: 594 position: 45738
+offset: 648 position: 49896
+offset: 702 position: 54054
+offset: 756 position: 58212
+offset: 810 position: 62370
+#kafka还保存了某个时间对应的offset的日志文件，所以kafka也支持消费者通过某个时间戳找到对应的offset(但是找到offset后还是需要通过.index找到position)，然后开始消费
+[root@server01 gentleduo-topic-1-0]# kafka-dump-log.sh --files 00000000000000000000.timeindex
+Dumping 00000000000000000000.timeindex
+timestamp: 1649496191290 offset: 54
+timestamp: 1649496192582 offset: 108
+timestamp: 1649498560810 offset: 162
+timestamp: 1649498562172 offset: 216
+timestamp: 1649498562988 offset: 270
+timestamp: 1649498563569 offset: 324
+timestamp: 1649498564164 offset: 378
+timestamp: 1649498564711 offset: 432
+timestamp: 1649498565253 offset: 486
+timestamp: 1649498565843 offset: 540
+timestamp: 1649498566490 offset: 594
+timestamp: 1649498567383 offset: 648
+timestamp: 1649498567915 offset: 702
+timestamp: 1649498568920 offset: 756
+timestamp: 1649498569803 offset: 810
+```
+
+
+
 ## Kafka生产者
 
 ### 分区策略
@@ -215,6 +267,16 @@ Kafka选择了第二种方案，原因如下：
 
 采用第二种方案之后，设想以下情景：leader收到数据，所有follower都开始同步数据，但有一个follower，因为某种故障，迟迟不能与leader进行同步，那leader就要一直等下去，直到它完成同步，才能发送ack。这个问题怎么解决呢？Leader维护了一个动态的in-sync-replicaset(ISR)，意为和leader保持同步的follower集合。当ISR中的follower完成数据的同步之后，leader就会给follower发送ack。如果follower长时间未向leader同步数据，则该follower将被踢出ISR，该时间阈值由replica.lag.time.max.ms参数设定。Leader发生故障之后，就会从ISR中选举新的leader。
 
+#### OSR
+
+out-sync-replicaset，超过阈值时间(10秒)，没有"心跳"
+
+#### AR
+
+Assigned-replicaset，面向分区的副本集合，创建topic的时候定义的分区的副本数
+
+AR=ISR+OSR
+
 #### ack应答机制
 
 对于某些不太重要的数据，对数据的可靠性要求不是很高，能够容忍数据的少量丢失，所以没必要等ISR中的follower全部接收成功。所以Kafka为用户提供了三种可靠性级别，用户根据对可靠性和延迟的要求进行权衡，选择以下的配置。acks参数配置：
@@ -224,6 +286,13 @@ acks：
 - 0：producer不等待broker的ack，这一操作提供了一个最低的延迟，broke 一接收到还没有写入磁盘就已经返回，当broker故障时有可能丢失数据；
 - 1：producer等待broker的ack，partition的leader落盘成功后返回ack，如果在follower同步成功之前leader 故障，那么将会丢失数据；
 - -1（all）：producer等待broker的ack，partition的leader和follower全部落盘成功后才返回ack。但是如果在follower同步完成后，broker发送ack之前，leader发生故障，那么会造成数据重复。（acks=all在某种极限场合也会丢数据，比如：ISR里只剩下leader这一个broker了，当leader完成同步后由于ISR里面没有其他的follower了，此时leader会发送ack给producer；发送完后leader宕机了，由于其他不在ISR里面的follower还没有跟leader同步完数据，于是就发生了数据丢失）
+
+```bash
+#可以通过在server02中增加一条静态路由，模拟server02和server01由于网络问题无法通信，这就可以模拟当leaer是server01而server02为follower时，由于在replica.lag.time.max.ms规定的时间内follower无法跟leader通信被提出ISR的场景。所以生产者的acks被设置为-1，且生产数据的过程中，有follower与leader无法通信时，就会有replica.lag.time.max.ms的时间由于在等待ack而处于阻塞状态。
+route add -host 192.168.56.101 gw 127.0.0.1
+route -n 
+route del-host 192.168.56.101
+```
 
 #### 故障处理细节
 

@@ -1411,13 +1411,42 @@ java    1377 root    6u  IPv6              20028        0t0       TCP server03:w
 
 ```
 
-总结：
+## 总结
 
 tcp是面向连接的可靠的传输协议，（注意这里的连接不是物理的，而是需要通过三次握手的）在三次握手完成后会在内核级开辟资源
 
 socket是一个四元组：客户端IP+客户端PORT:服务器IP+服务器PORT
 
 java进程在执行accept之后，可以拿到内核分配的文件描述符，然后在java中将得到的文件描述符包装成了socket对象，文件描述符在每个进程内都是唯一的。文件描述符可以理解为指向内核中的四元组。
+
+## Recv-Q和Send-Q
+
+当服务器启动的时候，会开启一个listen状态下的socket，用来接受客户端请求；当服务器接受到客户端的请求后会新建一个established状态的socket用于客户端和服务器之间的通信。而通过ss命令看到的Recv-Q和Send-Q在这两种类型的socket下含义是不相同的。
+
+### 在LISTEN状态
+
+1. 当client通过connect向server发出SYN包时，client会维护一个socket等待队列，而server会维护一个SYN队列；
+2. 此时进入半链接的状态，如果socket等待队列满了，server则会丢弃，而client也会由此返回connection timeout；只要是client没有收到SYN+ACK，3s之后，client会再次发送，如果依然没有收到，9s之后会继续发送；
+3. 半连接syn队列的长度由max(64,/proc/sys/net/ipv4/tcp_max_syn_backlog)决定；
+4. 当server收到client的SYN包后，会返回SYN,ACK的包加以确认，client的TCP协议栈会唤醒socket等待队列，发出connect调用；
+5. client返回ACK的包后，表示三次握手完成连接已经建立；server会进入一个新的叫accept的队列(即：Recv-Q)，该队列的长度为min(backlog,/proc/sys/net/core/somaxconn)，默认情况下，somaxconn的值为128，表示最多会有129个(即：队列中的128个+已经出于等待状态的1个)ESTAB状态的连接等待accept()，而backlog的值在java中可以通过ServerSocket的构造函数指定ServerSocket(int port, int backlog)；
+6. 当accept队列(即：Recv-Q)满了之后，即使client继续向server发送ACK的包，也会不被相应，此时，server通过/proc/sys/net/ipv4/tcp_abort_on_overflow来决定如何返回，0表示直接丢丢弃该ACK，1表示发送RST通知client；相应的，client则会分别返回read timeout或者connection reset by peer；
+7. Recv-Q表示的是进入accept队列的连接的个数；而Send-Q表示的是accept的队列的长度。
+
+### 非LISTEN状态
+
+1. Recv-Q表示receive queue中的bytes数量；大小由/proc/sys/net/ipv4/tcp_rmem 决定
+   - 该文件包含3个整数值，分别是：min，default，max 
+   - Min：为TCP socket预留用于接收缓冲的内存数量，即使在内存出现紧张情况下TCP socket都至少会有这么多数量的内存用于接收缓冲。 
+   - Default：为TCP socket预留用于接收缓冲的内存数量，默认情况下该值影响其它协议使用的 net.core.wmem中default的 值。该值决定了在tcp_adv_win_scale、tcp_app_win和tcp_app_win的默认值情况下，TCP 窗口大小为65535。 
+   - Max：为TCP socket预留用于接收缓冲的内存最大值。该值不会影响 net.core.wmem中max的值，今天选择参数 SO_SNDBUF则不受该值影响。 
+   - 缺省设置：4096 87380 6291456
+2. Send-Q表示send queue中的bytes数量；大小由/proc/sys/net/ipv4/tcp_wmem 
+   - 该文件包含3个整数值，分别是：min，default，max 
+   - Min：为TCP socket预留用于发送缓冲的内存最小值。每个TCP socket都可以使用它。
+   - Default：为TCP socket预留用于发送缓冲的内存数量，默认情况下该值会影响其它协议使用的net.core.wmem中default的 值，一般要低于net.core.wmem中default的值。 
+   - Max：为TCP socket预留用于发送缓冲的内存最大值。该值不会影响net.core.wmem_max，今天选择参数SO_SNDBUF则不受该值影响。默认值为128K。 
+   - 缺省设置：4096 16384 4194304
 
 # 多路复用器
 

@@ -291,7 +291,7 @@ acks：
 #可以通过在server02中增加一条静态路由，模拟server02和server01由于网络问题无法通信，这就可以模拟当leaer是server01而server02为follower时，由于在replica.lag.time.max.ms规定的时间内follower无法跟leader通信被提出ISR的场景。所以生产者的acks被设置为-1，且生产数据的过程中，有follower与leader无法通信时，就会有replica.lag.time.max.ms的时间由于在等待ack而处于阻塞状态。
 route add -host 192.168.56.101 gw 127.0.0.1
 route -n 
-route del-host 192.168.56.101
+route del -host 192.168.56.101
 ```
 
 #### 故障处理细节

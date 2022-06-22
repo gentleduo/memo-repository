@@ -414,6 +414,7 @@ main()
 | e,E    | 指数形式浮点小数   |
 | f      | 小数形式浮点小数   |
 | g      | e和f较短一种       |
+| p      | 地址、指针         |
 | %%     | 百分号本身         |
 
 #### 修饰符
@@ -641,6 +642,443 @@ int main()
 
 ### switch
 
+switch语句的使用：
+
+1. 每个常量表达式的值必须各不相同,否则将会出现矛盾。
+2. 当表达式的值与case后面的常量表达式值相等时，就执行此case后面的语句。
+3. switch中的表达式可以是整型、字符型表达式或枚举。
+4. case 常量：只起语句标号的作用。
+
+```c
+#include <stdio.h>
+
+int main() 
+{
+        float score = 0;
+        printf("please input score:");
+        scanf("%f", &score);
+
+        if ( !(score >= 0 && score <= 100) ) 
+                printf("not in [0,100]\n");
+        else {
+                switch ((int)score / 10) {
+                case 10:
+                case 9:
+                        printf("A-excellent\n");
+                        break;
+                case 8:
+                case 7:
+                        printf("B-good\n");
+                        break;
+                case 6:
+                        printf("C-OK\n");
+                        break;
+                default:
+                        printf("D-not pass\n");
+                }
+        }
+        return 0;
+}
+```
+
 ## 循环
 
+### goto
+
+当函数有很多个出口，使用goto把这些出口集中到一处是很方便的，特别是函数中有许多重复的清理工作的时候。
+
+1. 无条件跳转易于理解
+2. 可以减少嵌套
+3. 可以避免那种忘记更新某一个出口点的问题
+
+```c
+#include <stdio.h>
+
+int main(int argc, const char * argv[])
+{
+        int i = 1;
+        int sum = 0;
+
+_loop:
+        if (i <= 100) {
+                sum += i;
+                i++;
+                goto _loop;
+        }
+
+        printf("1+2+...+%d=%d\n", i, sum);
+
+        return 0;
+}
+```
+
+### while
+
+while语句构成循环
+
+基本形式
+
+while (表达式） {
+
+​	statatments;
+
+}
+
+```c
+#include <stdio.h>
+
+int main(int argc, const char * argv[]) 
+{
+        int i = 1;
+        int sum = 0;
+
+        while (i <= 100) {
+                sum += i;
+                i++;
+        }
+
+        printf("1+2+...+%d=%d\n", i, sum);
+
+        return 0;
+}
+```
+
+### do while
+
+do whiledo-while语句构成循环
+
+基本形式
+
+do {
+
+​	statatments;
+
+}while(表达式）；
+
+```c
+#include <stdio.h>
+
+int main(int argc, const char * argv[]) 
+{
+        int i = 1;
+        int sum = 0;
+
+        do {
+                sum += i;
+                i++;
+        }while (i <= 100);
+
+        printf("1+2+...+%d=%d\n", i, sum);
+
+        return 0;
+}
+```
+
+### for
+
+一般形式
+
+for(expression1; expression2; expression3)
+
+{ statements;}
+
+执行过程
+
+先求解表达式1，表达式1在整个循环中只执行一次;
+
+求解表达式2,若为真,则执行循环体,然后执行步骤3;若为假,则退出循环执行for下面的语句;
+
+for语句构成循环
+
+- 表达式1可省略,但循环之前应给循环变量赋值
+- 表达式2可省略,将陷入死循环
+- 表达式3可省略,但在循环体中增加使循环变量值改变的语句
+
+```c
+#include <stdio.h>
+
+int main() {
+
+        int i = 0 , sum = 0;
+        for (i = 1 ; i <= 100 ; i++) sum+=i;
+        printf("sum=%d\n" , sum);
+}
+```
+
 ## 辅助控制
+
+### break
+
+1. 用于从循环体内跳出循环体，即提前结束循环。
+2. break只能用在循环语句和switch语句中。
+
+### continue
+
+1. 结束本次循环,接着判定下一次是否执行循环。
+2. continue直结束本次循环,而break终止本层循环。
+
+### return
+
+1. 主要用于终止包含它的函数的执行。
+2. 若终止的为主函数，则主程序结束。
+
+引用数学库时，要在编译后加上-lm，即：gcc continue_s.c -o continue_s -lm
+
+```c
+#include <stdio.h>
+#include <math.h>
+
+int main(int argc, char *argv[])
+{
+        int n, m;
+        int i;
+        int ch;
+
+        while (1) {
+                printf("input num(# exit):");
+                if (scanf("%d", &n) == 0) {
+                        if ((ch = getchar()) == '#')
+                                return 0;//break;
+                        else {
+                                printf("error:again!\n");
+                                continue;
+                        }
+                }
+
+                i = 2;
+                m = sqrt(n);
+                while (i <= m) {
+                        if (n % i == 0) 
+                                break;
+                        i++;
+                }
+                if (i > m)
+                        printf("yes:%d\n", n);
+                else
+                        printf("not:%d\n", n);
+        }
+
+        //printf("end main\n");
+
+        return 0;
+}
+```
+
+
+
+# 数组和字符串
+
+## 数组
+
+1. 构造数据类型之一
+2. 数组是具有一定顺序关系的若干个变量的集合，组成数组的各个变量称为数组的元素
+3. 数组中各元素的数据类型要求相同,用数组名和下标确定。数组可以是一维的，也可以是多维的
+4. 数组名表示内存首地址，是地址常量sizof(数组名）是数组占用的总内存空间
+5. 编译时分配连续内存 内存字节数=数组维数*sizeof(元素数据类型)
+6. C语言对数组不作越界检查，使用时要注意
+7. 数组不初始化，其元素值为随机数
+8. 对static数组元素不赋初值，系统会自动赋以0值
+
+```c
+#include <stdio.h>
+
+int main() {
+
+        //static int a[5],i; // 对static数组元素不赋初值，系统会自动赋以0值
+        //int a[5]={1,2,3},i; // 等价于：a[0]=6; a[1]=2;a[2]=3; a[3]=0; a[4]=0;
+        //int a[5]={1,2,3,4,5,6,7,8},i; // 编译阶段会有越界的警告，但是能编译通过也能运行，
+        int a[]={1,2,3,4,5},i;//编译系统根据初值个数确定数组维数
+        for (i = 0 ; i< 5; i++) {
+                printf("%p %d\n",&a[i],a[i]);
+        }
+        printf("%d\n",sizeof(a));
+}
+```
+
+```c
+#include <stdio.h>
+
+int main(int argc, char *argv[])
+{
+        int a[] = {3, 4, 17, 8, 31, 2, 9, 15}, n, i, j;
+        int t;
+
+        n = sizeof(a) / sizeof(int);
+
+        for (i = 0; i < n-1; i++) {
+                for (j = 0; j < n-1-i; j++) {
+                        if (a[j] > a[j+1]){//0---
+                                t = a[j];
+                                a[j] = a[j+1];
+                                a[j+1] = t;
+                        }
+                }
+        }
+
+
+        for (i = 0; i < n; i++) 
+                printf("%d ", a[i]);
+        puts("");
+
+        return 0;
+}
+```
+
+```c
+#include <stdio.h>
+
+int main(int argc, char *argv[])
+{
+        int a[2][3];
+        int i, j;
+
+        for (i = 0; i < 2; i++)  {
+                for (j = 0; j < 3; j++)
+                        printf("%p ", &a[i][j]);
+                putchar('\n');
+        }
+
+        printf("%p %d\n", a, sizeof(a));
+        printf("%p %d\n", a[0], sizeof(a[0]));
+        printf("%p %d\n", a[1], sizeof(a[1]));
+
+        return 0;
+}
+```
+
+## 二维数组
+
+声明时列数不能省略，行数可以
+
+二维数组元素的初始化：分行初始化，按元素排列顺序初始化
+
+```c
+#include <stdio.h>
+
+int main(int argc, char *argv[])
+{
+        //int a[2][3] = {{1, 6, 9}, {2, 8, 5}};  // 全部初始化
+        //int a[2][3]={{1,2},{4}}; // 部分初始化
+        int a[][3]={{1},{4,5}}; // 第一维长度省略初始化
+        //int a[2][]={{1},{4,5}}; // 编译报错
+        int i, j;
+
+        for (i = 0; i < 2; i++)  {
+                for (j = 0; j < 3; j++)
+                        printf("%d ", a[i][j]);
+                putchar('\n');
+        }
+
+        return 0;
+}
+```
+
+## 字符数组
+
+字符数组是元素的数据类型为字符类型的数组
+
+字符数组的初始化
+
+1. 逐个字符赋值
+2. 用字符串常量
+
+```c
+#include <stdio.h>
+
+int main(int argc, char *argv[])
+{
+
+//#if是宏，后面跟0表示false，那么被宏包裹的代码不参与编译，后面跟1表示true，则参与编译
+#if 0
+        char ch[6]={"Hello"};
+        char ch[6]="Hello";
+        char ch[]="Hello";
+#endif
+
+#if -1
+        int i , n;
+        char arr1[] = {'a','b','c'};
+        char arr2[6] = {'d','e','f'};
+        n = sizeof(arr1)/sizeof(char);
+        for (i=0;i<n;i++) {
+                putchar(arr1[i]);
+        }
+        putchar('\n');
+        n = sizeof(arr2)/sizeof(char);
+        for (i=0;i<n;i++) {
+                putchar(arr2[i]);
+        }
+        putchar('\n');
+#endif
+        //printf("arr1=%s %p\n",arr1,&arr1[2]);
+        //printf("arr2=%s %p\n",arr2,arr2);
+}
+```
+
+## 字符串
+
+C语言中无字符串常量，用字符数组处理字符串，字符串结束标志：'\0'；
+
+'\0’转义字符在ASCII表中并不表示阿拉伯数字0，阿拉伯数字0的ASCII码为48，‘\0’转义字符的ASCII码值为0(‘0’和NULL的含义以及ASCII码值都一样)，它表示的是ASCII控制字符中空字符的含义。
+
+```c
+#include <stdio.h>
+
+int main() {
+
+        // “hello”共5个字符，但是在内存占6个字节(系统会自动增加一个字符串结束标识：'\0')，
+        char chars[] = "hello";
+        int i,n = sizeof(chars)/sizeof(char);
+        printf("length=%d\n",n);
+        for (i=0;i<n;i++) {
+                putchar(chars[i]);
+                putchar('\n');
+        }
+        printf("null=%d\n",'\0');
+        printf("null=%d\n",NULL);
+}
+```
+
+## 字符串函数
+
+C库中实现了很多字符串处理函数(#include <string.h>)，几个常见的字符串处理函数：
+
+1. 求字符串长度的函数strlen
+2. 字符串拷贝函数strcpy
+3. 字符串连接函数strcat
+4. 字符串比较函数strcmp
+
+### strlen
+
+格式：strlen(字符数组)
+
+功能：计算字符串长度
+
+返值：返回字符串实际长度，不包括‘\0’在内
+
+\xhh表示十六进制数代表的符号
+
+\ddd表示八进制数代表的符号
+
+```c
+#include <stdio.h>
+#include <string.h>
+
+int main() {
+
+        //char s1[10] = {'A', '0', 'B', '\0', 'C'}; //strlen求第一个'\0'前的字符的个数
+        //char s1[] = "makeru";
+        //char s1[] = "\tab\nc\vd\\e";
+        char s1[]="\t\v\\0will\n"; // \是转义字符，因此\\0中第二个\被第一个\转义了，所以\\0表示两个字符：\和0
+        char s2[]= "\x69\141"; // \x69表示十六进制数代表的符号，\141表示八进制数代表的符号
+        printf("%d\n", strlen(s1));
+        printf("%d\n", sizeof(s1)/sizeof(char));
+        printf("%d\n", strlen(s2));
+        printf("%d\n", sizeof(s2)/sizeof(char));
+        puts(s2);
+
+        return 0;
+
+}
+```
+

@@ -1327,3 +1327,338 @@ int  main()
 }
 ```
 
+## 指针与数组
+
+在C语言中，数组的指针是指数组在内存中的起始地址，数组元素的地址是指数组元素在内存中的起始地址，一维数组的数组名为一维数组的指针（起始地址）。例如：double   x[8];因此，x为x数组的起始地址。
+
+指针变量和数组在访问数组中元素时，一定条件下其使用方法具有相同的形式，因为指针变量和数组名都是地址量；但指针变量和数组的指针（或叫数组名）在本质上不同，指针变量是地址变量，而数组的指针是地址常量
+
+```c
+#include<stdio.h>
+
+int main() {
+
+        int x[5] = {1,2,3,4,5},*px;
+        px = x;
+        //设指针变量px的地址值等于数组指针x（即指针变量px指向数组的首元数），则：x[i] 、*(px+i)、*(x+i) 和px[i]具有完全相同的功能：访问数组第i+1个数组元素。
+        printf("x[i]=%d;*(px+i)=%d;*(x+i)=%d;px[i]=%d\n",x[1],*(px+1),*(x+1),px[1]);
+        return 0;
+}
+```
+
+## 指针与二维数组
+
+使用一级指针遍历二维数组
+
+```c
+#include<stdio.h>
+
+int main() {
+
+        int a[3][2] = {{1, 6}, {9, 12}, {61, 12}};
+        int * p, i, n;
+
+        n = sizeof(a) / sizeof(int);
+
+        p = a[0]; //&a[0][0];
+        // p是一级指针，指针加一表示向前移动一个数据
+        printf("%p %p\n", p, p+1);
+        // 二维数组名代表数组的起始地址，数组名加1，是移动一行元素。因此，二维数组名常被称为行地址
+        printf("%p %p\n", a, a+1);
+
+        for (i = 0; i < n; i++)
+                printf("%d ", *(p+i));
+        puts("");
+
+        return 0;
+}
+```
+
+行指针（数组指针）
+
+存储行地址的指针变量，叫做行指针变量。形式如下：
+
+<存储类型>   <数据类型>   (*<指针变量名>)[表达式] ; 
+例如，int a[2][3];  int (*p)[3];
+方括号中的常量表达式表示指针加1，移动几个数据。
+
+当用行指针操作二维数组时，表达式一般写成1行的元素个数，即列数。
+
+```c
+#include<stdio.h>
+
+int main() {
+
+        int a[3][2] = {{1, 6}, {9, 12}, {61, 12}};
+        int (*p)[2], i, j;
+
+        p = a;
+
+        printf("%p %p\n", a, a+1);
+        printf("%p %p\n", p, p+1);
+
+        for (i = 0; i < 3; i++) {
+                for (j = 0; j < 2; j++)
+                        printf("%d, %d, %d, %d ", a[i][j], p[i][j], *(*(a + i)+j), *(*(p + i) + j));
+                puts("");
+        }
+}
+```
+
+## 字符指针与字符串
+
+通常，我们把char数据类型的指针变量称为字符指针变量。字符指针变量与字符数组有着密切关系，它也被用来处理字符串。
+
+```c
+#include <stdio.h>
+
+int main(int argc, char *argv[])
+{
+
+        char ch = 'A';
+        char * p;
+        p = &ch;
+        printf("%c %c\n", ch, *p);
+        return 0;
+}
+```
+
+```c
+#include<stdio.h>
+#include<ctype.h>
+
+int main() {
+
+        // 初始化字符指针是把内存中字符串的首地址赋予指针，并不是把该字符串复制到指针中
+        // 定义两个字符数组变量，并赋相同的字符串值，但是在内存中其实还是两份，修改其中一个不影响另一个
+        char  str1[] = "hello World";
+        char  str2[] = "hello World";
+        char  *p1 = str1;
+        if(isalpha(*p1)){
+                if (isupper(*p1))
+                        *p1=tolower(*p1);
+                else
+                        *p1=toupper(*p1);
+        }
+        //      puts(str);
+        printf("%s\n",p1);
+        p1 = str2;
+        printf("%s\n",p1);
+        // 在C编程中，当两个个字符指针指向同一个字符串常量时，那么两个指针指向同一内存空间
+        // 在C语言中，全局变量、static、字符串常量放在静态区，程序结束时才释放空间。
+        char *p3 = "Hello World";
+        char *p4 = "Hello World";
+        printf("&p3=%p p3=%p *p3=%s\n",&p3,p3,p3);
+        printf("&p4=%p p4=%p *p4=%s\n",&p4,p4,p4);
+        // 在C编程中，当一个字符指针指向一个字符串常量时，不能修改指针指向的对象的值
+        //*p2='*'; // 错误， 字符串常量不能修改
+        return 0;
+}
+```
+
+```c
+#include<stdio.h>
+
+int main() {
+
+        char ch[100] = "welcome";
+        char * p = "hello World!";
+        int i = 0;
+        while (*(ch+i) != '\0')
+                i++;
+
+        while (*p != '\0') {
+                *(ch+i) = *p;
+                i++;
+                p++;
+        }
+        *(ch+i) = *p;
+        puts(ch);
+        puts(p);
+        return 0;
+}
+```
+
+## 指针数组
+
+所谓指针数组是指由若干个具有相同存储类型
+
+和数据类型的指针变量构成的集合
+
+指针数组的一般说明形式： 
+
+<存储类型>  <数据类型>  *<指针数组名>[<大小>]； 
+
+指针数组名表示该指针数组的起始地址
+
+```c
+#include<stdio.h>
+
+int main() {
+
+        int *p[3];
+        int a[]= {3,6,1,9,18};
+        p[0]=a;
+        p[1]=a+1;
+        p[2]=a+3;
+        printf("%d %d %d\n",a[0],a[1],a[3]);
+        printf("%d %d %d\n",*p[0],*p[1],*p[2]);
+
+        int b[2][3]={{1,2,3},{4,5,6}};
+        int *p1[2] = {b[0],b[1]};
+        int i , j;
+        printf("b[0][2]=%d\n",b[0][2]);
+        printf("b[0][2]=%d\n",*(p1[0]+2));
+        printf("b[0][2]=%d\n",*(p1[1]-1));
+        for (i=0;i<2;i++) {
+                for (j=0;j<3;j++)
+                        printf("%d %d ",*(*(b+i)+j),*(*(p1+i)+j));
+                puts("");
+        }
+        return 0;
+}
+```
+
+## 多级指针
+
+- 把一个指向指针变量的指针变量，称为多级指针变量
+
+- 对于指向处理数据的指针变量称为一级指针变量，简称一级指针
+
+- 而把指向一级指针变量的指针变量称为二级指针变量，简称二级指针
+
+- 二级指针变量的说明形式： <存储类型>  <数据类型>  ** <指针名> ； 
+
+指针定义的格式：指针指向的数据类型 * 变量名
+
+比如下面的图中：
+
+1. p指针指向的数据类型是int，所以p的定义为：int *p
+2. q指针指向的数据类型是int *(也是一个指针)，所以q的定义为：int **q
+
+```mermaid
+graph LR;
+   q[&p]-->|int **q|p[p]
+   p[&m]-->|int *p|m[m]
+```
+
+```c
+#include <stdio.h>
+
+int main(int argc, char *argv[])
+{
+        int m = 10;
+        int * p;
+        int* * q;
+        p = &m;
+        q = &p;
+        printf("%p %p\n", p,&m);
+        printf("%p %p\n", q,&p);
+        printf("%d %d %d\n", m, *p, **q);
+        // 指针变量加1，是向地址大的方向移动一个目标数据。类似的道理，多级指针运算也是以其目标变量为单位进行偏移。比如，int **p；p+1移动一个int *变量所占的内存空间。
+        printf("%p %p\n", q, q + 1);
+        return 0;
+}
+```
+
+```c
+#include<stdio.h>
+
+int main(int argc, char *argv[])
+{
+        //char * s1 = "apple";
+        //char * s2 = "pear";
+        char * s[] = {"apple", "pear", "potato"};
+        char ** p;
+        int i, n;
+
+        i = 0;
+        n = sizeof(s) / sizeof(char *);
+        p = &s[0];//p = s;
+
+        while (i < n){
+                printf("%s %s\n", s[i], *(p + i));
+                i++;
+        }
+        return 0;
+}
+```
+
+## void指针
+
+void指针是一种不确定数据类型的指针变量，它可以通过强制类型转换让该变量指向任何数据类型的变量
+
+一般形式为： void   * <指针变量名称> ;
+
+对于void指针，在没有强制类型转换之前，不能进行任何指针的算术运算
+
+```c
+#include<stdio.h>
+
+int main(int argc, char *argv[])
+{
+        int m = 10;
+        double n = 3.14;
+        void * p, * q;
+
+        // 赋值的时候可以不做类型转化
+        p = &m;//(void *)&m;
+        // 取值的时候一定要做类型转化
+        printf("%d %d\n", m, *(int *)p);
+        // 由于此时没有对void指针进行强制类型转换，所以算术运算并不是按照之间指针运算的规则来的
+        printf("%p\n", p);
+        p++;
+        printf("%p\n", p);
+
+        q = &n;//(void *)&n;
+        printf("%.2lf %.2lf\n", n, *(double *)q);
+        printf("%p\n", q);
+        q++;
+        printf("%p\n", q);
+        return 0;
+}
+```
+
+## const
+
+### 常量化变量的值
+
+一般说明形式如下： 
+
+const <数据类型> 变量名 = [<表达式>] ;
+
+常量化变量是为了使得变量的值不能修改
+
+变量有const修饰时，若想用指针间接访问变量，指针也要有const修饰。
+
+### 常量化指针目标表达式  
+
+一般说明形式如下： 
+
+const <数据类型> * <指针变量名称>[= <指针运算表达式>] ;
+
+常量化指针目标是限制通过指针改变其目标的数值 ，但<指针变量>存储的地址值可以修改
+
+### 常量化指针变量
+
+一般说明形式如下： 
+
+<数据类型> * const  <指针变量名称>[= <指针运算表达式>] ;
+
+使得<指针变量>存储的地址值不能修改。但可以通过 *<指针变量名称> 可以修改指针所指向变量的数值
+
+```c
+#include <stdio.h>
+
+int main(int argc, const char * argv[]) {
+
+        //const char * argv[] = {"./a.out", "192.168.1.5", "9999"};
+        int i;
+        printf("argc=%d\n", argc);
+        for (i = 0; i < argc; i++) {
+                printf("%s\n", argv[i]);
+        }
+        return 0;
+}
+```
+

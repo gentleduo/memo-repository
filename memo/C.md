@@ -1,3 +1,294 @@
+# GCC编译器
+
+## GCC
+
+1. 全称为GNU CC ，GNU项目中符合ANSI C标准的编译系统；
+2. 编译如C、C++、Object C、Java、Fortran、Pascal、Modula-3和Ada等多种语言；
+3. GCC是可以在多种硬体平台上编译出可执行程序的超级编译器，其执行效率与一般的编译器相比平均效率要高20%~30%；
+4. 一个交叉平台编译器 ，适合在嵌入式领域的开发编译
+
+gcc所支持后缀名解释 
+
+1. ​    .c		           C原始程序
+2. ​    .C/.cc/.cxx	C++原始程序
+3. ​    .m		         Objective-C原始程序
+4. ​    .i		            已经过预处理的C原始程序
+5. ​    .ii		           已经过预处理的C++原始程序
+6. ​    .s/.S	           汇编语言原始程序
+7. ​    .h		           预处理文件(头文件)
+8. ​    .o		           目标文件
+9. ​    .a/.so	        编译后的库文件
+
+## 编译器的主要组件
+
+1. 分析器：分析器将源语言程序代码转换为汇编语言。因为要从一种格式转换为另一种格式（C到汇编），所以分析器需要知道目标机器的汇编语言。
+2. 汇编器：汇编器将汇编语言代码转换为CPU可以执行字节码。
+3. 链接器：链接器将汇编器生成的单独的目标文件组合成可执行的应用程序。链接器需要知道这种目标格式以便工作。
+4. 标准C库：核心的C函数都有一个主要的C库来提供。如果在应用程序中用到了C库中的函数，这个库就会通过链接器和源代码连接来生成最终的可执行程序。
+
+## GCC的基本用法和选项
+
+Gcc最基本的用法是∶gcc [options] [filenames] 
+
+1. -c，只编译，不连接成为可执行文件，编译器只是由输入的.c等源代码文件生成.o为后缀的目标文件，通常用于编译不包含主程序的子程序文件。 
+2. -o output_filename，确定输出文件的名称为output_filename，同时这个名称不能和源文件同名。如果不给出这个选项，gcc就给出预设的可执行文件a.out。
+3. -g，产生符号调试工具(GNU的gdb)所必要的符号资讯，要想对源代码进行调试，我们就必须加入这个选项。 
+4. -O，对程序进行优化编译、连接，采用这个选项，整个源代码会在编译、连接过程中进行优化处理，这样产生的可执行文件的执行效率可以提高， 但是，编译、连接的速度就相应地要慢一些。
+5. -O2，比-O更好的优化编译、连接，当然整个编译、连接过程会更慢。
+6. -I  dirname，将dirname所指出的目录加入到程序头文件目录列表中，是在预编译过程中使用的参数。
+7. -L  dirname，将dirname所指出的目录加入到程序函数档案库文件的目录列表中，是在链接过程中使用的参数。
+
+## GCC编译过程
+
+```c
+#include<stdio.h>
+int main(void)
+{
+    int i,j; 
+    j=0;
+    i=j+1;
+    printf("hello,world\n");
+    printf("the result is %d\n",i);
+}
+```
+
+### 预处理(Pre-Processing) 
+
+生成预处理代码；test.i比test.c增加了很多内容，主要是会展开头文件。
+
+```sh
+gcc -E ./test.c -o test.i
+```
+
+### 编译(Compiling)
+
+生成汇编代码；检查语法错误,并生成汇编文件
+
+```sh
+gcc -S test.c -o test.s
+```
+
+### 汇编(Assembling)
+
+生成目标代码
+
+```sh
+#方法一，用gcc直接从C源代码中生成目标代码
+gcc -c test.c -o test.o
+#方法二，用汇编器从汇编代码生成目标代码：
+as test.s -o test.o
+```
+
+### 链接(Linking)
+
+生成可执行程序；将目标程序链接库资源，生成可执行程序
+
+```sh
+gcc  test.s -o test
+```
+
+## GDB调试工具
+
+首先使用gcc对test.c进行编译，注意一定要加上选项'-g'
+
+```sh
+gcc -g test.c -o test 
+gdb test 
+```
+
+调试流程
+
+| 功能         | 快捷键  |
+| ------------ | ------- |
+| 查看文件     | l       |
+| 设置断点     | b 6     |
+| 查看断点情况 | info b  |
+| 运行代码     | r       |
+| 查看变量值   | p n     |
+| 单步运行     | n  /  s |
+| 恢复程序运行 | c       |
+| 退出         | q       |
+| 帮助         | help    |
+
+## 条件编译
+
+常见的条件编译有两种方法：
+
+1. 根据宏是否定义，其语法如下：
+
+   ```c
+   		#ifdef  <macro>
+    		……
+   		#else
+     		……
+   		#endif
+   ```
+
+   ```c
+   #include<stdio.h>
+   
+   //#define  _DEBUG_
+   int main () {
+   
+   #ifdef  _DEBUG_  // 当宏定了时
+   //#ifndef  _DEBUG_ // 当宏没有定义时
+           printf("The macro _DEBUG_ is defined\n");
+   #else
+           printf("The macro _DEBUG_ is not defined\n");
+   #endif
+   
+   }
+   ```
+
+2. 根据宏的值，其语法如下：
+
+   ```c
+   		#if  <macro>
+     		……
+   		#else
+   		……
+   		#endif
+   ```
+
+   ```c
+   #include<stdio.h>
+   
+   #define  _DEBUG_ 1
+   int main () {
+   
+   #if _DEBUG_
+           printf("The macro _DEBUG_ is defined\n");
+   #else
+           printf("The macro _DEBUG_ is not defined\n");
+   #endif
+   }
+   ```
+
+## 静态与动态链接库
+
+### 库文件
+
+1. 首先说明要对库有一个比较直观的理解。库是写好的现有的，成熟的，可以复用的代码。现实中每个程序都依赖很多基础的底层库，不可能每个人的代码都从零开始，公共代码需要反复使用，就把这些代码编译成为“库”文件，因此库的存在意义非同寻常。本质上说来库是一种可执行代码的二进制形式（注，其本身不可执行），可以被操作系统载入内存执行。
+2. 静态库、动态库区别来自C语言在【链接阶段】如何处理库，链接成可执行程序：分别为静态链接方式、动态链接方式。
+
+```mermaid
+graph LR
+   A(源文件 .h)-->B[预编译]
+   B[预编译]-->C[编译]
+   C[编译]-->D[汇编]
+   D[汇编]-->E[链接]
+   G[静态库:.a/.lib 动态库:.so/.dll]-->E[链接]
+   E[链接]-->F(可执行文件)
+```
+
+### 静态连接库
+
+在链接阶段，会将汇编生成的目标文件.o与引用到的库一起链接打包到可执行文件中，因此对应的链接方式为静态链接。其实一个静态链接库可以简单看成一组目标文件(.o/.obj文件)的集合，连接器将从库文件取得所需的代码，复制到生成的可执行文件中即很多目标文件经过压缩打包后形成的一个文件。
+
+1. 特点：可执行文件中包含了库代码的一份完整拷贝
+2. 优点：程序在运行时就不需要函数库了。
+3. 缺点：被多次使用就会多份冗余拷贝，因为所有相关的目标文件和牵涉到的函数库被链接合成一个可执行文件。生成的可执行文件较大。
+
+### 动态链接库
+
+动态：在程序编译是并不会被连接到目标代码中，而是在程序运行时才被载入。动太库独立于现有的程序，其本身不可执行，但包含着程序需要调用的一些函数，这种库称为动态（链接）库（Dynamic Link Library）。不同的应用程序如果调用相同的库，那么在内存里只需要有一份该共享库的实例，规避了空间浪费问题。特点：
+
+1. 动态库把对一些库函数的链接载入推迟到程序运行时期
+2. 可以实现进程之间的资源共享，（动态库也成为共享库）
+3. 设置可以真正做到链接载入完全由程序员在程序代码中控制（显式调用）
+4. 缺点：要使用的动态库自己必须添加到路径。而静态库直接打包到了可执行程序，运行时不需要额外东西。
+
+### 库的生成与使用
+
+实例：三个文件
+
+hello.h
+
+```c
+#ifndef HELLO_H
+#define HELLO_H
+
+void hello(const char *name);
+
+#endif //HELLO_H
+```
+
+hello.c
+
+```c
+#include <stdio.h>
+#include "hello.h"
+
+void hello(const char *name)
+{
+  printf("Hello %s!/n", name);
+}
+```
+
+main.c
+
+```c
+#include <stdio.h>
+#include "hello.h"
+
+int main()
+{
+  hello("everyone");
+  return 0;
+}
+```
+
+在main函数中要调用hello函数。如果我们直接编译，是通不过的。gcc main.c或者gcc -o main main.c会报错，因为无法找到调用导函数。
+
+#### 静态库
+
+linux下静态库的后缀名为.a文件，这时使用静态库来链接使用该hello函数。
+
+##### 生成
+
+1. 先将hello.c生成二进制文件gcc -c hello.c -o hello.o
+2. 由.o文件创建静态库:静态库文件名的命名规范是以lib为前缀，紧接着跟静态库名，扩展名为.a。例如：将创建的静态库名为myhello，则静态库文件名就是libmyhello.a。在创建和使用静态库时，需要注意这点。创建静态库用ar命令。ar cr libmyhello.a hello.o这里如果有多个.o文件可以在命令后面加入多个.o文件将他们一起打包成一个静态库文件。
+
+##### 使用
+
+1. 编译：需要gcc命令编译，gcc main.c -o main生成可执行文件时会报错 ，所以需要指定静态库然后生成可执行文件
+2. gcc main.c -o main -L . -l myhello。为何这么使用呢： -L ：表示要链接的库所在的目录。-L. 表示要链接的库在当前目录，当然可以指定其他目录。
+3. -l (L的小写)：表示需要链接库的名称，注意不是库文件名称，比如库文件为 libmyhello.a，那么库名称为myhello。gcc会在静态库名前加上前缀lib，然后追加扩展名.a得到的静态库文件名来查找静态库文件。
+4. 运行：静态库在编译生成可执行文件后，就包含在可执行文件中了，可以把静态库删掉 ，再执行./main程序，也不会出错（但是动态链接库就不行）。
+
+#### 动态库
+
+与创建静态库不同的是，不需要打包工具，直接使用编译器即可创建动态库。动态库名字linux下为.so后缀文件
+
+##### 生成
+
+1. 使用命令 gcc -shared -fPIC -o libmyhello.so hello.c 生成动态链接库libmyhello.so，后面源文件可以跟多个.c文件
+2. 说明： -shared ：指定生成动态链接库 -fPIC： 表示编译为位置独立的代码，不用此选项的话编译后的代码是位置相关的所以动态载入时是通过代码拷贝的方式来满足不同进程的需要，而不能达到真正代码共享的目的。输出文件libmyhello.so 动态库文件名命名规范和静态库文件名命名规范类似，也是在动态库名增加前缀lib，但其文件扩展名为.so。例如：我们将创建的动态库名为myhello，则动态库文件名就是libmyhello.so
+
+##### 使用
+
+1. 编译： gcc main.c -o main -L . -l myhello 与链接静态库使用方法相同
+2. 运行：动态链接实在运行时才进行的。执行./main程序时，可能报错，因为程序在运行时，会在/usr/lib和/lib等目录中查找需要的动态库文件。若找到，则载入动态库，否则将提示类似上述错误而终止程序运行。
+3. 程序运行时有三种方式加载动态库路径（按优先级来）：
+   1. 把库拷贝到/usr/lib和/lib目录下。
+   2. 在LD_LIBRARY_PATH环境变量中加上库所在路径。（常用）例如动态库libmyhello.so在/home/ting/lib目录下，以bash为例，使用命令：export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/home/ting/lib
+   3. 修改/etc/ld.so.conf文件，把库所在的路径加到文件末尾，并执行ldconfig刷新。这样，加入的目录下的所有库文件都可见。
+4. Linux动态链接库的搜索路径按优先级排序为：
+   1. 编译目标代码时指定的动态库搜索路径；在编译时通过gcc 的参数”-Wl,-rpath,”指定。当指定多个动态库搜索路径时，路径之间用冒号”：”分隔。
+   2. 环境变量LD_LIBRARY_PATH指定的动态库搜索路径；
+   3. 配置文件/etc/ld.so.conf中指定的动态库搜索路径；
+   4. 默认的动态库搜索路径/lib；
+   5. 默认的动态库搜索路径/usr/lib；
+5. 当运行成功后，如果把ibmyhello.so文件删除。再执行main程序会发现程序报错。说明动态库是在运行时加载的，也就是在运行的时候，动态库必须存在，不然程序就找不到要调用的函数。
+
+##### 使用ldd
+
+dd查看某个可运行程序在运行时所要用的动态库.so：ldd ./example
+
+#### 注意
+
+当动态库和静态库同名存在时，默认使用的是动态库。也就是不会将静态库编译到可执行文件中去。
+
 # 数据类型
 
 ## 基本类型
@@ -290,6 +581,95 @@ int main() {
 [root@server01 C]# gcc extern_static1.c extern_static2.c
 [root@server01 C]# ./a.out
 global_a=100
+```
+
+# 结构体
+
+## 简述
+
+1. 在实际的处理对象中，有许多信息是由多个不同类型的数据组合在一起进行描述，而且这些不同类型的数据是互相联系组成了一个有机的整体。此时，就要用到一种新的构造类型数据——结构体（structure），简称结构。
+2. 结构体的使用为处理复杂的数据结构（如动态数据结构等）提供了有效的手段，而且，它们为函数间传递不同类型的数据提供了方便。
+
+## 概念
+
+1. 结构体是用户自定义的新数据类型，在结构体中可以包含若干个不同数据类型和不同意义的数据项（当然也可以相同），从而使这些数据项组合起来反映某一个信息。
+2. 例如，可以定义一个职工worker结构体，在这个结构体中包括职工编号、姓名、性别、年龄、工资、家庭住址、联系电话。这样就可以用一个结构体数据类型的变量来存放某个职工的所有相关信息。并且，用户自定义的数据类型worker也可以与int、double等基本数据类型一样，用来作为定义其他变量的数据类型
+
+## 定义
+
+定义一个结构体类型的一般形式为：
+
+```c
+struct  结构体名
+{
+ 数据类型　　　成员名1;
+ 数据类型　　　成员名2;
+ ：
+ 数据类型　　　成员名n;
+ };
+```
+
+在大括号中的内容也称为“成员列表”或“域表”。其中，每个成员名的命名规则与变量名相同；数据类型可以是基本变量类型和数组类型，或者是一个结构体类型；用分号";"作为结束符。整个结构的定义也用分号作为结束符。
+
+```c
+#include <stdio.h>
+#include <string.h>
+
+#define N 32
+
+struct student{
+        int no;
+        char name[N];
+        float score;
+}s3 = {3,"s3",90},s4 = {4,"s4",89};
+
+int main(int argc, const char *argv[])
+{
+        struct student s1,s2;
+        strcpy(s1.name,"s1");
+        s1.score = 90;
+        s1.score = 99;
+        s1.name[0] = 'S';
+        printf("%d %s %.2f\n",s1.no,s1.name,s1.score);
+        s2 = s1;
+        s2.no =2;
+        printf("%d %s %.2f\n",s2.no,s2.name,s2.score);
+        printf("%d %s %.2f\n",s3.no,s3.name,s3.score);
+        printf("%d %s %.2f\n",s4.no,s4.name,s4.score);
+        return 0;
+}
+```
+
+```c
+#include <stdio.h>
+#include <string.h>
+
+#define N 32
+
+struct student{
+        int no;
+        char name[N];
+        struct birthday{
+                int year;
+                int month;
+                int day;
+        }date;
+        float score;
+}s1 = {1,"s1",{1992,9,9},89};
+
+int main(int argc, const char *argv[])
+{
+        struct student s2;
+        s2.no = 2;
+        strcpy(s2.name,"s2");
+        s2.date.year = 1993;
+        s2.date.month = 10;
+        s2.date.day = 10;
+        s2.score = 99;
+        printf("%d %s %d-%d-%d %.2f\n",s1.no,s1.name,s1.date.year,s1.date.month,s1.date.day,s1.score);
+        printf("%d %s %d-%d-%d %.2f\n",s2.no,s2.name,s2.date.year,s2.date.month,s2.date.day,s2.score);
+        return 0;
+}
 ```
 
 # 运算符
@@ -1659,6 +2039,341 @@ int main(int argc, const char * argv[]) {
                 printf("%s\n", argv[i]);
         }
         return 0;
+}
+```
+
+# 函数
+
+## 函数说明
+
+函数是一个完成特定功能的代码模块，其程序代码独立，通常要求有返回值，也可以是空值。
+
+一般形式如下:
+
+<数据类型>  <函数名称>( <形式参数说明> ) {
+
+​            语句序列；
+
+​            return[(<表达式>)];
+
+} 
+
+<数据类型>是整个函数的返回值类型。return[(<表达式>)]语句中表达式的值，要和函数的<数据类型>保持一致。如无返回值应该写为void型
+
+<形式参数说明>是逗号”，”分隔的多个变量的说明形式
+
+大括弧对 {<语句序列> }，称为函数体；<语句序列>是大于等于零个语句构成的
+
+函数的说明就是指函数原型 
+
+其中，<形式参数说明>可以缺省说明的变量名称，但类型不能缺省
+
+例如，
+
+double  Power(double x, int n) ;
+
+double  Power(double, int);
+
+```c
+#include <stdio.h>
+
+// 这里定义的就是函数的说明，C语言遵循先定义后使用的原则，这里如果不定义原型那就必须把下面power函数的定义和实现放到main函数的上面来
+double power(double, int);
+
+int main()
+{
+        double x = 2, ret;
+        int n = 3;
+        ret = power(x, n);
+        printf("%lf %d = %lf\n", x, n, ret);
+        return 0;
+}
+
+double power(double x, int n)
+{
+        double r = 1;
+        int i;
+        for (i = 1; i <= n; i++)
+                r *= x;
+        return r;
+}
+
+```
+
+## 参数传递
+
+函数之间的参数传递方式：
+
+- 全局变量
+  1. 全局变量就是在函数体外说明的变量，它们在程序中的每个函数里都是可见的
+  2. 全局变量一经定义后就会在程序的任何地方可见。函数调用的位置不同，程序的执行结果可能会受到影响。不建议使用
+
+- 复制传递方式
+
+  1. 调用函数将实参传递给被调用函数，被调用函数将创建同类型的形参并用实参初始化
+
+  2. 形参是新开辟的存储空间，因此，在函数中改变形参的值，不会影响到实参
+
+     ```c
+     #include <stdio.h>
+     
+     void  swap(int x, int y);
+     
+     int main()
+     {
+             int a = 10;
+             int b = 20;
+             printf("before:%d %d\n", a, b);
+             swap(a, b);
+             printf("after:%d %d\n", a, b);
+             return 0;
+     }
+     // 函数在栈中实现，栈中创建的变量在函数执行结束后销毁，所以这里改变的是栈中的变量x,y的值
+     void  swap(int x, int y)
+     {
+             int t;
+             t = x;
+             x = y;
+             y = t;
+     }
+     ```
+
+     
+
+- 地址传递方式
+
+  1. 按地址传递,实参为变量的地址，而形参为同类型的指针
+
+  2. 被调用函数中对形参的操作，将直接改变实参的值（被调用函数对指针的目标操作，相当于对实参本身的操作）
+
+     ```c
+     #include <stdio.h>
+     
+     void  swap(int * x, int * y);
+     
+     int main()
+     {
+             int a = 10;
+             int b = 20;
+     
+             printf("before:%d %d\n", a, b);
+             swap(&a, &b);
+             printf("after:%d %d\n", a, b);
+             return 0;
+     }
+     // 这里传递给函数的是变量的地址，所以函数操作的是main中传递给swap函数的实参本身的值
+     void  swap(int * x, int * y)
+     {
+             int t;
+             t = *x;//a
+             *x = *y;
+             *y = t;
+     }
+     ```
+
+     ```c
+     #include <stdio.h>
+     int str_fun(char * p);
+     
+     int main(int argc, char *argv[])
+     {
+             char s[] = "welcome2017Beijing";
+             int n;
+             n = str_fun(s);
+             printf("n=%d %s\n", n, s);
+             return 0;
+     }
+     
+     int str_fun(char * p) //char * p = s;
+     {
+             int num = 0;
+             while (*p != '\0') {//while (*p)
+                     if (*p <= 'z' && *p >= 'a') {
+                             num++;
+                             *p -= ' ';
+                     }
+                     p++;
+             }
+             return num;
+     }
+     ```
+
+     ```c
+     #include <stdio.h>
+     
+     int array_sum(int data[], int n);
+     
+     int main(int argc, char *argv[])
+     {
+             int a[] = {5, 9, 10, 3, 10};
+             int sum = 0;
+             sum = array_sum(a, sizeof(a)/sizeof(int));
+             printf("sum=%d\n", sum);
+             return 0;
+     }
+     
+     int array_sum(int data[], int n) // int data[] = a;error  int * data = a;
+     {//int n = sizeof(a)/sizeof(int);
+             int ret = 0;
+             int i;
+             for (i = 0; i < n;i++) {
+                     printf("%d\n", data[i]);
+                     ret += data[i];
+             }
+             return ret;
+     }
+     ```
+
+## 指针函数
+
+指针函数是指一个函数的返回值为地址量的函数
+
+指针函数的定义的一般形式如下
+
+<数据类型>  *  <函数名称>(<参数说明>) {
+
+​      语句序列；
+
+}
+
+返回值：全局变量的地址/static变量的地址/字符串常量的地址/堆的地址
+
+```c
+#include <stdio.h>
+
+char *  mystring( )  {
+        // 这里定义的数组是局部变量，所以在函数运行完后地址会被回收
+        char str[20];
+        strcpy(str, "Hello");
+        // 这里返回给主函数的是一个已经被回收了的地址
+        return str;
+}
+
+int  main(void)
+{
+        // 这里打印的结果不是逾期的结果："Hello"
+        printf("%s\n", mystring());
+        return 0;
+}
+```
+
+```c
+#include <stdio.h>
+#include <string.h>
+
+//char str[20]; // 全局变量
+char * getstring();
+
+int main(int argc, char *argv[])
+{
+        char * r;
+        r = getstring();
+        printf("---%s---\n", getstring());
+        //(*r)++;
+        puts(r);
+
+        return 0;
+}
+
+char * getstring()
+{
+        //char str[20];//error
+        //static char str[20]; // 静态变量
+        char * str = "hello"; // 字符串常量
+        // strcpy(str, "hello");
+        return str;
+}
+```
+
+## 函数指针
+
+函数指针用来存放函数的地址，这个地址是一个函数的入口地址
+
+函数名代表了函数的入口地址
+
+函数指针变量说明的一般形式如下
+
+<数据类型> （*<函数指针名称>)（<参数说明列表>)；
+
+<数据类型>是函数指针所指向的函数的返回值类型
+
+<参数说明列表>应该与函数指针所指向的函数的形参说明保持一致
+
+（*<函数指针名称>）中，*说明为指针（）不可缺省，表明为函数的指针
+
+```c
+#include <stdio.h>
+
+int add(int a, int b) {
+        return a+b;
+}
+int sub(int a, int b) {
+        return a-b;
+}
+int mul(int a, int b) {
+        return a*b;
+}
+
+int main(int argc, char *argv[])
+{
+
+        int m = 10, n = 20;
+        int  (* p)(int, int); // 定义了一个函数指针变量
+        p = add;
+        printf("%d\n", add(m, n));
+        printf("%d\n", (*p)(m, n));
+        p = sub;
+        printf("%d\n", (*p)(m, n));
+        return 0;
+}
+```
+
+```c
+#include <stdio.h>
+
+int add(int a, int b) {
+        return a+b;
+}
+int sub(int a, int b) {
+        return a-b;
+}
+int mul(int a, int b) {
+        return a*b;
+}
+
+int main(int argc, char *argv[])
+{
+        int m = 10, n = 20;
+        int  (* p[2])(int, int); // 定义了一个函数指针数组
+        p[0] = add;
+        printf("%d\n", add(m, n));
+        printf("%d\n", (*p[0])(m, n));
+        p[1] = sub;
+        printf("%d\n", (*p[1])(m, n));
+        return 0;
+}
+```
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+
+int compare(const void *, const void *);
+
+int main(int argc, char *argv[])
+{
+        int s[] = {89, 23, 10, 8, 7, 61}, n, i;
+        n = sizeof(s)/sizeof(int);
+        qsort(s, n, sizeof(int), compare);
+        for (i = 0; i < n; i++)
+                printf("%d ", s[i]);
+        puts("");
+        return 0;
+}
+
+int compare(const void * p, const void * q)
+{
+        return (*(int *)p - *(int *)q);
 }
 ```
 

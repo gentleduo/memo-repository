@@ -217,7 +217,6 @@ hello.c
 
 ```c
 #include <stdio.h>
-#include "hello.h"
 
 void hello(const char *name)
 {
@@ -288,6 +287,110 @@ dd查看某个可运行程序在运行时所要用的动态库.so：ldd ./exampl
 #### 注意
 
 当动态库和静态库同名存在时，默认使用的是动态库。也就是不会将静态库编译到可执行文件中去。
+
+# Makefile
+
+## Make
+
+1. 工程管理器，顾名思义，是指管理较多的文件 
+2. Make工程管理器也就是个“自动编译管理器”，这里的“自动”是指它能够根据文件时间戳。自动发现更新过的文件而减少编译的工作量，同时，它通过读入Makefile文件的内容来执行大量的编译工作 
+3. Make将只编译改动的代码文件，而不用完全编译。
+
+## Makefile
+
+ Makefile是Make读入的唯一配置文件 
+
+1. 由make工具创建的目标体（target），通常是目标文件或可执行文件
+2. 要创建的目标体所依赖的文件（dependency_file）
+3. 创建每个目标体时需要运行的命令（command）
+4. 注意:命令行前面必须是一个”TAB键”,否则编译错误为:*** missing separator.  Stop.
+
+Makefile格式
+
+target  :   dependency_files
+
+<TAB>  command
+
+例子
+
+hello.o :  hello.c hello.h
+
+​	gcc  –c  hello.c  –o  hello.o
+
+实验1:
+
+f1.c
+
+```c
+#include<stdio.h>
+
+int print1() {
+    printf("i'm f1.c\n");
+}
+```
+
+f2.c
+
+```c
+#include<stdio.h>
+
+int print2() {
+    printf("i'm f2.c\n");
+}
+```
+
+head.h
+
+```c
+void print1();
+void print2();
+```
+
+main.c
+
+```c
+#include<stdio.h>
+#include "head.h"
+
+int main() {
+        print1();
+        print2();
+}
+```
+
+```makefile
+test: f1.o f2.o main.o
+        gcc f1.o f2.o main.o -o test
+f1.o: f1.c
+        gcc -c f1.c -o f1.o
+f2.o: f2.c
+        gcc -c f2.c -o f2.o
+main.o: main.c
+        gcc -c main.c -o main.o
+.PHONY: clean
+clean:
+        rm *.o test
+```
+
+```bash
+[root@server01 make]# make
+gcc -c f1.c -o f1.o
+gcc -c f2.c -o f2.o
+gcc -c main.c -o main.o
+gcc f1.o f2.o main.o -o test
+[root@server01 make]#
+```
+
+比如我们修改f2.c文件后再使用make进行编译，发现它只会重新编译修改过的f2.c文件：
+
+```bash
+[root@server01 make]# make
+gcc -c f2.c -o f2.o
+gcc f1.o f2.o main.o -o test
+[root@server01 make]#
+```
+
+在make过程成会生成很多编译结果文件.o，如果想在构建完成后删除这些中间的编译结果文件可以在Makefile文件的后面添加规则：clean: rm*.o，然后在make完之后再执行make clean；但是如果目录中出现了"clean"文件，则规则失效了：没有依赖文件，文件"clean"始终是最新的，命令永远不会执行（相当于make会认为这里的clean:跟前面f1.o: f1.c一样，需要生成clean文件，而此时目录中又有clean文件并且是最新的，所以后面的命令不会执行）；此时可以使用PHONY，告诉make后面跟着的名称不是指文件名，那么make xxxx 就表示执行xxxx :指定的命令，而不是要（make）生成xxxx
 
 # 数据类型
 
@@ -671,6 +774,157 @@ int main(int argc, const char *argv[])
         return 0;
 }
 ```
+
+## 结构体数组
+
+具有相同结构体类型的结构体变量也可以组成数组，称它们为结构体数组。结构体数组的每一个数组元素都是结构体类型的数据，它们都分别包括各个成员（分量）项。定义结构体数组的方法和定义结构体变量的方法相仿，只需说明其为数组即可。
+
+可以采用三种方法：
+
+1. 先定义结构体类型，再用它定义结构体数组。
+
+   ```c
+   struct student
+   {
+       char name[20];
+       char sex;
+       int age;
+       char addr[20];
+   };
+   struct student stu[3]; 
+   ```
+
+2. 在定义结构体类型同时定义结构体数组。
+
+   ```c
+   struct student
+   {
+       char name[20];
+       char sex;
+       int age;
+       char addr[20];
+   }stu[3]; 
+   ```
+
+3. 直接定义结构体数组
+
+   ```c
+   struct 
+   {
+       char name[20];
+       char sex;
+       int age;
+       char addr[20];
+   }stu[3]; 
+   ```
+
+## 结构体数组的初始化
+
+结构体数组在定义的同时也可以进行初始化，并且与结构体变量的初始化规定相同，只能对全局的或静态存储类别的结构体数组初始化。
+
+## 结构体数组的使用
+
+一个结构体数组的元素相当于一个结构体变量，因此前面介绍的有关结构体变量的规则也适应于结构体数组元素。
+
+```c
+#include <stdio.h>
+
+#define N 20
+
+struct student{
+        int no;
+        char name[N];
+        float score;
+}s5[5];
+
+int main(int argc, const char *argv[])
+{
+        // 可以将一个结构体数组元素值赋给同一结构体类型的数组中的另一个元素，或赋给同一类型的变量。
+        struct student stu[3] = {{1,"s1",90},{2,"s2",91},{3,"s3",99}};
+        struct student student1;
+        student1=stu[0];
+        printf("no=%d;name=%s;score=%f\n",student1.no,student1.name,student1.score);
+        return 0;
+}
+```
+
+## 结构体指针
+
+可以设定一个指针变量用来指向一个结构体变量。此时该指针变量的值是结构体变量的起始地址，该指针称为结构体指针。结构体指针与前面介绍的各种指针变量在特性和方法上是相同的。与前述相同，在程序中结构体指针也是通过访问目标运算“*”访问它的对象。 结构体指针在程序中的一般定义形式为：struct 结构体名  *结构指针名；其中的结构体名必须是已经定义过的结构体类型。当表示指针变量p所指向的结构体变量中的成员时，"（*结构体指针名）.成员名"这种表示形式总是需要使用圆括号，显得很不简炼。因此，对于结构体指针指向的结构体成员项，给出了另外一种简洁的表示方法，如下表示：结构体指针名->成员名。它与前一种表示方法在意义上是完全等价的。例如，结构体指针p指向的结构体变量中的成员name可以表示如下：（*p）.name 或 p->name
+
+```c
+#include <stdio.h>
+
+#define N 20
+
+struct student{
+        int no;
+        char name[N];
+        float score;
+};
+
+int main(int argc, const char *argv[])
+{
+        int i;
+        struct student s1[] = {{1,"s1",90},{2,"s2",91},{3,"s3",99}};
+        struct student *p;
+        //p = s1;
+        p = &s1[0];
+        printf("s1=%p;s1[0]=%p;&s1[0]=%p\n",s1,s1[0],&s1[0]);
+        for(i = 0;i < sizeof(s1)/sizeof(struct student);i++)
+        {
+                printf("--%d-%s-%f--\n",p->no,p->name,(*p).score);
+                p++;
+        }
+        return 0;
+}
+```
+
+# 共用体
+
+在C语言中，不同数据类型的数据可以使用共同的存储区域，这种数据构造类型称为共用体，简称共用，又称联合体。共用体在定义、说明和使用形式上与结构体相似。两者本质上的不同仅在于使用内存的方式上。例如定义一个共用体类型union gy，它由三个成员组成，这三个成员在内存中使用共同的存储空间。由于共用体中各成员的数据长度往往不同，所以共用体变量在存储时总是按其成员中数据长度最大的成员占用内存空间。在这一点上共用体与结构体不同，结构体类型变量在存储时总是按各成员的数据长度之和占用内存空间。
+
+```c
+#include <stdio.h>
+
+union gy{
+        char a;
+        short b;
+        int c;
+}v2;
+
+int main(int argc, const char *argv[])
+{
+        union gy v1;
+        printf("%d %d %d\n",sizeof(char),sizeof(short),sizeof(int));
+        printf("%d\n",sizeof(union gy));
+        // 在使用共用体类型变量的数据时要注意：在共用体类型变量中起作用的成员是最后一次存放的成员，在存入一个新的成员后原有的成员就失去作用。
+        // 如有以下赋值语句：完成以上三个赋值运算以后，v1.c是有效的，v1.a和v1.b已经无意义了。
+        v1.a = 'A';
+        v1.b = 20;
+        //
+        v1.c = 0x12345678;
+        printf("%#x %#x\n",v1.a,v1.b);
+        printf("%p %p %p \n",&v1.a,&v1.b,&v1.c);
+
+        int i;
+        char *p;
+        p = (char *)&v1;
+        for(i = 0;i < sizeof(union gy);i++)
+        {
+                printf("%#x\n",*p);
+                p++;
+        }
+
+        return 0;
+}
+```
+
+# typedef
+
+在C语言中，允许使用关键字typedef定义新的数据类型。typedef   <已有数据类型>   <新数据类型>；
+
+如：typedef  int INTEGER; 这里新定义了数据类型INTEGER, 其等价于int；INTEGER i;  <==> int  i;
 
 # 运算符
 

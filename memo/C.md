@@ -392,6 +392,276 @@ gcc f1.o f2.o main.o -o test
 
 在make过程成会生成很多编译结果文件.o，如果想在构建完成后删除这些中间的编译结果文件可以在Makefile文件的后面添加规则：clean: rm*.o，然后在make完之后再执行make clean；但是如果目录中出现了"clean"文件，则规则失效了：没有依赖文件，文件"clean"始终是最新的，命令永远不会执行（相当于make会认为这里的clean:跟前面f1.o: f1.c一样，需要生成clean文件，而此时目录中又有clean文件并且是最新的，所以后面的命令不会执行）；此时可以使用PHONY，告诉make后面跟着的名称不是指文件名，那么make xxxx 就表示执行xxxx :指定的命令，而不是要（make）生成xxxx
 
+### 变量
+
+使用变量的目的：用来代替一个文本字符串，创建变量VAR=var；变量使用$(VAR)。例如：
+
+```makefile
+OBJS = kang.o yul.o
+CC = gcc
+CFLAGS = -Wall -O -g
+sunq : $(OBJS)
+$(CC) $(OBJS) -o sunq
+kang.o : kang.c kang.h
+$(CC) $(CFLAGS) -c kang.c -o kang.o
+yul.o : yul.c yul.h
+$(CC) $(CFLAGS) -c yul.c -o yul.o
+```
+
+### 预定义变量
+
+| 名称 | 含义                                                         |
+| ---- | ------------------------------------------------------------ |
+| AR   | 库文件维护程序的名称，默认值为ar。AS汇编程序的名称，默认值为as。 |
+| CC   | C编译器的名称，默认值为cc。CPP  C预编译器的名称，默认值为$(CC) –E。 |
+| CXX  | C++编译器的名称，默认值为g++。                               |
+| FC   | FORTRAN编译器的名称，默认值为f77                             |
+| RM   | 文件删除程序的名称，默认值为rm -f                            |
+
+```makefile
+Hello: main.c main.h 
+<tab> $(CC) –o hello main.c
+clean:
+<tab> $(RM) hello
+```
+
+| 名称     | 含义                             |
+| -------- | -------------------------------- |
+| ARFLAGS  | 库文件维护程序的选项，无默认值。 |
+| ASFLAGS  | 汇编程序的选项，无默认值。       |
+| CFLAGS   | C编译器的选项，无默认值。        |
+| CPPFLAGS | C预编译的选项，无默认值。        |
+| CXXFLAGS | C++编译器的选项，无默认值。      |
+| FFLAGS   | FORTRAN编译器的选项，无默认值。  |
+
+```makefile
+OBJS = kang.o yul.o
+CC = gcc	
+CFLAGS = -Wall -O -g
+sunq : $(OBJS)
+$(CC) $(OBJS) -o sunq
+kang.o : kang.c kang.h
+$(CC) $(CFLAGS) -c kang.c -o kang.o
+yul.o : yul.c yul.h
+$(CC) $(CFLAGS) -c yul.c -o yul.o
+```
+
+### 自动变量
+
+| 名称 | 含义                                                         |
+| ---- | ------------------------------------------------------------ |
+| $*   | 不包含扩展名的目标文件名称                                   |
+| $+   | 所有的依赖文件，以空格分开，并以出现的先后为序，可能 包含重复的依赖文件 |
+| $<   | 第一个依赖文件的名称                                         |
+| $?   | 所有时间戳比目标文件晚的的依赖文件，并以空格分开             |
+| $@   | 目标文件的完整名称                                           |
+| $^   | 所有不重复的目标依赖文件，以空格分开                         |
+| $%   | 如果目标是归档成员，则该变量表示目标的归档成员名称           |
+
+```makefile
+OBJS = kang.o yul.o
+CC = gcc
+CFLAGS = -Wall -O -g
+sunq : $(OBJS)
+$(CC) $^ -o $@
+kang.o : kang.c kang.h 
+$(CC) $(CFLAGS) -c $< -o $@
+yul.o : yul.c yul.h
+$(CC) $(CFLAGS) -c $< -o $@
+```
+
+### 选项
+
+| 选项 | 说明                                             |
+| ---- | ------------------------------------------------ |
+| -C   | dir读入指定目录下的Makefile                      |
+| -f   | file读入当前目录下的名称为xxxx的文件作为Makefile |
+| -i   | 忽略所有的命令执行错误                           |
+| -I   | dir指定被包含的Makefile所在目录                  |
+| -n   | 只打印要执行的命令，但不执行这些命令             |
+| -p   | 显示make变量数据库和隐含规则                     |
+| -s   | 在执行命令时不显示命令                           |
+| -w   | 如果make在执行过程中改变目录，打印当前目录名     |
+
+### 隐含规则
+
+#### 隐含规则1
+
+编译C程序的隐含规则
+
+“<n>.o”的目标的依赖目标会自动推导为“<n>.c”，并且其生成命令是“$(CC) –c $(CPPFLAGS) $(CFLAGS)”
+
+```makefile
+test: f1.o f2.o main.o
+        gcc f1.o f2.o main.o -o test
+f1.o: f1.c
+f2.o: f2.c
+main.o: main.c
+.PHONY: clean
+clean:
+        rm *.o
+```
+
+#### 隐含规则2
+
+链接Object文件的隐含规则
+
+“<n>” 目标依赖于“<n>.o”，通过运行C的编译器来运行链接程序生成（一般是“ld”），其生成命令是：“$(CC) $(LDFLAGS) <n>.o $(LOADLIBES) $(LDLIBS)”。这个规则对于只有一个源文件的工程有效，同时也对多个Object文件（由不同的源文件生成）的也有效。例如如下规则：
+
+x : x.o y.o z.o
+
+并且“x.c”、“y.c”和“z.c”都存在时，隐含规则将执行如下命令：
+
+cc -c x.c -o x.o
+
+cc -c y.c -o y.o
+
+cc -c z.c -o z.o
+
+cc x.o y.o z.o -o x
+
+如果没有一个源文件（如上例中的x.c）和你的目标名字（如上例中的x）相关联，那么，你最好写出自己的生成规则，不然，隐含规则会报错的。
+
+```makefile
+test: f1.o f2.o main.o
+        gcc f1.o f2.o main.o -o test
+.PHONY: clean
+clean:
+        rm *.o
+```
+
+### VPATH
+
+1. 在一些大的工程中，有大量的源文件，我们通常的做法是把这许多的源文件分类，并存放在不同的目录中。所以，当make需要去找寻文件的依赖关系时，你可以在文件前加上路径，但最好的方法是把一个路径告诉make，让make在自动去找。
+2. Makefile文件中的特殊变量“VPATH”就是完成这个功能的，如果没有指明这个变量，make只会在当前的目录中去找寻依赖文件和目标文件。如果定义了这个变量，那么，make就会在当当前目录找不到的情况下，到所指定的目录中去找寻文件了。
+3. VPATH = src:../headers
+4. 上面的的定义指定两个目录，“src”和“../headers”，make会按照这个顺序进行搜索。目录由“冒号”分隔。（当然，当前目录永远是最高优先搜索的地方）
+
+```makefile
+CFLAGS=-c -Wall -I include
+VPATH=src1 src2 main
+f1:f1.o f2.o main.o
+.PHONY:clean
+clean:
+	find ./ -name "*.o" -exec rm {} \;;rm f1
+```
+
+### 嵌套
+
+./Makefile
+
+```makefile
+CC=gcc
+SUBDIRS=f1 \
+                f2 \
+                main \
+                obj
+OBJS=f1.o f2.o main.o
+BIN=myapp
+OBJS_DIR=obj
+BIN_DIR=bin
+export CC OBJS BIN OBJS_DIR BIN_DIR
+
+all:CHECK_DIR $(SUBDIRS)
+CHECK_DIR:
+        mkdir -p $(BIN_DIR)
+$(SUBDIRS):ECHO
+        make -C $@
+ECHO:
+        @echo $(SUBDIRS)
+        @echo begin compile
+CLEAN:
+        @$(RM) $(OBJS_DIR)/*.o
+        @rm -rf $(BIN_DIR)
+```
+
+./bin目录：
+
+./f1目录：
+
+------/f1/f1.c
+
+```c
+#include <stdio.h>
+
+void printf1()
+{
+        printf("this is f1!\n");
+        return;
+}
+```
+
+------/f1/Makefile
+
+```makefile
+../$(OBJS_DIR)/f1.o:f1.c
+        $(CC) -c $^ -o $@
+```
+
+f2目录
+
+------/f2/f2.c
+
+```c
+#include <stdio.h>
+
+void printf2()
+{
+        printf("this is f2!\n");
+        return;
+}
+```
+
+------/f2/Makefile
+
+```makefile
+../$(OBJS_DIR)/f2.o:f2.c
+        $(CC) -c $^ -o $@
+```
+
+include目录：
+
+------/include/myinclude.h
+
+```c
+#include <stdio.h>
+```
+
+main目录：
+
+------/main/main.c
+
+```c
+#include "../include/myinclude.h"
+void printf1();
+void printf2();
+
+int main(int argc, const char *argv[])
+{
+        printf1();
+        printf2();
+
+        printf("end main\n");
+        return 0;
+}
+```
+
+------/main/Makefile
+
+```makefile
+../$(OBJS_DIR)/main.o:main.c
+        $(CC) -c $^ -o $@
+```
+
+obj目录：
+
+------/obj/Makefile
+
+```makefile
+../$(BIN_DIR)/$(BIN):$(OBJS)
+        $(CC) -o $@ $^
+```
+
 # 数据类型
 
 ## 基本类型
@@ -925,6 +1195,87 @@ int main(int argc, const char *argv[])
 在C语言中，允许使用关键字typedef定义新的数据类型。typedef   <已有数据类型>   <新数据类型>；
 
 如：typedef  int INTEGER; 这里新定义了数据类型INTEGER, 其等价于int；INTEGER i;  <==> int  i;
+
+# 内存管理
+
+C/C++定义了4个内存区间：代码区/全局变量与静态变量区/局部变量区即栈区/动态存储区，即堆区。
+
+## 静态存储分配
+
+1. 通常定义变量，编译器在编译时都可以根据该变量的类型知道所需内存空间的大小，从而系统在适当的时候为他们分配确定的存储空间。
+2. 函数执行结束时这些存储单元自动被释放。栈内存分配运算内置于处理器的指令集中，效率很高，但是分配的内存容量有限。
+
+## 动态存储分配
+
+1. 有些操作对象只有在程序运行时才能确定，这样编译器在编译时就无法为他们预定存储空间，只能在程序运行时，系统根据运行时的要求进行内存分配。
+2. 只能在程序运行时，系统根据运行时的要求进行内存分配。
+3. 从堆上分配，亦称动态内存分配。程序在运行的时候用malloc申请任意多少的内存，程序员自己负责在何时用free释放内存。动态内存的生存期由我们决定，使用非常灵活，但问题也最多。
+4. 当程序运行到需要一个动态分配的变量或对象时，必须向系统申请取得堆中的一块所需大小的存贮空间，用于存贮该变量或对象。当不再使用该变量或对象时，也就是它的生命结束时，要显式释放它所占用的存贮空间，这样系统就能对该堆空间进行再次分配，做到重复使用有限的资源。
+5. 当程序运行到需要一个动态分配的变量或对象时，必须向系统申请取得堆中的一块所需大小的存贮空间，用于存贮该变量或对象。当不再使用该变量或对象时，也就是它的生命结束时，要显式释放它所占用的存贮空间，这样系统就能对该堆空间进行再次分配，做到重复使用有限的资源。
+
+### malloc
+
+void * malloc(size_t num)
+
+1. malloc函数本身并不识别要申请的内存是什么类型，它只关心内存的总字节数。 
+2. malloc申请到的是一块连续的内存，有时可能会比所申请的空间大。其有时会申请不到内存，返回NULL。
+3. malloc返回值的类型是void *，所以在调用malloc时要显式地进行类型转换，将void * 转换成所需要的指针类型。 
+
+### free
+
+void  free(void *p)
+
+1. 如果free的参数是NULL的话，没有任何效果。
+2. 释放一块内存中的一部分是不被允许的。
+
+### 注意事项
+
+1. 删除一个指针p（free(p);）,实际意思是删除了p所指的目标（变量或对象等），释放了它所占的堆空间，而不是删除ｐ本身，释放堆空间后，ｐ成了空悬指针；动态分配失败。返回一个空指针（NULL），表示发生了异常，堆资源不足，分配失败。malloc与free是配对使用的， free只能释放堆空间。如果malloc返回的指针值丢失，则所分配的堆空间无法回收，称内存泄漏，同一空间重复释放也是危险的，因为该空间可能已另分配，所以必须妥善保存malloc返回的指针，以保证不发生内存泄漏，也必须保证不会重复释放堆内存空间。
+2. 动态分配的变量或对象的生命期。无名对象的生命期并不依赖于建立它的作用域，比如在函数中建立的动态对象在函数返回后仍可使用。我们也称堆空间为自由空间（free store）就是这个原因。但必须记住释放该对象所占堆空间，并只能释放一次，在函数内建立，而在函数外释放是一件很容易失控的事，往往会出错。
+
+### 野指针
+
+不是NULL指针，是指向“垃圾”内存(指向预期之外的内存)的指针。“野指针”是很危险的。“野指针”的成因：
+
+1. 指针变量没有被初始化。
+2. 指针p被free之后，没有置为NULL，让人误以为p是个合法的指针。
+
+野指针的操作超越了变量的作用范围。这种情况让人防不胜防。
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+
+char * get_string()
+{
+
+        //char s[] = "welcome"; //(有警告)局部变量，放在栈上，函数结束自动销毁
+        //static char s[] = "welcome";  //静态存储区，从分配开始，到程序结束才被回收。
+        //char *s = "welcome";  //指针，字符串常量，不允许修改。
+        char * s;
+        s = (char *)malloc(10*sizeof(char));
+        if(s == NULL)
+        {
+                printf("malloc failed\n");
+                return 0;
+        }
+        printf("input:");
+        scanf("%s",s);
+        printf("%s\n",s);
+        // 这里的s是通过动态内存分配得到的所以是堆上的(跟创建在栈上的局部变量不一样)，函数执行完后地址不会被回收，所以返回的地址主函数能正常接收到；
+        return s;          //要保证返回的地址能被主函数正常接收到
+}
+
+int main(int argc, const char *argv[])
+{
+        char *p;
+        p = get_string();
+        printf("%s\n",p);
+        free(p);
+        p = NULL;
+        return 0;
+}
+```
 
 # 运算符
 

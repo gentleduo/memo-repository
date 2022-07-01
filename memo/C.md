@@ -1194,7 +1194,7 @@ int main(int argc, const char *argv[])
 
 在C语言中，允许使用关键字typedef定义新的数据类型。typedef   <已有数据类型>   <新数据类型>；
 
-如：typedef  int INTEGER; 这里新定义了数据类型INTEGER, 其等价于int；INTEGER i;  <==> int  i;
+如：typedef  int INTEGER; 这里新定义了数据类型INTEGER, 其等价于int；INTEGER i;  <==> int  i；typedef  int为数据类型，INTEGER为别名。
 
 # 内存管理
 
@@ -2979,6 +2979,282 @@ int main(int argc, char *argv[])
 int compare(const void * p, const void * q)
 {
         return (*(int *)p - *(int *)q);
+}
+```
+
+# 数据结构
+
+## 定义
+
+1. 数据结构研究计算机数据间关系；
+
+2. 包括数据的逻辑结构和存储结构及其操作;
+
+   - 逻辑结构：表示数据运算之间的抽象关系，按每个元素可能具有的直接前趋数和直接后继数将逻辑结构分为“线性结构”和“非线性结构”两大类。
+
+     - 集合：数据元素间除“同属于一个集合”外，无其它关系
+
+     - 线性结构：一个对一个，如线性表、栈、队列
+
+     - 树形结构：一个对多个，如树
+
+     - 图状结构：多个对多个，如图
+
+   - 存储结构：逻辑结构在计算机中的具体实现方法。存储结构是通过计算机语言所编制的程序来实现的，因而是依赖于具体的计算机语言的。
+
+     - 顺序存储（Sequential Storage）：将数据结构中各元素按照其逻辑顺序存放于存储器一片连续的存储空间中，如c语言的一维数组，如表 L=(a1,a2，……,an)的顺序结构
+     - 链式存储：将数据结构中各元素分布到存储器的不同点，用地址（或链指针）方式建立它们之间的联系，数据结构中元素之间的关系在计算机内部很大程度上是通过地址或指针来建立的。 
+     - 索引存储：在存储数据的同时，建立一个附加的索引表，即索引存储结构=数据文件+索引表。
+     - 散列存储：根据数据元素的特殊字段(称为关键字key)，计算数据元素的存放地址，然后数据元素按地址存放。
+
+```mermaid
+graph LR;
+   A[数据结构]-->B[数据的逻辑结构]
+   A[数据结构]-->C[数据的存储结构]
+   A[数据结构]-->D[数据的运算]
+   B[数据的逻辑结构]-->E[线性结构]
+   B[数据的逻辑结构]-->F[非线性结构]
+   E[线性结构]-->G[线性表]
+   E[线性结构]-->H[栈]
+   E[线性结构]-->I[队列]
+   F[非线性结构]-->J[树形结构]
+   F[非线性结构]-->K[图形结构]
+   C[数据的存储结构]-->L[顺序存储]
+   C[数据的存储结构]-->M[链式存储]
+   C[数据的存储结构]-->N[索引存储]
+   C[数据的存储结构]-->O[散列存储]
+   D[数据的运算]-->P[检索 排列 插入 删除 修改 等]
+```
+
+## 线性表
+
+### 特征
+
+线性表是包含若干数据元素的一个线性序列、记为： L=(a0, ...... ai-1, ai, ai+1 ...... an-1)；L为表名，ai (0≤i≤n-1)为数据元素；n为表长,n>0 时，线性表L为非空表，否则为空表。
+
+线性表L可用二元组形式描述：L= (D,R)即线性表L包含数据元素集合D和关系集合R
+
+D={ai | ai∈datatype ,i=0,1,2, ∙∙∙∙∙∙∙∙∙n-1 ,n≥0}
+
+R={<ai , ai+1> | ai , ai+1∈D, 0≤i≤n-2}
+
+关系符<ai, ai+1>在这里称为有序对，表示任意相邻的两个元素之间的一种先后次序关系，ai是ai+1的直接前驱, ai+1是ai的直接后继
+
+线性表的特征：
+
+1. 对非空表,a0是表头,无前驱；
+2. an-1是表尾,无后继；
+3. 其它的每个元素ai有且仅有一个直接前驱ai-1和一个直接后继ai+1。
+
+### 存储结构
+
+#### 顺序存储
+
+若将线性表L=(a0,a1, ……,an-1)中的各元素依次存储于计算机一片连续的存储空间。设Loc(ai)为ai的地址，Loc(a0)=b，每个元素占d个单元 则：Loc(ai)=b+i*d
+
+##### 优点
+
+1. 逻辑上相邻的元素 ai, ai+1，其存储位置也是相邻的
+2. 对数据元素ai的存取为随机存取或按地址存取
+3. 存储密度高：存储密度D=(数据结构中元素所占存储空间)/（整个数据结构所占空间）
+
+##### 缺点
+
+对表的插入和删除等运算的时间复杂度较差。
+
+##### 实现
+
+设线性表 L=(a0,a1, ……,an-1)，对L的基本运算有：
+
+1. 建立一个空表：list_create(L)
+2. 置空表：list_clear(L)
+3. 判断表是否为空：list_empty (L)。若表为空，返回值为1 , 否则返回 0
+4. 求表长：length (L)
+5. 取表中某个元素：GetList(L , i ), 即ai。要求0≤i≤length(L)-1
+6. 定位运算：Locate(L,x)。确定元素x在表L中的位置（或序号）
+7. 插入：Insert(L,x,i)。将元素x插入到表L中第i个元素ai之前,且表长+1。
+
+sqlist.h
+
+```c
+/*
+ * typedef int data_t;
+ * #define N 128
+ *
+ * struct sqlist_t {
+ *      data_t data[N];
+ *              int last;
+ *              };
+ *
+ *              typedef struct sqlist_t sqlist;//sqlist L; struct sqlist_t L;
+ *              typedef struct sqlist_t * sqlink;// struct sqlist_t * p; sqlink p;
+ *              */
+typedef int data_t;
+#define N 128
+
+typedef struct {
+        data_t data[N];
+        int last;
+}sqlist, *sqlink;
+
+sqlink list_create();
+int list_clear(sqlink L);
+int list_delete(sqlink L);
+int list_empty(sqlink L);
+int list_length(sqlink L);
+int list_locate(sqlink L, data_t value);
+int list_insert(sqlink L, data_t value, int pos);
+int list_show(sqlink L);
+```
+
+sqlist.c
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "sqlist.h"
+
+sqlink list_create() {
+	//malloc
+	sqlink L;
+
+	L =(sqlink)malloc(sizeof(sqlist));
+	if (L == NULL) {
+		printf("list malloc failed\n");
+		return L;
+	}
+
+	//initialize
+	memset(L, 0, sizeof(sqlist));
+	L->last = -1;
+
+	//return
+	return L;
+}
+
+/*
+ * @ret   0-success   -1-failed
+ * */
+int list_clear(sqlink L) {
+	if (L == NULL)
+		return -1;
+
+	memset(L, 0, sizeof(sqlist));
+	L->last = -1;
+
+	return 0;
+}
+
+int list_delete(sqlink L){
+	if (L == NULL) 
+		return -1;
+	free(L);
+	L = NULL;
+	return 0;
+}
+
+/*
+ * list_empty: Is list empty?
+ * para L: list
+ * @ret  1--empty   0--not empty
+ * */
+int list_empty(sqlink L) {
+	if (L->last == -1) 
+		return 1;
+	else 
+		return 0;
+}
+
+int list_length(sqlink L) {
+	if (L == NULL) 
+		return -1;
+	return (L->last+1);
+}
+
+int list_locate(sqlink L, data_t value) {
+
+	return 0;
+}
+
+int list_insert(sqlink L, data_t value, int pos) {
+	int i;
+
+	//full
+	if (L->last == N-1) {
+		printf("list is full\n");
+		return -1;
+	}
+
+	//check para    0<=pos<=Last+1   [0, last+1]
+	if (pos < 0 || pos > L->last+1) {
+		printf("Pos is invalid\n");
+		return -1;
+	}
+
+	//move
+	for (i = L->last; i >= pos; i--) {
+		L->data[i+1] = L->data[i];
+	}
+
+	//update value last
+	L->data[pos] = value;
+	L->last++;
+
+	return 0;
+}
+
+int list_show(sqlink L) {
+	int i;
+
+	if (L == NULL) 
+		return -1;
+	if (L->last == -1)
+		printf("list is empty\n");
+
+	for (i = 0; i <= L->last; i++) {
+		printf("%d ", L->data[i]);
+	}
+	puts("");
+
+	return 0;
+}
+```
+
+test.c
+
+```c
+#include <stdio.h>
+#include "sqlist.h"
+
+void test_insert();
+
+int main(int argc, const char *argv[])
+{
+        test_insert();
+
+        return 0;
+}
+
+void test_insert() {
+        sqlink L;
+
+        L = list_create();
+        if (L == NULL)
+                return;
+
+        list_insert(L, 10, 0);
+        list_insert(L, 20, 0);
+        list_insert(L, 30, 0);
+        list_insert(L, 40, 0);
+        list_insert(L, 50, 0);
+        list_insert(L, 60, 0);
+
+        list_show(L);
+        //list_insert(L, 100, list_length(L));
+        list_insert(L, 100, -1000);
+        list_show(L);
+        list_delete(L);
 }
 ```
 

@@ -191,7 +191,7 @@ graph LR
 
 ### 动态链接库
 
-动态：在程序编译是并不会被连接到目标代码中，而是在程序运行时才被载入。动太库独立于现有的程序，其本身不可执行，但包含着程序需要调用的一些函数，这种库称为动态（链接）库（Dynamic Link Library）。不同的应用程序如果调用相同的库，那么在内存里只需要有一份该共享库的实例，规避了空间浪费问题。特点：
+动态：在程序编译是并不会被连接到目标代码中，而是在程序运行时才被载入。动态库独立于现有的程序，其本身不可执行，但包含着程序需要调用的一些函数，这种库称为动态（链接）库（Dynamic Link Library）。不同的应用程序如果调用相同的库，那么在内存里只需要有一份该共享库的实例，规避了空间浪费问题。特点：
 
 1. 动态库把对一些库函数的链接载入推迟到程序运行时期
 2. 可以实现进程之间的资源共享，（动态库也成为共享库）
@@ -3090,20 +3090,23 @@ sqlist.h
  *              typedef struct sqlist_t * sqlink;// struct sqlist_t * p; sqlink p;
  *              */
 typedef int data_t;
-#define N 128
+#define N 128 
 
 typedef struct {
-        data_t data[N];
-        int last;
+	data_t data[N];
+	int last;
 }sqlist, *sqlink;
 
 sqlink list_create();
 int list_clear(sqlink L);
-int list_delete(sqlink L);
+int list_free(sqlink L);
 int list_empty(sqlink L);
 int list_length(sqlink L);
 int list_locate(sqlink L, data_t value);
 int list_insert(sqlink L, data_t value, int pos);
+int list_delete(sqlink L, int pos);
+int list_merge(sqlink L1, sqlink L2);
+int list_purge(sqlink L);
 int list_show(sqlink L);
 ```
 
@@ -3146,7 +3149,7 @@ int list_clear(sqlink L) {
 	return 0;
 }
 
-int list_delete(sqlink L){
+int list_free(sqlink L){
 	if (L == NULL) 
 		return -1;
 	free(L);
@@ -3172,9 +3175,17 @@ int list_length(sqlink L) {
 	return (L->last+1);
 }
 
+/*
+ * @ret  -1--not exist   pos
+ * */
 int list_locate(sqlink L, data_t value) {
+	int i ;
+	for (i = 0; i <= L->last; i++) {
+		if (L->data[i] == value) 
+			return i;
+	}
 
-	return 0;
+	return -1;
 }
 
 int list_insert(sqlink L, data_t value, int pos) {
@@ -3219,6 +3230,74 @@ int list_show(sqlink L) {
 
 	return 0;
 }
+
+int list_delete(sqlink L, int pos) {
+	int i;
+
+	if (L->last == -1) {
+		printf("list is empty\n");
+		return -1;
+	}
+
+	//pos [0, last]
+	if (pos < 0 || pos > L->last) {
+		printf("delete pos is invalid\n");
+		return -1;
+	}
+
+	//move  [pos+1, last]
+	for (i = pos+1; i <= L->last; i++) {
+		L->data[i-1] = L->data[i];
+	}
+
+	//update
+	L->last--;
+
+	return 0;
+}
+
+int list_merge(sqlink L1, sqlink L2) {
+	int i = 0;
+	int ret;
+
+	while (i <= L2->last){
+		ret = list_locate(L1, L2->data[i]);
+		if (ret == -1) {
+			if (list_insert(L1, L2->data[i], L1->last+1) == -1) 
+				return -1;
+		}
+
+		i++;
+	}
+	return 0;
+}
+
+int list_purge(sqlink L) {
+	int i;
+	int j;
+
+	if (L->last == 0)
+		return 0;
+
+	i = 1;
+	while (i <= L->last) {
+		j = i-1;
+		while (j >= 0) {
+			if (L->data[i] == L->data[j]) {
+				list_delete(L, i);
+				break;
+			} else {
+				j--;
+			}
+		}
+
+		if ( j < 0) {
+			i++;
+		}
+	}
+
+	return 0;
+}
 ```
 
 test.c
@@ -3228,33 +3307,110 @@ test.c
 #include "sqlist.h"
 
 void test_insert();
+void test_delete();
+void test_merge();
+void test_purge();
 
 int main(int argc, const char *argv[])
 {
-        test_insert();
+	//test_insert();
+	//test_delete();
+	//test_merge();
+	test_purge();
 
-        return 0;
+	return 0;
 }
 
 void test_insert() {
-        sqlink L;
+	sqlink L;
+	
+	L = list_create();
+	if (L == NULL) 
+		return;
 
-        L = list_create();
-        if (L == NULL)
-                return;
+	list_insert(L, 10, 0);
+	list_insert(L, 20, 0);
+	list_insert(L, 30, 0);
+	list_insert(L, 40, 0);
+	list_insert(L, 50, 0);
+	list_insert(L, 60, 0);
 
-        list_insert(L, 10, 0);
-        list_insert(L, 20, 0);
-        list_insert(L, 30, 0);
-        list_insert(L, 40, 0);
-        list_insert(L, 50, 0);
-        list_insert(L, 60, 0);
+	list_show(L);
+	//list_insert(L, 100, list_length(L));
+	list_insert(L, 100, -1000);
+	list_show(L);
+	list_free(L);
+}
 
-        list_show(L);
-        //list_insert(L, 100, list_length(L));
-        list_insert(L, 100, -1000);
-        list_show(L);
-        list_delete(L);
+void test_delete() {
+	sqlink L;
+	
+	L = list_create();
+	if (L == NULL) 
+		return;
+
+	list_insert(L, 10, 0);
+	list_insert(L, 20, 0);
+	list_insert(L, 30, 0);
+	list_insert(L, 40, 0);
+	list_insert(L, 50, 0);
+	list_insert(L, 60, 0);
+
+	list_show(L);
+	list_delete(L, 9);
+	list_show(L);
+
+	list_free(L);
+}
+
+void test_merge() {
+	sqlink L1, L2;
+
+	L1 = list_create();
+	if (L1 == NULL) 
+		return;
+
+	L2 = list_create();
+	if (L2 == NULL) 
+		return;
+
+	list_insert(L1, 10, 0);
+	list_insert(L1, 20, 0);
+	list_insert(L1, 30, 0);
+	list_insert(L1, 40, 0);
+
+	list_insert(L2, 50, 0);
+	list_insert(L2, 20, 0);
+	list_insert(L2, 90, 0);
+	list_insert(L2, 40, 0);
+
+	list_show(L1);
+	list_show(L2);
+	printf("********************\n");
+	list_merge(L1, L2);
+	list_show(L1);
+	list_show(L2);
+}
+
+void test_purge() {
+	sqlink L;
+	
+	L = list_create();
+	if (L == NULL) 
+		return;
+
+	list_insert(L, 10, 0);
+	list_insert(L, 10, 0);
+	list_insert(L, 10, 0);
+	list_insert(L, 10, 0);
+	list_insert(L, 10, 0);
+	list_insert(L, 10, 0);
+
+	list_show(L);
+	list_purge(L);
+	list_show(L);
+
+	list_free(L);
 }
 ```
 

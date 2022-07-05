@@ -4537,3 +4537,360 @@ int main(int argc, const char *argv[])
 }
 ```
 
+## 树
+
+### 定义
+
+树（Tree）是n（n≥0）个节点的有限集合T，它满足两个条件 ：
+
+1. 有且仅有一个特定的称为根（Root）的节点
+2. 其余的节点可以分为m（m≥0）个互不相交的有限集合T1、T2、……、Tm，其中每一个集合又是一棵树，并称为其根的子树
+
+### 特点
+
+1. 一个节点的子树的个数称为该节点的度数
+2. 一棵树的度数是指该树中节点的最大度数。
+3. 度数为零的节点称为树叶或终端节点
+4. 度数不为零的节点称为分支节点
+5. 除根节点外的分支节点称为内部节点。
+6. 一个节点系列k1,k2, ……,ki,ki+1, ……,kj,并满足ki是ki+1的父节点，就称为一条从k1到kj的路径
+7. 路径的长度为j-1,即路径中的边数。
+8. 路径中前面的节点是后面节点的祖先，后面节点是前面节点的子孙。 
+9. 节点的层数等于父节点的层数加一，根节点的层数定义为一。树中节点层数的最大值称为该树的高度或深度。
+10. 若树中每个节点的各个子树的排列为从左到右，不能交换，即兄弟之间是有序的，则该树称为有序树。
+11. m（m≥0）棵互不相交的树的集合称为森林。
+12. 树去掉根节点就成为森林，森林加上一个新的根节点就成为树。
+
+### 逻辑结构
+
+树中任何节点都可以有零个或多个直接后继节点（子节点），但至多只有一个直接前趋节点（父节点），根节点没有前趋节点，叶节点没有后继节点。 （非线性结构）
+
+### 二叉树
+
+#### 定义
+
+二叉树是n（n≥0）个节点的有限集合，或者是空集（n＝0），或者是由一个根节点以及两棵互不相交的、分别称为左子树和右子树的二叉树组成，严格区分左孩子和右孩子，即使只有一个子节点也要区分左右。
+
+#### 性质
+
+1. 二叉树第i（i≥1）层上的节点最多为2的i-1次方个。
+2. 深度为k（k≥1）的二叉树最多有2的k次方－1个节点。
+3. 满二叉树 ：深度为k（k≥1）时有2的k次方－1个节点的二叉树。
+4. 完全二叉树 ：只有最下面两层有度数小于2的节点，且最下面一层的叶节点集中在最左边的若干位置上。
+5. 具有n个节点的完全二叉树的深度为（log2n）＋1或log2(n+1)。
+
+#### 顺序存储
+
+1. 完全二叉树节点的编号方法是从上到下，从左到右，根节点为1号节点。设完全二叉树的节点数为n，某节点编号为i
+2. 当i＞1（不是根节点）时，有父节点，其编号为i/2;
+3. 当2*i≤n时，有左孩子，其编号为2*i ,否则没有左孩子，本身是叶节点;
+4. 当2*i＋1≤n时，有右孩子，其编号为2*i+1 ,否则没有右孩子；
+5. 当i为奇数且不为1时，有左兄弟，其编号为i-1,否则没有左兄弟；
+6. 当i为偶数且小于n时，有右兄弟，其编号为i＋1,否则没有右兄弟；
+
+有n个节点的完全二叉树可以用有n+1个元素的数组进行顺序存储，节点号和数组下标一一对应，下标为零的元素不用。利用以上特性，可以从下标获得节点的逻辑关系。不完全二叉树通过添加虚节点构成完全二叉树，然后用数组存储，这要浪费一些存储空间。
+
+#### 链式存储
+
+```c
+typedef  int  data_t ;		
+typedef  struct  node_t;		
+{
+	data_t data ; 		
+	struct node_t *lchild ,*rchild ; 	
+} bitree_t ; 			
+bitree_t *root ; 	
+```
+
+#### 遍历
+
+遍历 ：沿某条搜索路径周游二叉树，对树中的每一个节点访问一次且仅访问一次。
+
+##### 先序遍历
+
+1. 访问根结点
+2. 先序遍历左子树
+3. 先序遍历右子树
+
+##### 中序遍历
+
+1. 中序遍历左子树
+2. 访问根结点
+3. 中序遍历右子树
+
+##### 后序遍历
+
+1. 后序遍历左子树
+2. 后序遍历右子树
+3. 访问根结点
+
+##### 实现
+
+linkqueue.h
+
+```c
+#include "tree.h"
+typedef bitree * datatype;
+
+typedef struct node {
+	datatype data;
+	struct node *next;
+}listnode , *linklist;
+
+typedef struct {
+	linklist front;
+	linklist rear;
+}linkqueue;
+
+linkqueue * queue_create();
+int enqueue(linkqueue *lq, datatype x);
+datatype dequeue(linkqueue *lq);
+int queue_empty(linkqueue *lq);
+int queue_clear(linkqueue *lq);
+linkqueue * queue_free(linkqueue *lq);
+```
+
+linkqueue.c
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include "tree.h"
+#include "linkqueue.h"
+
+linkqueue * queue_create() {
+	linkqueue *lq;
+
+	if ((lq = (linkqueue *)malloc(sizeof(linkqueue))) == NULL) {
+		printf("malloc linkqueue failed\n");
+		return NULL;
+	}
+
+	lq->front = lq->rear = (linklist)malloc(sizeof(listnode));
+	if (lq->front == NULL) {
+		printf("malloc node failed\n");
+		return NULL;
+	}
+	lq->front->data = 0;
+	lq->front->next = NULL;
+
+	return lq;
+}
+
+int enqueue(linkqueue *lq, datatype x) {
+	linklist p;
+
+	if (lq == NULL) {
+		printf("lq is NULL\n");
+		return -1;
+	}
+
+	if ((p = (linklist)malloc(sizeof(listnode))) == NULL) {
+		printf("malloc node failed\n");
+		return -1;
+	}
+	p->data = x;
+	p->next = NULL;
+
+	lq->rear->next = p;
+	lq->rear = p;
+
+	return 0;
+}
+
+datatype dequeue(linkqueue *lq) {
+	linklist p;
+
+	if (lq == NULL) {
+		printf("lq is NULL\n");
+		return NULL;
+	}
+
+	p = lq->front;
+	lq->front = p->next;
+	free(p);
+	p = NULL;
+
+	return (lq->front->data);
+}
+
+int queue_empty(linkqueue *lq) {
+	if (lq == NULL) {
+		printf("lq is NULL\n");
+		return -1;
+	}
+
+	return (lq->front == lq->rear ? 1 : 0);
+}
+
+int queue_clear(linkqueue *lq) {
+	linklist p;
+
+	if (lq == NULL) {
+		printf("lq is NULL\n");
+		return -1;
+	}
+
+	while (lq->front->next) {
+		p = lq->front;
+		lq->front = p->next;
+		//printf("clear free:%d\n", p->data);
+		free(p);
+		p = NULL;
+	}
+	return 0;
+}
+
+linkqueue * queue_free(linkqueue *lq) {
+	linklist p;
+
+	if (lq == NULL) {
+		printf("lq is NULL\n");
+		return NULL;
+	}
+
+	while (lq->front) {
+		p = lq->front;
+		lq->front = p->next;
+		//printf("free:%d\n", p->data);
+		free(p);
+	}
+
+	free(lq);
+	lq = NULL;
+
+	return NULL;
+}
+```
+
+tree.h
+
+```c
+#ifndef _TREE_H_
+#define _TREE_H_
+
+typedef char data_t;
+
+typedef struct node_t {
+	data_t data;
+	struct node_t * left;
+	struct node_t * right;
+}bitree;
+
+bitree * tree_create();
+void preorder(bitree * r);
+void inorder(bitree * r);
+void postorder(bitree * r);
+void layerorder(bitree * r);
+
+#endif
+```
+
+tree.c
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+//#include "tree.h"
+#include "linkqueue.h"
+
+bitree * tree_create() {
+	data_t ch;
+	bitree *r;
+
+	scanf("%c", &ch);
+	if (ch == '#')
+		return NULL;
+
+	if ((r = (bitree *)malloc(sizeof(bitree))) == NULL) {
+		printf("malloc failed\n");
+		return NULL;
+	}
+	r->data = ch;
+	r->left  = tree_create(); 
+	r->right = tree_create(); 
+	return r;
+}
+
+void preorder(bitree * r) {
+	if (r == NULL) {
+		return;
+	}
+	printf("%c", r->data);
+	preorder(r->left);
+	preorder(r->right);
+}
+
+void inorder(bitree * r) {
+	if (r == NULL) {
+		return;
+	}
+	inorder(r->left);
+	printf("%c", r->data);
+	inorder(r->right);
+}
+
+void postorder(bitree * r) {
+	if (r == NULL) {
+		return;
+	}
+	postorder(r->left);
+	postorder(r->right);
+	printf("%c", r->data);
+}
+
+void layerorder(bitree * r) {
+	linkqueue * lq;
+
+	if ((lq = queue_create()) == NULL) 
+		return;
+
+	if (r == NULL) 
+		return;
+
+	printf("%c", r->data);
+	enqueue(lq, r);
+
+	while (!queue_empty(lq)) {
+		r = dequeue(lq);
+		if (r->left) {
+			printf("%c", r->left->data);
+			enqueue(lq, r->left);
+		}
+		if (r->right) {
+			printf("%c", r->right->data);
+			enqueue(lq, r->right);
+		}
+	}		
+	puts("");
+}
+```
+
+test.c
+
+```c
+#include <stdio.h>
+#include "tree.h"
+
+int main(int argc, const char *argv[])
+{
+	bitree * r;
+
+	if ((r = tree_create()) == NULL)
+		return -1;
+
+	preorder(r);
+	puts("");
+
+	inorder(r);
+	puts("");
+
+	postorder(r);
+	puts("");
+
+	layerorder(r);
+
+	return 0;
+}
+```
+

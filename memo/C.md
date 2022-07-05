@@ -3414,3 +3414,1126 @@ void test_purge() {
 }
 ```
 
+#### 链式存储
+
+##### 特点
+
+将线性表L=(a0,a1,……,an-1)中各元素分布在存储器的不同存储块，称为结点，通过地址或指针建立元素之间的联系；结点的data域存放数据元素ai，而next域是一个指针，指向ai的直接后继ai+1所在的结点。
+
+结点类型描述： 
+
+typedef   struct  node
+
+{   
+
+​    data_t   data;   //结点的数据域//
+
+​    struct node *next;  //结点的后继指针域//
+
+} listnode, *linklist; 
+
+##### 实现
+
+linklist.h
+
+```c
+typedef int data_t;
+
+typedef struct node {
+	data_t data;
+	struct node * next;
+}listnode, * linklist;
+
+linklist list_create();
+int list_tail_insert(linklist H, data_t value);//head
+linklist list_get(linklist H, int pos);
+int list_insert(linklist H, data_t value, int pos);
+int list_delete(linklist H, int pos);
+int list_show(linklist H);
+linklist list_free(linklist H);
+int list_reverse(linklist H);
+linklist list_adjmax(linklist H, data_t *value);
+int list_merge(linklist H1, linklist H2);
+```
+
+linklist.c
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include "linklist.h"
+
+linklist list_create() {
+	linklist H;
+
+	H = (linklist)malloc(sizeof(listnode));
+	if (H == NULL) {
+		printf("malloc failed\n");
+		return H;
+	}
+
+	H->data = 0;
+	H->next = NULL;
+
+	return H;
+}
+
+int list_tail_insert(linklist H, data_t value) {
+	linklist p;
+	linklist q;
+
+	if (H == NULL) {
+		printf("H is NULL\n");
+		return -1;
+	}
+
+	//1 new node p
+	if ((p = (linklist)malloc(sizeof(listnode))) == NULL) {
+		printf("malloc failed\n");
+		return -1;
+	}
+	p->data = value;
+	p->next = NULL;
+
+	//2 locate locate locate locate locate locate locate locate locate tail node 
+	q = H;
+	while (q->next != NULL) {
+		q = q->next;
+	}
+
+	//3 insert
+	q->next = p;
+
+	return 0;
+}
+
+linklist list_get(linklist H, int pos) {
+	linklist p;
+	int i;
+
+	if (H == NULL) {
+		printf("H is NULL\n");
+		return NULL;
+	}
+
+	if (pos == -1) {
+		return H;
+	}
+
+	if (pos < -1) {
+		printf("pos is invalid\n");
+		return NULL;
+	}
+
+	p = H;
+	i = -1;
+	while (i < pos) {
+		p = p->next;
+		if (p == NULL) {
+			printf("pos is invalid\n");
+			return NULL;
+		}
+		i++;
+	}
+
+	return p;
+}
+
+int list_insert(linklist H, data_t value, int pos) {
+	linklist p;
+	linklist q;
+
+	if (H == NULL) {
+		printf("H is NULL\n");
+		return -1;
+	}
+
+	//1 locate node p (pos-1)
+	p = list_get(H, pos-1);
+	if (p == NULL) {
+		return -1;
+	}
+
+	//2 new node q
+	if ((q = (linklist)malloc(sizeof(listnode))) == NULL) {
+		printf("malloc failed\n");
+		return -1;
+	}
+	q->data = value;
+	q->next = NULL;
+
+	//3 insert
+	q->next = p->next;
+	p->next = q;
+
+	return 0;
+}
+
+int list_delete(linklist H, int pos) {
+	linklist p;
+	linklist q;
+
+	//1
+	if (H == NULL) {
+		printf("H is NULL\n");
+		return -1;
+	}
+
+	//2 locate prior
+	p = list_get(H, pos-1);
+	if (p == NULL) 
+		return -1;
+	if (p->next == NULL) {
+		printf("delete pos is invalid\n");
+		return -1;
+	}
+
+	//3 update list
+	q = p->next;
+	p->next = q->next;//p->next = p->next->next;
+
+	//4 free
+	printf("free:%d\n", q->data);
+	free(q);
+	q = NULL;
+
+	return 0;
+}
+
+int list_show(linklist H) {
+	linklist p;
+
+	if (H == NULL) {
+		printf("H is NULL\n");
+		return -1;
+	}
+
+	p = H;
+
+	while (p->next != NULL) {
+		printf("%d ", p->next->data);
+		p = p->next;
+	}
+	puts("");
+
+	return 0;
+}
+
+linklist list_free(linklist H) {
+	linklist p;
+
+	if (H == NULL) 
+		return NULL;
+
+	p = H;
+
+	printf("free:");
+	while (H != NULL) {
+		p = H;
+		printf("%d ", p->data);
+		free(p);
+		H = H->next;
+	}
+	puts("");
+
+	return NULL;
+}
+
+int list_reverse(linklist H) {
+	linklist p;
+	linklist q;
+
+	if (H == NULL) {
+		printf("H is NULL\n");
+		return -1;
+	}
+
+	if (H->next == NULL || H->next->next == NULL) {
+		return 0;
+	}
+
+	p = H->next->next;
+	H->next->next = NULL;
+
+	while (p != NULL) {
+		q = p;
+		p = p->next;
+
+		q->next = H->next;
+		H->next = q;
+	}
+
+	return 0;
+}
+
+linklist list_adjmax(linklist H, data_t *value) {
+	linklist p, q, r;
+	data_t sum;
+
+	if (H == NULL){
+		printf("H is NULL\n");
+		return NULL;
+	}
+
+	if (H->next == NULL || H->next->next == NULL || H->next->next->next == NULL) {
+		return H;
+	}
+
+	q = H->next;
+	p = H->next->next;//p = q->next;
+	r = q;
+	sum = q->data + p->data;
+
+	while (p->next != NULL) {
+		p = p->next;
+		q = q->next;
+		if (sum < q->data + p->data) {
+			sum = q->data + p->data;
+			r = q;
+		}
+	}
+
+	*value = sum;
+
+	return r;
+}
+
+int list_merge(linklist H1, linklist H2) {
+	linklist p, q, r;
+
+	if (H1 == NULL || H2 == NULL) {
+		printf("H1 || H2 is NULL\n");
+		return -1;
+	}
+
+	p = H1->next;
+	q = H2->next;
+	r = H1;
+	H1->next = NULL;
+	H2->next = NULL;
+
+	while (p && q) {
+		if (p->data <= q->data) {
+			r->next = p;
+			p = p->next;
+			r = r->next;
+			r->next = NULL;
+		} else {
+			r ->next = q;
+			q = q->next;
+			r = r->next;
+			r->next = NULL;
+		}
+	}
+
+	if (p == NULL) {
+		r->next = q;
+	}else {
+		r->next = p;
+	}
+
+	return 0;
+}
+```
+
+test.c
+
+```c
+#include <stdio.h>
+#include "linklist.h"
+
+void test_get();
+void test_insert();
+void test_delete();
+void test_reverse();
+void test_adjmax();
+
+int main(int argc, const char *argv[])
+{
+	linklist H1, H2;
+	int a[] = {1, 4, 6, 8, 10};
+	int b[] = {2, 4, 16, 18, 30};
+	int i;
+
+	H1 = list_create();
+	if (H1 == NULL)
+		return;
+
+	H2 = list_create();
+	if (H2 == NULL)
+		return;
+
+	for (i = 0; i < sizeof(a)/sizeof(int); i++) {
+		list_tail_insert(H1, a[i]);
+	}
+
+	for (i = 0; i < sizeof(b)/sizeof(int); i++) {
+		list_tail_insert(H2, b[i]);
+	}
+
+	list_show(H1);
+	list_show(H2);
+
+	list_merge(H1, H2);
+	printf("merge:\n");
+
+	list_show(H1);
+	list_show(H2);
+
+	list_free(H1);
+	list_free(H2);
+
+	return 0;
+}
+
+void test_adjmax() {
+	linklist H;
+	linklist r;
+	int value;
+	int sum;
+	
+	H = list_create();
+	if (H == NULL)
+		return;
+
+	printf("input:");
+	while (1) {
+		scanf("%d", &value);
+		if (value == -1)
+			break;
+		list_tail_insert(H, value);
+		printf("input:");
+	}
+	list_show(H);
+
+	r = list_adjmax(H, &sum);
+	if (r != NULL && r != H) {
+		printf("data=%d, sum=%d\n", r->data, sum);
+	}
+
+	list_show(H);
+
+	list_free(H);
+
+}
+void test_reverse() {
+	linklist H;
+	int value;
+	
+	H = list_create();
+	if (H == NULL)
+		return ;
+
+	printf("input:");
+	while (1) {
+		scanf("%d", &value);
+		if (value == -1)
+			break;
+		list_tail_insert(H, value);
+		printf("input:");
+	}
+	
+	list_show(H);
+	list_reverse(H);
+	list_show(H);
+
+	list_free(H);
+
+}
+
+void test_delete() {
+	linklist H;
+	int value;
+	
+	H = list_create();
+	if (H == NULL)
+		return;
+
+	printf("input:");
+	while (1) {
+		scanf("%d", &value);
+		if (value == -1)
+			break;
+		list_tail_insert(H, value);
+		printf("input:");
+	}
+	
+	list_show(H);
+	printf("H=%p\n", H);
+	H = list_free(H);
+	printf("H=%p\n", H);
+	list_delete(H, -4);//1 3 5 7
+	list_show(H);
+
+	list_free(H);
+
+}
+
+void test_get() {
+	linklist H;
+	int value;
+	linklist p;
+	
+	H = list_create();
+	if (H == NULL)
+		return;
+
+	printf("input:");
+	while (1) {
+		scanf("%d", &value);
+		if (value == -1)
+			break;
+		list_tail_insert(H, value);
+		printf("input:");
+	}
+	
+	list_show(H);
+
+	p = list_get(H, 4);//1 3 5 7
+	if (p != NULL)
+		printf("value=%d\n", p->data);
+}
+
+void test_insert() {
+	linklist H;
+	int value;
+	
+	H = list_create();
+	if (H == NULL)
+		return;
+
+	printf("input:");
+	while (1) {
+		scanf("%d", &value);
+		if (value == -1)
+			break;
+		list_tail_insert(H, value);
+		printf("input:");
+	}
+	
+	list_show(H);
+	list_insert(H, 100, 0);//1 3 5 7
+	list_show(H);
+}
+```
+
+## 栈
+
+### 原理
+
+栈是限制在一端进行插入操作和删除操作的线性表（俗称堆栈），允许进行操作的一端称为“栈顶”，另一固定端称为“栈底”，当栈中没有元素时称为“空栈”。特点 ：后进先出（LIFO）。 
+
+### 顺序栈
+
+sqstack.h
+
+```c
+typedef int data_t;
+
+typedef struct {
+	data_t *data;
+	int maxlen;
+	int top;
+}sqstack;
+
+sqstack * stack_create(int len);
+int stack_push(sqstack * s, data_t value);
+int stack_empty(sqstack *s);
+int stack_full(sqstack *s);
+data_t stack_pop(sqstack *s);
+data_t stack_top(sqstack *s);
+int stack_clear(sqstack *s);
+int stack_free(sqstack *s);
+```
+
+sqstack.c
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "sqstack.h"
+
+sqstack * stack_create(int len) {
+	sqstack * s;
+
+	if ((s =(sqstack *)malloc(sizeof(sqstack))) == NULL) {
+		printf("malloc sqstack failed\n");
+		return NULL;
+	}
+
+	if ((s->data = (data_t *)malloc(len * sizeof(data_t)))==NULL) {
+		printf("malloc data failed\n");
+		free(s);
+		return NULL;
+	}
+
+	memset(s->data, 0, len*sizeof(data_t));
+	s->maxlen = len;
+	s->top = -1;
+
+	return s;
+}
+
+int stack_push(sqstack * s, data_t value) {
+	if (s == NULL) {
+		printf("s is NULL\n");
+		return -1;
+	}
+
+	if (s->top == s->maxlen-1) {
+		printf("stack is full\n");
+		return -1;
+	}
+
+	s->top++;
+	s->data[s->top] = value;
+
+	return 0;
+}
+
+/*
+ *@ret 1-empty
+ * */
+int stack_empty(sqstack *s) {
+	if (s == NULL) {
+		printf("s is NULL\n");
+		return -1;
+	}
+	return (s->top == -1 ? 1 : 0);
+}
+
+/*
+ * @ret 1-full
+ * */
+int stack_full(sqstack *s) {
+	if (s == NULL) {
+		printf("s is NULL\n");
+		return -1;
+	}
+	return  (s->top == s->maxlen-1 ? 1 : 0);
+}
+
+data_t stack_pop(sqstack *s) {
+	s->top--;
+	return (s->data[s->top+1]);
+}
+
+data_t stack_top(sqstack *s) {
+	return (s->data[s->top]);
+}
+
+int stack_clear(sqstack *s) {
+	if (s == NULL) {
+		printf("s is NULL\n");
+		return -1;
+	}
+	
+	s->top = -1;
+	return 0;
+}
+
+int stack_free(sqstack *s) {
+	if (s == NULL) {
+		printf("s is NULL\n");
+		return -1;
+	}
+	
+	if (s->data != NULL) 
+		free(s->data);
+	free(s);
+
+	return 0;
+}
+```
+
+test.c
+
+```c
+#include <stdio.h>
+#include "sqstack.h"
+
+int main(int argc, const char *argv[])
+{
+	sqstack *s;
+
+	s = stack_create(100);
+	if (s == NULL) 
+		return -1;
+
+	stack_push(s, 10);
+	stack_push(s, 20);
+	stack_push(s, 30);
+	stack_push(s, 40);
+
+	while (!stack_empty(s)) {
+		printf("pop: %d \n", stack_pop(s) );
+	}
+	
+	stack_free(s);
+
+	return 0;
+}
+```
+
+### 链式栈
+
+linkstack.h
+
+```c
+typedef int data_t;
+
+typedef struct node {
+	data_t data;
+	struct node *next;
+}listnode, *linkstack;
+
+linkstack stack_create();
+int stack_push(linkstack s, data_t value);
+data_t stack_pop(linkstack s);
+int stack_empty(linkstack s);
+data_t stack_top(linkstack s);
+linkstack stack_free(linkstack s);
+```
+
+linkstack.c
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include "linkstack.h"
+
+linkstack stack_create() {
+	linkstack s;
+
+	s = (linkstack)malloc(sizeof(listnode));
+	if (s == NULL) {
+		printf("malloc failed\n");
+		return NULL;
+	}
+	s->data = 0;
+	s->next = NULL;
+
+	return s;
+}
+
+int stack_push(linkstack s, data_t value) {
+	linkstack p;
+
+	if (s == NULL) {
+		printf("s is NULL\n");
+		return -1;
+	}
+
+	p = (linkstack)malloc(sizeof(listnode));
+	if (p == NULL) {
+		printf("malloc failed\n");
+		return -1;
+	}
+	p->data = value;
+	//p->next = NULL;
+	p->next = s->next;
+	s->next = p;
+
+	return 0;
+}
+
+data_t stack_pop(linkstack s) {
+	linkstack p;
+	data_t t;
+
+	p = s->next;
+	s->next = p->next;
+
+	t = p->data;
+
+	free(p);
+	p =NULL;
+
+	return t;
+}
+
+int stack_empty(linkstack s) {
+	if (s == NULL) {
+		printf("s is NULL\n");
+		return -1;
+	}
+
+	return (s->next == NULL ? 1 : 0);
+}
+
+data_t stack_top(linkstack s) {
+	return (s->next->data);
+}
+
+linkstack stack_free(linkstack s) {
+	linkstack p;
+
+	if (s == NULL) {
+		printf("s is NULL\n");
+		return NULL;
+	}
+
+	while (s != NULL) {
+		p = s;
+		s = s->next;
+		printf("free:%d\n", p->data);
+		free(p);
+	}
+
+	return NULL;
+}
+```
+
+test.c
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include "linkstack.h"
+
+int main(int argc, const char *argv[])
+{
+	linkstack s;
+
+	s = stack_create();
+	if (s == NULL) 
+		return -1;
+
+	stack_push(s, 10);
+	stack_push(s, 20);
+	stack_push(s, 30);
+	stack_push(s, 40);
+
+#if 0
+	while (!stack_empty(s)) {
+		printf("pop:%d\n", stack_pop(s));
+	}
+#endif
+
+	s = stack_free(s);
+	
+	return 0;
+}
+```
+
+## 队列
+
+### 特点
+
+队列是限制在两端进行插入操作和删除操作的线性表，允许进行存入操作的一端称为“队尾”，允许进行删除操作的一端称为“队头”，当线性表中没有元素时，称为“空队”；特点 ：先进先出（FIFO）
+
+### 顺序队列
+
+sequeue.h
+
+```c
+typedef int datatype;
+#define N 128
+
+typedef struct {
+	datatype data[N];
+	int front;
+	int rear;
+}sequeue;
+
+sequeue * queue_create();
+int enqueue(sequeue *sq, datatype x);
+datatype dequeue(sequeue *sq);
+int queue_empty(sequeue *sq);
+int queue_full(sequeue *sq); 
+int queue_clear(sequeue *sq);
+sequeue * queue_free(sequeue *sq);
+```
+
+sequeue.c
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "sequeue.h"
+
+sequeue * queue_create() {
+	sequeue *sq;
+
+	if ((sq = (sequeue *)malloc(sizeof(sequeue))) == NULL) {
+		printf("malloc failed\n");
+		return NULL;
+	}
+
+	memset(sq->data, 0, sizeof(sq->data));
+	sq->front = sq->rear = 0;
+	return sq;
+}
+
+int enqueue(sequeue *sq, datatype x) {
+	if (sq == NULL) {
+		printf("sq is NULL\n");
+		return -1;
+	}
+
+	if ((sq->rear + 1) % N == sq->front) {
+		printf("sequeue is full\n");
+		return -1;
+	}
+
+	sq->data[sq->rear] = x;
+	sq->rear = (sq->rear + 1) % N;
+
+	return  0;
+}
+
+datatype dequeue(sequeue *sq) {
+	datatype ret;
+
+	ret = sq->data[sq->front];
+
+	sq->front = (sq->front + 1) % N;
+
+	return ret;
+}
+
+int queue_empty(sequeue *sq) {
+	if (sq == NULL) {
+		printf("sq is NULL\n");
+		return -1;
+	}
+
+	return (sq->front == sq->rear ? 1 : 0);
+}
+
+int queue_full(sequeue *sq) {
+	if (sq == NULL) {
+		printf("sq is NULL\n");
+		return -1;
+	}
+
+	if ((sq->rear + 1) % N == sq->front) {
+		return 1;
+	}
+	else {
+		return 0;
+	}
+}
+
+int queue_clear(sequeue *sq) {
+	if (sq == NULL) {
+		printf("sq is NULL\n");
+		return -1;
+	}
+
+	sq->front = sq->rear = 0;
+
+	return 0;
+}
+
+sequeue * queue_free(sequeue *sq) {
+	if (sq == NULL) {
+		printf("sq is NULL\n");
+		return NULL;
+	}
+
+	free(sq);
+	sq = NULL;
+
+	return NULL;
+}
+```
+
+test.c
+
+```c
+#include <stdio.h>
+#include "sequeue.h"
+
+int main(int argc, const char *argv[])
+{
+	sequeue *sq;
+
+	if ((sq = queue_create()) == NULL) {
+		return -1;
+	}
+	
+	enqueue(sq, 10);
+	enqueue(sq, 100);
+	enqueue(sq, 1000);
+
+	while (!queue_empty(sq)) {
+		printf("dequeue:%d\n", dequeue(sq));
+	}
+
+	queue_free(sq);
+
+	return 0;
+}
+```
+
+### 链式队列
+
+linkqueue.h
+
+```c
+typedef int datatype;
+
+typedef struct node {
+	datatype data;
+	struct node *next;
+}listnode , *linklist;
+
+typedef struct {
+	linklist front;
+	linklist rear;
+}linkqueue;
+
+linkqueue * queue_create();
+int enqueue(linkqueue *lq, datatype x);
+datatype dequeue(linkqueue *lq);
+int queue_empty(linkqueue *lq);
+int queue_clear(linkqueue *lq);
+linkqueue * queue_free(linkqueue *lq);
+```
+
+linkqueue.c
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include "linkqueue.h"
+
+linkqueue * queue_create() {
+	linkqueue *lq;
+
+	if ((lq = (linkqueue *)malloc(sizeof(linkqueue))) == NULL) {
+		printf("malloc linkqueue failed\n");
+		return NULL;
+	}
+
+	lq->front = lq->rear = (linklist)malloc(sizeof(listnode));
+	if (lq->front == NULL) {
+		printf("malloc node failed\n");
+		return NULL;
+	}
+	lq->front->data = 0;
+	lq->front->next = NULL;
+
+	return lq;
+}
+
+int enqueue(linkqueue *lq, datatype x) {
+	linklist p;
+
+	if (lq == NULL) {
+		printf("lq is NULL\n");
+		return -1;
+	}
+
+	if ((p = (linklist)malloc(sizeof(listnode))) == NULL) {
+		printf("malloc node failed\n");
+		return -1;
+	}
+	p->data = x;
+	p->next = NULL;
+
+	lq->rear->next = p;
+	lq->rear = p;
+
+	return 0;
+}
+
+datatype dequeue(linkqueue *lq) {
+	linklist p;
+
+	if (lq == NULL) {
+		printf("lq is NULL\n");
+		return -1;
+	}
+
+	p = lq->front;
+	lq->front = p->next;
+	free(p);
+	p = NULL;
+
+	return (lq->front->data);
+}
+
+int queue_empty(linkqueue *lq) {
+	if (lq == NULL) {
+		printf("lq is NULL\n");
+		return -1;
+	}
+
+	return (lq->front == lq->rear ? 1 : 0);
+}
+
+int queue_clear(linkqueue *lq) {
+	linklist p;
+
+	if (lq == NULL) {
+		printf("lq is NULL\n");
+		return -1;
+	}
+
+	while (lq->front->next) {
+		p = lq->front;
+		lq->front = p->next;
+		printf("clear free:%d\n", p->data);
+		free(p);
+		p = NULL;
+	}
+	return 0;
+}
+
+linkqueue * queue_free(linkqueue *lq) {
+	linklist p;
+
+	if (lq == NULL) {
+		printf("lq is NULL\n");
+		return NULL;
+	}
+
+	while (lq->front) {
+		p = lq->front;
+		lq->front = p->next;
+		printf("free:%d\n", p->data);
+		free(p);
+	}
+
+	free(lq);
+	lq = NULL;
+
+	return NULL;
+}
+```
+
+test.c
+
+```c
+#include <stdio.h>
+#include "linkqueue.h"
+
+int main(int argc, const char *argv[])
+{
+	linkqueue *lq;
+
+	lq = queue_create();
+	if (lq == NULL) 
+		return -1;
+
+	enqueue(lq, 10);
+	enqueue(lq, 20);
+	enqueue(lq, 30);
+	enqueue(lq, 40);
+
+	//while (!queue_empty(lq)) {
+		//printf("dequeue:%d\n", dequeue(lq));
+	//}
+	queue_clear(lq);
+
+	lq = queue_free(lq);
+	enqueue(lq, 50);
+
+	return 0;
+}
+```
+

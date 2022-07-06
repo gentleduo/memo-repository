@@ -4894,3 +4894,268 @@ int main(int argc, const char *argv[])
 }
 ```
 
+## 哈希查找
+
+### 哈希表构造方法
+
+1. 直接地址法
+
+2. 平方取中法
+
+3. 叠加法
+
+4. 保留除数法
+
+   又称质数除余法，设Hash表空间长度为m，选取一个不大于m的最大质数p，令：H(key)=key%p
+
+5. 随机函数法
+
+### 处理冲突的方法
+
+1. 冲突现象的发生有时并不完全是由于Hash函数的随机性不好引起的，聚积的发生也会加重冲突。
+2. 还有一个因素是表的装填因子α，α=n/m，其中m为表长，n为表中记录个数。一般α在0.7～0.8之间，使表保持一定的空闲余量，以减少冲突和聚积现象。
+
+#### 开放地址法
+
+当发生冲突时，在H(key)的前后找一个空闲单元来存放冲突的记录，即在H(key)的基础上获取下一地址：
+
+​                            Hi=(H(key)+di)%m
+
+ 其中m为表长，%运算是保证Hi落在[0，m-l]区间；
+
+di为地址增量。di的取法有多种：
+
+​    （1）di=1，2，3，……(m-1)——称为线性探查法；
+
+​    （2）di=12，-12，22，-22，……——称为二次探查法。
+
+设记录的key集合k={23，34，14，38，46，16，68，15，07，31，26}，记录数n=11。
+
+令装填因子α=0.75，取表长m= én/αù =15。
+
+用“保留余数法”选取Hash函数（p=13）：
+
+​                    H(key)=key%13
+
+### 实现
+
+hash.h
+
+```c
+#ifndef _HASH_
+#define _HASH_
+
+#define N 15
+typedef int datatype;
+
+typedef struct node {
+	datatype key;
+	datatype value;
+	struct node * next;
+}listnode, *linklist;
+
+typedef struct {
+	listnode data[N];
+}hash;
+
+hash * hash_create();
+int hash_insert(hash *HT, datatype key);
+linklist  hash_search(hash *HT, datatype key);
+
+#endif
+```
+
+hash.c
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "hash.h"
+
+hash * hash_create() {
+	hash * HT;
+
+	if ((HT = (hash *)malloc(sizeof(hash))) == NULL) {
+		printf("malloc failed\n");
+		return NULL;
+	}
+
+	memset(HT, 0, sizeof(hash));
+
+	return HT;
+}
+
+int hash_insert(hash *HT, datatype key) {
+	linklist p, q;
+
+	if (HT == NULL) {
+		printf("HT is NULL\n");
+		return -1;
+	}
+
+	if ((p = (linklist)malloc(sizeof(listnode))) == NULL) {
+		printf("malloc failed\n");
+		return -1;
+	}
+	p->key = key;
+	p->value = key % N;
+	p->next = NULL;
+
+	q = &(HT->data[key % N]);
+
+	while (q->next && q->next->key < p->key ) {
+		q = q->next;
+	}
+
+	p->next = q->next;
+	q->next = p;
+
+	return 0;
+
+}
+
+linklist  hash_search(hash *HT, datatype key) {
+	linklist p;
+
+	if (HT == NULL) {
+		printf("HT is NULL\n");
+		return NULL;
+	}
+
+	p = &(HT->data[key % N]);
+
+	while (p->next && p->next->key != key) {
+		p = p->next;
+	}
+
+	if (p->next == NULL) {
+		return NULL;
+	} else {
+		printf("found\n");
+		return p->next;
+	}
+}
+```
+
+test.c
+
+```c
+#include <stdio.h>
+#include "hash.h"
+
+int main(int argc, const char *argv[])
+{
+	hash * HT;
+	int data[] = {23, 34, 14, 38, 46, 16, 68, 15, 7, 31, 26};
+	int i;
+	int key;
+	linklist r;
+
+	if ((HT = hash_create()) == NULL) {
+		return -1;
+	}
+
+	for (i = 0; i < sizeof(data)/sizeof(int); i++) {
+		hash_insert(HT, data[i]);
+	}
+
+	printf("input:");
+	scanf("%d", &key);
+	r = hash_search(HT, key);
+	if (r == NULL) 
+		printf("not found\n");
+	else 
+		printf("found:%d %d\n", key, r->key);
+
+	return 0;
+}
+```
+
+## 排序
+
+### 快速排序
+
+#### 实现
+
+sort.c
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+
+#define N 15
+
+int partion(int *data, int low, int high);
+int quick_sort(int *data, int low, int high);
+int compare(const void *p1, const void *p2);
+
+int main(int argc, const char *argv[])
+{
+	int data[N] = {0};
+	int i;
+
+	srandom(10);
+
+	for (i = 0; i < N; i++) {
+		data[i] = random() % 100;
+	}
+
+	for (i = 0; i < N; i++) {
+		printf("%d ", data[i]);
+	}
+	puts("");
+
+	//quick_sort(data, 0, N-1);
+	qsort(data, N, sizeof(int), compare);
+
+	for (i = 0; i < N; i++) {
+		printf("%d ", data[i]);
+	}
+	puts("");
+
+	return 0;
+}
+
+int partion(int *data, int low, int high) {
+	int temp = data[low];
+
+	while (low < high) {
+		while (low < high && temp <= data[high]) {
+			high--;
+		}
+		data[low] = data[high];
+
+		while (low < high && temp >= data[low]){
+			low++;
+		}
+		data[high] = data[low];
+	}
+
+	data[low] = temp;
+
+	return low;
+}
+
+int quick_sort(int *data, int low, int high) {
+	int t;
+
+	if (data == NULL) {
+		return -1;
+	}
+
+	if (low >= high)
+		return 0;
+
+	t = partion(data, low, high);
+	quick_sort(data, low, t-1);
+	quick_sort(data, t+1, high);
+
+	return 0;
+}
+
+int compare(const void *p1, const void *p2) {
+	return (*(const int *)p1 - *(const int *)p2);
+}
+```
+

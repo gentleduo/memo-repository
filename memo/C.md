@@ -5159,3 +5159,709 @@ int compare(const void *p1, const void *p2) {
 }
 ```
 
+# 标准I/O
+
+## 文件类型
+
+1. 常规文件    r  需要考虑文件的格式
+2. 目录文件    d
+3. 字符设备文件    c  比如：鼠标、键盘都是一个一个字符输入的
+4. 块设备文件    b  比如：U盘 不关心文件的格式，二进制读完之后需要根据linux系统的文件格式进行转换，转换成常规文件
+5. 管道文件    p 
+6. 套接字文件    s
+7. 符号链接文件    l
+
+## 流
+
+### FILE
+
+标准IO用一个结构体类型来存放打开的文件的相关信息，标准I/O的所有操作都是围绕FILE来进行
+
+### 流（stream）
+
+FILE又被称为流(stream)；文本流/二进制流
+
+#### 缓冲类型
+
+##### 全缓冲
+
+当流的缓冲区无数据或无空间时才执行实际I/O操作
+
+##### 行缓冲
+
+当在输入和输出中遇到换行符(‘\n’)时，进行I/O操作；当流和一个终端关联时，典型的行缓冲
+
+##### 无缓冲
+
+数据直接写入文件，流不进行缓冲
+
+##### 实验
+
+```c
+#include <stdio.h>
+#include <unistd.h>
+int main(int argc,char*argv[]){
+
+    // C语言中定义的输出缓冲区大小为1K，所以当输出1025个字节的时候会触发I/O操作
+    int i=0;
+    for(i=0;i<1025;i++){
+       printf("a");
+
+    }
+    // 不加换行，数据保存在缓冲区，不会进行I/O操作，
+    //    printf("hello world"); 
+    // 加换行后触发I\O操作，
+    //    printf("hello world\n"); 
+
+    // 这里相当于用死循环的方式保证程序不退出，因为一旦程序执行完毕在退出之前会触发将缓冲区的数据写入磁盘
+    while(1){
+	    sleep(1);
+    }
+
+}
+```
+
+
+
+#### 预定义流
+
+标准I/O预定义3个流，程序运行时自动打开
+
+| 类型       | 文件描述符       | 标准I/O | 缓冲类型     |
+| ---------- | ---------------- | ------- | ------------ |
+| 标准输入流 | 0：STDIN_FILENO  | stdin   | 默认是行缓冲 |
+| 标准输出流 | 1：STDOUT_FILENO | stdout  | 默认是行缓冲 |
+| 标准错误流 | 2：STDERR_FILENO | stderr  | 没有缓冲     |
+
+## 文件的打开与关闭
+
+下列函数可用于打开一个标准I/O流：
+
+FILE *fopen (const char *path, const char *mode);
+
+成功时返回流指针；出错时返回NULL
+
+关闭文件
+
+int fclose(FILE *stream)；
+
+fclose()调用成功返回0，失败返回EOF，并设置errno
+
+流关闭时自动刷新缓冲中的数据并释放缓冲区
+
+当一个程序正常终止时，所有打开的流都会被关闭。
+
+流一旦关闭后就不能执行任何操作
+
+mode参数：
+
+| 参数          | 含义                                                         |
+| ------------- | ------------------------------------------------------------ |
+| "r" 或 "rb"   | 以只读方式打开文件，文件必须存在。                           |
+| "r+" 或 "r+b" | 以读写方式打开文件，文件必须存在。                           |
+| "w" 或 "wb"   | 以只写方式打开文件，若文件存在则文件长度清为0。若文件不存在则创建。 |
+| "w+" 或 "w+b" | 以读写方式打开文件，其他同"w"。                              |
+| "a" 或 "ab"   | 以只写方式打开文件，若文件不存在则创建；向文件写入的数<br/>据被追加到文件末尾。 |
+| "a+" 或 "a+b" | 以读写方式打开文件。其他同"a"                                |
+
+```c
+#include <stdio.h>
+#include <errno.h>
+#include <string.h>
+
+int main(int argc,char *argv[]){
+
+        FILE *fp;
+        int fpret;
+        fp = fopen("1.txt","r");
+        if(fp==NULL){
+                //printf("Open file Failed\n");
+                // 先输出字符串s，再输出错误号对应的错误信息
+                perror("fopen");
+                // errno 存放错误号，由系统生成，导入errno.h头文件即可；strerror根据错误号返回对应的错误信息
+                printf("fopen:%s\n",strerror(errno));
+        }else{
+                printf("Open file success\n");
+                // perror("open");
+                fpret = fclose(fp);
+                if(fpret==0){
+                        printf("file close sucess\n");
+                }else{
+                        perror("fclose");
+                }
+        }
+}
+```
+
+## 读写流
+
+流支持不同的读写方式:
+
+读写一个字符：fgetc()/fputc()一次读/写一个字符
+
+读写一行：fgets()和fputs()一次读/写一行
+
+读写若干个对象：fread()/fwrite() 每次读/写若干个对象，而每个对象具有相同的长度
+
+### 按字符输入
+
+列函数用来输入一个字符:
+
+#include  <stdio.h>
+
+int  fgetc(FILE *stream); 
+
+int  getc(FILE *stream);   //宏
+
+int  getchar(void); //只能从标准输入设备中读取
+
+成功时返回读取的字符；若到文件末尾或出错时返回EOF（-1），
+
+getchar()等同于fgetc(stdin)，注意：stdin也是FILE *的指针，是系统定义好的，指向的是标准输入（键盘输入）
+
+getc和fgetc区别是一个是宏一个是函数
+
+打开文件后读取，是从文件开头开始读。读完一个后读写指针会后移。读写注意文件位置！
+
+调用getchar会阻塞，等待你的键盘输入
+
+### 按字符输出
+
+下列函数用来输出一个字符:
+
+#include  <stdio.h>
+
+int  fputc(int c, FILE *stream);
+
+int  putc(int c, FILE *stream);
+
+int  putchar(int c);   // 只能输出到标准输出设备上
+
+成功时返回写入的字符；出错时返回EOF
+
+putchar(c)等同于fputc(c, stdout)，注意：stdout也是FILE *的指针，是系统定义好的，指向的是标准输出（显示器）
+
+```c
+#include<stdio.h>
+
+int main(int argc,char * argv[]) {
+
+        FILE * fp;
+        int input;
+        int val;
+
+        input = fgetc(stdin); // stdin是C语言中的标注输入流，一般用于获取键盘输入到缓冲区里的东西。等同于getchar()
+        fp = fopen("out.txt", "a+");
+        if(fp==NULL){
+                perror("fopen");
+                return 0;
+        }
+        // 打印出目前文件中的所有内容
+        while((val = fgetc(fp)) != EOF) {
+                printf("%c",val);
+        }
+        printf("\n");
+        // 将输入的内容写入到文件中
+        val = fputc(input,fp);
+        if(val==-1){
+                perror("fputc");
+                fclose(fp);
+                return 0;
+        }
+        fclose(fp);
+}
+```
+
+### 行输入
+
+char  *gets(char *s);  读取标准输入到缓冲区
+
+char *fgets(char *s, int size, FILE *stream);
+
+成功时返回s，到文件末尾或出错时返回NULL
+
+遇到’\n’或已输入size-1个字符时返回，总是包含’\0’
+
+注意事项：
+1 gets函数已经被淘汰，因为会导致缓冲区溢出
+
+2 fgets 函数第二个参数，输入的数据超出size，size-1个字符会保存到缓冲区，最后添加’\0’，如果输入数据少于size-1 后面会添加换行符。
+
+### 行输出
+
+int  puts(const char *s);
+
+int fputs(const char *s,  FILE *stream);
+
+成功时返回非负整数；出错时返回EOF
+
+puts将缓冲区s中的字符串输出到stdout，并追加’\n’
+
+fputs将缓冲区s中的字符串输出到stream,不追加‘\n’
+
+```c
+#include<stdio.h>
+
+int main(int argc,char * argv[]) {
+
+        FILE *fp;
+        char *ret;
+        int retn;
+        char buff[100];
+        fp = fopen("out.txt","a+");
+        if(fp==NULL){
+                perror("fopen");
+                return 0;
+
+        }
+        // 当out.txt的内容少于4个字符的时候会添加换行符后再加'\0'，如果out.txt的内容大于等于4个字符的话就只会在最后追加'\0';
+        ret = fgets(buff,5,fp);
+        if(ret==NULL){
+                perror("fgets");
+                fclose(fp);
+                return 0;
+        }
+        printf("buff=%s",buff);
+        // puts将缓冲区s中的字符串输出到stdout，并追加’\n’
+        // fputs将缓冲区s中的字符串输出到stream,不追加  ‘\n’
+        retn = fputs("hello world",fp);
+        if(retn==-1){
+                perror("fputs");
+
+        }
+
+        fclose(fp);
+
+}
+```
+
+### 二进制读写
+
+二进制读写函数格式：
+
+size_t fread(void *ptr, size_t size, size_t n, FILE *fp);
+
+1. void *ptr  读取内容放的位置指针
+
+2. size_t size 读取的块大小
+
+3. size_t n 读取的个数
+
+4. FILE *fp  读取的文件指针
+
+
+size_t fwrite(const void *ptr, size_t size, size_t n, FILE *fp);
+
+1. void *ptr  写文件的内容的位置指针
+
+2. size_t size 写的块大小
+
+3. size_t n 写的个数
+
+4. FILE *fp  要写的文件指针
+
+
+注意事项：
+
+1. 文件写完后，文件指针指向文件末尾，如果这时候读，读不出来内容。
+
+2. 解决办法：移动指针到文件头；关闭文件，重新打开
+
+fwrite_t.c
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+struct student{
+        char name[16];
+        int age;
+        char sex[8];
+};
+
+int main(int argc,char *argv[]){
+
+        FILE *fp;
+        size_t ret;
+
+        struct student stu;
+        struct student stu2;
+
+        fp=fopen("out.bin","w");
+        if(fp==NULL){
+                perror("fopen");
+                return 0;
+        }
+        strcpy(stu.name,"zhangsan");
+        stu.age = 49;
+        strcpy(stu.sex,"male");
+
+        ret = fwrite(&stu,sizeof(stu),1,fp);
+        if(ret ==-1){
+                perror("fwrite");
+                goto end;
+
+        }else{
+                printf("write struct student success!\n");
+        }
+        fclose(fp);
+        /*
+         * 文件写完后，文件指针指向文件末尾，如果这时候读，读不出来内容。
+         * 解决办法：移动指针到文件头；关闭文件，重新打开
+         */
+        fp=fopen("out.bin","r");
+        if(fp==NULL){
+                perror("fopen");
+                return 0;
+        }
+        ret = fread(&stu2,sizeof(stu),1,fp);
+        if(ret ==-1){
+                perror("fread");
+                goto end;
+        }
+        printf("name=%s,age=%d,sex=%s\n",stu2.name,stu2.age,stu2.sex);
+
+end:
+        fclose(fp);
+}
+```
+
+## 流的刷新和定位
+
+### 刷新
+
+ int fflush(FILE *fp);
+
+成功时返回0；出错时返回EOF
+
+将流缓冲区中的数据写入实际的文件
+
+Linux下只能刷新输出缓冲区,输入缓冲区丢弃
+
+如果输出到屏幕使用fflush(stdout)
+
+fflush.c
+
+```c
+#include <stdio.h>
+#include <unistd.h>
+
+int main(int argc,char *argv[]){
+
+        printf("abcdefg");
+        // 将流缓冲区中的数据输出到屏幕，(这里如果不加由于程序在最后有死循环不会退出，所以数据不会输出到显示器)
+        fflush(stdout);
+        FILE *fp;
+        fp=fopen("out.txt","w");
+        if(fp==NULL){
+                perror("fopen");
+                return 0;
+        }
+        fwrite("abcdef",7,1,fp);
+        // 将流缓冲区中的数据写入实际的文件，(这里如果不加由于程序在最后有死循环不会退出，所以数据不会写入文件)
+        fflush(fp);
+        while(1){
+                sleep(1);
+        }
+}
+```
+
+### 定位
+
+long ftell(FILE *stream);
+
+long fseek(FILE *stream, long offset,  int whence);
+
+void rewind(FILE *stream);
+
+ftell用于得到文件位置指针当前位置相对于文件首的偏移字节数
+
+fseek 参数whence参数：SEEK_SET/SEEK_CUR/SEEK_END
+
+1. SEEK_SET 从距文件开头 offset 位移量为新的读写位置
+
+2. SEEK_CUR：以目前的读写位置往后增加 offset 个位移量
+
+3. SEEK_END：将读写位置指向文件尾后再增加 offset 个位移量
+
+4. offset参数：偏移量，可正可负
+
+rewind将文件内部的位置指针重新指向一个流(数据流/文件)的开头
+
+注意事项：
+
+1. 文件的打开使用a模式 fseek无效
+
+2. rewind(fp) 相当于 fseek(fp,0,SEEK_SET);
+
+3. 这三个函数只适用2G以下的文件
+
+```c
+#include <stdio.h>
+
+int main(int argc,char *argv[]){
+    
+   FILE *fp;
+   fp=fopen("out.txt","w");
+   if(fp==NULL){
+      perror("fopen");
+      return 0;
+   }
+
+   fwrite("abcdef",6,1,fp);
+   printf("current fp=%d\n",(int)ftell(fp));
+//   fseek(fp,3,SEEK_SET);
+   rewind(fp);
+   printf("After rewind fp=%d\n",(int)ftell(fp));
+   fwrite("vvv",3,1,fp);
+}
+```
+
+## 格式化输出
+
+输出到屏幕
+
+int printf(const char *fmt, …);
+
+输出到文件
+
+int fprintf(FILE *stream, const char *fmt, …);
+
+```c
+#include "stdio.h"
+
+int main(int argc,char *argv[]){
+
+    FILE *fp;
+    int year=2021;
+    int month=10;
+    int day=1;
+
+    fp=fopen("ftest.txt","w");
+    if(fp==NULL){
+       perror("fopen");
+       return 0;
+    }
+    fprintf(fp,"%d-%d-%d\n",year,month,day);
+    fclose(fp);
+
+}
+```
+
+输出到字符数组
+
+int sprintf(char *s, const char *fmt, …);
+
+成功时返回输出的字符个数；出错时返回EOF
+
+```c
+#include "stdio.h"
+
+int main(int argc,char *argv[]){
+
+    char buf[100]={0};
+    int year=2021;
+    int month= 10;
+    int day=1;
+
+    int syear;
+    int smonth;
+    int sday;
+
+    sprintf(buf,"%d-%d-%d",year,month,day);
+    printf("%s\n",buf);
+```
+
+## 格式化输入
+
+int fscanf(FILE *stream, const char *format, ...);
+
+```c
+#include "stdio.h"
+
+int main(int argc,char *argv[]){
+    
+    FILE *fp;
+    int year;
+    int month;
+    int day;
+
+    fp=fopen("ftest.txt","r");
+    if(fp==NULL){
+       perror("fopen");
+       return 0;
+    }
+
+    // 从文件中按照格式取出并且放到指定的变量中
+    fscanf(fp,"%d-%d-%d",&year,&month,&day);
+    printf("%d,%d,%d\n",year,month,day);
+    
+    fclose(fp);
+}
+```
+
+int sscanf(const char *str, const char *format, ...);
+
+```c
+#include "stdio.h"
+
+int main(int argc,char *argv[]){
+
+    char buf[100]={0};
+    int year=2021;
+    int month= 10;
+    int day=1;
+
+    int syear;
+    int smonth;
+    int sday;
+
+    sprintf(buf,"%d-%d-%d",year,month,day);
+    printf("%s\n",buf);
+    
+    // 从字符数组中按照格式取出并且放到指定的变量中
+    sscanf(buf,"%d-%d-%d",&syear,&smonth,&sday);
+    printf("%d,%d,%d\n",syear,smonth,sday);
+```
+
+每隔一秒向文件中写入当前系统时间，系统时间追加到文件末尾，序号递增。
+
+```c
+#include <time.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <string.h>
+
+
+int main(int argc,char *argv[]){
+	
+     FILE *fp;
+     time_t ctime;
+     struct tm *ctimestr;
+     int linecount = 0; 
+     char buf[32];
+     fp=fopen("test.txt","a+");
+     if(fp==NULL){
+         perror("fopen");
+         return 0;
+
+     }
+	 
+     //calculate test.txt  line    
+     while(fgets(buf,32,fp)!=NULL){
+         
+          if(buf[strlen(buf)-1] =='\n'){
+               linecount++;
+          }
+
+
+    } 
+
+     while(1){
+         ctime = time(NULL);
+         //printf("ctime=%d\n",(int)ctime);
+         ctimestr = localtime(&ctime);
+         printf("%04d-%02d-%02d %02d:%02d:%02d\n",ctimestr->tm_year+1900,ctimestr->tm_mon+1,ctimestr->tm_mday,
+                                     ctimestr->tm_hour,ctimestr->tm_min,ctimestr->tm_sec);
+         fprintf(fp,"%d, %04d-%02d-%02d %02d:%02d:%02d\n",linecount,ctimestr->tm_year+1900,ctimestr->tm_mon+1,ctimestr->tm_mday,
+                                     ctimestr->tm_hour,ctimestr->tm_min,ctimestr->tm_sec);
+         fflush(fp);
+         linecount++;
+         sleep(1);
+     }
+
+     fclose(fp);
+
+}
+```
+
+# 文件I/O
+
+## 定义
+
+标准I/O：通过库提供的一组标准函数供应用程序使用，在使用标准I/O函数时不需要关系操作系统 ；而库函数则需要通过调用各操作系统提供的文件I/O(另一个名字：系统I/O或者系统调用，各个操作系统提供的系统调用是不一样的，linux和window差别非常大)接口实现对文件的操作。
+
+1. 文件I/O是操作系统提供的API接口函数。
+2. 文件I/O不提供缓冲机制。
+3. 核心概念是文件描述符。
+4. Linux下, 标准IO基于文件IO实现。
+
+|      | 标准I/O                              | 文件I/O |
+| ---- | ------------------------------------ | ------- |
+| 打开 | fopen,freopen,fdopen                 | open    |
+| 关闭 | fclose                               | close   |
+| 读   | getc,fgetc,getchar,fgets,gets,fread  | read    |
+| 写   | putc,fputc,putchar,fputs,puts,fwrite | write   |
+
+## 文件描述符
+
+1. 每个打开的文件都对应一个文件描述符。
+
+2. 文件描述符是一个非负整数。Linux为程序中每个打开的文件分配一个文件描述符。
+
+3. 文件描述符从0开始分配，依次递增。
+
+4. 文件IO操作通过文件描述符来完成。
+5. 文件描述符：0、1、2有特殊的含义；0：标准输入；1：标准输出；2：标准错误。每个应用程序都会默认产生这三个文件描述符，所以在应用程序里再打开的文件的话文件描述符是从3开始递增的。
+
+## open
+
+int open(const char *pathname, int flags);  // 不创建文件
+
+int open(const char *pathname, int flags, mode_t mode); // 创建文件，不能创建设备文件
+
+成功时返回文件描述符；出错时返回EOF
+
+只打开文件，使用两个参数
+
+创建文件时第三个参数指定新文件的权限，（只有在建立新文件时有效）此外真正建文件时的权限会受到umask 值影响，实际权限是mode - umask
+
+1. umask ：用来设定文件或目录的初始权限
+2. 文件或目录的初始权限 = 文件或目录的最大默认权限 - umask权限
+3. 例如root用户的最大默认权限是777，root用户的umask为0022，所以创建的文件或目录的初始权限为：文件或目录的最大默认权限 - umask权限=755，即用root用户创建的文件为：rwxr-xr-x
+
+可以打开设备文件，但是不能创建设备文件
+
+文件IO和标准的模式对应关系：
+
+r                  O_RDONLY
+
+r+                 O_RDWR
+
+w                 O_WRONLY | O_CREAT | O_TRUNC, 0664
+
+w+                O_RDWR | O_CREAT | O_TRUNC, 0664
+
+a                  O_WRONLY | O_CREAT | O_APPEND, 0664
+
+a+                 O_RDWR | O_CREAT | O_APPEND, 0664
+
+```c
+#include <stdio.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+
+int main(int argc,char *argv[]){
+
+    int fd;
+    int ret;
+
+    fd = open("test.txt",O_WRONLY|O_CREAT|O_TRUNC, 0666);
+    if(fd<0){
+       printf("open file err\n");
+       return 0;
+
+    }
+    printf("sucess,fd=%d\n",fd);
+    ret=  close(fd);
+    if(ret<0){
+        printf("close failed\n");
+    }
+    ret=close(fd);
+    printf("ret=%d\n",ret);
+}
+```
+

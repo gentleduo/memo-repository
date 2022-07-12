@@ -187,7 +187,7 @@ graph LR
 
 1. 特点：可执行文件中包含了库代码的一份完整拷贝
 2. 优点：程序在运行时就不需要函数库了。
-3. 缺点：被多次使用就会多份冗余拷贝，因为所有相关的目标文件和牵涉到的函数库被链接合成一个可执行文件。生成的可执行文件较大。
+3. 缺点：被多次使用就会多份冗余拷贝，因为所有相关的目标文件和牵涉到的函数库被链接合成一个可执行文件。生成的可执行文件较大。静态库升级后，程序需要重新编译链接。
 
 ### 动态链接库
 
@@ -246,7 +246,27 @@ linux下静态库的后缀名为.a文件，这时使用静态库来链接使用�
 ##### 生成
 
 1. 先将hello.c生成二进制文件gcc -c hello.c -o hello.o
-2. 由.o文件创建静态库:静态库文件名的命名规范是以lib为前缀，紧接着跟静态库名，扩展名为.a。例如：将创建的静态库名为myhello，则静态库文件名就是libmyhello.a。在创建和使用静态库时，需要注意这点。创建静态库用ar命令。ar cr libmyhello.a hello.o这里如果有多个.o文件可以在命令后面加入多个.o文件将他们一起打包成一个静态库文件。
+
+2. 由.o文件创建静态库:静态库文件名的命名规范是以lib为前缀，紧接着跟静态库名，扩展名为.a。例如：将创建的静态库名为myhello，则静态库文件名就是libmyhello.a。在创建和使用静态库时，需要注意这点。创建静态库用ar命令。ar -cr libmyhello.a hello.o这里如果有多个.o文件可以在命令后面加入多个.o文件将他们一起打包成一个静态库文件。
+
+   ar 参数：
+
+   - c  禁止在创建库时产生的正常消息
+   - r  如果指定的文件已经存在于库中，则替换它
+   - s  无论 ar 命令是否修改了库内容都强制重新生成库符号表
+   - v  将建立新库的详细的逐个文件的描述写至标准输出
+   - q  将指定的文件添加到库的末尾
+   - t  将库的目录写至标准输出 
+
+3. 查看库中符号信息：nm
+
+   ```bash
+   [root@server01 linking]# nm libmyhello.a
+   
+   hello.o:
+   0000000000000000 T hello
+                    U printf
+   ```
 
 ##### 使用
 
@@ -5862,6 +5882,270 @@ int main(int argc,char *argv[]){
     }
     ret=close(fd);
     printf("ret=%d\n",ret);
+}
+```
+
+## read 
+
+read函数用来从文件中读取数据:
+
+#include  <unistd.h>
+
+ssize_t  read(int fd, void *buf, size_t count);
+
+1. 成功时返回实际读取的字节数；出错时返回EOF
+
+2. 读到文件末尾时返回0
+
+3. buf是接收数据的缓冲区
+
+4. count不应超过buf大小
+
+## write
+
+write函数用来向文件写入数据:
+
+#include  <unistd.h>
+
+ssize_t  write(int fd, void *buf, size_t count);
+
+1. 成功时返回实际写入的字节数；出错时返回EOF
+
+2. buf是发送数据的缓冲区
+
+3. count不应超过buf大小
+
+## lseek
+
+lseek函数用来定位文件:
+
+#include  <unistd.h>
+
+off_t  lseek(int fd, off_t offset, intt whence);
+
+1. 成功时返回当前的文件读写位置；出错时返回EOF
+
+2. 参数offset和参数whence同fseek完全一样
+   1. SEEK_SET 从距文件开头 offset 位移量为新的读写位置
+   2. SEEK_CUR：以目前的读写位置往后增加 offset 个位移量
+   3. SEEK_END：将读写位置指向文件尾后再增加 offset 个位移量
+
+```c
+#include <stdio.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <string.h>
+
+int main(int argc,char *argv[]){
+
+    int fd;
+    int ret;
+    char buf[32] = "hello world";
+    char buf2[32];
+    fd = open("test.txt",O_RDWR | O_CREAT|O_APPEND, 0666);
+    if(fd<0){
+       printf("open file err\n");
+       return 0;
+
+    }
+    printf("sucess,fd=%d\n",fd);
+
+    ret=write(fd,buf,strlen(buf));
+    if(ret<0){
+       perror("write");
+       goto END;
+    }
+    printf("write count=%d\n",ret);
+
+    lseek(fd,0,SEEK_SET);
+
+    ret = read(fd,buf2,32);
+    if(ret<0){
+        perror("read");
+        goto END;
+    }
+    
+    // C语言中字符串的结束以'\0'(即ASCII码的0)为标志，而从文件中读数据是不会自动补'\0'的，所以这里需要在数组结束的后面加上结束符，否则printf的时候会出现预期外的数据被打印出来（printf打印的时候，如果是字符串它会一直从字符串在内存中开始的位置开始，直到碰到第一个'\0'才打印结束）
+    buf2[strlen(buf)]=0;
+    printf("read buf2=%s\n",buf2);
+
+END:
+   close(fd);
+}
+
+```
+
+## opendir
+
+#include  <dirent.h>
+
+DIR  *opendir(const char *name);
+
+DIR *fdopendir(int fd);  使用文件描述符，要配合open函数使用
+
+1. DIR是用来描述一个打开的目录文件的结构体类型
+
+2. 成功时返回目录流指针；出错时返回NULL
+
+## readdir
+
+#include  <dirent.h>
+
+struct  dirent *readdir(DIR *dirp);
+
+1. struct dirent是用来描述目录流中一个目录项的结构体类型
+
+2. 包含成员char  d_name[256]   参考帮助文档
+
+3. 成功时返回目录流dirp中下一个目录项；
+
+4. 出错或到末尾时时返回NULL
+
+## closedir
+
+closedir函数用来关闭一个目录文件:
+
+#include  <dirent.h>
+
+int closedir(DIR *dirp);
+
+1. 成功时返回0；出错时返回EOF
+
+```c
+#include <dirent.h>
+#include <stdio.h>
+
+int main(int argc,char **argv){
+
+    DIR* dp;
+    struct dirent *dt;
+    dp=opendir("/opt/C/");
+    if(dp<0){
+        perror("opendir");
+        return 0;
+    }
+
+    while((dt=readdir(dp))!=NULL){
+       printf("%s\n",dt->d_name);
+    }
+
+    closedir(dp);
+}
+```
+
+## chmod
+
+用来修改文件的访问权限:
+
+ \#include <sys/stat.h>
+
+ int chmod(const char *path, mode_t mode);
+
+## fchmod
+
+用来修改文件的访问权限:
+
+ \#include <sys/stat.h>
+
+ int fchmod(int fd, mode_t mode);
+
+```c
+#include <stdio.h>
+#include <sys/stat.h>
+
+int main(int argc,char **argv){
+   int ret;
+   ret = chmod("temp",0444);
+   if(ret<0){
+        perror("chmod");
+        return 0;
+    }
+}
+```
+
+## stat
+
+获取文件属性
+
+\#include <sys/stat.h>
+
+int stat(const char *path, struct stat *buf);
+
+int lstat(const char *path, struct stat *buf);
+
+int fstat(int fd, struct stat *buf);
+
+1. 成功时返回0；出错时返回EOF
+2. 如果path是符号链接stat获取的是目标文件的属性；而lstat获取的是链接文件的属性
+
+```c
+#include <stdio.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <time.h>
+
+int main (int argc,char **argv){
+
+   struct stat buf;
+   int ret;
+   ret = stat("chmod_t.c",&buf);
+   if(ret<0){
+      perror("stat");
+      return 0;
+
+   }
+   if(S_ISREG(buf.st_mode)){
+       printf("-");
+   }
+   if(S_ISDIR(buf.st_mode)){
+       printf("d");
+   }
+   if(S_ISCHR(buf.st_mode)){
+       printf("c");
+   }
+   if(S_ISBLK(buf.st_mode)){
+       printf("b");
+   }
+   if(S_ISFIFO(buf.st_mode)){
+       printf("p");
+   }
+   if(S_ISSOCK(buf.st_mode)){
+       printf("s");
+   }
+   
+//   printf(" ");
+   int i;
+   for(i=8;i>=0;i--){
+       if(buf.st_mode & (1<<i)){
+          switch(i%3){
+          case 2:
+              printf("r");
+              break;
+          case 1:
+              printf("w");
+              break;
+          case 0:
+              printf("x");
+              break;
+          }
+       }else{
+           printf("-");
+       }
+
+
+   }
+   
+   printf(" %d",(int)buf.st_size);
+
+   struct tm *t;
+   t = localtime(&buf.st_ctime);
+   printf(" %d-%d-%d %d:%d",t->tm_year+1900,t->tm_mon+1,t->tm_mday,t->tm_hour,t->tm_min);
+
+   printf(" chmod_t.c\n");
+
 }
 ```
 

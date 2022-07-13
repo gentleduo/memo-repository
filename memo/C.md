@@ -6384,3 +6384,394 @@ int main(int argc,char **argv){
 0 R root      1714  1677  0  80   0 - 28171 -      16:54 pts/1    00:00:00 grep --color=auto fork_t
 ```
 
+main进程fork出5个子进程及嵌套fork
+
+```c
+#include <stdio.h>
+#include <unistd.h>
+
+int main(){
+
+        pid_t pid;
+        int i;
+        for(i=0;i<5;i++){
+                pid = fork();
+                if(pid<0){
+                        perror("fork");
+                        return 0;
+                }else if(pid==0){
+                        printf("child process\n");
+                        sleep(1);
+                        // 如需实现main进程fork出5个子进程的效果的话，这里要加break；
+                        // 否则由main进程fork出的子进程又会继续for循环fork出孙子进程出来
+                        // 这里需要注意的是如果子进程继续for循环的话是会先完整的赋值一份父进程此时在内存中的数据到自己的内存空间中
+                        // 比如父进程此时i=2了，那么子进程接下来就是完成i++后，即从i=3开始循环
+                        //                      break;
+                }else{
+                        printf("Father process\n");
+                        sleep(1);
+                        // 如需实现main进程fork出A进程，然后再由A进程fork出B进程的话，此处要加break
+                        break;
+                }
+        }
+        while(1){
+                sleep(100);
+        }
+}
+```
+
+## 进程的退出
+
+\#include <stdlib.h> 
+
+#include <unistd.h>
+
+void exit(int status);
+
+void _exit(int status);
+
+结束当前的进程并将status返回
+
+exit结束进程时会刷新(流)缓冲区
+
+main函数结束后的return会隐式地调用exit函数(即时代码中没有return)，普通函数return是返回上一级。
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+
+int main(int argc,char**argv){
+
+        printf("hello world");
+        // _exit结束进程时不会刷新(流)缓冲区
+        //_exit(0);
+        //exit结束进程时会刷新(流)缓冲区
+        //exit(0);
+        printf("after exit");
+        // main函数结束后的return会隐式地调用exit函数
+        //return 0;
+}
+```
+
+## 进程的回收
+
+### wait
+
+#include  <unistd.h>
+
+pid_t wait(int *status); 
+
+成功时返回回收的子进程的进程号；失败时返回EOF
+
+若子进程没有结束，父进程一直阻塞
+
+若有多个子进程，哪个先结束就先回收
+
+status 指定保存子进程返回值和结束方式的地址
+
+status为NULL表示直接释放子进程PCB,不接收返回值
+
+### waitpid
+
+#include  <unistd.h>
+
+pid_t waitpid(pid_t pid, int *status, int option);
+
+参数：
+
+pid
+
+1. pid>0时，只等待进程ID等于pid的子进程，不管其它已经有多少子进程运行结束退出了，只要指定的子进程还没有结束，waitpid就会一直等下去。
+
+2. pid=-1时，等待任何一个子进程退出，没有任何限制，此时waitpid和wait的作用一模一样。
+
+3. pid=0时，等待同一个进程组中的任何子进程，如果子进程已经加入了别的进程组，waitpid不会对它做任何理睬。
+
+4. pid<-1时，等待一个指定进程组中的任何子进程，这个进程组的ID等于pid的绝对值。
+
+options
+
+1. options提供了一些额外的选项来控制waitpid，目前在Linux中只支持0或WNOHANG和WUNTRACED两个选项，这是两个常数，可以用"|"运算符把它们连接起来使用
+2. 0：阻塞等待子进程结束
+3. WNOHANG	：若由pid指定的子进程未发生状态改变(没有结束)，则waitpid()不阻塞，立即返回0
+
+4. WUNTRACED：	返回终止子进程信息和因信号停止的子进程信息
+5. wait(wait_stat) 等价于waitpid(-1,wait_stat,0)
+
+```c
+#include <stdio.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#include <stdlib.h>
+
+int main(int argc, char** argv){
+
+        pid_t pid;
+        pid_t rpid;
+        pid = fork();
+        int status;
+        if(pid<0){
+                perror("fork");
+                return 0;
+        }
+        else if(pid == 0){
+                sleep(2);
+                printf("child will exit\n");
+                exit(2);
+        }else if(pid >0){
+                //rpid = wait(&status);
+                //sleep(5);
+                // 阻塞等待子进程结束再回收，不会产生僵尸进程，相当于wait(&status)
+                waitpid(-1,&status,0);
+                // 由于此时子进程中sleep了2秒，而waitpid不会阻塞等待子进程的结束，所以也就没有回收子进程的资源，产生僵尸进程
+                //waitpid(-1,&status,WNOHANG);
+                printf("Get child status=%x\n",WEXITSTATUS(status));
+        }
+        while(1){
+                sleep(1);
+        }
+}
+```
+
+## exec函数族
+
+### fork和exec的区别
+
+#### fork
+
+一个程序一调用fork函数，系统就为一个新的进程准备了前述三个段，首先，系统让新的进程与旧的进程使用同一个代码段，因为它们的程序还是相同的，对于数据段和堆栈段，系统则复制一份给新的进程，这样，父进程的所有数据都可以留给子进程，但是，子进程一旦开始运行，虽然它继承了父进程的一切数据，但实际上数据却已经分开，相互之间不再有影响了，也就是说，它们之间不再共享任何数据了。而如果两个进程要共享什么数据的话，就要使用另一套函数（shmget，shmat，shmdt等）来操作。现在，已经是两个进程了，对于父进程，fork函数返回了子程序的进程号，而对于子程序，fork函数则返回零，这样，对于程序，只要判断fork函数的返回值，就知道自己是处于父进程还是子进程中。
+事实上，目前大多数的unix系统在实现上并没有作真正的copy。一般的，CPU都是以“页”为单位分配空间的，象INTEL的CPU，其一页在通常情况下是4K字节大小，而无论是数据段还是堆栈段都是由许多“页”构成的，fork函数复制这两个段，只是“逻辑”上的，并非“物理”上的，也就是说，实际执行fork时，物理空间上两个进程的数据段和堆栈段都还是共享着的，当有一个进程写了某个数据时，这时两个进程之间的数据才有了区  别，系统就将有区别的“页”从物理上也分开。系统在空间上的开销就可以达到最小。 
+
+#### exec
+
+一个进程一旦调用exec类函数，它本身就“死亡”了，系统把代码段替换成新的程序的代码，废弃原有的数据段和堆栈段，并为新程序分配新的数据段与堆栈段，唯一留下的，就是进程号，也就是说，对系统而言，还是同一个进程，不过已经是另一个程序了。不过exec类函数中有的还允许继承环境变量之类的信息，这个通过exec系列函数中的一部分函数的参数可以得到。
+
+### execl / execlp
+
+#include  <unistd.h>
+
+int execl(const char *path, const char *arg, …);
+
+int execlp(const char *file, const char *arg, …);
+
+成功时执行指定的程序；失败时返回EOF
+
+path   执行的程序名称，包含路径
+
+arg…  传递给执行的程序的参数列表
+
+file   执行的程序的名称，在PATH中查找
+
+注意：
+
+1. 两个函数区别execlp不需要写文件名全路径，在PATH查找
+2. 最后一个参数必须用空指针(NULL)作结束
+3. 第0个参数必须要写，虽然它没有使用
+
+```c
+#include <stdio.h>
+#include <unistd.h>
+
+int main(){
+
+   printf("before exec\n");
+   // 第0个参数必须要写，虽然它没有使用，如果不写的话那么就会把'-a'当作第0个参数，并且执行ls时会把它去掉，相当于执行的是：ls -l ./
+   if(execlp("ls","asdfadf","-a","-l","./",NULL)<0){
+        perror("execl");
+   }
+   // 由于调用exec函数后，系统把代码段替换成新的程序的代码了即：ls -a -l ./；并废弃了原有的数据段和堆栈段，所以下面的语句将不会被执行
+   printf("after exec\n");
+}
+```
+
+```c
+#include <stdio.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <stdlib.h>
+
+int main(){
+
+        pid_t pid;
+        int status;
+        printf("before exec\n");
+        pid = fork();
+        printf("pid = %d\n",(int)pid);
+        if(pid==0){
+                if(execl("/bin/ls","adfadf","-a","-l","./",NULL)<0){
+                        perror("execl");
+                }
+        }
+        // 这里如果不加wait的话感觉子进程因为没有被父进程回收而成为孤儿进程，但是使用ps命令通过pid又找不到fork出的子进程？
+        wait(&status);
+        printf("after execl\n");
+}
+```
+
+## 守护进程
+
+### 概念
+
+守护进程又叫精灵进程（Daemon Process），它是一个生存期较长的进程，通常独立于控制终端并且周期性地执行某种任务或等待处理某些发生的事件。
+
+### 特点
+
+始终在后台运行，独立于任何终端，周期性的执行某种任务或等待处理特定事件。
+
+它是个特殊的孤儿进程，这种进程脱离终端，为什么要脱离终端呢？之所以脱离于终端是为了避免进程被任何终端所产生的信息所打断，其在执行过程中的信息也不在任何终端上显示。由于在 Linux 中，每一个系统与用户进行交流的界面称为终端，每一个从此终端开始运行的进程都会依附于这个终端，这个终端就称为这些进程的控制终端，当控制终端被关闭时，相应的进程都会自动关闭。
+
+### 举例
+
+后台进程与守护进程的区别
+
+deamon_t.c
+
+```c
+#include <unistd.h>
+
+int main() {
+
+        while(1){
+                sleep(10);
+                printf("on running......\n");
+        }
+        return 0;
+}
+```
+
+在linux终端下通过./deamon_t &运行，发现后台进程具有以下特点：
+
+1. printf的内容会输出在终端
+2. 同一终端下通过jobs命令可以看到有哪些后台进程在运行
+3. 通过fg命令可以将后台进程修改至前台运行
+4. 终端退出，对应的任务也跟着退出
+
+```bash
+[root@server01 process]# gcc deamon_t.c -o deamon_t
+[root@server01 process]# ./deamon_t &
+[1] 1229
+[root@server01 process]# on running......
+on running......
+^C
+[root@server01 process]# jobs
+[1]+  运行中               ./deamon_t &
+[root@server01 process]# fg 1
+./deamon_t
+on running......
+on running......
+^C
+```
+
+在linux终端下通过nohup ./deamon_t 运行，发现nohup运行有如下特点：
+
+1. nohup表示：不挂断的运行，注意并没有后台运行的功能，就是指，用nohup运行命令可以使命令永久的执行下去，和用户终端没有关系，例如我们断开SSH连接都不会影响他的运行，注意了nohup没有后台运行的意思；&才是后台运行
+2. 关闭标准输入，终端不再能够接收任何输入（标准输入），重定向标准输出和标准错误到当前目录下的nohup.out文件
+3. 使用ctrl + c可以结束nohup运行的进程
+4. 退出帐户/关闭终端后可以发现进程没有结束，只是变成孤儿进程在后台运行
+
+```bash
+[root@server01 process]# nohup ./deamon_t
+nohup: 忽略输入并把输出追加到"nohup.out"
+[root@server01 process]# ps -elf | grep deamon_t
+0 S root      1508  1326  0  80   0 -  1043 hrtime 12:56 pts/0    00:00:00 ./deamon_t
+0 R root      1510  1491  0  80   0 - 28171 -      12:56 pts/1    00:00:00 grep --color=auto deamon_t
+[root@server01 process]# nohup ./deamon_t
+nohup: 忽略输入并把输出追加到"nohup.out"
+^C
+[root@server01 process]# ps -elf | grep deamon_t
+0 R root      1512  1491  0  80   0 - 28171 -      12:57 pts/1    00:00:00 grep --color=auto deamon_t
+```
+
+nohup ./deamon_t &
+
+由于&是指在后台运行，但当用户退出(关闭终端)的时候，命令自动也跟着退出，所以可以使用nohup结合&的方式使命令永久的在后台执行
+
+### 创建守护进程
+
+#### fork
+
+创建子进程，父进程退出
+
+1. 子进程变成孤儿进程，被init进程收养
+2. 子进程在后台运行
+
+#### setsid
+
+子进程创建新会话
+
+1. 子进程成为新的会话组长
+2. 子进程脱离原先的终端
+
+#### chdir
+
+更改当前工作目录（非必须）
+
+1. 守护进程一直在后台运行，其工作目录不能被卸载
+
+2. 重新设定当前工作目录cwd
+
+#### umask
+
+重设文件权限掩码
+
+1. 文件权限掩码设置为0
+
+2. 只影响当前进程
+
+#### close
+
+关闭打开的文件描述符
+
+1. 关闭所有从父进程继承的打开文件
+
+2. 已脱离终端，stdin / stdout / stderr无法再使用
+
+```c
+#include <stdio.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <sys/stat.h>
+
+int main(){
+
+        pid_t pid;
+        pid = fork();
+        if(pid<0){
+                perror("fork");
+                return 0;
+
+        }else if(pid>0){
+                exit(0);
+                //    sleep(100);
+        }
+        printf("I am a deamon\n");
+        // pid_t getsid(pid_t pid)：成功：返回调用进程的会话ID；失败：-1，pid为0表示察看当前进程session ID
+        // pid_t getpid(void)：      获取进程id
+        // pid_t getpgid(pid_t pid)：   获取进程组id
+        printf("sid=%d,pid=%d,pgid=%d\n",getsid(getpid()),getpid(),getpgid(getpid()));
+
+        if(setsid()<0){
+                perror("setsid");
+                exit(0);
+        }
+
+        printf("after sid=%d,pid=%d,pgid=%d\n",getsid(getpid()),getpid(),getpgid(getpid()));
+
+        chdir("/");
+
+        if(umask(0)<0){
+                perror("unmask");
+                exit(0);
+        }
+
+        close(0);
+        close(1);
+        close(2);
+        // 由于标准输出流的文件描述符被关了，所以下面的printf是无法输出到终端的
+        printf("after close \n");
+        sleep(10);
+}
+```
+

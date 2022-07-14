@@ -98,17 +98,18 @@ gdb test
 
 调试流程
 
-| 功能         | 快捷键  |
-| ------------ | ------- |
-| 查看文件     | l       |
-| 设置断点     | b 6     |
-| 查看断点情况 | info b  |
-| 运行代码     | r       |
-| 查看变量值   | p n     |
-| 单步运行     | n  /  s |
-| 恢复程序运行 | c       |
-| 退出         | q       |
-| 帮助         | help    |
+| 功能                                                         | 快捷键  |
+| ------------------------------------------------------------ | ------- |
+| 查看文件                                                     | l       |
+| 设置断点                                                     | b 6     |
+| 查看断点情况                                                 | info b  |
+| 运行代码                                                     | r       |
+| 查看变量值                                                   | p n     |
+| 单步运行                                                     | n  /  s |
+| 恢复程序运行                                                 | c       |
+| 退出                                                         | q       |
+| 出现Thread 1 "pcancel" received signal SIGSEGV, Segmentation fault.<br>输入命令bt（打印调用栈） | bt      |
+| 帮助                                                         | help    |
 
 调试多进程程序
 
@@ -6998,3 +6999,160 @@ int main(){
 }
 ```
 
+### 线程的取消
+
+int pthread_cancel(pthread_t thread);
+
+注意：线程的取消要有取消点才可以，不是说取消就取消，线程的取消点主要是阻塞的系统调用
+
+```c
+#include <pthread.h>
+#include <stdio.h>
+#include <unistd.h>
+
+void *func(void *arg){
+
+        printf("This is child thread\n");
+        while(1){
+                // 如果将sleep注释掉，那么相当于该线程内没有取消点，那么再调用pthread_cancel将不起作用过了，
+                sleep(5);
+                // 如果没有取消点，可以通过pthread_testcancel手动设置一个
+                // pthread_testcancel();
+        }
+        pthread_exit("thread return");
+}
+
+int main(){
+
+        pthread_t tid;
+        void *retv;
+        int i;
+        pthread_create(&tid,NULL,func,NULL);
+        sleep(5);
+        pthread_cancel(tid);
+        pthread_join(tid,&retv);
+        //    printf("thread ret=%s\n",(char*)retv);
+        while(1){
+                sleep(1);
+        }
+}
+```
+
+设置取消使能或禁止
+
+int pthread_setcancelstate(int state, int *oldstate);
+
+PTHREAD_CANCEL_ENABLE
+
+PTHREAD_CANCEL_DISABLE
+
+设置取消类型
+
+int pthread_setcanceltype(int type, int *oldtype);
+
+PTHREAD_CANCEL_DEFERRED        等到取消点才取消
+
+PTHREAD_CANCEL_ASYNCHRONOUS      目标线程会立即取消
+
+```c
+#include <pthread.h>
+#include <stdio.h>
+#include <unistd.h>
+
+void *func(void *arg){
+
+        printf("This is child thread\n");
+        // 设置线程不能取消
+        pthread_setcancelstate(PTHREAD_CANCEL_DISABLE,NULL);
+        sleep(5);
+        // 设置线程能取消，所以此时等价于线程在sleep5秒之后才能被取消
+        pthread_setcancelstate(PTHREAD_CANCEL_ENABLE,NULL);
+        while(1){
+                sleep(1);
+        }
+
+
+        pthread_exit("thread return");
+}
+
+int main(){
+
+        pthread_t tid;
+        void *retv;
+        int i;
+        pthread_create(&tid,NULL,func,NULL);
+        sleep(1);
+        pthread_cancel(tid);
+        pthread_join(tid,&retv);
+        //    printf("thread ret=%s\n",(char*)retv);
+        while(1){
+                sleep(1);
+        }
+}
+```
+
+### 线程的清理
+
+必要性： 当线程非正常终止，需要清理一些资源。
+
+void pthread_cleanup_push(void (*routine) (void *), void *arg)
+
+void pthread_cleanup_pop(int execute)
+
+routine 函数被执行的条件：
+
+1. 被pthread_cancel取消掉。
+2. 执行pthread_exit 
+3. 非0参数执行pthread_cleanup_pop()
+
+注意：
+
+1. 必须成对使用，即使pthread_cleanup_pop不会被执行到也必须写上，否则编译错误。
+2. pthread_cleanup_pop()被执行且参数为0，pthread_cleanup_push回调函数routine不会被执行.
+3. pthread_cleanup_push 和pthread_cleanup_pop可以写多对，routine执行顺序正好相反
+4. 线程内的return 可以结束线程，也可以给pthread_join返回值，但不能触发pthread_cleanup_push里面的回调函数，所以我们结束线程尽量使用pthread_exit退出线程。
+
+```c
+#include <pthread.h>
+#include <stdio.h>
+#include <unistd.h>
+
+void cleanup1(void *arg){
+
+        printf("cleanup1,arg=%s\n",(char*)arg);
+}
+
+void cleanup2(void* arg){
+
+        printf("cleanup2,arg=%s\n",(char*)arg);
+}
+
+void *func(void *arg){
+
+        printf("This is child thread\n");
+        // 目标线程会立即取消
+        //pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS,NULL);
+        pthread_cleanup_push(cleanup1,"cleaup1");
+        pthread_cleanup_push(cleanup2,"cleaup2");
+        sleep(1);
+
+        pthread_exit("thread return");
+        pthread_cleanup_pop(0);
+        pthread_cleanup_pop(0);
+}
+
+int main(){
+
+        pthread_t tid;
+        void *retv;
+        int i;
+        pthread_create(&tid,NULL,func,NULL);
+        sleep(1);
+        //pthread_cancel(tid);
+        pthread_join(tid,&retv);
+        //printf("thread ret=%s\n",(char*)retv);
+        while(1){
+                sleep(1);
+        }
+}
+```

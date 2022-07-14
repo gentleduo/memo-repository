@@ -110,6 +110,21 @@ gdb test
 | 退出         | q       |
 | 帮助         | help    |
 
+调试多进程程序
+
+set follow-fork-mode child     设置GDB调试子进程
+
+set follow-fork-mode parent   设置GDB调试父进程
+
+set detach-on-fork  on/off    设置GDB跟踪调试单个进程或多个
+
+1. on: 只调试父进程或子进程的其中一个，(根据follow-fork-mode来决定)，这是默认的模式
+2. off：父子进程都在gdb的控制之下，其中一个进程正常调试(根据follow-fork-mode来决定),另一个进程会被设置为暂停状态。
+
+info inferiors    显示GDB调试的进程
+
+inferiors  进程序号（1,2,3....）  切换GDB调试的进程
+
 ## 条件编译
 
 常见的条件编译有两种方法：
@@ -6151,59 +6166,61 @@ int main (int argc,char **argv){
 
 # 进程、线程和进程间通信
 
-## 概念
+## 进程
 
-### 程序
+### 概念
+
+#### 程序
 
 存放在磁盘上的指令和数据的有序集合（文件），静态的。
 
-### 进程
+#### 进程
 
 执行一个程序所分配的资源的总称，进程是程序的一次执行过程，动态的，包括创建、调度、执行和消亡
 
-## 进程内容
+### 进程内容
 
-### BSS段
+#### BSS段
 
 BSS段通常是指用来存放程序中未初始化的全局变量的一块内存区域。BSS是英文Block Started by Symbol的简称。
 
-### 数据段
+#### 数据段
 
 数据段通常是指用来存放程序中已初始化的全局变量的一块内存区域。
 
-### 代码段
+#### 代码段
 
 代码段通常是指用来存放程序执行代码的一块内存区域。这部分区域的大小在程序运行前就已经确定，在代码段中，也有可能包含一些只读的常数变量，例如字符串常量等。
 
-### 堆(heap)
+#### 堆(heap)
 
 堆是用于存放进程运行中被动态分配的内存段，当进程调用malloc等函数分配内存时，新分配的内存就被动态添加到堆上（堆被扩张）；当利用free等函数释放内存时，被释放的内存从堆中被剔除（堆被缩减）
 
-### 栈(stack)
+#### 栈(stack)
 
 栈又称堆栈， 是用户存放程序临时创建的局部变量，（但不包括static声明的变量，static意味着在数据段中存放变量）。除此以外，在函数被调用时，其参数也会被压入发起调用的进程栈中，并且待到调用结束后，函数的返回值也会被存放回栈中。由于栈的先进后出特点，所以栈特别方便用来保存/恢复调用现场。从这个意义上讲，我们可以把堆栈看成一个寄存、交换临时数据的内存区。
 
-### 进程控制块(pcb)
+#### 进程控制块(pcb)
 
 包含进程的一些基本信息：进程标识PID、进程用户、进程状态及优先级、文件描述符表等
 
-## 进程类型
+### 进程类型
 
-### 交互进程
+#### 交互进程
 
 在shell下启动。以在前台运行，也可以在后台运行
 
-### 批处理进程
+#### 批处理进程
 
 和在终端无关，被提交到一个作业队列中以便顺序执行
 
-### 守护进程
+#### 守护进程
 
 和终端无关，一直在后台运行
 
-## 查看进程信息
+### 查看进程信息
 
-### ps
+#### ps
 
 查看系统进程快照
 
@@ -6230,7 +6247,7 @@ ps 命令详细参数：
 | TIME  | 该进程占用 CPU 的运算时间，注意不是系统时间；                |
 | CMD   | 产生此进程的命令名；                                         |
 
-### top
+#### top
 
 查看进程动态信息
 
@@ -6238,13 +6255,13 @@ ps 命令详细参数：
 2. shift +< 前翻页
 3. top -p PID 查看某个进程
 
-### /proc
+#### /proc
 
 查看进程详细信息
 
-## 改变进程优先级
+### 改变进程优先级
 
-### nice
+#### nice
 
 按用户指定的优先级运行进程：nice [-n NI值] 命令
 
@@ -6253,29 +6270,29 @@ ps 命令详细参数：
 3. 普通用户只能调高 NI 值，而不能降低。如原本 NI 值为 0，则只能调整为大于 0。
 4. 只有 root 用户才能设定进程 NI 值为负值，而且可以调整任何用户的进程。
 
-### renice
+#### renice
 
 改变正在运行进程的优先级：renice [优先级] PID
 
-## 前后台进程切换
+### 前后台进程切换
 
-### jobs
+#### jobs
 
 查看后台进程
 
-### bg
+#### bg
 
 将挂起的进程在后台运行
 
-### fg
+#### fg
 
 把后台运行的进程放到前台运行
 
-### ctrl + c 
+#### ctrl + c 
 
 结束进程 
 
-### ctrl + z
+#### ctrl + z
 
 把运行的前台进程转为后台并停止。
 
@@ -6309,7 +6326,7 @@ int main() {
 [root@server01 C]#
 ```
 
-## 创建子进程
+### 创建子进程
 
 \#include <unistd.h>
 
@@ -6420,7 +6437,7 @@ int main(){
 }
 ```
 
-## 进程的退出
+### 进程的退出
 
 \#include <stdlib.h> 
 
@@ -6454,9 +6471,9 @@ int main(int argc,char**argv){
 }
 ```
 
-## 进程的回收
+### 进程的回收
 
-### wait
+#### wait
 
 #include  <unistd.h>
 
@@ -6472,7 +6489,7 @@ status 指定保存子进程返回值和结束方式的地址
 
 status为NULL表示直接释放子进程PCB,不接收返回值
 
-### waitpid
+#### waitpid
 
 #include  <unistd.h>
 
@@ -6534,20 +6551,20 @@ int main(int argc, char** argv){
 }
 ```
 
-## exec函数族
+### exec函数族
 
-### fork和exec的区别
+#### fork和exec的区别
 
-#### fork
+##### fork
 
 一个程序一调用fork函数，系统就为一个新的进程准备了前述三个段，首先，系统让新的进程与旧的进程使用同一个代码段，因为它们的程序还是相同的，对于数据段和堆栈段，系统则复制一份给新的进程，这样，父进程的所有数据都可以留给子进程，但是，子进程一旦开始运行，虽然它继承了父进程的一切数据，但实际上数据却已经分开，相互之间不再有影响了，也就是说，它们之间不再共享任何数据了。而如果两个进程要共享什么数据的话，就要使用另一套函数（shmget，shmat，shmdt等）来操作。现在，已经是两个进程了，对于父进程，fork函数返回了子程序的进程号，而对于子程序，fork函数则返回零，这样，对于程序，只要判断fork函数的返回值，就知道自己是处于父进程还是子进程中。
 事实上，目前大多数的unix系统在实现上并没有作真正的copy。一般的，CPU都是以“页”为单位分配空间的，象INTEL的CPU，其一页在通常情况下是4K字节大小，而无论是数据段还是堆栈段都是由许多“页”构成的，fork函数复制这两个段，只是“逻辑”上的，并非“物理”上的，也就是说，实际执行fork时，物理空间上两个进程的数据段和堆栈段都还是共享着的，当有一个进程写了某个数据时，这时两个进程之间的数据才有了区  别，系统就将有区别的“页”从物理上也分开。系统在空间上的开销就可以达到最小。 
 
-#### exec
+##### exec
 
 一个进程一旦调用exec类函数，它本身就“死亡”了，系统把代码段替换成新的程序的代码，废弃原有的数据段和堆栈段，并为新程序分配新的数据段与堆栈段，唯一留下的，就是进程号，也就是说，对系统而言，还是同一个进程，不过已经是另一个程序了。不过exec类函数中有的还允许继承环境变量之类的信息，这个通过exec系列函数中的一部分函数的参数可以得到。
 
-### execl / execlp
+#### execl / execlp
 
 #include  <unistd.h>
 
@@ -6610,19 +6627,19 @@ int main(){
 }
 ```
 
-## 守护进程
+### 守护进程
 
-### 概念
+#### 概念
 
 守护进程又叫精灵进程（Daemon Process），它是一个生存期较长的进程，通常独立于控制终端并且周期性地执行某种任务或等待处理某些发生的事件。
 
-### 特点
+#### 特点
 
 始终在后台运行，独立于任何终端，周期性的执行某种任务或等待处理特定事件。
 
 它是个特殊的孤儿进程，这种进程脱离终端，为什么要脱离终端呢？之所以脱离于终端是为了避免进程被任何终端所产生的信息所打断，其在执行过程中的信息也不在任何终端上显示。由于在 Linux 中，每一个系统与用户进行交流的界面称为终端，每一个从此终端开始运行的进程都会依附于这个终端，这个终端就称为这些进程的控制终端，当控制终端被关闭时，相应的进程都会自动关闭。
 
-### 举例
+#### 举例
 
 后台进程与守护进程的区别
 
@@ -6688,23 +6705,23 @@ nohup ./deamon_t &
 
 由于&是指在后台运行，但当用户退出(关闭终端)的时候，命令自动也跟着退出，所以可以使用nohup结合&的方式使命令永久的在后台执行
 
-### 创建守护进程
+#### 创建守护进程
 
-#### fork
+##### fork
 
 创建子进程，父进程退出
 
 1. 子进程变成孤儿进程，被init进程收养
 2. 子进程在后台运行
 
-#### setsid
+##### setsid
 
 子进程创建新会话
 
 1. 子进程成为新的会话组长
 2. 子进程脱离原先的终端
 
-#### chdir
+##### chdir
 
 更改当前工作目录（非必须）
 
@@ -6712,7 +6729,7 @@ nohup ./deamon_t &
 
 2. 重新设定当前工作目录cwd
 
-#### umask
+##### umask
 
 重设文件权限掩码
 
@@ -6720,7 +6737,7 @@ nohup ./deamon_t &
 
 2. 只影响当前进程
 
-#### close
+##### close
 
 关闭打开的文件描述符
 
@@ -6772,6 +6789,212 @@ int main(){
         // 由于标准输出流的文件描述符被关了，所以下面的printf是无法输出到终端的
         printf("after close \n");
         sleep(10);
+}
+```
+
+## 线程
+
+### 线程的创建
+
+#include  <pthread.h>
+int  pthread_create(pthread_t *thread, const pthread_attr_t *attr, void *(*routine)(void *), void *arg);
+
+1. 成功返回0，失败时返回错误码
+2. thread 线程对象
+3. attr 线程属性，NULL代表默认属性
+4. routine 线程执行的函数
+5. arg 传递给routine的参数 ，参数是void * ，注意传递参数格式，
+6. 编译时候加 -lpthread
+7. 主进程的退出，它创建的线程也会退出。
+
+### 线程间的参数传递
+
+```c
+#include <pthread.h>
+#include <stdio.h>
+#include <unistd.h>
+
+void *testThread(void *arg){
+    
+        // 获取线程的id:pthread_self
+        printf("This is a thread test,pid=%d,tid=%lu\n",getpid(),pthread_self());
+        // return NULL;
+        // 这里直接转换成整型即可，这种传递相当于值传递，编译器会告警；并且需要注意保证数据长度正确，比如当是long long型的数据的话它的长度就超过了指针数据的长度
+        //printf("input arg=%d\n",(int)arg);
+        printf("input arg=%d\n",*(int *)arg);
+        pthread_exit(NULL);
+        printf("after pthread exit\n");
+}
+int main(){
+        pthread_t tid;
+        int ret;
+        int arg = 5;
+        //将整型变量的值作为地址传递，因为其实地址也是数值，所以这里的含义是把5当作一个地址数据传递给函数   
+        //ret = pthread_create(&tid,NULL,testThread,(void *)arg);
+        // 通过地址传递参数，注意类型的转换
+        ret = pthread_create(&tid,NULL,testThread,(void *)&arg);
+
+        printf("This is main thread,tid=%lu\n",tid);
+        sleep(1);
+}
+```
+
+### 通过命令查看线程
+
+mpthread.c
+
+```c
+#include <pthread.h>
+#include <stdio.h>
+#include <unistd.h>
+
+void *testThread(void *arg){
+
+        printf("This is a thread test,pid=%d,tid=%lu\n",getpid(),pthread_self());
+        // return NULL;
+        printf("This is %d thread.\n", (int)arg);
+        // pthread_exit(NULL);
+        while(1){
+                sleep(1);
+        }
+        printf("after pthread exit\n");
+}
+
+int main(){
+        pthread_t tid[5];
+        int ret;
+        int arg = 5;
+        int i;
+        for(i=0;i<5;i++){
+                ret = pthread_create(&tid[i],NULL,testThread,(void *)i);
+
+                //        sleep(1);
+                printf("This is main thread,tid=%lu\n",tid[i]);
+        }
+        while(1){
+                sleep(1);
+        }
+}
+```
+
+ps -eLf | grep mpthread
+
+```bash
+[root@server01 ~]# ps -eLf | grep mpthread
+root      1151  1062  1151  0    6 12:48 pts/0    00:00:00 ./mpthread
+root      1151  1062  1152  0    6 12:48 pts/0    00:00:00 ./mpthread
+root      1151  1062  1153  0    6 12:48 pts/0    00:00:00 ./mpthread
+root      1151  1062  1154  0    6 12:48 pts/0    00:00:00 ./mpthread
+root      1151  1062  1155  0    6 12:48 pts/0    00:00:00 ./mpthread
+root      1151  1062  1156  0    6 12:48 pts/0    00:00:00 ./mpthread
+root      1160  1127  1160  0    1 12:49 pts/1    00:00:00 grep --color=auto mpthread
+```
+
+### 线程的回收
+
+线程的资源回收有两种方式：pthread_join和线程分离；pthread_join主进程会产生阻塞
+
+#### pthread_join
+
+#include  <pthread.h>
+int  pthread_join(pthread_t thread, void **retval);
+
+1. 对于一个默认属性的线程 A 来说，线程占用的资源并不会因为执行结束而得到释放 
+2. 成功返回0，失败时返回错误码
+3. thread 要回收的线程对象
+4. 调用线程阻塞直到thread结束
+5. *retval 接收线程thread的返回值
+
+```c
+#include <pthread.h>
+#include <stdio.h>
+#include <unistd.h>
+
+void *func(void *arg){
+        printf("This is child thread\n");
+        pthread_exit("thread return");
+
+}
+
+int main(){
+
+        pthread_t tid;
+        void *retv;
+        pthread_create(&tid,NULL,func,NULL);
+        pthread_join(tid,&retv);
+        printf("thread ret=%s\n",(char*)retv);
+}
+```
+
+#### 线程分离
+
+使线程主动与主控线程断开关系。线程结束后自动回收资源（不会产生僵尸线程）
+
+##### pthread_detach
+
+```c
+#include <pthread.h>
+#include <stdio.h>
+#include <unistd.h>
+
+void *func(void *arg){
+    
+    pthread_detach(pthread_self());
+    printf("This is child thread\n");
+    sleep(5);
+    pthread_exit("thread return");
+}
+
+
+int main(){
+    
+    pthread_t tid[5];
+    void *retv;
+    int i;
+    for(i=0;i<5;i++){
+        pthread_create(&tid[i],NULL,func,NULL);
+       // pthread_detach(tid);
+    }
+    
+    while(1){    
+        sleep(1);
+    } 
+}
+```
+
+##### 分离属性
+
+```c
+#include <pthread.h>
+#include <stdio.h>
+#include <unistd.h>
+
+void *func(void *arg){
+    
+    printf("This is child thread\n");
+    sleep(5);
+    pthread_exit("thread return");
+
+}
+
+
+int main(){
+    
+    pthread_t tid[5];
+    void *retv;
+    int i;
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setdetachstate(&attr,PTHREAD_CREATE_DETACHED);
+
+    for(i=0;i<5;i++){
+        pthread_create(&tid[i],&attr,func,NULL);
+       // pthread_detach(tid);
+    }
+    
+    while(1){    
+        sleep(1);
+    } 
 }
 ```
 

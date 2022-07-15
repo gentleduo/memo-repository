@@ -126,6 +126,16 @@ info inferiors    显示GDB调试的进程
 
 inferiors  进程序号（1,2,3....）  切换GDB调试的进程
 
+调试多线程
+
+显示线程 info thread 
+
+切换线程 thread id
+
+GDB为特定线程设置断点 break location thread id (b 6 thread 3：在线程3的第6行加断点)
+
+GDB设置线程锁 set scheduler-locking on/off  (on：其他线程会暂停。可以单独调试一个线程)
+
 ## 条件编译
 
 常见的条件编译有两种方法：
@@ -7156,3 +7166,547 @@ int main(){
         }
 }
 ```
+
+### 线程的互斥和同步
+
+1. 临界资源： 一次只允许一个任务(进程、线程)访问的共享资源
+
+2. 临界区：访问临界资源的代码
+
+3. 互斥机制：mutex互斥锁，任务访问临界资源前申请锁，访问完后释放锁
+
+#### 互斥锁
+
+##### 互斥锁创建
+
+两种方法创建互斥锁，静态方式和动态方式
+
+###### 动态方式：
+
+#include  <pthread.h>
+int  pthread_mutex_init(pthread_mutex_t *mutex, const pthread_mutexattr_t *  attr);
+
+1. 成功时返回0，失败时返回错误码
+2. mutex  指向要初始化的互斥锁对象
+3. attr  互斥锁属性，NULL表示缺省属性
+4. man 函数出现 No manual entry for pthread_mutex_xxx解决办法  apt-get install manpages-posix-dev 
+
+###### 静态方式：
+
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+
+##### 互斥锁销毁
+
+int pthread_mutex_destroy(pthread_mutex_t *mutex)
+
+##### 申请锁
+
+ \#include <pthread.h>
+
+ int pthread_mutex_lock(pthread_mutex_t *mutex);
+
+ int pthread_mutex_trylock(pthread_mutex_t *mutex)
+
+1. 成功时返回0，失败时返回错误码
+2. mutex  指向要初始化的互斥锁对象
+3. pthread_mutex_lock 如果无法获得锁，任务阻塞
+4. pthread_mutex_trylock 如果无法获得锁，返回EBUSY而不是挂起等待
+
+##### 释放锁
+
+#include  <pthread.h>
+
+int  pthread_mutex_unlock(pthread_mutex_t *mutex);
+
+1. 成功时返回0，失败时返回错误码
+2. mutex  指向要初始化的互斥锁对象
+3. 执行完临界区要及时释放锁
+
+```c
+#include <pthread.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <string.h>
+
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+FILE *fp;
+
+void *func2(void *arg){
+
+        pthread_detach(pthread_self());
+        printf("This func2 thread\n");
+
+        char str[]="I write func2 line\n";
+        char c;
+        int i=0;
+        while(1){
+                pthread_mutex_lock(&mutex);
+                while(i<strlen(str))
+                {
+                        c = str[i];
+                        fputc(c,fp);
+                        usleep(1);
+                        i++;
+                }
+                pthread_mutex_unlock(&mutex);
+                i=0;
+                usleep(1);
+
+        }
+
+        pthread_exit("func2 exit");
+
+}
+
+void *func(void *arg){
+        pthread_detach(pthread_self());
+        printf("This is func1 thread\n");
+        char str[]="You read func1 thread\n";
+        char c;
+        int i=0;
+        while(1){
+                pthread_mutex_lock(&mutex);
+                while(i<strlen(str))
+                {
+                        c = str[i];
+                        fputc(c,fp);
+                        i++;
+                        usleep(1);
+                }
+                pthread_mutex_unlock(&mutex);
+                i=0;
+                usleep(1);
+
+        }
+        pthread_exit("func1 exit");
+}
+
+
+int main(){
+
+        pthread_t tid,tid2;
+        void *retv;
+        int i;
+        fp = fopen("1.txt","a+");
+        if(fp==NULL){
+                perror("fopen");
+                return 0;
+        }
+        pthread_create(&tid,NULL,func,NULL);
+        pthread_create(&tid2,NULL,func2,NULL);
+        while(1){
+                sleep(1);
+        }
+}
+```
+
+#### 读写锁
+
+##### 特点
+
+写者：写者使用写锁，如果当前没有读者，也没有其他写者，写者立即获得写锁；否则写者将等待，直到没有读者和写者。
+
+读者：读者使用读锁，如果当前没有写者，读者立即获得读锁；否则读者等待，直到没有写者。
+
+##### 注意
+
+同一时刻只有一个线程可以获得写锁，同一时刻可以有多个线程获得读锁。
+
+读写锁出于写锁状态时，所有试图对读写锁加锁的线程，不管是读者试图加读锁，还是写者试图加写锁，都会被阻塞。
+
+读写锁处于读锁状态时，有写者试图加写锁时，之后的其他线程的读锁请求会被阻塞，以避免写者长时间的不写锁
+
+1. 初始化一个读写锁   pthread_rwlock_init
+2. 读锁定读写锁           pthread_rwlock_rdlock
+3. 非阻塞读锁定　　   pthread_rwlock_tryrdlock
+4. 写锁定读写锁           pthread_rwlock_wrlock
+5. 非阻塞写锁定           pthread_rwlock_trywrlock
+6. 解锁读写锁               pthread_rwlock_unlock
+7. 释放读写锁               pthread_rwlock_destroy
+
+```c
+#include <pthread.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <string.h>
+
+pthread_rwlock_t rwlock;
+FILE *fp;
+
+void * read_func(void *arg){
+
+	pthread_detach(pthread_self());
+	printf("read thread\n");
+	char buf[32]={0};
+	while(1){
+		//rewind(fp);
+		pthread_rwlock_rdlock(&rwlock);
+		while(fgets(buf,32,fp)!=NULL){
+			printf("%d,rd=%s\n",(int)arg,buf);
+			usleep(1000);
+		}
+		pthread_rwlock_unlock(&rwlock);
+		sleep(1);
+	}
+
+}
+
+void *func2(void *arg){
+
+	pthread_detach(pthread_self());
+	printf("This func2 thread\n");
+	char str[]="I write func2 line\n";
+	char c;
+	int i=0;
+	while(1){
+		pthread_rwlock_wrlock(&rwlock);
+		while(i<strlen(str))
+		{
+			c = str[i];
+			fputc(c,fp);
+			usleep(1);
+			i++;
+		}
+		pthread_rwlock_unlock(&rwlock);
+		i=0;
+		usleep(1);
+
+	}
+	pthread_exit("func2 exit");
+
+}
+
+void *func(void *arg){
+
+	pthread_detach(pthread_self());
+	printf("This is func1 thread\n");
+	char str[]="You read func1 thread\n";
+	char c;
+	int i=0;
+	while(1){
+		pthread_rwlock_wrlock(&rwlock);
+		while(i<strlen(str))
+		{
+			c = str[i];
+			fputc(c,fp);
+			i++;
+			usleep(1);
+		}
+		pthread_rwlock_unlock(&rwlock);
+		i=0;
+		usleep(1);
+
+	}
+	pthread_exit("func1 exit");
+}
+
+int main(){
+
+	pthread_t tid1,tid2,tid3,tid4;
+	void *retv;
+	int i;
+	fp = fopen("1.txt","a+");
+	if(fp==NULL){
+		perror("fopen");
+		return 0;
+	}
+	pthread_rwlock_init(&rwlock,NULL);
+	pthread_create(&tid1,NULL,read_func,1);
+	pthread_create(&tid2,NULL,read_func,2);
+	pthread_create(&tid3,NULL,func,NULL);
+	pthread_create(&tid4,NULL,func2,NULL);
+	while(1){    
+		sleep(1);
+	} 
+}
+```
+
+#### 死锁
+
+```c
+#include <pthread.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <string.h>
+
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mutex2 = PTHREAD_MUTEX_INITIALIZER;
+FILE *fp;
+
+void *func2(void *arg){
+
+	pthread_detach(pthread_self());
+	printf("This func2 thread\n");
+	char str[]="I write func2 line\n";
+	char c;
+	int i=0;
+	while(1){
+		pthread_mutex_lock(&mutex);
+		printf("%d,I got lock2\n",(int)arg);
+		sleep(1);
+		pthread_mutex_lock(&mutex2);
+		printf("%d,I got 2 locks\n",(int)arg);
+
+		pthread_mutex_unlock(&mutex2);
+		pthread_mutex_unlock(&mutex);
+		sleep(10);
+
+	}
+	pthread_exit("func2 exit");
+
+}
+
+void *func(void *arg){
+
+	pthread_detach(pthread_self());
+	printf("This is func1 thread\n");
+	char str[]="You read func1 thread\n";
+	char c;
+	int i=0;
+	while(1){
+		pthread_mutex_lock(&mutex2);
+		printf("%d,I got lock1\n",(int)arg);
+		sleep(1);
+		pthread_mutex_lock(&mutex);
+		printf("%d,I got 2 locks\n",(int)arg);
+		pthread_mutex_unlock(&mutex);
+		pthread_mutex_unlock(&mutex2);
+		sleep(10);
+
+	}
+	pthread_exit("func1 exit");
+}
+
+int main(){
+
+	pthread_t tid,tid2;
+	void *retv;
+	int i;
+	fp = fopen("1.txt","a+");
+	if(fp==NULL){
+		perror("fopen");
+		return 0;
+	}
+	pthread_create(&tid,NULL,func,1);
+	pthread_create(&tid2,NULL,func2,2);
+	while(1){    
+		sleep(1);
+	} 
+}
+```
+
+### 条件变量
+
+应用场景：生产者消费者问题，是线程同步的一种手段。
+
+必要性：为了实现等待某个资源，让线程休眠。提高运行效率
+
+初始化：
+
+静态初始化
+
+pthread_cond_t  cond = PTHREAD_COND_INITIALIZER;   //初始化条件变量
+
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER; //初始化互斥量
+
+或使用动态初始化
+
+pthread_cond_init(&cond);
+
+注意：
+
+1. pthread_cond_wait(&cond, &mutex)，在没有资源等待是是先unlock 休眠，等资源到了，再lock，等消费完了之后必须再进行一个unlock，所以pthread_cond_wait和pthread_mutex_lock、pthread_mutex_unlock必须配合使用
+2. 如果pthread_cond_signal或者pthread_cond_broadcast 早于 pthread_cond_wait ，则有可能会丢失信号。
+3. pthead_cond_broadcast 信号会被多个线程收到，这叫线程的惊群效应。所以需要加上判断条件while循环。 
+
+```c
+#include <pthread.h>
+#include <unistd.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+pthread_cond_t  hasTaxi=PTHREAD_COND_INITIALIZER;
+pthread_mutex_t lock  = PTHREAD_MUTEX_INITIALIZER;
+
+struct taxi{
+        struct taxi *next;
+        int num;
+
+};
+
+struct taxi *Head=NULL;
+
+void *taxiarv(void *arg){
+        printf("taxi arrived thread\n");
+        pthread_detach(pthread_self());
+        struct taxi *tx;
+        int i=1;
+        while(1){
+                tx = malloc(sizeof(struct taxi));
+                tx->num = i++;
+                printf("taxi %d comming\n",tx->num);
+                pthread_mutex_lock(&lock);
+                tx->next = Head;
+                Head = tx;
+                pthread_cond_signal(&hasTaxi);
+                //pthread_cond_broadcast(&hasTaxi);
+                pthread_mutex_unlock(&lock);
+                sleep(1);
+        }
+        pthread_exit(0);
+}
+
+void *takeTaxi(void *arg){
+        printf("take taxi thread\n");
+        pthread_detach(pthread_self());
+        struct taxi *tx;
+        while(1){
+                pthread_mutex_lock(&lock);
+                // 防止惊群效应(pthead_cond_broadcast 信号会被多个线程收到，这叫线程的惊群效应)
+                while(Head==NULL)
+                {
+                        pthread_cond_wait(&hasTaxi,&lock);
+                }
+                tx = Head;
+                Head=tx->next;
+                printf("%d,Take taxi %d\n",(int)arg,tx->num);
+                free(tx);
+                pthread_mutex_unlock(&lock);
+        }
+        pthread_exit(0);
+}
+
+int main(){
+
+        pthread_t tid1,tid2,tid3;
+        pthread_create(&tid1,NULL,taxiarv,NULL);
+        // 先生产出5辆taxi
+        sleep(5);
+        // 如果在takeTaxi函数里，pthread_cond_wait前面使用while的话那么由于生产者已经生产出来5台汽车了，Head肯定不会为空，所以会调过pthread_cond_wait，会将生产者之前生产的所以taxi先取出来，在Head为空后再进入pthread_cond_wait进行等待，
+        // 但是如果没有while的话，那么在pthread_cond_wait之前的pthread_cond_signal会丢失，所以前面的5辆taxi是消费不到的。
+        pthread_create(&tid2,NULL,takeTaxi,(void*)1);
+        //pthread_create(&tid2,NULL,takeTaxi,(void*)2);
+        //pthread_create(&tid2,NULL,takeTaxi,(void*)3);
+        while(1) {
+                sleep(1);
+
+        }
+}
+```
+
+### 线程池
+
+```c
+#include <pthread.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <stdlib.h>
+
+#define POOL_NUM 10
+
+typedef struct Task{
+    
+    void *(*func)(void *arg);
+    void *arg;
+    struct Task *next;
+}Task;
+
+typedef struct ThreadPool{
+    
+    pthread_mutex_t taskLock;
+    pthread_cond_t newTask;
+    pthread_t tid[POOL_NUM];
+    Task *queue_head;
+    int busywork;
+}ThreadPool;
+
+ThreadPool *pool;
+
+void *workThread(void *arg){
+    
+    while(1){
+        
+        pthread_mutex_lock(&pool->taskLock);
+        pthread_cond_wait(&pool->newTask,&pool->taskLock);
+        Task *ptask = pool->queue_head;
+        pool->queue_head = pool->queue_head->next;
+        pthread_mutex_unlock(&pool->taskLock);
+        ptask->func(ptask->arg);
+        pool->busywork--;
+    }
+}
+
+void *realwork(void *arg){
+    
+    printf("Finish work %d\n",(int)arg);
+}
+
+void pool_add_task(int arg){
+    
+    Task *newTask;
+    pthread_mutex_lock(&pool->taskLock);
+    while(pool->busywork>=POOL_NUM){
+        pthread_mutex_unlock(&pool->taskLock);
+        usleep(10000);
+        pthread_mutex_lock(&pool->taskLock);
+    }
+    pthread_mutex_unlock(&pool->taskLock);
+    newTask = malloc(sizeof(Task));
+    newTask->func =  realwork;
+    newTask->arg = arg;
+    pthread_mutex_lock(&pool->taskLock);
+    Task *member = pool->queue_head;
+    if(member==NULL){
+        pool->queue_head = newTask;
+    }else{
+       while(member->next!=NULL){
+            member=member->next;
+       }
+       member->next = newTask;
+
+    }
+    pool->busywork++;
+    pthread_cond_signal(&pool->newTask);
+    pthread_mutex_unlock(&pool->taskLock);
+}
+
+void pool_init(){
+    
+    pool = malloc(sizeof(ThreadPool));
+    pthread_mutex_init(&pool->taskLock,NULL);
+    pthread_cond_init(&pool->newTask,NULL);
+    pool->queue_head = NULL;
+    pool->busywork=0;
+
+    for(int i=0;i<POOL_NUM;i++){
+        pthread_create(&pool->tid[i],NULL,workThread,NULL);
+    }
+}
+
+void pool_destory(){
+    
+    Task *head;
+    while(pool->queue_head!=NULL){
+        head = pool->queue_head;
+        pool->queue_head = pool->queue_head->next;
+        free(head);
+    }
+    pthread_mutex_destroy(&pool->taskLock);
+    pthread_cond_destroy(&pool->newTask);
+    free(pool);
+}
+
+int main(){
+    
+   pool_init();
+   sleep(20);
+   for(int i=1;i<=20;i++){
+       pool_add_task(i);
+
+   }
+   sleep(5);
+   pool_destory();
+
+}
+```
+

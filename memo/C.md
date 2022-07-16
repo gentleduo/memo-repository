@@ -7710,3 +7710,187 @@ int main(){
 }
 ```
 
+## 进程间的通信
+
+### 无名管道
+
+无名管道：pipe
+
+1. 只能用于具有亲缘关系的进程之间的通信
+2. 单工的通信模式，具有固定的读端和写端
+3. 无名管道创建时会返回两个文件描述符，分别用于读写管道
+4. 通一个进程同时读写也是不允许的
+5. 管道可以用于大于2个进程共享
+
+\#include <unistd.h>
+
+int pipe(int pfd[2]);
+
+1. 成功时返回0，失败时返回EOF
+2. pfd 包含两个元素的整形数组，用来保存文件描述符
+3. pfd[0]用于读管道；pfd[1]用于写管道
+
+```c
+#include <stdio.h>
+#include <unistd.h>
+#include <string.h>
+
+int main(){
+
+        int pfd[2];
+        int re;
+        char buf[20]={0};
+        pid_t pid;
+        re = pipe(pfd);
+        if(re<0){
+                perror("pipe");
+                return 0;
+        }
+        printf("%d,%d\n",pfd[0],pfd[1]);
+        pid = fork();
+        if(pid<0){
+                perror("fork");
+                return 0;
+        }else if(pid>0){
+                // 新进程关闭读文件描述符
+                close(pfd[0]);
+                while(1){
+                        strcpy(buf,"hhahahahah");
+                        write(pfd[1],buf,strlen(buf));
+
+                        sleep(1);
+                }
+
+        }else{
+                // 读进程关闭写文件描述符
+                close(pfd[1]);
+                while(1){
+                        re=read(pfd[0],buf,20);
+                        if(re>0){
+                                printf("read pipe=%s\n",buf);
+                        }
+                }
+        }
+}
+```
+
+#### 无名管道的读写特性
+
+##### 读管道
+
+管道中有数据，read返回实际读到的字节数。
+
+管道中无数据：
+
+1. 管道写端被全部关闭，read返回0 (好像读到文件结尾)
+2. 写端没有全部被关闭，read阻塞等待(不久的将来可能有数据递达，此时会让出cpu)
+
+##### 写管道
+
+管道读端全部被关闭， 进程异常终止(也可使用捕捉SIGPIPE信号，使进程不终止)
+
+管道读端没有全部关闭：
+
+1. 管道已满，write阻塞。（管道大小64K）
+
+2. 管道未满，write将数据写入，并返回实际写入的字节数。
+
+### 有名管道
+
+有名管道：fifo
+
+1. 有名管道可以使非亲缘的两个进程互相通信
+2. 通过路径名来操作，在文件系统中可见，但内容存放在内存中
+3. 文件IO来操作有名管道
+4. 遵循先进先出规则
+5. 不支持leek操作
+6. 单工读写
+
+```c
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <fcntl.h>
+#include <string.h>
+
+int main(){
+
+        int re;
+        int fd;
+        char buf[32];
+        re = mkfifo("/opt/C/myfifo",0666);
+        if(re<0){
+                perror("mkfifo");
+                //return 0;
+        }
+        fd = open("/opt/C/myfifo",O_WRONLY);
+        if(fd<0){
+                perror("open");
+                return 0;
+        }
+        printf("after open\n");
+        while(1){
+                fgets(buf,32,stdin);
+                write(fd,buf,strlen(buf));
+
+        }
+}
+```
+
+```c
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <fcntl.h>
+#include <string.h>
+
+int main() {
+
+    int re;
+    int fd;
+    char buf[32];
+
+    fd = open("/opt/C/myfifo",O_RDONLY);
+    if(fd<0){
+        perror("open");
+        return 0;
+    }
+    printf("after open\n");
+    while(1){
+
+        re=read(fd,buf,32);
+        if(re>0){
+            printf("read fifo=%s\n",buf);
+        }else if(re==0){
+            exit(0);
+        }
+
+    }
+}
+```
+
+#### 注意事项
+
+1. 就是程序不能以O_RDWR(读写)模式打开FIFO文件进行读写操作，而其行为也未明确定义，因为如一个管道以读/写方式打开，进程可以读回自己的输出，同时我们通常使用FIFO只是为了单向的数据传递
+
+2. 第二个参数中的选项O_NONBLOCK，选项O_NONBLOCK表示非阻塞，加上这个选项后，表示open调用是非阻塞的，如果没有这个选项，则表示open调用是阻塞的
+
+3. 对于以只读方式（O_RDONLY）打开的FIFO文件，如果open调用是阻塞的（即第二个参数为O_RDONLY），除非有一个进程以写方式打开同一个FIFO，否则它不会返回；如果open调用是非阻塞的的（即第二个参数为O_RDONLY | O_NONBLOCK），则即使没有其他进程以写方式打开同一个FIFO文件，open调用将成功并立即返回。对于以只写方式（O_WRONLY）打开的FIFO文件，如果open调用是阻塞的（即第二个参数为O_WRONLY），open调用将被阻塞，直到有一个进程以只读方式打开同一个FIFO文件为止；如果open调用是非阻塞的（即第二个参数为O_WRONLY | O_NONBLOCK），open总会立即返回，但如果没有其他进程以只读方式打开同一个FIFO文件，open调用将返回-1，并且FIFO也不会被打开。
+
+4. 数据完整性,如果有多个进程写同一个管道，使用O_WRONLY方式打开管道，如果写入的数据长度小于等于PIPE_BUF（4K），那么或者写入全部字节，或者一个字节都不写入，系统就可以确保数据决不会交错在一起。
+
+### 信号
+
+信号：signal
+
+### 共享内存
+
+共享内存：mmap
+
+### 套接字
+
+套接字：socket

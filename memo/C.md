@@ -8907,11 +8907,11 @@ u_short ntohs (u_short short);
 
    int_addr_t inet_addr(const char *strptr);
 
-3. inet_ntoa( )
+3. inet_ntop( )
 
    将32位网络字节序二进制地址转换成点分十进制的字符串。
 
-   char *inet_ntoa(stuct in_addr inaddr);
+   const char *inet_ntop(int af, const void *src, char *dst, socklen_t size);
 
 4. inet_pton()
 
@@ -8920,6 +8920,359 @@ u_short ntohs (u_short short);
    int inet_pton(int af, const char *src, void *dst);
 
 ## TCP编程API
+
+### socket
+
+#include <sys/types.h>          /* See NOTES */
+
+#include <sys/socket.h>
+
+int socket(int domain, int type, int protocol);
+
+#### 参数
+
+##### domain
+
+用于指定采用的协议族及其对应的ip地址格式，协议族与ip地址格式对应且每个协议族的ip地址格式都不相同，所以一个参数即可确定要采用的协议族以及ip地址格式。例如：将domain参数设置为 PF_INET，就是指定使用IPV4版本的TCP/IP协议族，常见设置：
+
+###### AF_UNIX, AF_LOCAL
+
+Local communication unix(7)
+
+###### AF_INET
+
+IPv4 Internet protocols ip(7)
+
+###### AF_INET6
+
+IPv6 Internet protocols ipv6(7)
+
+##### type
+
+套接字类型，用于在协议族确定的前提下进一步指定所采用的子协议，常见设置：
+
+###### SOCK_STREAM
+
+表示使用有序的、面向连接的、可靠的双向通信的字节流通信（如当domain参数设置为AF_INET时就表示使用TCP/IP协议族中的TCP协议）
+
+###### SOCK_DGRAM
+
+表示使用不连接、不可靠、固定长度的数据报通信（如当domain参数设置为AF_INET6时就表示使用TCP/IP协议族中的UDP协议）
+
+###### SOCK_RAW
+
+提供原始网络协议访问
+
+从Linux 2.6.27开始，type 参数有第二个用途：除了指定套接字类型之外，它还可以包含以下任何值的按位或，以修改socket() 的行为:
+
+###### SOCK_NONBLOCK
+
+创建一个非阻塞的socket：
+
+```c
+// 1. 创建socket时指定为非阻塞
+int s = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0)
+// 2. 通过以下API函数将socket设置成非阻塞模式
+fcntl(sockfd, F_SETFL, fcntl(sockfd, F_GETFL, 0) | O_NONBLOCK); 
+```
+
+###### SOCK_CLOEXEC
+
+linux内核版本查看
+
+```bash
+[root@server01 ~]# uname -srm
+Linux 3.10.0-514.el7.x86_64 x86_64
+#3 - 内核版本.
+#10 - 主修订版本.
+#0-514- 次要修订版本.
+```
+
+##### protocol
+
+用于指定协议号，当设置为0时，则指定使用由前面两个参数指定的具体协议；
+
+### bind
+
+#include <sys/types.h>          /* See NOTES */
+
+#include <sys/socket.h>
+
+int bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen);
+
+#### 参数
+
+##### sockfd
+
+通过socket()函数拿到的fd
+
+##### addr
+
+struct sockaddr的结构体变量的地址，包括服务器IP及端口（不过在使用时一般使用size和它一样的结构体：sockaddr_in，然后再进行强转，详细说明可参考：man 7 ip，IPV6的则是：man 7 ipv6）
+
+##### addrlen
+
+sockaddr结构体的长度
+
+### listen
+
+把主动套接字变成被动套接字（所以服务端和客户端都是通过socket创建的，只是服务端的socket通过一系列设置后变成了一个被动套接字）
+
+#include <sys/types.h>          /* See NOTES */
+
+#include <sys/socket.h>
+
+int listen(int sockfd, int backlog);
+
+#### 参数
+
+##### sockfd
+
+通过socket()函数拿到的fd
+
+##### backlog
+
+同时允许几路客户端和服务器进行正在连接的过程（正在三次握手）一般填5，内核中服务器的套接字fd会维护2个链表： 1. 正在三次握手的的客户端链表(数量=2*backlog+1)，；２.已经建立好连接的客户端链表（已经完成３次握手分配好了newfd）
+
+比如：listen(fd, 5); //表示系统允许11(=2*5+1)个客户端同时进行三次握手
+
+### accept
+
+阻塞等待客户端连接请求
+
+#include <sys/types.h>          /* See NOTES */
+
+#include <sys/socket.h>
+
+int accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen);
+
+#### 参数
+
+##### sockfd
+
+经过前面socket()创建并通过bind(),listen()设置过的fd
+
+##### addr
+
+获取连接过来的客户的信息（包括客户端IP及端口）
+
+##### addrlen
+
+结构体sockaddr的长度
+
+### connect
+
+客户端的连接函数
+
+#include <sys/types.h>          /* See NOTES */
+
+#include <sys/socket.h>
+
+int connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen);
+
+#### 参数
+
+##### sockfd
+
+通过socket()函数拿到的fd
+
+##### addr
+
+struct sockaddr的结构体变量的地址，（包括服务器IP及端口）
+
+##### addrlen
+
+sockaddr结构体的长度
+
+### 示例
+
+net.h
+
+```c
+#ifndef __MAKEU_NET_H__
+#define __MAKEU_NET_H__
+
+#include <stdio.h>
+#include <string.h>
+#include <unistd.h>
+#include <errno.h>
+#include <stdlib.h>
+#include <strings.h>
+#include <sys/types.h>			/* See NOTES */
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <netinet/ip.h>			/* superset of previous */
+
+#define SERV_PORT 5001
+#define SERV_IP_ADDR "192.168.56.110"
+#define BACKLOG 5
+
+#define QUIT_STR "quit"
+
+#endif
+```
+
+server.c
+
+```c
+#include "net.h"
+
+int main (void)
+{
+
+	int fd = -1;
+	struct sockaddr_in sin;
+
+	/* 1. 创建socket fd */
+	if ((fd = socket (AF_INET, SOCK_STREAM, 0)) < 0) {
+		perror ("socket");
+		exit (1);
+	}
+
+	/*2. 绑定 */
+	/*2.1 填充struct sockaddr_in结构体变量 */
+	bzero (&sin, sizeof (sin));
+	sin.sin_family = AF_INET;
+	sin.sin_port = htons (SERV_PORT);	//网络字节序的端口号
+
+	/*优化1: 让服务器程序能绑定在任意的IP上 */
+#if 1
+	sin.sin_addr.s_addr = htonl (INADDR_ANY);
+#else
+	if (inet_pton (AF_INET, SERV_IP_ADDR, (void *) &sin.sin_addr) != 1) {
+		perror ("inet_pton");
+		exit (1);
+	}
+#endif
+	/*2.2 绑定 */
+	if (bind (fd, (struct sockaddr *) &sin, sizeof (sin)) < 0) {
+		perror ("bind");
+		exit (1);
+	}
+
+	/*3. 调用listen()把主动套接字变成被动套接字 */
+	if (listen (fd, BACKLOG) < 0) {
+		perror ("listen");
+		exit (1);
+	}
+	printf ("Server starting....OK!\n");
+	int newfd = -1;
+	/*4. 阻塞等待客户端连接请求 */
+#if 0
+	newfd = accept (fd, NULL, NULL);
+	if (newfd < 0) {
+		perror ("accept");
+		exit (1);
+	}
+#else
+	/*优化2：通过程序获取刚建立连接的socket的客户端的IP地址和端口号 */
+	struct sockaddr_in cin;
+	socklen_t addrlen = sizeof (cin);
+	if ((newfd = accept (fd, (struct sockaddr *) &cin, &addrlen)) < 0) {
+		perror ("accept");
+		exit (1);
+	}
+
+	// 打印之前需要将网络字节序转化为主机字节序
+	char ipv4_addr[16];
+	if (!inet_ntop (AF_INET, (void *) &cin.sin_addr, ipv4_addr, sizeof (cin))) {
+		perror ("inet_ntop");
+		exit (1);
+	}
+	printf ("Clinet(%s:%d) is connected!\n", ipv4_addr, ntohs (cin.sin_port));
+
+#endif
+	/*5. 读写 */
+	//..和newfd进行数据读写
+	int ret = -1;
+	char buf[BUFSIZ];
+	while (1) {
+		bzero (buf, BUFSIZ);
+		do {
+			ret = read (newfd, buf, BUFSIZ - 1);
+		} while (ret < 0 && EINTR == errno);
+		if (ret < 0) {
+
+			perror ("read");
+			exit (1);
+		}
+		if (!ret) {				//对方已经关闭
+			break;
+		}
+		printf ("Receive data: %s\n", buf);
+
+		if (!strncasecmp (buf, QUIT_STR, strlen (QUIT_STR))) {	//用户输入了quit字符
+			printf ("Client is exiting!\n");
+			break;
+		}
+	}
+	close (newfd);
+
+	close (fd);
+	return 0;
+}
+```
+
+client.c
+
+```c
+#include "net.h"
+
+int main (void)
+{
+	int fd = -1;
+	struct sockaddr_in sin;
+	/* 1. 创建socket fd */
+	if ((fd = socket (AF_INET, SOCK_STREAM, 0)) < 0) {
+		perror ("socket");
+		exit (1);
+	}
+	/*2.连接服务器 */
+
+	/*2.1 填充struct sockaddr_in结构体变量 */
+	bzero (&sin, sizeof (sin));
+
+	sin.sin_family = AF_INET;
+	sin.sin_port = htons (SERV_PORT);	//网络字节序的端口号
+#if 0
+	sin.sin_addr.s_addr = inet_addr (SERV_IP_ADDR);
+#else
+	if (inet_pton (AF_INET, SERV_IP_ADDR, (void *) &sin.sin_addr) != 1) {
+		perror ("inet_pton");
+		exit (1);
+	}
+#endif
+
+	if (connect (fd, (struct sockaddr *) &sin, sizeof (sin)) < 0) {
+		perror ("connect");
+		exit (1);
+	}
+
+	printf ("Client staring...OK!\n");
+	/*3. 读写数据 */
+	char buf[BUFSIZ];
+	int ret = -1;
+	while (1) {
+		bzero (buf, BUFSIZ);
+		if (fgets (buf, BUFSIZ - 1, stdin) == NULL) {
+			continue;
+		}
+		do {
+			ret = write (fd, buf, strlen (buf));
+		} while (ret < 0 && EINTR == errno);
+
+		if (!strncasecmp (buf, QUIT_STR, strlen (QUIT_STR))) {	//用户输入了quit字符
+			printf ("Client is exiting!\n");
+			break;
+		}
+	}
+
+	/*4.关闭套接字 */
+	close (fd);
+}
+```
+
+
 
 
 

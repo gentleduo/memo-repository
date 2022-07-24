@@ -9456,7 +9456,6 @@ void usage (char *s)
 int main (int argc, char **argv)
 {
 	int fd = -1;
-
 	int port = -1;
 	struct sockaddr_in sin;
 
@@ -9709,6 +9708,391 @@ int main(int argc, char *argv[])
 	}
 	close(fd);
 	return 0;
+}
+```
+
+## IO多路复用
+
+### IO模型
+
+在UNIX/Linux下主要有4种I/O模型：
+
+#### 阻塞I/O
+
+#### 非阻塞I/O
+
+可防止进程阻塞在I/O操作上，需要轮询。当用户线程发起一个read操作后，并不需要等待，而是马上就得到了一个结果。如果结果是一个error时，它就知道数据还没有准备好，于是它可以再次发送read操作。一旦内核中的数据准备好了，并且又再次收到了用户线程的请求，那么它马上就将数据拷贝到了用户线程，然后返回。所以事实上，在非阻塞IO模型中，用户线程需要不断地询问内核数据是否就绪，也就说非阻塞IO不会交出CPU，而会一直占用CPU。并且每一次询问都相当于要进行一次系统调用，所以这种模式在实际使用中并不普遍。
+
+#### I/O多路复用
+
+允许同时对对个I/O进行控制。此模型用到select、poll、epoll函数，这两个函数也会使进程阻塞，select先阻塞，有活动套接字才返回，但是和阻塞I/O不同的是，这两个函数可以同时阻塞多个I/O操作，而且可以同时对多个读操作，多个写操作的I/O函数进行检测，直到有数据可读或可写（就是监听多个socket）。select被调用后，进程会被阻塞，内核监视所有select负责的socket，当有任何一个socket的数据准备好了，select就会返回套接字可读，然后就可以调用recvfrom处理数据。正因为阻塞I/O只能阻塞一个I/O操作，而I/O复用模型能够阻塞多个I/O操作，所以才叫做多路复用。
+
+非阻塞I/O、SELECT、POLL都是要遍历所有的IO询问状态，不同的地方在于，非阻塞I/O的时候要轮询所有的文件描述符确认是否有数据达到，所以会发生n次系统调用；而SELECT、POLL会先通过一次系统调用(其实每次调用select也会遍历所有需要监听的fd，只是这个遍历是发生在内核中)拿到传入select中的所有Channel中有数据到达的m个fd，然后再对这m个fd进行读操作。但是SELECT、POLL也是存在一些弊端的，比如：监控的fd描述符有上限要求、每次有数据达到是都要在内核中进行一次针对所有被监控的文件描述符的遍历过程，因此linux又提供了另外一种多路复用器：epoll；在epoll的多路复用器实现方式中，内核会将有事件到达的文件描述符移到了一个集合中，所以在调用epoll_wait的时候就不需要再循环遍历了，可以直接拿到有事件到达的文件描述符的集合。
+
+#### 信号驱动I/O
+
+一种异步通信模型
+
+### 非阻塞模式的实现
+
+#### fcntl
+
+一开始建立一个套接字描述符的时候，系统内核将其设置为阻塞IO模式。可以使用函数fcntl()设置一个套接字的标志为O_NONBLOCK来实现非阻塞。
+
+```c
+int flag;
+flag = fcntl(socketfd, F_GETFL,0);
+flag |= O_NONBLOCK;
+fcntl(socketfd, F_SETFL, flag);
+```
+
+#### ioctl
+
+```c
+int b_on = 1;
+ioctl(socketfd, FIONBIO, &b_on)
+```
+
+### 实现
+
+#### fd_set
+
+fd_set相关的函数：
+
+void FD_ZERO(fd_set *set);               //对集合清0
+
+void FD_CLR(int fd, fd_set *set);       //把fd加入集合
+
+int  FD_ISSET(int fd, fd_set *set);      //从集合中删除fd
+
+void FD_SET(int fd, fd_set *set);       //判断fd是否在集合中
+
+#### select
+
+int select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds, struct timeval *timeout);
+
+##### nfds 
+
+maxfd+1
+
+##### readfds
+
+读集合
+
+##### writefds
+
+写集合（一般填NULL，基本上关系的都是read事件）
+
+##### exceptfds
+
+异常集合
+
+##### timeout
+
+超时时间：表示有多长时间没有数据到达就结束阻塞返回。
+
+时间单位：1S=10的3次方毫秒(ms)=10的6次方微秒(us)=10的9次方纳秒(ns)
+
+select函数里面的各个文件描述符fd_set集合参数在select前后发生了变化，这个变化是由内核完成的，所以每次select前都要再把关心的文件描述符集合设置一遍：
+
+前：表示关系的文件描述符集合
+
+后：有数据的集合（如不是在超时返回的情况下）
+
+下面的例子中只有客户端使用多路复用的方式实现，服务器用的是之前多进程的代码
+
+net.c
+
+```c
+#ifndef __MAKEU_NET_H__
+#define __MAKEU_NET_H__
+
+#include <stdio.h>
+#include <string.h>
+#include <unistd.h>
+#include <errno.h>
+#include <stdlib.h>
+#include <strings.h>
+#include <sys/types.h>			/* See NOTES */
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <netinet/ip.h>			/* superset of previous */
+
+/* According to POSIX.1-2001 */
+#include <sys/select.h>
+/* According to earlier standards */
+#include <sys/time.h>
+//#include <sys/types.h>
+#include <unistd.h>
+
+
+#define SERV_PORT 5002
+#define SERV_IP_ADDR "192.168.56.101"
+#define BACKLOG 5
+#define SERV_RESP_STR "Server:"
+
+#define QUIT_STR "quit"
+
+#endif
+```
+
+server.c
+
+```c
+#include <pthread.h>
+#include <signal.h>
+#include "net.h"
+
+void cli_data_handle (void *arg);
+
+void sig_child_handle(int signo)
+{
+	if(SIGCHLD == signo) {
+		waitpid(-1, NULL,  WNOHANG);
+	}
+}
+int main (void)
+{
+
+	int fd = -1;
+	struct sockaddr_in sin;
+
+	// 当子进程结束后，利用信号量机制回收资源防止僵尸进程	
+	signal(SIGCHLD, sig_child_handle);	
+
+	/* 1. 创建socket fd */
+	if ((fd = socket (AF_INET, SOCK_STREAM, 0)) < 0) {
+		perror ("socket");
+		exit (1);
+	}
+
+	/*优化4： 允许绑定地址快速重用 */
+	int b_reuse = 1;
+	setsockopt (fd, SOL_SOCKET, SO_REUSEADDR, &b_reuse, sizeof (int));
+
+
+	/*2. 绑定 */
+	/*2.1 填充struct sockaddr_in结构体变量 */
+	bzero (&sin, sizeof (sin));
+	sin.sin_family = AF_INET;
+	sin.sin_port = htons (SERV_PORT);	//网络字节序的端口号
+
+	/*优化1: 让服务器程序能绑定在任意的IP上 */
+#if 1
+	sin.sin_addr.s_addr = htonl (INADDR_ANY);
+#else
+	if (inet_pton (AF_INET, SERV_IP_ADDR, (void *) &sin.sin_addr) != 1) {
+		perror ("inet_pton");
+		exit (1);
+	}
+#endif
+	/*2.2 绑定 */
+	if (bind (fd, (struct sockaddr *) &sin, sizeof (sin)) < 0) {
+		perror ("bind");
+		exit (1);
+	}
+
+	/*3. 调用listen()把主动套接字变成被动套接字 */
+	if (listen (fd, BACKLOG) < 0) {
+		perror ("listen");
+		exit (1);
+	}
+	printf ("Server starting....OK!\n");
+	int newfd = -1;
+	/*4. 阻塞等待客户端连接请求 */
+
+	struct sockaddr_in cin;
+	socklen_t addrlen = sizeof (cin);
+	while(1) {
+		pid_t pid = -1;
+		if ((newfd = accept (fd, (struct sockaddr *) &cin, &addrlen)) < 0) {
+			perror ("accept");
+			break;
+		}
+		/*创建一个子进程用于处理已建立连接的客户的交互数据*/
+		if((pid = fork()) < 0) {
+			perror("fork");
+			break;
+		}
+
+		if(0 == pid) {  //子进程中
+			// 子进程会继承父进程的所有内容包括文件描述符；虽然父子进程都包括指向同样资源的文件描述符但是互不影响，即；关闭子进程的文件描述符不会影响父进程
+			close(fd);
+			char ipv4_addr[16];
+
+			if (!inet_ntop (AF_INET, (void *) &cin.sin_addr, ipv4_addr, sizeof (cin))) {
+				perror ("inet_ntop");
+				exit (1);
+			}
+
+			printf ("Clinet(%s:%d) is connected!\n", ipv4_addr, ntohs(cin.sin_port));	
+			cli_data_handle(&newfd);		
+			return 0;	
+
+		} else { //实际上此处 pid >0, 父进程中 
+			close(newfd);
+		}
+
+
+	}		
+
+
+	close (fd);
+	return 0;
+}
+
+void cli_data_handle (void *arg)
+{
+	int newfd = *(int *) arg;
+
+	printf ("Child handling process: newfd =%d\n", newfd);
+
+	//..和newfd进行数据读写
+	int ret = -1;
+	char buf[BUFSIZ];
+	char resp_buf[BUFSIZ + 10];
+	while (1) {
+		bzero (buf, BUFSIZ);
+		do {
+			ret = read (newfd, buf, BUFSIZ - 1);
+		} while (ret < 0 && EINTR == errno);
+		if (ret < 0) {
+
+			perror ("read");
+			exit (1);
+		}
+		if (!ret) {				//对方已经关闭
+			break;
+		}
+		printf ("Receive data: %s\n", buf);
+
+		bzero(resp_buf,BUFSIZ+10);
+		strncpy(resp_buf,SERV_RESP_STR,strlen(SERV_RESP_STR));          
+		strcat(resp_buf,buf);
+		do{
+			ret=write(newfd,resp_buf,strlen(resp_buf));
+		}while(ret<0&&EINTR==errno);
+		if (!strncasecmp (buf, QUIT_STR, strlen (QUIT_STR))) {	//用户输入了quit字符
+			printf ("Client(fd=%d) is exiting!\n", newfd);
+			break;
+		}
+	}
+	close (newfd);
+}
+```
+
+client.c
+
+```c
+#include "net.h"
+
+
+void usage (char *s)
+{
+	printf ("\n%s serv_ip serv_port", s);
+	printf ("\n\t serv_ip: server ip address");
+	printf ("\n\t serv_port: server port(>5000)\n\n");
+}
+
+
+int main (int argc, char **argv)
+{
+	int fd = -1;
+	int port = -1;
+	struct sockaddr_in sin;
+	if (argc != 3) {
+		usage (argv[0]);
+		exit (1);
+	}
+	/* 1. 创建socket fd */
+	if ((fd = socket (AF_INET, SOCK_STREAM, 0)) < 0) {
+		perror ("socket");
+		exit (1);
+	}
+	port = atoi (argv[2]);
+	if (port < 5000) {
+		usage (argv[0]);
+		exit (1);
+	}
+	/*2.连接服务器 */
+
+	/*2.1 填充struct sockaddr_in结构体变量 */
+	bzero (&sin, sizeof (sin));
+
+	sin.sin_family = AF_INET;
+	sin.sin_port = htons (port);	//网络字节序的端口号
+#if 0
+	sin.sin_addr.s_addr = inet_addr (SERV_IP_ADDR);
+#else
+	if (inet_pton (AF_INET, argv[1], (void *) &sin.sin_addr) != 1) {
+		perror ("inet_pton");
+		exit (1);
+	}
+#endif
+
+	if (connect (fd, (struct sockaddr *) &sin, sizeof (sin)) < 0) {
+		perror ("connect");
+		exit (1);
+	}
+
+	int ret=-1;
+	fd_set rset;
+	int maxfd = -1;
+	struct timeval tout;
+	char buf[BUFSIZ];	
+
+	while(1) {
+		FD_ZERO(&rset);
+		FD_SET(0,&rset);
+		FD_SET(fd,&rset);
+		maxfd = fd;
+		tout.tv_sec = 5;
+		tout.tv_usec = 0;
+
+		select(maxfd+1,&rset,NULL,NULL,&tout);
+		if (FD_ISSET(0,&rset)){ // 表示标准键盘上有输入
+			// 读取键盘输入发送到网络套接字fd
+			bzero(buf,BUFSIZ);
+			do{
+				ret = read(0,buf,BUFSIZ-1);
+			}while(ret<0&&EINTR==errno);
+
+			if(ret<0){
+				perror("read");
+				continue;
+			}
+			if (!ret) continue;
+			if(write(fd,buf,strlen(buf))<0){
+				perror("write() to socket");
+				continue;
+			}
+			if (!strncasecmp (buf, QUIT_STR, strlen (QUIT_STR))) {  //用户输入了quit字符
+				printf ("Client is exiting!\n");
+				break;
+			}
+		}
+		if (FD_ISSET(fd,&rset)){//服务器有数据发送过来
+			//读取套接字上的数据并处理
+			bzero(buf,BUFSIZ);
+			do{
+				ret = read(fd,buf,BUFSIZ-1);
+			}while(ret<0&&EINTR==errno);
+			if(ret<0){
+				perror("read from socket");
+				continue;
+			}
+			if (!ret) break;// 服务端关闭
+			printf("server said: %s\n",buf);
+			if ((strlen(buf)>strlen(SERV_RESP_STR))&& !strncasecmp (buf+strlen(SERV_RESP_STR), QUIT_STR, strlen (QUIT_STR))) {  //用户输入了quit字符
+				printf ("Sender Client is exiting!\n");
+				break;
+			}
+
+		}
+	}
+
+	/*4.关闭套接字 */
+	close (fd);
 }
 ```
 

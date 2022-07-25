@@ -6815,7 +6815,7 @@ int  pthread_create(pthread_t *thread, const pthread_attr_t *attr, void *(*routi
 3. attr 线程属性，NULL代表默认属性
 4. routine 线程执行的函数
 5. arg 传递给routine的参数 ，参数是void * ，注意传递参数格式，
-6. 编译时候加 -lpthread
+6. 编译时候加 -lpthread（表示依赖第三方的库）
 7. 主进程的退出，它创建的线程也会退出。
 
 ### 线程间的参数传递

@@ -8933,7 +8933,7 @@ int socket(int domain, int type, int protocol);
 
 ##### domain
 
-用于指定采用的协议族及其对应的ip地址格式，协议族与ip地址格式对应且每个协议族的ip地址格式都不相同，所以一个参数即可确定要采用的协议族以及ip地址格式。例如：将domain参数设置为 PF_INET，就是指定使用IPV4版本的TCP/IP协议族，常见设置：
+用于指定采用的协议族及其对应的ip地址格式，协议族与ip地址格式对应且每个协议族的ip地址格式都不相同，所以一个参数即可确定要采用的协议族以及ip地址格式。例如：将domain参数设置为 AF_UNIX, AF_LOCAL，就是指本机进程间通信，将domain参数设置为 PF_INET，就是指定使用IPV4版本的TCP/IP协议族，常见设置：
 
 ###### AF_UNIX, AF_LOCAL
 

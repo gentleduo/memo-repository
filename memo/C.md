@@ -190,6 +190,32 @@ GDB设置线程锁 set scheduler-locking on/off  (on：其他线程会暂停。�
    }
    ```
 
+## 标准库
+
+### libc
+
+（C standard library，缩写：libc）。标准函数库通常会随附在编译器上。windows系统和Linux系统下都可以尽情使用。是最基本的C函数库，也叫 ANSI C 函数库。总而言之，几乎在任何平台上的 C 语言 (包括非 UNIX 平台) 都支持此标准。
+
+### POSIX
+
+Portable Operating System Interface(可移植操作系统接口) 的缩写，X表示UNIX，它是 ISO C 的延伸，明定了一个可移植的操作系统所应具备的种种条件，其范围不只有系统函数库而已。POSIX库 就是C POSIX library。C POSIX library是C语言的POSIX系统下的标准库。包含了一些在C语言标准库之外的函数。为了OS(比如windows 和 linux)之间的可移植性，POSIX标准规定了一些标准的API。而这些API标准的集合就是POSIX库。
+
+### glibc
+
+GNU C Library，常简称为glibc,是一种按照LGPL许可协议发布的，自由的，公开源代码的函数库。既包含C标准库，也包含POSIX库。glibc和libc都是Linux下的C函数库，libc是Linux下的ANSI C的函数库；glibc是Linux下的GUN C的函数库；GNU C是一种ANSI C的扩展实现。glibc本身是GNU旗下的C标准库，后来逐渐成为了Linux的标准c库，而Linux下原来的标准c库Linux libc逐渐不再被维护。Linux下面的标准c库不仅有这一个，如uclibc、klibc，以及上面被提到的Linux libc，但是glibc无疑是用得最多的。glibc在/lib目录下的.so文件为libc.so.6
+
+### pthreads
+
+POSIX Threads 简称 Pthread，是线程的 POSIX 标准，被定义在 POSIX.1c, Threads extensions (IEEE Std1003.1c-1995)标准里，该标准定义了一套 C 程序语言的类型、函数和常量，定义在 pthread.h 头文件和一个线程库里，内容包括线程管理、互斥锁、条件变量、读写锁和屏障。POSIX 信号量（semaphore）和 Pthreads 一起使用，但不是 Pthreads 标准定义的一部分，被定义在 POSIX.1b, Real-time extensions (IEEE Std1003.1b-1993)标准里。因此信号量相关函数的前缀是 “sem_” 而不是“pthread_”。消息队列（Message queue）和信号量一样，和 Pthreads 一起使用，也不是 Pthreads 标准定义的一部分，被定义在 IEEE Std 1003.1-2001 标准里。消息队列相关函数的前缀是 “mq_”。
+
+### uClibc
+
+是一个面向嵌入式Linux系统的小型的C标准库。最初uClibc是为了支持uClinux而开发，这是一个不需要内存管理单元（MMU）的Linux版本。uClibc比一般用于Linux发行版的C库GNU C Library (glibc)要小得多， uClibc专注于嵌入式Linux。很多功能可以根据空间需求进行取舍。
+
+### Newlib
+
+Newlib是一个面向嵌入式系统的C运行库。最初是由Cygnus Solutions收集组装的一个源代码集合，取名为newlib，现在由Red Hat维护，目前的最新的版本是2.1.0。对于与GNU兼容的嵌入式C运行库，Newlib并不是唯一的选择，但是从成熟度来讲，newlib是最优秀的。newlib可移植性强，具有可重入特性、功能完备等特点，已广泛应用于各种嵌入式系统中。Cygwin目前使用Newlib来作为它的C标准库。
+
 ## 静态与动态链接库
 
 ### 库文件
@@ -6809,6 +6835,18 @@ int main(){
 
 ### 历史
 
+不管 Linux 还是什么 OS，都可以多线程编程的，怎么多线程编程呢？要创建一个线程，需要使用 xxx 函数，这个函数如果是操作系统本身就提供的系统函数，当然没问题，操作系统创建的线程，自然是内核级的了。如果操作系统没有提供“创建线程”的函数（比如Linux 2.4及以前的版本，因为 Linux 刚诞生那时候，还没有“线程”的概念，能处理多“进程”就不错了），当然也没办法在操作系统上创建线程。所以，Linux 2.4 内核中不知道什么是“线程”，只有一个“task_struct”的数据结构，就是进程。
+
+那么，后来随着科学技术的发展，大家提出线程的概念，而且，线程有时候的确是个好东西，于是希望 Linux 能加入“多线程”编程。要修改一个操作系统，那是很复杂的事情，特别是当操作系统越来越庞大的时候。怎么才能让Linux支持“多线程”呢？首先，最简单的，就是不去动操作系统的“内核”，而是写一个函数库来“模拟”线程。也就是说，用 C 写一个函数，比如 create_thread，这个函数最终在 Linux 的内核里还是去调用了创建“进程”的函数去创建了一个进程（因为 OS 没变嘛，没有线程这个东西）。 如果有人要多线程编程，那么你就调用 这个 create_thread 去创建线程吧，好了，这个线程，就是用库函数创建的线程，就是所谓的“用户级线程”了。
+
+虽然，通过这种方式创建的线程（虽然本质上还是进程）具有了“线程”的一些“特征”，比如可以共享变量啊什么的，但是仍然是不“完美”的，有线程的“一些”特征，但不能完全符合理论上的“线程”的概念(POSIX的要求），比如，这种多线程不能被分配到多核上，用户创建的N个线程，对于着内核里面其实就一个“进程”，导致调度啊，管理啊麻烦…..为什么要采用这种“模拟”的方式呢？因为改内核不是一天两天的事情。
+
+Linux 是开源、免费的，谁愿意来干这个活？有两家公司参与了对 LinuxThreads 的改进（向他们致敬）：IBM 启动的NGTP(Next Generation POSIX Threads)项目，以及红帽 Redhat 公司的NPTL（Native POSIX Thread Library），IBM在 2003 年因为种种原因放弃了，大家都转到NPTL这个项目来了。最终，当然是成功了。
+
+在Linux 2.6的内核版本中，这个 NPTL 项目怎么做的呢？并不是在 Linux 内核中加了一个“线程”，仍然和原来一样，进程（其实，进程线程就是个概念，对于计算机，只要能高效的实现这个概念就行，程序员能用就 OK，管它究竟怎么实现的），不过，用的 clone 实现的轻量级进程，内核又增加了若干机制来保证线程的表现和 POSIX 相同，最关键的一点，用户调用 pthread 库创建的一个线程，会在内核创建一个“线程”，这就是所谓的 1：1 模型。所以，Linux 下，是有“内核级”线程的，网上很多说 Linux 是用户级线程，都是不完整的，说的Linux很早以前的版本（现在 Linux 已经是 4.X 的版本了）。
+
+还有个 pthread 的问题，pthread是个线程函数库，他提供了一些函数，让程序员可以用它来创建，使用线程。那么问题是，这个函数库里面的函数，比如 pthread_create 创建线程的函数，他是怎么实现的呢？他如果是用以前的方法，那程序员用它来创建的线程，还是“用户级”线程；如果它使用了NPTL方式创建线程，那么，它创建的线程，就是“内核级”线程。因此：如果你 (1) 使用2.6的内核的系统平台，(2) 你的gcc支持 NPTL （现在一般都支持），那么你编译出来的多线程程序，就是“内核级”线程了。
+
 多线程并不是一开始就有的。经过搜索，操作系统的多线程基本上可以确定起源于1995年
 
 1. Windows 95
@@ -6831,7 +6869,7 @@ int  pthread_create(pthread_t *thread, const pthread_attr_t *attr, void *(*routi
 3. attr 线程属性，NULL代表默认属性
 4. routine 线程执行的函数
 5. arg 传递给routine的参数 ，参数是void * ，注意传递参数格式，
-6. 编译时候加 -lpthread（表示依赖第三方的库）
+6. 编译时候加 -lpthread（pthread不是linux下的默认的库， gcc编译时候找不到，因此编译时需要加上-lpthread 选项以链接pthread库）
 7. 主进程的退出，它创建的线程也会退出。
 
 ### 线程间的参数传递

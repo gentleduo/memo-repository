@@ -950,3 +950,128 @@ drwxrwxrwt   - root supergroup          0 2022-08-25 12:24 /tmp/hadoop-yarn/stag
 [root@server01 opt]# hdfs dfsadmin -safemode leave
 ```
 
+## 元数据辅助管理
+
+当Hadoop的集群当中,NameNode的所有元数据信息都保存在了FsImage与Eidts文件当中,这两个文件就记录了所有的数据的元数据信息, 元数据信息的保存目录配置在了 hdfssite.xml 当中
+
+```xml
+<property>
+    <name>dfs.namenode.name.dir</name>    
+    <value>file:///usr/local/hadoop2.7.5/hadoopDatas/namenodeDatas,    
+          file:///usr/local/hadoop2.7.5/hadoopDatas/namenodeDatas2
+    </value>
+</property>
+<property>
+     <name>dfs.namenode.edits.dir</name>
+     <value>file:///usr/local/hadoop2.7.5/hadoopDatas/nn/edits</value
+</property>>
+```
+
+### FsImage和Edits详解
+
+#### edits
+
+1. edits 存放了客户端最近一段时间的操作日志
+2. 客户端对HDFS进行写文件时会首先被记录在edits文件中
+3. edits修改时元数据也会更新
+
+文件信息查看：使用命令 hdfs oev
+
+```bash
+[root@server01 current]# cd /usr/local/hadoop-2.7.5/hadoopDatas/nn/edits/current
+[root@server01 current]# ll
+总用量 2064
+-rw-r--r-- 1 root root 1048576 8月  25 12:14 edits_0000000000000000001-0000000000000000001
+-rw-r--r-- 1 root root     743 8月  25 13:09 edits_0000000000000000002-0000000000000000011
+-rw-r--r-- 1 root root    1308 8月  25 14:09 edits_0000000000000000012-0000000000000000031
+-rw-r--r-- 1 root root 1048576 8月  25 14:09 edits_inprogress_0000000000000000032
+-rw-r--r-- 1 root root       3 8月  25 14:09 seen_txid
+-rw-r--r-- 1 root root     206 8月  25 12:11 VERSION
+[root@server01 current]# hdfs oev -i edits_0000000000000000001-0000000000000000001 -p XML -o myedit.xml
+```
+
+#### fsimage
+
+1. NameNode中关于元数据的镜像,一般称为检查点,fsimage存放了一份比较完整的元数据信息
+2. 因为fsimage是NameNode的完整的镜像,如果每次都加载到内存生成树状拓扑结构，这是非常耗内存和CPU,所以一般开始时对NameNode的操作都放在edits中
+3. fsimage内容包含了NameNode管理下的所有DataNode文件及文件block及block所在的DataNode的元数据信息.
+4. 随着edits内容增大,就需要在一定时间点和fsimage合并
+
+文件信息查看：使用命令 hdfs oiv
+
+```bash
+[root@server01 current]# cd /usr/local/hadoop-2.7.5/hadoopDatas/namenodeDatas/current
+[root@server01 current]# ll
+总用量 24
+-rw-r--r-- 1 root root 858 8月  25 14:09 fsimage_0000000000000000031
+-rw-r--r-- 1 root root  62 8月  25 14:09 fsimage_0000000000000000031.md5
+-rw-r--r-- 1 root root 858 8月  25 15:09 fsimage_0000000000000000033
+-rw-r--r-- 1 root root  62 8月  25 15:09 fsimage_0000000000000000033.md5
+-rw-r--r-- 1 root root   3 8月  25 15:09 seen_txid
+-rw-r--r-- 1 root root 206 8月  25 12:11 VERSION
+[root@server01 current]# hdfs oiv -i fsimage_0000000000000000031 -p XML -o fsimage.xml
+```
+
+### SecondaryNameNode
+
+SecondaryNameNode定期合并fsimage和edits,把edits控制在一个范围内
+
+1. SecondaryNameNode 通知 NameNode 切换 editlog
+2. SecondaryNameNode 从 NameNode 中获得 fsimage 和 editlog(通过http方式)
+3. SecondaryNameNode 将 fsimage 载入内存, 然后开始合并 editlog, 合并之后成为新的fsimage
+4. SecondaryNameNode 将新的 fsimage 发回给 NameNode
+5. NameNode 用新的 fsimage 替换旧的 fsimage
+
+#### 配置SecondaryNameNode
+
+hdfs-site.xml
+
+```xml
+<property>
+    <name>dfs.namenode.secondary.http-address</name>
+    <value>server01:50090</value>
+</property>
+```
+
+core-site.xml（不配置保持默认也可以）
+
+```xml
+<!-- 多久记录一次 HDFS 镜像, 默认 1小时 -->
+<property>
+    <name>fs.checkpoint.period</name>
+    <value>3600</value>
+</property>
+<!-- 一次记录多大, 默认 64M -->
+<property>
+    <name>fs.checkpoint.size</name>
+    <value>67108864</value>
+</property>
+```
+
+#### 特点
+
+1. 完成合并的是SecondaryNameNode,会请求NameNode停止使用edits,暂时将新写操作放入一个新的文件中edits.new
+2. SecondaryNameNode从NameNode中通过HttpGET获得edits,因为要和fsimage合并,所以也是通过HttpGet的方式把fsimage加载到内存,然后逐一执行具体对文件系统的操作,与fsimage合并,生成新的fsimage,然后通过HttpPOST的方式把fsimage发送给NameNode.NameNode从SecondaryNameNode获得了fsimage后会把原有的fsimage替换为新的fsimage,把edits.new变成edits.同时会更新fstime
+3. Hadoop进入安全模式时需要管理员使用dfsadmin的savenamespace来创建新的检查点
+4. SecondaryNameNode在合并edits和fsimage时需要消耗的内存和NameNode差不多,所以一般把NameNode和SecondaryNameNode放在不同的机器上
+
+## HDFS的API操作
+
+### 配置Windows下Hadoop环境
+
+在windows系统需要配置hadoop运行环境，否则直接运行代码会出现以下问题:
+
+缺少winutils.exe
+
+Could not locate executable null \bin\winutils.exe in the hadoop binaries 
+
+缺少hadoop.dll
+
+Unable to load native-hadoop library for your platform… using builtin-Java classes where applicable 
+
+#### 步骤
+
+1. 将hadoop2.7.5文件夹拷贝到一个没有中文没有空格的路径下面
+2. 在windows上面配置hadoop的环境变量：HADOOP_HOME，并将%HADOOP_HOME%\bin添加到path中
+3. 把hadoop2.7.5文件夹中bin目录下的hadoop.dll文件放到系统盘:C:\Windows\System32 目录
+4. 关闭windows重启

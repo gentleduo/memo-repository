@@ -910,6 +910,9 @@ drwxrwxrwt   - root supergroup          0 2022-08-25 12:24 /tmp/hadoop-yarn/stag
 # 格式: hdfs dfs -appendToFile <localsrc> ... <dst>
 # 作用: 追加一个或者多个文件到hdfs指定文件中.也可以从命令行读取输入.
 [root@server01 opt]# hdfs dfs -appendToFile a.xml b.xml /big.xml
+# 格式: hdfs dfs -getmerge <dst> ... <localsrc>
+# 作用: 小文件合并
+[root@server01 opt]# hdfs dfs -getmerge /*.txt /total.txt
 ```
 
 #### 限额配置

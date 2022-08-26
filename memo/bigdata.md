@@ -1078,3 +1078,479 @@ Unable to load native-hadoop library for your platform… using builtin-Java cla
 2. 在windows上面配置hadoop的环境变量：HADOOP_HOME，并将%HADOOP_HOME%\bin添加到path中
 3. 把hadoop2.7.5文件夹中bin目录下的hadoop.dll文件放到系统盘:C:\Windows\System32 目录
 4. 关闭windows重启
+
+## MapReduce
+
+### 介绍
+
+MapReduce思想在生活中处处可见。或多或少都曾接触过这种思想。MapReduce的思想核心 是“分而治之”，适用于大量复杂的任务处理场景（大规模数据处理场景）。Map负责“分”，即把复杂的任务分解为若干个“简单的任务”来并行处理。可以进行拆分的 前提是这些小任务可以并行计算，彼此间几乎没有依赖关系。Reduce负责“合”，即对map阶段的结果进行全局汇总。
+
+#### 设计构思
+
+MapReduce是一个分布式运算程序的编程框架，核心功能是将用户编写的业务逻辑代码和自 带默认组件整合成一个完整的分布式运算程序，并发运行在Hadoop集群上。MapReduce设计并提供了统一的计算框架，为程序员隐藏了绝大多数系统层面的处理细节。 为程序员提供一个抽象和高层的编程接口和框架。程序员仅需要关心其应用层的具体计算问 题，仅需编写少量的处理应用本身计算问题的程序代码。如何具体完成这个并行计算任务所 相关的诸多系统层细节被隐藏起来,交给计算框架去处理：Map和Reduce为程序员提供了一个清晰的操作接口抽象描述。一个完整的mapreduce程序在分布式运行时有三类实例进程：
+
+1. MRAppMaster 负责整个程序的过程调度及状态协调
+2. MapTask 负责map阶段的整个数据处理流程
+3. ReduceTask 负责reduce阶段的整个数据处理流程
+
+### 编程规范
+
+MapReduce的开发一共有八个步骤,其中Map阶段分为2个步骤，Shule阶段4个步骤，Reduce阶段分为2个步骤
+
+Map阶段2个步骤
+
+1. 设置InputFormat类,将数据切分为Key-Value(K1和V1，K1表示这一行相对于文件的偏移量，V1表示这一行数据的内容)对,输入到第二步
+2. 自定义Map逻辑,将第一步的结果转换成另外的Key-Value（K2和V2，K2一般为单词，V2一般为数量1）对,输出结果
+
+因此在我们编写代码实现MapReduce的时候，在继承Mapper类的时候，有四个泛型分分别是：K1、V1、K2、V2；分别代表的就是上面的两组Key-Value，所以整个Map、Shuffle、Reduce就是将一个输入的Key-Value形式转成输出Key-Value形式的过程
+
+Shuffle阶段4个步骤
+
+1. 对输出的Key-Value对进行分区
+2. 对不同分区的数据按照相同的Key排序
+3. (可选)对分组过的数据初步规约,降低数据的网络拷贝
+4. 对数据进行分组,相同Key的Value放入一个集合中
+
+Reduce阶段2个步骤
+
+1. 对多个Map任务的结果进行排序以及合并,编写Reduce函数实现自己的逻辑,对输入的Key-Value进行处理,转为新的Key-Value（K3和V3）输出
+2. 设置OutputFormat处理并保存Reduce输出的Key-Value数据
+
+### WordCount
+
+WordCountMapper.java
+
+```java
+package org.duo.mapreduce;
+
+import org.apache.hadoop.io.LongWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Counter;
+import org.apache.hadoop.mapreduce.Mapper;
+
+import java.io.IOException;
+
+/*
+  四个泛型解释:
+    KEYIN :K1的类型
+    VALUEIN: V1的类型
+
+    KEYOUT: K2的类型
+    VALUEOUT: V2的类型
+ */
+public class WordCountMapper extends Mapper<LongWritable,Text, Text , LongWritable> {
+
+    //map方法就是将K1和V1 转为 K2和V2
+    /*
+      参数:
+         key    : K1   行偏移量
+         value  : V1   每一行的文本数据
+         context ：表示上下文对象
+     */
+    /*
+      如何将K1和V1 转为 K2和V2
+        K1         V1
+        0   hello,world,hadoop
+        15  hdfs,hive,hello
+       ---------------------------
+
+        K2            V2
+        hello         1
+        world         1
+        hdfs          1
+        hadoop        1
+        hello         1
+     */
+    @Override
+    protected void map(LongWritable key, Text value, Context context) throws IOException, InterruptedException {
+        Text text = new Text();
+        LongWritable longWritable = new LongWritable();
+        //1:将一行的文本数据进行拆分
+        String[] split = value.toString().split(",");
+        //2:遍历数组，组装 K2 和 V2
+        for (String word : split) {
+            //3:将K2和V2写入上下文
+            text.set(word);
+            longWritable.set(1);
+            context.write(text, longWritable);
+        }
+
+    }
+}
+```
+
+WordCountReducer.java
+
+```java
+package org.duo.mapreduce;
+
+import org.apache.hadoop.io.LongWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Reducer;
+
+import java.io.IOException;
+/*
+  四个泛型解释:
+    KEYIN:  K2类型
+    VALULEIN: V2类型
+
+    KEYOUT: K3类型
+    VALUEOUT:V3类型
+ */
+
+public class WordCountReducer extends Reducer<Text,LongWritable,Text,LongWritable> {
+    //reduce方法作用: 将新的K2和V2转为 K3和V3 ，将K3和V3写入上下文中
+    /*
+      参数:
+        key ： 新K2
+        values： 集合 新 V2
+        context ：表示上下文对象
+
+        ----------------------
+        如何将新的K2和V2转为 K3和V3
+        新  K2         V2
+            hello      <1,1,1>
+            world      <1,1>
+            hadoop     <1>
+        ------------------------
+           K3        V3
+           hello     3
+           world     2
+           hadoop    1
+
+     */
+
+    @Override
+    protected void reduce(Text key, Iterable<LongWritable> values, Context context) throws IOException, InterruptedException {
+        long count = 0;
+       //1:遍历集合，将集合中的数字相加，得到 V3
+        for (LongWritable value : values) {
+             count += value.get();
+        }
+        //2:将K3和V3写入上下文中
+        context.write(key, new LongWritable(count));
+    }
+}
+```
+
+JobMain.java
+
+```java
+package org.duo.mapreduce;
+
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.conf.Configured;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.LongWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.mapreduce.lib.input.TextInputFormat;
+import org.apache.hadoop.mapreduce.lib.output.TextOutputFormat;
+import org.apache.hadoop.util.Tool;
+import org.apache.hadoop.util.ToolRunner;
+
+import java.net.URI;
+
+public class JobMain extends Configured implements Tool {
+
+    //该方法用于指定一个job任务
+    @Override
+    public int run(String[] args) throws Exception {
+
+        //1:创建一个job任务对象
+        Job job = Job.getInstance(super.getConf(), "wordcount");
+        //如果打包运行出错，则需要加该配置
+        job.setJarByClass(JobMain.class);
+        //2:配置job任务对象(八个步骤)
+
+        //第一步:指定文件的读取方式和读取路径
+        job.setInputFormatClass(TextInputFormat.class);
+        TextInputFormat.addInputPath(job, new Path("hdfs://server01:8020/wordcount"));
+        //TextInputFormat.addInputPath(job, new Path("file:///D:\\mapreduce\\input"));
+
+        //第二步:指定Map阶段的处理方式和数据类型
+        job.setMapperClass(WordCountMapper.class);
+        //设置Map阶段K2的类型
+        job.setMapOutputKeyClass(Text.class);
+        //设置Map阶段V2的类型
+        job.setMapOutputValueClass(LongWritable.class);
+
+        //第三，四，五，六 采用默认的方式
+
+        //第七步：指定Reduce阶段的处理方式和数据类型
+        job.setReducerClass(WordCountReducer.class);
+        //设置K3的类型
+        job.setOutputKeyClass(Text.class);
+        //设置V3的类型
+        job.setOutputValueClass(LongWritable.class);
+
+        //第八步: 设置输出类型
+        job.setOutputFormatClass(TextOutputFormat.class);
+        //设置输出的路径
+        Path path = new Path("hdfs://server01:8020/wordcount_out");
+        TextOutputFormat.setOutputPath(job, path);
+        //TextOutputFormat.setOutputPath(job, new Path("file:///D:\\mapreduce\\output"));
+
+        //获取FileSystem
+        FileSystem fileSystem = FileSystem.get(new URI("hdfs://server01:8020"), new Configuration());
+        //判断目录是否存在
+        boolean bl2 = fileSystem.exists(path);
+        if (bl2) {
+            //删除目标目录
+            fileSystem.delete(path, true);
+        }
+
+        //等待任务结束
+        boolean bl = job.waitForCompletion(true);
+
+        return bl ? 0 : 1;
+    }
+
+    public static void main(String[] args) throws Exception {
+
+        Configuration configuration = new Configuration();
+
+        //启动job任务
+        int run = ToolRunner.run(configuration, new JobMain(), args);
+        System.exit(run);
+
+    }
+}
+```
+
+### 运行模式
+
+#### 集群运行模式
+
+1. 将MapReduce程序提交给Yarn集群, 分发到很多的节点上并发执行
+2. 处理的数据和输出结果应该位于HDFS文件系统
+3. 提交集群的实现步骤: 将程序打成JAR包，并上传，然后在集群上用hadoop命令启动
+
+```bash
+[root@server01 opt]# hadoop jar original-hadoop-1.0-SNAPSHOT.jar org.duo.mapreduce.JobMain
+```
+
+#### 本地运行模式
+
+1. MapReduce 程序是被提交给 LocalJobRunner 在本地以单进程的形式运行
+
+2. 处理的数据及输出结果可以在本地文件系统, 也可以在hdfs上
+
+3. 怎样实现本地运行? 写一个程序, 不要带集群的配置文件, 本质是程序的conf中是否有
+
+   mapreduce.framework.name=local 以及yarn.resourcemanager.hostname=local 参数
+
+4. 本地模式非常便于进行业务逻辑的 Debug , 只要在 Eclipse 中打断点即可
+
+```java
+configuration.set("mapreduce.framework.name","local");
+configuration.set(" yarn.resourcemanager.hostname","local");
+TextInputFormat.addInputPath(job,new Path("file:///F:\\wordcount\\input"));
+TextOutputFormat.setOutputPath(job,new Path("file:///F:\\wordcount\\output"));
+```
+
+### 分区
+
+在MapReduce中,通过我们指定分区,会将同一个分区的数据发送到同一个Reduce当中进行处理例如:为了数据的统计,可以把一批类似的数据发送到同一个Reduce当中,在同一个Reduce当中统计相同类型的数据,就可以实现类似的数据分区和统计等其实就是相同类型的数据,有共性的数据,送到一起去处理Reduce当中默认的分区只有一个
+
+### 计数器
+
+计数器是收集作业统计信息的有效手段之一，用于质量控制或应用级统计。计数器还可辅助诊断系统故障。如果需要将日志信息传输到map或reduce任务，更好的方法通常是看能否用一个计数器值来记录某一特定事件的发生。对于大型分布式作业而言，使用计数器更为方便。除了因为获取计数器值比输出日志更方便，还有根据计数器值统计特定事件的发生次数要比分析一堆日志文件容易得多。
+
+hadoop内置计数器列表
+
+| 名称                   | 类                                                           |
+| ---------------------- | ------------------------------------------------------------ |
+| MapReduce任务计数器    | org.apache.hadoop.mapreduce.TaskCounter                      |
+| 文件系统计数器         | org.apache.hadoop.mapreduce.FileSystemCounter                |
+| FileInputFormat计数器  | org.apache.hadoop.mapreduce.lib.input.FileInputFormatCounter |
+| FileOutputFormat计数器 | org.apache.hadoop.mapreduce.lib.output.FileOutputFormatCounter |
+| 作业计数器             | org.apache.hadoop.mapreduce.JobCounter                       |
+
+每次mapreduce执行完成之后，会看到一些日志记录出来，其中最重要的一些日志记录，所有的这些都是MapReduce的计数器的功能。
+
+自定义计数器：统计map接收到的数据记录条数
+
+第一种方式：通过context上下文对象获取计数器，在map端使用计数器进行统计
+
+第二种方式：通过enum枚举类型来定义计数器 统计reduce端数据的输入的key有多少个
+
+PartitionMapper.java
+
+```java
+package org.duo.partition;
+
+import org.apache.hadoop.io.LongWritable;
+import org.apache.hadoop.io.NullWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Counter;
+import org.apache.hadoop.mapreduce.Mapper;
+
+import java.io.IOException;
+/*
+  K1: 行偏移量 LongWritable
+  V1: 行文本数据  Text
+
+  K2: 行文本数据 Text
+  V2:  NullWritable
+ */
+
+public class PartitionMapper extends Mapper<LongWritable, Text, Text, NullWritable> {
+
+    //map方法将K1和V1转为K2和V2
+    @Override
+    protected void map(LongWritable key, Text value, Context context) throws IOException, InterruptedException {
+
+        //方式1：定义计数器
+        Counter counter = context.getCounter("MR_COUNTER", "partition_counter");
+        //每次执行该方法，则计数器变量的值加1
+        counter.increment(1L);
+        context.write(value, NullWritable.get());
+    }
+}
+```
+
+MyPartitioner.java
+
+```java
+package org.duo.partition;
+
+import org.apache.hadoop.io.NullWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Partitioner;
+
+public class MyPartitioner extends Partitioner<Text, NullWritable> {
+
+    /*
+      1：定义分区规则
+      2:返回对应的分区编号
+     */
+    @Override
+    public int getPartition(Text text, NullWritable nullWritable, int i) {
+
+        //1:拆分行文本数据(K2),获取中奖字段的值
+        String[] split = text.toString().split("\t");
+        String numStr = split[5];
+
+        //2:判断中奖字段的值和15的关系，然后返回对应的分区编号
+        if (Integer.parseInt(numStr) > 15) {
+            return 1;
+        } else {
+            return 0;
+        }
+
+    }
+}
+```
+
+PartitionerReducer.java
+
+```java
+package org.duo.partition;
+
+import org.apache.hadoop.io.NullWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Reducer;
+
+import java.io.IOException;
+
+/*
+  K2:  Text
+  V2:  NullWritable
+
+  K3:  Text
+  V3: NullWritable
+ */
+public class PartitionerReducer extends Reducer<Text, NullWritable, Text, NullWritable> {
+
+    public static enum Counter {
+        MY_INPUT_RECOREDS, MY_INPUT_BYTES
+    }
+
+    @Override
+    protected void reduce(Text key, Iterable<NullWritable> values, Context context) throws IOException, InterruptedException {
+        //方式2：使用枚枚举来定义计数器
+        context.getCounter(Counter.MY_INPUT_RECOREDS).increment(1L);
+        context.write(key, NullWritable.get());
+    }
+}
+```
+
+JobMain.java
+
+```java
+package org.duo.partition;
+
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.conf.Configured;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.NullWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.mapreduce.lib.input.TextInputFormat;
+import org.apache.hadoop.mapreduce.lib.output.TextOutputFormat;
+import org.apache.hadoop.util.Tool;
+import org.apache.hadoop.util.ToolRunner;
+
+import java.net.URI;
+
+public class JobMain extends Configured implements Tool {
+
+    @Override
+    public int run(String[] args) throws Exception {
+
+        //1:创建job任务对象
+        Job job = Job.getInstance(super.getConf(), "partition_maperduce");
+
+        //2:对job任务进行配置(八个步骤)
+        //第一步:设置输入类和输入的路径
+        job.setInputFormatClass(TextInputFormat.class);
+        TextInputFormat.addInputPath(job, new Path("hdfs://server01:8020/input"));
+        //TextInputFormat.addInputPath(job, new Path("file:///D:\\input"));
+        //第二步:设置Mapper类和数据类型（K2和V2）
+        job.setMapperClass(PartitionMapper.class);
+        job.setMapOutputKeyClass(Text.class);
+        job.setMapOutputValueClass(NullWritable.class);
+
+        //第三步，指定分区类
+        job.setPartitionerClass(MyPartitioner.class);
+        //第四, 五，六步
+        //第七步:指定Reducer类和数据类型(K3和V3)
+        job.setReducerClass(PartitionerReducer.class);
+        job.setOutputValueClass(Text.class);
+        job.setOutputValueClass(NullWritable.class);
+        //设置ReduceTask的个数
+        job.setNumReduceTasks(2);
+
+        //第八步:指定输出类和输出路径
+        job.setOutputFormatClass(TextOutputFormat.class);
+        Path path = new Path("hdfs://server01:8020/out");
+        TextOutputFormat.setOutputPath(job, new Path("hdfs://server01:8020/out"));
+        //TextOutputFormat.setOutputPath(job, new Path("file:///D:\\out\\partition_out3"));
+
+        //获取FileSystem
+        FileSystem fileSystem = FileSystem.get(new URI("hdfs://server01:8020"), new Configuration());
+        //判断目录是否存在
+        boolean bl2 = fileSystem.exists(path);
+        if (bl2) {
+            //删除目标目录
+            fileSystem.delete(path, true);
+        }
+
+        //3:等待任务结束
+        boolean bl = job.waitForCompletion(true);
+
+        return bl ? 0 : 1;
+    }
+
+    public static void main(String[] args) throws Exception {
+        Configuration configuration = new Configuration();
+        //启动job任务
+        int run = ToolRunner.run(configuration, new JobMain(), args);
+        System.exit(run);
+    }
+}
+```
+

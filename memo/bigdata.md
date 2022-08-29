@@ -1106,10 +1106,10 @@ Map阶段2个步骤
 
 Shuffle阶段4个步骤
 
-1. 对输出的Key-Value对进行分区
-2. 对不同分区的数据按照相同的Key排序
-3. (可选)对分组过的数据初步规约,降低数据的网络拷贝
-4. 对数据进行分组,相同Key的Value放入一个集合中
+1. 分区：对输出的Key-Value对进行分区
+2. 排序：对不同分区的数据按照相同的Key排序
+3. 规约：(可选)对分组过的数据初步规约,降低数据的网络拷贝
+4. 分组：对数据进行分组,相同Key的Value放入一个集合中
 
 Reduce阶段2个步骤
 
@@ -1554,3 +1554,731 @@ public class JobMain extends Configured implements Tool {
 }
 ```
 
+### 排序和序列化
+
+1. 序列化(Serialization)是指把结构化对象转化为字节流
+2. 反序列化(Deserialization)是序列化的逆过程.把字节流转为结构化对象.当要在进程间传递对象或持久化对象的时候,就需要序列化对象成字节流,反之当要将接收到或从磁盘读取的字节流转换为对象,就要进行反序列化
+3. Java的序列化(Serializable)是一个重量级序列化框架,一个对象被序列化后,会附带很多额外的信息(各种校验信息,header,继承体系等）,不便于在网络中高效传输.所以,Hadoop自己开发了一套序列化机制(Writable),精简高效.不用像Java对象类一样传输多层的父子关系,需要哪个属性就传输哪个属性值,大大的减少网络传输的开销
+4. Writable是Hadoop的序列化格式,Hadoop定义了这样一个Writable接口.一个类要支持可序列化只需实现这个接口即可
+5. 另外Writable有一个子接口是WritableComparable,WritableComparable是既可实现序列化,也可以对key进行比较,我们这里可以通过自定义Key实现WritableComparable来实现我们的排序功能
+
+数据格式：
+
+```markdown
+a 1
+a 9
+b 3
+a 7
+b 8
+b 10
+a 5
+```
+
+要求:
+
+- 第一列按照字典顺序进行排列 
+- 第一列相同的时候, 第二列按照升序进行排列
+
+解决思路:
+
+- 将 Map 端输出的 <key,value> 中的 key 和 value 组合成一个新的 key (newKey), value值不变
+- 这里就变成 <(key,value),value> , 在针对 newKey 排序的时候, 如果 key 相同, 就再对value进行排序
+
+SortBean.java
+
+```java
+package org.duo.sort;
+
+import org.apache.hadoop.io.WritableComparable;
+
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+
+public class SortBean implements WritableComparable<SortBean> {
+
+    private String word;
+    private int num;
+
+    public String getWord() {
+        return word;
+    }
+
+    public void setWord(String word) {
+        this.word = word;
+    }
+
+    public int getNum() {
+        return num;
+    }
+
+    public void setNum(int num) {
+        this.num = num;
+    }
+
+    @Override
+    public String toString() {
+        return word + "\t" + num;
+    }
+
+    //实现比较器，指定排序的规则
+    /*
+      规则:
+        第一列(word)按照字典顺序进行排列    //  aac   aad
+        第一列相同的时候, 第二列(num)按照升序进行排列
+     */
+    @Override
+    public int compareTo(SortBean sortBean) {
+        //先对第一列排序: Word排序
+        int result = this.word.compareTo(sortBean.word);
+        //如果第一列相同，则按照第二列进行排序
+        if (result == 0) {
+            return this.num - sortBean.num;
+        }
+        return result;
+    }
+
+    //实现序列化
+    @Override
+    public void write(DataOutput out) throws IOException {
+        out.writeUTF(word);
+        out.writeInt(num);
+    }
+
+    //实现反序列
+    @Override
+    public void readFields(DataInput in) throws IOException {
+        this.word = in.readUTF();
+        this.num = in.readInt();
+    }
+}
+```
+
+SortMapper.java
+
+```java
+package org.duo.sort;
+
+import org.apache.hadoop.io.LongWritable;
+import org.apache.hadoop.io.NullWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Mapper;
+
+import java.io.IOException;
+
+public class SortMapper extends Mapper<LongWritable,Text,SortBean,NullWritable> {
+    /*
+      map方法将K1和V1转为K2和V2:
+
+      K1            V1
+      0            a  3
+      5            b  7
+      ----------------------
+      K2                         V2
+      SortBean(a  3)         NullWritable
+      SortBean(b  7)         NullWritable
+     */
+    @Override
+    protected void map(LongWritable key, Text value, Context context) throws IOException, InterruptedException {
+        //1:将行文本数据(V1)拆分，并将数据封装到SortBean对象,就可以得到K2
+        String[] split = value.toString().split("\t");
+
+        SortBean sortBean = new SortBean();
+        sortBean.setWord(split[0]);
+        sortBean.setNum(Integer.parseInt(split[1]));
+
+        //2:将K2和V2写入上下文中
+        context.write(sortBean, NullWritable.get());
+    }
+}
+```
+
+SortReducer.java
+
+```java
+package org.duo.sort;
+
+import org.apache.hadoop.io.NullWritable;
+import org.apache.hadoop.mapreduce.Reducer;
+
+import java.io.IOException;
+
+public class SortReducer extends Reducer<SortBean,NullWritable,SortBean,NullWritable> {
+
+    //reduce方法将新的K2和V2转为K3和V3
+    @Override
+    protected void reduce(SortBean key, Iterable<NullWritable> values, Context context) throws IOException, InterruptedException {
+       context.write(key, NullWritable.get());
+    }
+}
+```
+
+JobMain.java
+
+```java
+package org.duo.sort;
+
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.conf.Configured;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.NullWritable;
+import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.mapreduce.lib.input.TextInputFormat;
+import org.apache.hadoop.mapreduce.lib.output.TextOutputFormat;
+import org.apache.hadoop.util.Tool;
+import org.apache.hadoop.util.ToolRunner;
+
+public class JobMain extends Configured implements Tool {
+
+    @Override
+    public int run(String[] args) throws Exception {
+
+        //1:创建job对象
+        Job job = Job.getInstance(super.getConf(), "mapreduce_sort");
+
+        //2:配置job任务(八个步骤)
+        //第一步:设置输入类和输入的路径
+        job.setInputFormatClass(TextInputFormat.class);
+        ///TextInputFormat.addInputPath(job, new Path("hdfs://node01:8020/input/sort_input"));
+        TextInputFormat.addInputPath(job, new Path("file:///D:\\input\\sort_input"));
+
+        //第二步: 设置Mapper类和数据类型
+        job.setMapperClass(SortMapper.class);
+        job.setMapOutputKeyClass(SortBean.class);
+        job.setMapOutputValueClass(NullWritable.class);
+
+        //第三，四，五，六
+
+        //第七步：设置Reducer类和类型
+        job.setReducerClass(SortReducer.class);
+        job.setOutputKeyClass(SortBean.class);
+        job.setOutputValueClass(NullWritable.class);
+
+        //第八步: 设置输出类和输出的路径
+        job.setOutputFormatClass(TextOutputFormat.class);
+        //TextOutputFormat.setOutputPath(job, new Path("hdfs://node01:8020/out/sort_out"));
+        TextOutputFormat.setOutputPath(job, new Path("file:///D:\\out\\sort_out"));
+
+        //3:等待任务结束
+        boolean bl = job.waitForCompletion(true);
+
+        return bl ? 0 : 1;
+    }
+
+    public static void main(String[] args) throws Exception {
+
+        Configuration configuration = new Configuration();
+        //启动job任务
+        int run = ToolRunner.run(configuration, new JobMain(), args);
+        System.exit(run);
+    }
+}
+```
+
+### 规约
+
+每一个map都可能会产生大量的本地输出，Combiner的作用就是对map端的输出先做一次合并，以减少在map和reduce节点之间的数据传输量，以提高网络IO性能，是MapReduce的一种优化手段之一
+
+1. combiner是MR程序中Mapper和Reducer之外的一种组件
+2. combiner组件的父类就是Reducer
+3. combiner和reducer的区别在于运行的位置
+   - Combiner是在每一个maptask所在的节点运行
+   - Reducer是接收全局所有Mapper的输出结果
+4. combiner的意义就是对每一个maptask的输出进行局部汇总，以减小网络传输量
+
+实现步骤
+
+1. 自定义一个combiner继承Reducer，重写reduce方法
+2. 在job中设置job.setCombinerClass(CustomCombiner.class)
+
+combiner能够应用的前提是不能影响最终的业务逻辑，而且，combiner的输出kv应该跟reducer的输入kv类型要对应起来
+
+MyCombiner.java
+
+```java
+package org.duo.combiner;
+
+import org.apache.hadoop.io.LongWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Reducer;
+
+import java.io.IOException;
+
+public class MyCombiner extends Reducer<Text, LongWritable, Text, LongWritable> {
+
+    /*
+       key : hello
+       values: <1,1,1,1>
+     */
+    @Override
+    protected void reduce(Text key, Iterable<LongWritable> values, Context context) throws IOException, InterruptedException {
+
+        long count = 0;
+        //1:遍历集合，将集合中的数字相加，得到 V3
+        for (LongWritable value : values) {
+            count += value.get();
+        }
+        //2:将K3和V3写入上下文中
+        context.write(key, new LongWritable(count));
+    }
+}
+```
+
+WordCountMapper.java
+
+```java
+package org.duo.combiner;
+
+import org.apache.hadoop.io.LongWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Mapper;
+
+import java.io.IOException;
+
+/*
+  四个泛型解释:
+    KEYIN :K1的类型
+    VALUEIN: V1的类型
+
+    KEYOUT: K2的类型
+    VALUEOUT: V2的类型
+ */
+public class WordCountMapper extends Mapper<LongWritable, Text, Text, LongWritable> {
+
+    //map方法就是将K1和V1 转为 K2和V2
+    /*
+      参数:
+         key    : K1   行偏移量
+         value  : V1   每一行的文本数据
+         context ：表示上下文对象
+     */
+    /*
+      如何将K1和V1 转为 K2和V2
+        K1         V1
+        0   hello,world,hadoop
+        15  hdfs,hive,hello
+       ---------------------------
+
+        K2            V2
+        hello         1
+        world         1
+        hdfs          1
+        hadoop        1
+        hello         1
+     */
+    @Override
+    protected void map(LongWritable key, Text value, Context context) throws IOException, InterruptedException {
+
+        Text text = new Text();
+        LongWritable longWritable = new LongWritable();
+        //1:将一行的文本数据进行拆分
+        String[] split = value.toString().split(",");
+
+        //2:遍历数组，组装 K2 和 V2
+        for (String word : split) {
+            //3:将K2和V2写入上下文
+            text.set(word);
+            longWritable.set(1);
+            context.write(text, longWritable);
+        }
+
+    }
+}
+```
+
+WordCountReducer.java
+
+```java
+package org.duo.combiner;
+
+import org.apache.hadoop.io.LongWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Reducer;
+
+import java.io.IOException;
+/*
+  四个泛型解释:
+    KEYIN:  K2类型
+    VALULEIN: V2类型
+
+    KEYOUT: K3类型
+    VALUEOUT:V3类型
+ */
+
+public class WordCountReducer extends Reducer<Text, LongWritable, Text, LongWritable> {
+
+    //reduce方法作用: 将新的K2和V2转为 K3和V3 ，将K3和V3写入上下文中
+    /*
+      参数:
+        key ： 新K2
+        values： 集合 新 V2
+        context ：表示上下文对象
+
+        ----------------------
+        如何将新的K2和V2转为 K3和V3
+        新  K2         V2
+            hello      <1,1,1>
+            world      <1,1>
+            hadoop     <1>
+        ------------------------
+           K3        V3
+           hello     3
+           world     2
+           hadoop    1
+
+     */
+
+    @Override
+    protected void reduce(Text key, Iterable<LongWritable> values, Context context) throws IOException, InterruptedException {
+        long count = 0;
+        //1:遍历集合，将集合中的数字相加，得到 V3
+        for (LongWritable value : values) {
+            count += value.get();
+        }
+        //2:将K3和V3写入上下文中
+        context.write(key, new LongWritable(count));
+    }
+}
+```
+
+JobMain.java
+
+```java
+package org.duo.combiner;
+
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.conf.Configured;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.LongWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.mapreduce.lib.input.TextInputFormat;
+import org.apache.hadoop.mapreduce.lib.output.TextOutputFormat;
+import org.apache.hadoop.util.Tool;
+import org.apache.hadoop.util.ToolRunner;
+
+import java.net.URI;
+
+public class JobMain extends Configured implements Tool {
+
+    //该方法用于指定一个job任务
+    @Override
+    public int run(String[] args) throws Exception {
+
+        //1:创建一个job任务对象
+        Job job = Job.getInstance(super.getConf(), "wordcount");
+        //如果打包运行出错，则需要加该配置
+        job.setJarByClass(JobMain.class);
+        //2:配置job任务对象(八个步骤)
+
+        //第一步:指定文件的读取方式和读取路径
+        job.setInputFormatClass(TextInputFormat.class);
+        //TextInputFormat.addInputPath(job, new Path("hdfs://node01:8020/wordcount"));
+        TextInputFormat.addInputPath(job, new Path("file:///D:\\input\\combiner_input"));
+
+        //第二步:指定Map阶段的处理方式和数据类型
+        job.setMapperClass(WordCountMapper.class);
+        //设置Map阶段K2的类型
+        job.setMapOutputKeyClass(Text.class);
+        //设置Map阶段V2的类型
+        job.setMapOutputValueClass(LongWritable.class);
+
+        //第三（分区），四 （排序）
+        //第五步: 规约(Combiner)
+        job.setCombinerClass(MyCombiner.class);
+        //第六步 分布
+
+        //第七步：指定Reduce阶段的处理方式和数据类型
+        job.setReducerClass(WordCountReducer.class);
+        //设置K3的类型
+        job.setOutputKeyClass(Text.class);
+        //设置V3的类型
+        job.setOutputValueClass(LongWritable.class);
+
+        //第八步: 设置输出类型
+        job.setOutputFormatClass(TextOutputFormat.class);
+        //设置输出的路径
+        TextOutputFormat.setOutputPath(job, new Path("file:///D:\\out\\combiner_out"));
+
+        //等待任务结束
+        boolean bl = job.waitForCompletion(true);
+
+        return bl ? 0 : 1;
+    }
+
+    public static void main(String[] args) throws Exception {
+        Configuration configuration = new Configuration();
+
+        //启动job任务
+        int run = ToolRunner.run(configuration, new JobMain(), args);
+        System.exit(run);
+
+    }
+}
+```
+
+### 综合案例
+
+#### 统计求和
+
+统计每个手机号的上行数据包总和，下行数据包总和，上行总流量之和，下行总流量之和分析：以手机号码作为key值，上行流量，下行流量，上行总流量，下行总流量四个字段作为value值，然后以这个key，和value作为map阶段的输出，reduce阶段的输入
+
+| 序号 | 字段        | 类型   | 描述                   |
+| ---- | ----------- | ------ | ---------------------- |
+| 0    | reportTime  | long   | 记录报告时间戳         |
+| 1    | msisdn      | String | 手机号码               |
+| 2    | apmac       | String | AP mac                 |
+| 3    | acmac       | String | AC mac                 |
+| 4    | host        | String | 访问的网址             |
+| 5    | siteType    | String | 网址种类               |
+| 6    | upPackNum   | long   | 上行数据包数，单位：个 |
+| 7    | downPackNum | long   | 下行数据报数，单位：个 |
+| 8    | upPayLoad   | long   | 上行总流量。单位：byte |
+| 9    | downPayLoad | long   | 下行总流量。单位：byte |
+| 10   | httpStatus  | String | HTTP Response状态      |
+
+FlowBean.java
+
+```java
+package org.duo.flowcount.count;
+
+import org.apache.hadoop.io.Writable;
+
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+
+public class FlowBean implements Writable {
+
+    private Integer upFlow;  //上行数据包数
+    private Integer downFlow;  //下行数据包数
+    private Integer upCountFlow; //上行流量总和
+    private Integer downCountFlow;//下行流量总和
+
+    public Integer getUpFlow() {
+        return upFlow;
+    }
+
+    public void setUpFlow(Integer upFlow) {
+        this.upFlow = upFlow;
+    }
+
+    public Integer getDownFlow() {
+        return downFlow;
+    }
+
+    public void setDownFlow(Integer downFlow) {
+        this.downFlow = downFlow;
+    }
+
+    public Integer getUpCountFlow() {
+        return upCountFlow;
+    }
+
+    public void setUpCountFlow(Integer upCountFlow) {
+        this.upCountFlow = upCountFlow;
+    }
+
+    public Integer getDownCountFlow() {
+        return downCountFlow;
+    }
+
+    public void setDownCountFlow(Integer downCountFlow) {
+        this.downCountFlow = downCountFlow;
+    }
+
+    @Override
+    public String toString() {
+        return upFlow +
+                "\t" + downFlow +
+                "\t" + upCountFlow +
+                "\t" + downCountFlow;
+    }
+
+    //序列化方法
+    @Override
+    public void write(DataOutput out) throws IOException {
+        out.writeInt(upFlow);
+        out.writeInt(downFlow);
+        out.writeInt(upCountFlow);
+        out.writeInt(downCountFlow);
+    }
+
+    //反序列化
+    @Override
+    public void readFields(DataInput in) throws IOException {
+        this.upFlow = in.readInt();
+        this.downFlow = in.readInt();
+        this.upCountFlow = in.readInt();
+        this.downCountFlow = in.readInt();
+    }
+}
+```
+
+FlowCountMapper.java
+
+```java
+package org.duo.flowcount.count;
+
+import org.apache.hadoop.io.LongWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Mapper;
+
+import java.io.IOException;
+
+public class FlowCountMapper extends Mapper<LongWritable, Text, Text, FlowBean> {
+
+    /*
+      将K1和V1转为K2和V2:
+      K1              V1
+      0               1363157985059 	13600217502	00-1F-64-E2-E8-B1:CMCC	120.196.100.55	www.baidu.com	综合门户	19	128	1177	16852	200
+     ------------------------------
+      K2              V2
+      13600217502     FlowBean(19	128	1177	16852)
+     */
+    @Override
+    protected void map(LongWritable key, Text value, Context context) throws IOException, InterruptedException {
+        //1:拆分行文本数据,得到手机号--->K2
+        String[] split = value.toString().split("\t");
+        String phoneNum = split[1];
+
+        //2:创建FlowBean对象,并从行文本数据拆分出流量的四个四段,并将四个流量字段的值赋给FlowBean对象
+        FlowBean flowBean = new FlowBean();
+
+        flowBean.setUpFlow(Integer.parseInt(split[6]));
+        flowBean.setDownFlow(Integer.parseInt(split[7]));
+        flowBean.setUpCountFlow(Integer.parseInt(split[8]));
+        flowBean.setDownCountFlow(Integer.parseInt(split[9]));
+
+        //3:将K2和V2写入上下文中
+        context.write(new Text(phoneNum), flowBean);
+
+    }
+}
+```
+
+FlowCountReducer.java
+
+```java
+package org.duo.flowcount.count;
+
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Reducer;
+
+import java.io.IOException;
+
+public class FlowCountReducer extends Reducer<Text, FlowBean, Text, FlowBean> {
+
+    @Override
+    protected void reduce(Text key, Iterable<FlowBean> values, Context context) throws IOException, InterruptedException {
+
+        //1:遍历集合,并将集合中的对应的四个字段累计
+        Integer upFlow = 0;  //上行数据包数
+        Integer downFlow = 0;  //下行数据包数
+        Integer upCountFlow = 0; //上行流量总和
+        Integer downCountFlow = 0;//下行流量总和
+
+        for (FlowBean value : values) {
+            upFlow += value.getUpFlow();
+            downFlow += value.getDownFlow();
+            upCountFlow += value.getUpCountFlow();
+            downCountFlow += value.getDownCountFlow();
+        }
+
+        //2:创建FlowBean对象,并给对象赋值  V3
+        FlowBean flowBean = new FlowBean();
+        flowBean.setUpFlow(upFlow);
+        flowBean.setDownFlow(downFlow);
+        flowBean.setUpCountFlow(upCountFlow);
+        flowBean.setDownCountFlow(downCountFlow);
+
+        //3:将K3和V3下入上下文中
+        context.write(key, flowBean);
+    }
+}
+
+```
+
+JobMain.java
+
+```java
+package org.duo.flowcount.count;
+
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.conf.Configured;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.LongWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.mapreduce.lib.input.TextInputFormat;
+import org.apache.hadoop.mapreduce.lib.output.TextOutputFormat;
+import org.apache.hadoop.util.Tool;
+import org.apache.hadoop.util.ToolRunner;
+
+public class JobMain extends Configured implements Tool {
+
+    //该方法用于指定一个job任务
+    @Override
+    public int run(String[] args) throws Exception {
+        //1:创建一个job任务对象
+        Job job = Job.getInstance(super.getConf(), "mapreduce_flowcount");
+        //如果打包运行出错，则需要加该配置
+        job.setJarByClass(JobMain.class);
+        //2:配置job任务对象(八个步骤)
+
+        //第一步:指定文件的读取方式和读取路径
+        job.setInputFormatClass(TextInputFormat.class);
+        //TextInputFormat.addInputPath(job, new Path("hdfs://node01:8020/wordcount"));
+        TextInputFormat.addInputPath(job, new Path("file:///D:\\input\\flowcount_input"));
+
+        //第二步:指定Map阶段的处理方式和数据类型
+        job.setMapperClass(FlowCountMapper.class);
+        //设置Map阶段K2的类型
+        job.setMapOutputKeyClass(Text.class);
+        //设置Map阶段V2的类型
+        job.setMapOutputValueClass(FlowBean.class);
+
+
+        //第三（分区），四 （排序）
+        //第五步: 规约(Combiner)
+        //第六步 分组
+
+
+        //第七步：指定Reduce阶段的处理方式和数据类型
+        job.setReducerClass(FlowCountReducer.class);
+        //设置K3的类型
+        job.setOutputKeyClass(Text.class);
+        //设置V3的类型
+        job.setOutputValueClass(FlowBean.class);
+
+        //第八步: 设置输出类型
+        job.setOutputFormatClass(TextOutputFormat.class);
+        //设置输出的路径
+        TextOutputFormat.setOutputPath(job, new Path("file:///D:\\out\\flowcount_out"));
+
+
+        //等待任务结束
+        boolean bl = job.waitForCompletion(true);
+
+        return bl ? 0 : 1;
+    }
+
+    public static void main(String[] args) throws Exception {
+        Configuration configuration = new Configuration();
+
+        //启动job任务
+        int run = ToolRunner.run(configuration, new JobMain(), args);
+        System.exit(run);
+
+    }
+}
+```
+
+#### 上行流量倒序排序
+
+以需求一的输出数据作为排序的输入数据，自定义FlowBean,以FlowBean为map输出的key，以手机号作为Map输出的value，因为MapReduce程序会对Map阶段输出的key进行排序
+
+#### 手机号码分区
+
+将不同的手机号分到不同的数据文件的当中去，需要自定义分区来实现，

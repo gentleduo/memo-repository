@@ -1106,10 +1106,10 @@ Map阶段2个步骤
 
 Shuffle阶段4个步骤
 
-1. 分区：对输出的Key-Value对进行分区
-2. 排序：对不同分区的数据按照相同的Key排序
-3. 规约：(可选)对分组过的数据初步规约,降低数据的网络拷贝
-4. 分组：对数据进行分组,相同Key的Value放入一个集合中
+1. 分区：对输出的Key-Value对进行分区(map阶段)
+2. 排序：对不同分区的数据按照相同的Key排序(map阶段)
+3. 规约：(可选)对分组过的数据初步规约,降低数据的网络拷贝(map阶段)
+4. 分组：对数据进行分组,相同Key的Value放入一个集合中(reduce阶段)
 
 Reduce阶段2个步骤
 
@@ -2282,3 +2282,1006 @@ public class JobMain extends Configured implements Tool {
 #### 手机号码分区
 
 将不同的手机号分到不同的数据文件的当中去，需要自定义分区来实现，
+
+FlowBean.java
+
+```java
+package org.duo.flowcount.partition;
+
+import org.apache.hadoop.io.Writable;
+
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+
+public class FlowBean implements Writable {
+
+    private Integer upFlow;  //上行数据包数
+    private Integer downFlow;  //下行数据包数
+    private Integer upCountFlow; //上行流量总和
+    private Integer downCountFlow;//下行流量总和
+
+    public Integer getUpFlow() {
+        return upFlow;
+    }
+
+    public void setUpFlow(Integer upFlow) {
+        this.upFlow = upFlow;
+    }
+
+    public Integer getDownFlow() {
+        return downFlow;
+    }
+
+    public void setDownFlow(Integer downFlow) {
+        this.downFlow = downFlow;
+    }
+
+    public Integer getUpCountFlow() {
+        return upCountFlow;
+    }
+
+    public void setUpCountFlow(Integer upCountFlow) {
+        this.upCountFlow = upCountFlow;
+    }
+
+    public Integer getDownCountFlow() {
+        return downCountFlow;
+    }
+
+    public void setDownCountFlow(Integer downCountFlow) {
+        this.downCountFlow = downCountFlow;
+    }
+
+    @Override
+    public String toString() {
+        return upFlow +
+                "\t" + downFlow +
+                "\t" + upCountFlow +
+                "\t" + downCountFlow;
+    }
+
+    //序列化方法
+    @Override
+    public void write(DataOutput out) throws IOException {
+        out.writeInt(upFlow);
+        out.writeInt(downFlow);
+        out.writeInt(upCountFlow);
+        out.writeInt(downCountFlow);
+    }
+
+    //反序列化
+    @Override
+    public void readFields(DataInput in) throws IOException {
+        this.upFlow = in.readInt();
+        this.downFlow = in.readInt();
+        this.upCountFlow = in.readInt();
+        this.downCountFlow = in.readInt();
+    }
+}
+```
+
+FlowCountMapper.java
+
+```java
+package org.duo.flowcount.partition;
+
+import org.apache.hadoop.io.LongWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Mapper;
+
+import java.io.IOException;
+
+public class FlowCountMapper extends Mapper<LongWritable, Text, Text, FlowBean> {
+
+    /*
+      将K1和V1转为K2和V2:
+      K1              V1
+      0               1363157985059 	13600217502	00-1F-64-E2-E8-B1:CMCC	120.196.100.55	www.baidu.com	综合门户	19	128	1177	16852	200
+     ------------------------------
+      K2              V2
+      13600217502     FlowBean(19	128	1177	16852)
+     */
+    @Override
+    protected void map(LongWritable key, Text value, Context context) throws IOException, InterruptedException {
+
+        //1:拆分行文本数据,得到手机号--->K2
+        String[] split = value.toString().split("\t");
+        String phoneNum = split[1];
+
+        //2:创建FlowBean对象,并从行文本数据拆分出流量的四个四段,并将四个流量字段的值赋给FlowBean对象
+        FlowBean flowBean = new FlowBean();
+
+        flowBean.setUpFlow(Integer.parseInt(split[6]));
+        flowBean.setDownFlow(Integer.parseInt(split[7]));
+        flowBean.setUpCountFlow(Integer.parseInt(split[8]));
+        flowBean.setDownCountFlow(Integer.parseInt(split[9]));
+
+        //3:将K2和V2写入上下文中
+        context.write(new Text(phoneNum), flowBean);
+    }
+}
+```
+
+FlowCountPartition.java
+
+```java
+package org.duo.flowcount.partition;
+
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Partitioner;
+
+public class FlowCountPartition extends Partitioner<Text, FlowBean> {
+
+    /*
+      该方法用来指定分区的规则:
+        135 开头数据到一个分区文件
+        136 开头数据到一个分区文件
+        137 开头数据到一个分区文件
+        其他分区
+
+       参数:
+         text : K2   手机号
+         flowBean: V2
+         i   : ReduceTask的个数
+     */
+    @Override
+    public int getPartition(Text text, FlowBean flowBean, int i) {
+
+        //1:获取手机号
+        String phoneNum = text.toString();
+
+        //2:判断手机号以什么开头,返回对应的分区编号(0-3)
+        if (phoneNum.startsWith("135")) {
+            return 0;
+        } else if (phoneNum.startsWith("136")) {
+            return 1;
+        } else if (phoneNum.startsWith("137")) {
+            return 2;
+        } else {
+            return 3;
+        }
+    }
+}
+```
+
+FlowCountReducer.java
+
+```java
+package org.duo.flowcount.partition;
+
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Reducer;
+
+import java.io.IOException;
+
+public class FlowCountReducer extends Reducer<Text, FlowBean, Text, FlowBean> {
+
+    @Override
+    protected void reduce(Text key, Iterable<FlowBean> values, Context context) throws IOException, InterruptedException {
+
+        //1:遍历集合,并将集合中的对应的四个字段累计
+        Integer upFlow = 0;  //上行数据包数
+        Integer downFlow = 0;  //下行数据包数
+        Integer upCountFlow = 0; //上行流量总和
+        Integer downCountFlow = 0;//下行流量总和
+
+        for (FlowBean value : values) {
+            upFlow += value.getUpFlow();
+            downFlow += value.getDownFlow();
+            upCountFlow += value.getUpCountFlow();
+            downCountFlow += value.getDownCountFlow();
+        }
+
+        //2:创建FlowBean对象,并给对象赋值  V3
+        FlowBean flowBean = new FlowBean();
+        flowBean.setUpFlow(upFlow);
+        flowBean.setDownFlow(downFlow);
+        flowBean.setUpCountFlow(upCountFlow);
+        flowBean.setDownCountFlow(downCountFlow);
+
+        //3:将K3和V3下入上下文中
+        context.write(key, flowBean);
+    }
+}
+```
+
+JobMain.java
+
+```java
+package org.duo.flowcount.partition;
+
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.conf.Configured;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.mapreduce.lib.input.TextInputFormat;
+import org.apache.hadoop.mapreduce.lib.output.TextOutputFormat;
+import org.apache.hadoop.util.Tool;
+import org.apache.hadoop.util.ToolRunner;
+
+public class JobMain extends Configured implements Tool {
+
+    //该方法用于指定一个job任务
+    @Override
+    public int run(String[] args) throws Exception {
+
+        //1:创建一个job任务对象
+        Job job = Job.getInstance(super.getConf(), "mapreduce_flow_partiton");
+        //如果打包运行出错，则需要加该配置
+        job.setJarByClass(JobMain.class);
+        //2:配置job任务对象(八个步骤)
+
+        //第一步:指定文件的读取方式和读取路径
+        job.setInputFormatClass(TextInputFormat.class);
+        //TextInputFormat.addInputPath(job, new Path("hdfs://node01:8020/wordcount"));
+        TextInputFormat.addInputPath(job, new Path("file:///D:\\input\\flowpartition_input"));
+
+        //第二步:指定Map阶段的处理方式和数据类型
+        job.setMapperClass(FlowCountMapper.class);
+        //设置Map阶段K2的类型
+        job.setMapOutputKeyClass(Text.class);
+        //设置Map阶段V2的类型
+        job.setMapOutputValueClass(FlowBean.class);
+
+        //第三（分区），四 （排序）
+        job.setPartitionerClass(FlowCountPartition.class);
+        //第五步: 规约(Combiner)
+        //第六步 分组
+
+        //第七步：指定Reduce阶段的处理方式和数据类型
+        job.setReducerClass(FlowCountReducer.class);
+        //设置K3的类型
+        job.setOutputKeyClass(Text.class);
+        //设置V3的类型
+        job.setOutputValueClass(FlowBean.class);
+
+        //设置reduce个数
+        job.setNumReduceTasks(4);
+
+        //第八步: 设置输出类型
+        job.setOutputFormatClass(TextOutputFormat.class);
+        //设置输出的路径
+        TextOutputFormat.setOutputPath(job, new Path("file:///D:\\out\\flowpartiton_out"));
+
+        //等待任务结束
+        boolean bl = job.waitForCompletion(true);
+
+        return bl ? 0 : 1;
+    }
+
+    public static void main(String[] args) throws Exception {
+        Configuration configuration = new Configuration();
+
+        //启动job任务
+        int run = ToolRunner.run(configuration, new JobMain(), args);
+        System.exit(run);
+
+    }
+}
+```
+
+### Reduce端实现JOIN
+
+#### 需求
+
+假如数据量巨大，两表的数据是以文件的形式存储在 HDFS 中, 需要用 MapReduce 程序来 实现以下 SQL 查询运算
+
+```sql
+select a.id,a.date,b.name,b.category_id,b.price from t_order a left join t_product b on a.pid = b.id
+```
+
+#### 商品表
+
+| id    | pname  | category_id | price |
+| ----- | ------ | ----------- | ----- |
+| P0001 | 小米5  | 1000        | 2000  |
+| P0002 | 锤子T1 | 1000        | 3000  |
+
+#### 订单数据表
+
+| id   | date     | pid   | amount |
+| ---- | -------- | ----- | ------ |
+| 1001 | 20150710 | P0001 | 2      |
+| 1002 | 20150710 | P0002 | 3      |
+
+#### 实现步骤
+
+通过将关联的条件作为map输出的key，将两表满足join条件的数据并携带数据所来源的文件信息，发往同一个reduce task，在reduce中进行数据的串联
+
+ReduceJoinMapper.java
+
+```java
+package org.duo.reduce_join;
+
+import org.apache.hadoop.io.LongWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.InputSplit;
+import org.apache.hadoop.mapreduce.Mapper;
+import org.apache.hadoop.mapreduce.lib.input.FileSplit;
+
+import java.io.IOException;
+
+/*
+  K1:  LongWritable
+  V1:  Text
+
+  K2: Text  商品的id
+  V2: Text  行文本信息(商品的信息)
+ */
+public class ReduceJoinMapper extends Mapper<LongWritable, Text, Text, Text> {
+
+    /*
+   product.txt     K1                V1
+                    0                 p0001,小米5,1000,2000
+   orders.txt      K1                V1
+                   0                1001,20150710,p0001,2
+           -------------------------------------------
+                  K2                 V2
+                 p0001              p0001,小米5,1000,2000
+                 p0001              1001,20150710,p0001,2
+
+     */
+    @Override
+    protected void map(LongWritable key, Text value, Context context) throws IOException, InterruptedException {
+
+        //1:判断数据来自哪个文件
+        FileSplit fileSplit = (FileSplit) context.getInputSplit();
+        String fileName = fileSplit.getPath().getName();
+        if (fileName.equals("product.txt")) {
+            //数据来自商品表
+            //2:将K1和V1转为K2和V2,写入上下文中
+            String[] split = value.toString().split(",");
+            String productId = split[0];
+
+            context.write(new Text(productId), value);
+
+        } else {
+            //数据来自订单表
+            //2:将K1和V1转为K2和V2,写入上下文中
+            String[] split = value.toString().split(",");
+            String productId = split[2];
+
+            context.write(new Text(productId), value);
+        }
+    }
+}
+```
+
+ReduceJoinReducer.java
+
+```java
+package org.duo.reduce_join;
+
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Reducer;
+
+import java.io.IOException;
+
+public class ReduceJoinReducer extends Reducer<Text, Text, Text, Text> {
+
+    @Override
+    protected void reduce(Text key, Iterable<Text> values, Context context) throws IOException, InterruptedException {
+
+        //1:遍历集合,获取V3 (first +second)
+        String first = "";
+        String second = "";
+        for (Text value : values) {
+            if (value.toString().startsWith("p")) {
+                first = value.toString();
+            } else {
+                if ("".equals(second)) {
+                    second = value.toString();
+                } else {
+                    second = second + "," + value.toString();
+                }
+            }
+        }
+        //2:将K3和V3写入上下文中
+        context.write(key, new Text(first + "\t" + second));
+    }
+}
+```
+
+JobMain.java
+
+```java
+package org.duo.reduce_join;
+
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.conf.Configured;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.mapreduce.lib.input.TextInputFormat;
+import org.apache.hadoop.mapreduce.lib.output.TextOutputFormat;
+import org.apache.hadoop.util.Tool;
+import org.apache.hadoop.util.ToolRunner;
+
+public class JobMain extends Configured implements Tool {
+
+    @Override
+    public int run(String[] args) throws Exception {
+
+        //1:获取Job对象
+        Job job = Job.getInstance(super.getConf(), "reduce_join");
+
+        //2:设置job任务
+        //第一步:设置输入类和输入路径
+        job.setInputFormatClass(TextInputFormat.class);
+        TextInputFormat.addInputPath(job, new Path("file:///D:\\input\\reduce_join_input"));
+
+        //第二步:设置Mapper类和数据类型
+        job.setMapperClass(ReduceJoinMapper.class);
+        job.setMapOutputKeyClass(Text.class);
+        job.setMapOutputValueClass(Text.class);
+
+        //第三,四,五,六
+
+        //第七步:设置Reducer类和数据类型
+        job.setReducerClass(ReduceJoinReducer.class);
+        job.setOutputKeyClass(Text.class);
+        job.setOutputValueClass(Text.class);
+
+        //第八步:设置输出类和输出的路径
+        job.setOutputFormatClass(TextOutputFormat.class);
+        TextOutputFormat.setOutputPath(job, new Path("file:///D:\\out\\reduce_join_out"));
+
+        //3:等待job任务结束
+        boolean bl = job.waitForCompletion(true);
+
+        return bl ? 0 : 1;
+    }
+
+    public static void main(String[] args) throws Exception {
+        Configuration configuration = new Configuration();
+
+        //启动job任务
+        int run = ToolRunner.run(configuration, new JobMain(), args);
+
+        System.exit(run);
+    }
+}
+```
+
+### Map端实现JOIN
+
+#### 概述
+
+适用于关联表中有小表的情形.使用分布式缓存,可以将小表分发到所有的map节点，这样，map节点就可以在本地对自己所读到的大表数据进行join并输出最终结果，可以大大提高join操作的并发度，加快处理速度
+
+#### 实现步骤
+
+先在mapper类中预先定义好小表，进行join
+
+MapJoinMapper.java
+
+```java
+package org.duo.map_join;
+
+import org.apache.hadoop.fs.FSDataInputStream;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.LongWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Mapper;
+
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.net.URI;
+import java.util.HashMap;
+
+public class MapJoinMapper extends Mapper<LongWritable, Text, Text, Text> {
+
+    private HashMap<String, String> map = new HashMap<>();
+
+    //第一件事情:将分布式缓存的小表数据读取到本地Map集合(setup方法只会执行一次)
+    @Override
+    protected void setup(Context context) throws IOException, InterruptedException {
+
+        //1:获取分布式缓存文件列表
+        URI[] cacheFiles = context.getCacheFiles();
+        //2:获取指定的分布式缓存文件的文件系统(FileSystem)
+        FileSystem fileSystem = FileSystem.get(cacheFiles[0], context.getConfiguration());
+        //3:获取文件的输入流
+        FSDataInputStream inputStream = fileSystem.open(new Path(cacheFiles[0]));
+        //4:读取文件内容, 并将数据存入Map集合
+        //4.1 将字节输入流转为字符缓冲流FSDataInputStream --->BufferedReader
+        BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(inputStream));
+        //4.2 读取小表文件内容,以行位单位,并将读取的数据存入map集合
+        String line = null;
+        while ((line = bufferedReader.readLine()) != null) {
+            String[] split = line.split(",");
+            map.put(split[0], line);
+        }
+        //5:关闭流
+        bufferedReader.close();
+        fileSystem.close();
+    }
+
+    //第二件事情:对大表的处理业务逻辑,而且要实现大表和小表的join操作
+    @Override
+    protected void map(LongWritable key, Text value, Context context) throws IOException, InterruptedException {
+
+        //1:从行文本数据中获取商品的id: p0001 , p0002  得到了K2
+        String[] split = value.toString().split(",");
+        String productId = split[2];  //K2
+
+        //2:在Map集合中,将商品的id作为键,获取值(商品的行文本数据) ,将value和值拼接,得到V2
+        String productLine = map.get(productId);
+        String valueLine = productLine + "\t" + value.toString(); //V2
+        //3:将K2和V2写入上下文中
+        context.write(new Text(productId), new Text(valueLine));
+    }
+}
+```
+
+JobMain.java
+
+```java
+package org.duo.map_join;
+
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.conf.Configured;
+import org.apache.hadoop.filecache.DistributedCache;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.mapreduce.lib.input.TextInputFormat;
+import org.apache.hadoop.mapreduce.lib.output.TextOutputFormat;
+import org.apache.hadoop.util.Tool;
+import org.apache.hadoop.util.ToolRunner;
+
+import java.net.URI;
+
+public class JobMain extends Configured implements Tool {
+
+    @Override
+    public int run(String[] args) throws Exception {
+
+        //1:获取job对象
+        Job job = Job.getInstance(super.getConf(), "map_join_job");
+
+        //2:设置job对象(将小表放在分布式缓存中)
+        //将小表放在分布式缓存中
+        // DistributedCache.addCacheFile(new URI("hdfs://node01:8020/cache_file/product.txt"), super.getConf());
+        job.addCacheFile(new URI("hdfs://node01:8020/cache_file/product.txt"));
+
+        //第一步:设置输入类和输入的路径
+        job.setInputFormatClass(TextInputFormat.class);
+        TextInputFormat.addInputPath(job, new Path("file:///D:\\input\\map_join_input"));
+        //第二步:设置Mapper类和数据类型
+        job.setMapperClass(MapJoinMapper.class);
+        job.setMapOutputKeyClass(Text.class);
+        job.setMapOutputValueClass(Text.class);
+
+        //第八步:设置输出类和输出路径
+        job.setOutputFormatClass(TextOutputFormat.class);
+        TextOutputFormat.setOutputPath(job, new Path("file:///D:\\out\\map_join_out"));
+
+        //3:等待任务结束
+        boolean bl = job.waitForCompletion(true);
+        return bl ? 0 : 1;
+    }
+
+    public static void main(String[] args) throws Exception {
+        Configuration configuration = new Configuration();
+        //启动job任务
+        int run = ToolRunner.run(configuration, new JobMain(), args);
+        System.exit(run);
+    }
+}
+```
+
+### 自定义InputFormat
+
+#### 需求
+
+无论hdfs还是mapreduce，对于小文件都有损效率，实践中，又难免面临处理大量小文件的场景，此时，就需要有相应解决方案
+
+#### 分析
+
+小文件的优化无非以下几种方式：
+
+1. 在数据采集的时候，就将小文件或小批数据合成大文件再上传HDFS
+2. 在业务处理之前，在HDFS上使用mapreduce程序对小文件进行合并
+3. 在mapreduce处理时，可采用combineInputFormat提高效率
+
+#### 实现
+
+本例实现的是上述第二种方式程序的核心机制：自定义一个InputFormat，改写RecordReader，实现一次读取一个完整文件封装为KV，在输出时使用SequenceFileOutPutFormat输出合并文件
+
+MyRecordReader.java
+
+```java
+package org.duo.inputformat;
+
+import org.apache.commons.io.IOUtils;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FSDataInputStream;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.io.BytesWritable;
+import org.apache.hadoop.io.NullWritable;
+import org.apache.hadoop.mapreduce.InputSplit;
+import org.apache.hadoop.mapreduce.RecordReader;
+import org.apache.hadoop.mapreduce.TaskAttemptContext;
+import org.apache.hadoop.mapreduce.lib.input.FileSplit;
+
+import java.io.IOException;
+
+public class MyRecordReader extends RecordReader<NullWritable, BytesWritable> {
+
+    private Configuration configuration = null;
+    private FileSplit fileSplit = null;
+    private boolean processed = false;
+    private BytesWritable bytesWritable = new BytesWritable();
+    private FileSystem fileSystem = null;
+    private FSDataInputStream inputStream = null;
+
+    //进行初始化工作
+    @Override
+    public void initialize(InputSplit inputSplit, TaskAttemptContext taskAttemptContext) throws IOException, InterruptedException {
+
+        //获取文件的切片
+        fileSplit = (FileSplit) inputSplit;
+        //获取Configuration对象
+        configuration = taskAttemptContext.getConfiguration();
+    }
+
+    //该方法用于获取K1和V1
+    /*
+     K1: NullWritable
+     V1: BytesWritable
+     */
+    @Override
+    public boolean nextKeyValue() throws IOException, InterruptedException {
+
+        if (!processed) {
+            //1:获取源文件的字节输入流
+            //1.1 获取源文件的文件系统 (FileSystem)
+            fileSystem = FileSystem.get(configuration);
+            //1.2 通过FileSystem获取文件字节输入流
+            inputStream = fileSystem.open(fileSplit.getPath());
+            //2:读取源文件数据到普通的字节数组(byte[])
+            byte[] bytes = new byte[(int) fileSplit.getLength()];
+            IOUtils.readFully(inputStream, bytes, 0, (int) fileSplit.getLength());
+            //3:将字节数组中数据封装到BytesWritable ,得到v1
+            bytesWritable.set(bytes, 0, (int) fileSplit.getLength());
+            processed = true;
+            return true;
+        }
+        return false;
+    }
+
+    //返回K1
+    @Override
+    public NullWritable getCurrentKey() throws IOException, InterruptedException {
+        return NullWritable.get();
+    }
+
+    //返回V1
+    @Override
+    public BytesWritable getCurrentValue() throws IOException, InterruptedException {
+        return bytesWritable;
+    }
+
+    //获取文件读取的进度
+    @Override
+    public float getProgress() throws IOException, InterruptedException {
+        return 0;
+    }
+
+    //进行资源释放
+    @Override
+    public void close() throws IOException {
+        inputStream.close();
+        fileSystem.close();
+    }
+}
+```
+
+MyInputFormat.java
+
+```java
+package org.duo.inputformat;
+
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.BytesWritable;
+import org.apache.hadoop.io.NullWritable;
+import org.apache.hadoop.mapreduce.InputSplit;
+import org.apache.hadoop.mapreduce.JobContext;
+import org.apache.hadoop.mapreduce.RecordReader;
+import org.apache.hadoop.mapreduce.TaskAttemptContext;
+import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
+
+import java.io.IOException;
+
+public class MyInputFormat extends FileInputFormat<NullWritable, BytesWritable> {
+
+    @Override
+    public RecordReader<NullWritable, BytesWritable> createRecordReader(InputSplit inputSplit, TaskAttemptContext taskAttemptContext) throws IOException, InterruptedException {
+
+        //1:创建自定义RecordReader对象
+        MyRecordReader myRecordReader = new MyRecordReader();
+        //2:将inputSplit和context对象传给MyRecordReader
+        myRecordReader.initialize(inputSplit, taskAttemptContext);
+        return myRecordReader;
+    }
+
+    /*
+     设置文件是否可以被切割
+     */
+    @Override
+    protected boolean isSplitable(JobContext context, Path filename) {
+        return false;
+    }
+}
+```
+
+SequenceFileMapper.java
+
+```java
+package org.duo.inputformat;
+
+import org.apache.hadoop.io.BytesWritable;
+import org.apache.hadoop.io.NullWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.InputSplit;
+import org.apache.hadoop.mapreduce.Mapper;
+import org.apache.hadoop.mapreduce.lib.input.FileSplit;
+
+import java.io.IOException;
+
+public class SequenceFileMapper extends Mapper<NullWritable, BytesWritable, Text, BytesWritable> {
+
+    @Override
+    protected void map(NullWritable key, BytesWritable value, Context context) throws IOException, InterruptedException {
+
+        //1:获取文件的名字,作为K2
+        FileSplit fileSplit = (FileSplit) context.getInputSplit();
+        String fileName = fileSplit.getPath().getName();
+        //2:将K2和V2写入上下文中
+        context.write(new Text(fileName), value);
+    }
+}
+```
+
+JobMain.java
+
+```java
+package org.duo.inputformat;
+
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.conf.Configured;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.BytesWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.mapreduce.lib.input.TextInputFormat;
+import org.apache.hadoop.mapreduce.lib.output.SequenceFileOutputFormat;
+import org.apache.hadoop.mapreduce.lib.output.TextOutputFormat;
+import org.apache.hadoop.util.Tool;
+import org.apache.hadoop.util.ToolRunner;
+
+public class JobMain extends Configured implements Tool {
+
+    @Override
+    public int run(String[] args) throws Exception {
+
+        //1:获取job对象
+        Job job = Job.getInstance(super.getConf(), "sequence_file_job");
+
+        //2:设置job任务
+        //第一步:设置输入类和输入的路径
+        job.setInputFormatClass(MyInputFormat.class);
+        MyInputFormat.addInputPath(job, new Path("file:///D:\\input\\myInputformat_input"));
+
+        //第二步:设置Mapper类和数据类型
+        job.setMapperClass(SequenceFileMapper.class);
+        job.setMapOutputKeyClass(Text.class);
+        job.setMapOutputValueClass(BytesWritable.class);
+
+        //第七步: 不需要设置Reducer类,但是必须设置数据类型
+        job.setOutputKeyClass(Text.class);
+        job.setOutputValueClass(BytesWritable.class);
+
+        //第八步:设置输出类和输出的路径
+        job.setOutputFormatClass(SequenceFileOutputFormat.class);
+        SequenceFileOutputFormat.setOutputPath(job, new Path("file:///D:\\out\\myinputformat_out"));
+
+        //3:等待job任务执行结束
+        boolean bl = job.waitForCompletion(true);
+        return bl ? 0 : 1;
+    }
+
+    public static void main(String[] args) throws Exception {
+
+        Configuration configuration = new Configuration();
+        int run = ToolRunner.run(configuration, new JobMain(), args);
+        System.exit(run);
+    }
+}
+```
+
+### 自定义outputFormat
+
+#### 需求
+
+现在有一些订单的评论数据，需求，将订单的好评与差评进行区分开来，将最终的数据分开到不同的文件夹下面去（分区是输出到不同文件，这里的需求是要输出到不同的文件夹），其中数据第九个字段表示好评，中评，差评。0：好评，1：中评，2：差评
+
+#### 分析
+
+程序的关键点是要在一个mapreduce程序中根据数据的不同输出两类结果到不同目录，这类灵活的输出需求可以通过自定义outputformat来实现
+
+#### 实现
+
+1. 在mapreduce中访问外部资源
+2. 自定义outputformat，改写其中的recordwriter，改写具体输出数据的方法write()
+
+MyRecordWriter.java
+
+```java
+package org.duo.outputformat;
+
+import org.apache.hadoop.fs.FSDataOutputStream;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.IOUtils;
+import org.apache.hadoop.io.NullWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.RecordWriter;
+import org.apache.hadoop.mapreduce.TaskAttemptContext;
+
+import java.io.IOException;
+
+public class MyRecordWriter extends RecordWriter<Text, NullWritable> {
+
+    private FSDataOutputStream goodCommentsOutputStream;
+    private FSDataOutputStream badCommentsOutputStream;
+
+    public MyRecordWriter() {
+    }
+
+    public MyRecordWriter(FSDataOutputStream goodCommentsOutputStream, FSDataOutputStream badCommentsOutputStream) {
+        this.goodCommentsOutputStream = goodCommentsOutputStream;
+        this.badCommentsOutputStream = badCommentsOutputStream;
+    }
+
+    /**
+     * @param text         行文本内容
+     * @param nullWritable
+     * @throws IOException
+     * @throws InterruptedException
+     */
+    @Override
+    public void write(Text text, NullWritable nullWritable) throws IOException, InterruptedException {
+
+        //1:从行文本数据中获取第9个字段
+        String[] split = text.toString().split("\t");
+        String numStr = split[9];
+
+        //2:根据字段的值,判断评论的类型,然后将对应的数据写入不同的文件夹文件中
+        if (Integer.parseInt(numStr) <= 1) {
+            //好评或者中评
+            goodCommentsOutputStream.write(text.toString().getBytes());
+            goodCommentsOutputStream.write("\r\n".getBytes());
+        } else {
+            //差评
+            badCommentsOutputStream.write(text.toString().getBytes());
+            badCommentsOutputStream.write("\r\n".getBytes());
+        }
+    }
+
+    @Override
+    public void close(TaskAttemptContext taskAttemptContext) throws IOException, InterruptedException {
+        IOUtils.closeStream(goodCommentsOutputStream);
+        IOUtils.closeStream(badCommentsOutputStream);
+    }
+}
+```
+
+MyOutputFormat.java
+
+```java
+package org.duo.outputformat;
+
+import org.apache.hadoop.fs.FSDataOutputStream;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.NullWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.RecordWriter;
+import org.apache.hadoop.mapreduce.TaskAttemptContext;
+import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
+
+import java.io.IOException;
+
+public class MyOutputFormat extends FileOutputFormat<Text, NullWritable> {
+
+    @Override
+    public RecordWriter<Text, NullWritable> getRecordWriter(TaskAttemptContext taskAttemptContext) throws IOException, InterruptedException {
+
+        //1:获取目标文件的输出流(两个)
+        FileSystem fileSystem = FileSystem.get(taskAttemptContext.getConfiguration());
+        FSDataOutputStream goodCommentsOutputStream = fileSystem.create(new Path("file:///D:\\out\\good_comments\\good_comments.txt"));
+        FSDataOutputStream badCommentsOutputStream = fileSystem.create(new Path("file:///D:\\out\\bad_comments\\bad_comments.txt"));
+        //2:将输出流传给MyRecordWriter
+        MyRecordWriter myRecordWriter = new MyRecordWriter(goodCommentsOutputStream, badCommentsOutputStream);
+        return myRecordWriter;
+    }
+}
+```
+
+MyOutputFormatMapper.java
+
+```java
+package org.duo.outputformat;
+
+import org.apache.hadoop.io.LongWritable;
+import org.apache.hadoop.io.NullWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Mapper;
+
+import java.io.IOException;
+
+public class MyOutputFormatMapper extends Mapper<LongWritable, Text, Text, NullWritable> {
+
+    @Override
+    protected void map(LongWritable key, Text value, Context context) throws IOException, InterruptedException {
+        context.write(value, NullWritable.get());
+    }
+}
+```
+
+JobMain.java
+
+```java
+package org.duo.outputformat;
+
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.conf.Configured;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.NullWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.mapreduce.lib.input.TextInputFormat;
+import org.apache.hadoop.util.Tool;
+import org.apache.hadoop.util.ToolRunner;
+
+public class JobMain extends Configured implements Tool {
+
+    @Override
+    public int run(String[] args) throws Exception {
+
+        //1:获取job对象
+        Job job = Job.getInstance(super.getConf(), "myoutputformat_job");
+
+        //2:设置job任务
+        //第一步:设置输入类和输入的路径
+        job.setInputFormatClass(TextInputFormat.class);
+        TextInputFormat.addInputPath(job, new Path("file:///D:\\input\\myoutputformat_input"));
+
+        //第二步:设置Mapper类和数据类型
+        job.setMapperClass(MyOutputFormatMapper.class);
+        job.setMapOutputKeyClass(Text.class);
+        job.setMapOutputValueClass(NullWritable.class);
+
+        //第八步:设置输出类和输出的路径
+        job.setOutputFormatClass(MyOutputFormat.class);
+        MyOutputFormat.setOutputPath(job, new Path("file:///D:\\out\\myoutputformat_out"));
+
+        //3:等待任务结束
+        boolean bl = job.waitForCompletion(true);
+        return bl ? 0 : 1;
+    }
+
+    public static void main(String[] args) throws Exception {
+
+        Configuration configuration = new Configuration();
+        int run = ToolRunner.run(configuration, new JobMain(), args);
+        System.exit(run);
+    }
+}
+```
+

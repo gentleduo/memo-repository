@@ -3817,7 +3817,7 @@ export PATH=$PATH:$HIVE_HOME/bin
 
 ### bin/hive
 
-```bash
+```hive
 [root@server01 /]# hive
 hive> show databases;
 OK
@@ -3828,7 +3828,7 @@ hive>
 
 ### 使用sql语句或者sql脚本进行交互
 
-```bash
+```hive
 [root@server01 /]# hive -e "show databases;"
 which: no hbase in (/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/usr/local/java/jdk1.8.0_144/bin:/usr/local/hadoop-2.7.5/bin:/usr/local/hadoop-2.7.5/sbin:/usr/local/hive/bin:/root/bin)
 SLF4J: Class path contains multiple SLF4J bindings.
@@ -3843,7 +3843,7 @@ default
 Time taken: 1.757 seconds, Fetched: 1 row(s)
 ```
 
-```bash
+```hive
 [root@server01 /]# cd /opt
 [root@server01 opt]# vim hive.sql
 create database if not exists mytest;
@@ -3864,5 +3864,58 @@ OK
 Time taken: 0.037 seconds
 OK
 Time taken: 0.627 seconds
+```
+
+## 基本操作
+
+### 数据库操作
+
+#### 创建数据库
+
+```hive
+hive> create database if not exists myhive;
+OK
+Time taken: 1.59 seconds
+```
+
+说明：hive的表存放位置模式是由hive-site.xml当中的一个属性指定的
+
+```xml
+<name>hive.metastore.warehouse.dir</name>
+<value>/user/hive/warehouse</value>
+```
+
+#### 创建数据库并指定位置
+
+```hive
+hive> create database myhive2 location '/myhive2';
+```
+
+#### 设置数据库键值对信息
+
+```hive
+hive> create database foo with dbproperties ('owner'='gentleduo','date'='20220830');
+hive> describe database extended foo;
+hive> alter database foo set dbproperties ('owner'='itheima');
+```
+
+#### 查看数据库更多详细信息
+
+```hive
+hive> desc database extended myhive2;
+```
+
+#### 删除数据库
+
+删除一个空数据库，如果数据库下面有数据表，那么就会报错
+
+```hive
+hive> drop database foo;
+```
+
+强制删除数据库，包含数据库下面的表一起删除
+
+```hive
+hive> drop database myhive2;
 ```
 

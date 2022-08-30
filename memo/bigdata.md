@@ -1085,7 +1085,7 @@ Unable to load native-hadoop library for your platform… using builtin-Java cla
 
 MapReduce思想在生活中处处可见。或多或少都曾接触过这种思想。MapReduce的思想核心 是“分而治之”，适用于大量复杂的任务处理场景（大规模数据处理场景）。Map负责“分”，即把复杂的任务分解为若干个“简单的任务”来并行处理。可以进行拆分的 前提是这些小任务可以并行计算，彼此间几乎没有依赖关系。Reduce负责“合”，即对map阶段的结果进行全局汇总。
 
-#### 设计构思
+### 设计思想
 
 MapReduce是一个分布式运算程序的编程框架，核心功能是将用户编写的业务逻辑代码和自 带默认组件整合成一个完整的分布式运算程序，并发运行在Hadoop集群上。MapReduce设计并提供了统一的计算框架，为程序员隐藏了绝大多数系统层面的处理细节。 为程序员提供一个抽象和高层的编程接口和框架。程序员仅需要关心其应用层的具体计算问 题，仅需编写少量的处理应用本身计算问题的程序代码。如何具体完成这个并行计算任务所 相关的诸多系统层细节被隐藏起来,交给计算框架去处理：Map和Reduce为程序员提供了一个清晰的操作接口抽象描述。一个完整的mapreduce程序在分布式运行时有三类实例进程：
 
@@ -1106,8 +1106,8 @@ Map阶段2个步骤
 
 Shuffle阶段4个步骤
 
-1. 分区：对输出的Key-Value对进行分区(map阶段)
-2. 排序：对不同分区的数据按照相同的Key排序(map阶段)
+1. 分区：对输出的Key-Value对进行分区，默认的分区编号为：key的hashcode%ReduceTask个数(map阶段)
+2. 排序：对不同分区的数据按照相同的Key排序，mapreduce会自动根据key进行排序，是默认行为，如果要自定义排序的话只需要将key实现WritableComparable接口并且重写compareTo方法即可(map阶段)
 3. 规约：(可选)对分组过的数据初步规约,降低数据的网络拷贝(map阶段)
 4. 分组：对数据进行分组,相同Key的Value放入一个集合中(reduce阶段)
 
@@ -3283,5 +3283,586 @@ public class JobMain extends Configured implements Tool {
         System.exit(run);
     }
 }
+```
+
+### 自定义分组
+
+分组是mapreduce当中reduce端的一个功能组件，主要的作用是决定哪些数据作为一组，调用一次reduce的逻辑，默认是每个不同的key，作为多个不同的组，每个组调用一次reduce逻辑，我们可以自定义分组实现不同的key作为同一个组，调用一次reduce逻辑
+
+#### 需求
+
+有如下订单数据
+
+| 订单id        | 商品id | 成交金额 |
+| ------------- | ------ | -------- |
+| Order_0000001 | Pdt_01 | 222.8    |
+| Order_0000001 | Pdt_05 | 25.8     |
+| Order_0000002 | Pdt_03 | 522.8    |
+| Order_0000002 | Pdt_04 | 122.4    |
+| Order_0000002 | Pdt_05 | 722.4    |
+| Order_0000003 | Pdt_01 | 222.8    |
+
+现在需要求出每一个订单中成交金额最大的一笔交易（或者求交易金额的topN）
+
+#### 分析
+
+1. 利用“订单id和成交金额”作为key，可以将map阶段读取到的所有订单数据按照id分区，按照金额排序，发送到reduce
+2. 在reduce端利用分组将订单id相同的kv聚合成组，然后取第一个即是最大值
+
+#### 实现
+
+##### 定义OrderBean
+
+定义一个OrderBean，里面定义两个字段，第一个字段是orderId，第二个字段是金额（注意金额一定要使用Double或者DoubleWritable类型，否则没法按照金额顺序排序）
+
+OrderBean.java
+
+```java
+package org.duo.grouping;
+
+import org.apache.hadoop.io.WritableComparable;
+
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+
+public class OrderBean implements WritableComparable<OrderBean> {
+
+    private String orderId;
+    private Double price;
+
+    public String getOrderId() {
+        return orderId;
+    }
+
+    public void setOrderId(String orderId) {
+        this.orderId = orderId;
+    }
+
+    public Double getPrice() {
+        return price;
+    }
+
+    public void setPrice(Double price) {
+        this.price = price;
+    }
+
+    @Override
+    public String toString() {
+        return orderId + "\t" + price;
+    }
+
+    //指定排序规则
+    @Override
+    public int compareTo(OrderBean orderBean) {
+        //先比较订单ID,如果订单ID一致,则排序订单金额(降序)
+        int i = this.orderId.compareTo(orderBean.orderId);
+        if (i == 0) {
+            i = this.price.compareTo(orderBean.price) * -1;
+        }
+
+        return i;
+    }
+
+    //实现对象的序列化
+    @Override
+    public void write(DataOutput out) throws IOException {
+        out.writeUTF(orderId);
+        out.writeDouble(price);
+    }
+
+    //实现对象反序列化
+    @Override
+    public void readFields(DataInput in) throws IOException {
+        this.orderId = in.readUTF();
+        this.price = in.readDouble();
+    }
+}
+```
+
+##### 定义Mapper类
+
+GroupMapper.java
+
+```java
+package org.duo.grouping;
+
+import org.apache.hadoop.io.LongWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Mapper;
+
+import java.io.IOException;
+
+public class GroupMapper extends Mapper<LongWritable, Text, OrderBean, Text> {
+
+    @Override
+    protected void map(LongWritable key, Text value, Context context) throws IOException, InterruptedException {
+
+        //1:拆分行文本数据,得到订单的ID,订单的金额
+        String[] split = value.toString().split("\t");
+
+        //2:封装OrderBean,得到K2
+        OrderBean orderBean = new OrderBean();
+        orderBean.setOrderId(split[0]);
+        orderBean.setPrice(Double.valueOf(split[2]));
+
+        //3:将K2和V2写入上下文中
+        context.write(orderBean, value);
+    }
+}
+```
+
+##### 自定义分区
+
+自定义分区，按照订单id进行分区，把所有订单id相同的数据，都发送到同一个reduce中去
+
+OrderPartition.java
+
+```java
+package org.duo.grouping;
+
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Partitioner;
+
+public class OrderPartition extends Partitioner<OrderBean, Text> {
+
+    /**
+     * 分区规则: 根据订单的ID实现分区
+     * 如果不自定义OrderPartition的话，默认会按照orderBean的hashCode来分区，那么相同的订单id就会被分在不同的分区
+     *
+     * @param orderBean K2
+     * @param text      V2
+     * @param i         ReduceTask个数
+     * @return 返回分区的编号
+     */
+    @Override
+    public int getPartition(OrderBean orderBean, Text text, int i) {
+        return (orderBean.getOrderId().hashCode() & 2147483647) % i;
+    }
+}
+```
+
+##### 自定义分组
+
+按照自己的逻辑进行分组，通过比较相同的订单id，将相同的订单id放到一个组里面去，进过分组之后当中的数据，已经全部是排好序的数据，只需要取前topN即可
+
+OrderGroupComparator.java
+
+```java
+package org.duo.grouping;
+
+/*
+
+  1: 继承WriteableComparator
+  2: 调用父类的有参构造
+  3: 指定分组的规则(重写方法)
+ */
+
+import org.apache.hadoop.io.WritableComparable;
+import org.apache.hadoop.io.WritableComparator;
+
+// 1: 继承WriteableComparator
+public class OrderGroupComparator extends WritableComparator {
+
+    // 2: 调用父类的有参构造
+    public OrderGroupComparator() {
+        super(OrderBean.class, true);
+    }
+
+    //3: 指定分组的规则(重写方法)
+    @Override
+    public int compare(WritableComparable a, WritableComparable b) {
+
+        //3.1 对形参做强制类型转换
+        OrderBean first = (OrderBean) a;
+        OrderBean second = (OrderBean) b;
+        //3.2 指定分组规则
+        return first.getOrderId().compareTo(second.getOrderId());
+    }
+}
+```
+
+##### 定义Reducer类
+
+GroupReducer.java
+
+```java
+package org.duo.grouping;
+
+import org.apache.hadoop.io.NullWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Reducer;
+
+import java.io.IOException;
+
+public class GroupReducer extends Reducer<OrderBean, Text, Text, NullWritable> {
+
+    @Override
+    protected void reduce(OrderBean key, Iterable<Text> values, Context context) throws IOException, InterruptedException {
+
+        int i = 0;
+        for (Text value : values) {
+            context.write(value, NullWritable.get());
+            i++;
+            if (i >= 2) {
+                break;
+            }
+        }
+    }
+}
+```
+
+##### main函数
+
+JobMain.java
+
+```java
+package org.duo.grouping;
+
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.conf.Configured;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.NullWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.mapreduce.lib.input.TextInputFormat;
+import org.apache.hadoop.mapreduce.lib.output.TextOutputFormat;
+import org.apache.hadoop.util.Tool;
+import org.apache.hadoop.util.ToolRunner;
+
+public class JobMain extends Configured implements Tool {
+
+    @Override
+    public int run(String[] args) throws Exception {
+
+        //1:获取Job对象
+        Job job = Job.getInstance(super.getConf(), "mygroup_job");
+
+        //2:设置job任务
+        //第一步:设置输入类和输入路径
+        job.setInputFormatClass(TextInputFormat.class);
+        TextInputFormat.addInputPath(job, new Path("file:///D:\\input\\mygroup_input"));
+
+        //第二步:设置Mapper类和数据类型
+        job.setMapperClass(GroupMapper.class);
+        job.setMapOutputKeyClass(OrderBean.class);
+        job.setMapOutputValueClass(Text.class);
+
+        //第三,四,五,六
+        //设置分区
+        job.setPartitionerClass(OrderPartition.class);
+        //设置分组
+        job.setGroupingComparatorClass(OrderGroupComparator.class);
+
+        //第七步:设置Reducer类和数据类型
+        job.setReducerClass(GroupReducer.class);
+        job.setOutputKeyClass(Text.class);
+        job.setOutputValueClass(NullWritable.class);
+
+        //第八步:设置输出类和输出的路径
+        job.setOutputFormatClass(TextOutputFormat.class);
+        TextOutputFormat.setOutputPath(job, new Path("file:///D:\\out\\mygroup_out"));
+
+        //3:等待job任务结束
+        boolean bl = job.waitForCompletion(true);
+
+        return bl ? 0 : 1;
+    }
+
+    public static void main(String[] args) throws Exception {
+
+        Configuration configuration = new Configuration();
+        //启动job任务
+        int run = ToolRunner.run(configuration, new JobMain(), args);
+        System.exit(run);
+    }
+}
+```
+
+## yarn资源调度
+
+### 介绍
+
+yarn是hadoop集群当中的资源管理系统模块，从hadoop2.0开始引入yarn模块,yarn可为各类计算框架提供资源的管理和调度,主要用于管理集群当中的资源（主要是服务器的各种硬件资源，包括CPU，内存，磁盘，网络IO等）以及调度运行在yarn上面的各种任务。yarn核心出发点是为了分离资源管理与作业监控，实现分离的做法是拥有一个全局的资源管理（ResourceManager，RM），以及每个应用程序对应一个的应用管理器（ApplicationMaster，AM）总结一句话就是说：yarn主要就是为了调度资源，管理任务等。
+
+### 组件
+
+YARN总体上是Master/Slave结构 ，主要由ResourceManager、NodeManager、 ApplicationMaster和Container等几个组件构成。
+
+#### ResourceManager(RM) 
+
+负责处理客户端请求,对各NM上的资源进行统一管理和调度。给ApplicationMaster分配空闲的Container运行并监控其运行状态。主要由两个组件构成：调度器和应用程序管理器：
+
+1. 调度器(Scheduler)：调度器根据容量、队列等限制条件，将系统中的资源分配给各个正在运行的应用程序。调度器仅根据各个应用程序的资源需求进行资源分配，而资源分配单位是Container。Shceduler不负责监控或者跟踪应用程序的状态。总之，调度器根据应用程序的资源要求，以及集群机器的资源情况，为应用程序分配封装在Container中的资源。
+
+   hadoop支持的调度方式
+
+   1. FIFO Scheduler
+
+      把任务按提交的顺序排成一个队列，这是一个先进先出队列，在进行资源分配的时候，先给队列中最头上的任务进行分配资源，待最头上任务需求满足后再给下一个分配，以此类推。FIFOScheduler是最简单也是最容易理解的调度器，也不需要任何配置，但它并不适用于共享集群。大的任务可能会占用所有集群资源，这就导致其它任务被阻塞。
+
+   2. Capacity Scheduler
+
+      Capacity调度器允许多个组织共享整个集群，每个组织可以获得集群的一部分计算能力。通过为每个组织分配专门的队列，然后再为每个队列分配一定的集群资源，这样整个集群就可以通过设置多个队列的方式给多个组织提供服务了。除此之外，队列内部又可以垂直划分，这样一个组织内部的多个成员就可以共享这个队列资源了，在一个队列内部，资源的调度是采用的是先进先出(FIFO)策略。（容量调度器是apache版本默认使用的调度器）
+
+   3. Fair Scheduler
+
+      Fair调度器的设计目标是为所有的应用分配公平的资源（对公平的定义可以通过参数来设置）。公平调度在也可以在多个队列间工作。举个例子，假设有两个用户A和B，他们分别拥有一个队列。当A启动一个job而B没有任务时，A会获得全部集群资源；当B启动一个job后，A的job会继续运行，不过一会儿之后两个任务会各自获得一半的集群资源。如果此时B再启动第二个job并且其它job还在运行，则它将会和B的第一个job共享B这个队列的资源，也就是B的两个job会用于四分之一的集群资源，而A的job仍然用于集群一半的资源，结果就是资源最终在两个用户之间平等的共享。（公平调度器，CDH版本的hadoop默认使用的调度器）
+
+   使用哪种调度器取决于yarn-site.xml当中的：yarn.resourcemanager.scheduler.class 这个属性的配置
+
+2. 应用程序管理器(Applications Manager)：应用程序管理器负责管理整个系统中所有应用程序，包括应用程序提交、与调度器协商资源以启动ApplicationMaster、监控ApplicationMaster运行状态并在失败时重新启动等，跟踪分给的Container的进度、状态也是其职责。
+
+#### NodeManager(NM)
+
+NodeManager是每个节点上的资源和任务管理器。它会定时地向ResourceManager汇报本节点上的资源使用情况和各个Container的运行状态；同时会接收并处理来自ApplicationMaster的Container启动/停止等请求。
+
+#### ApplicationMaster(AM)
+
+用户提交的应用程序均包含一个ApplicationMaster，负责应用的监控，跟踪应用执行状态，重启失败任务等。ApplicationMaster是应用框架，它负责向ResourceManager协调资源，并且与NodeManager协同工作完成Task的执行和监控。
+
+#### Container
+
+Container是YARN中的资源抽象，它封装了某个节点上的多维度资源，如内存、CPU、磁盘、网络等，当ApplicationMaster向ResourceManager申请资源时，ResourceManager为ApplicationMaster返回的资源便是用Container表示的。
+
+### 参数
+
+设置container分配最小内存，给应用程序container分配的最小内存
+
+yarn.scheduler.minimum-allocation-mb 1024 
+
+设置container分配最大内存，给应用程序container分配的最大内存
+
+yarn.scheduler.maximum-allocation-mb 8192 
+
+设置每个container的最小虚拟内核个数，每个container默认给分配的最小的虚拟内核个数
+
+yarn.scheduler.minimum-allocation-vcores 1 
+
+设置每个container的最大虚拟内核个数，每个container可以分配的最大的虚拟内核的个数
+
+yarn.scheduler.maximum-allocation-vcores 32 
+
+设置NodeManager可以分配的内存大小，nodemanager可以分配的最大内存大小，默认8192Mb
+
+yarn.nodemanager.resource.memory-mb 8192 
+
+定义每台机器的内存使用大小
+
+yarn.nodemanager.resource.memory-mb 8192
+
+定义交换区空间可以使用的大小，交换区空间就是讲一块硬盘拿出来做内存使用,这里指定的是nodemanager的2.1倍
+
+yarn.nodemanager.vmem-pmem-ratio 2.1 
+
+# Hive
+
+## 数据仓库
+
+### 概念
+
+英文名称为Data Warehouse，可简写为DW或DWH。数据仓库的目的是构建面向分析的集成化数据环境，为企业提供决策支持（Decision Support）。数据仓库是存数据的，企业的各种数据往里面存，主要目的是为了分析有效数据，后续会基于它产出供分析挖掘的数据，或者数据应用需要的数据，如企业的分析性报告和各类报表等。可以理解为：面向分析的存储系统。
+
+### 特征
+
+数据仓库是面向主题的（Subject-Oriented ）、集成的（Integrated）、非易失的（Non-Volatile）和时变的（Time-Variant ）数据集合，用以支持管理决策。
+
+#### 面向主题
+
+数据仓库是面向主题的,数据仓库通过一个个主题域将多个业务系统的数据加载到一起，为了各个主题（如：用户、订单、商品等）进行分析而建，操作型数据库是为了支撑各种业务而建立。
+
+#### 集成性
+
+数据仓库会将不同源数据库中的数据汇总到一起,数据仓库中的综合数据不能从原有的数据库系统直接得到。因此在数据进入数据仓库之前，必然要经过统一与整合，这一步是数据仓库建设中最关键、最复杂的一步(ETL)，要统一源数据中所有矛盾之处，如字段的同名异义、异名同义、单位不统一、字长不一致，等等。
+
+ETL，是英文Extract-Transform-Load的缩写，用来描述将数据从来源端经过抽取（extract）、转换（transform）、加载（load）至目的端的过程。ETL一词较常用在数据仓库，但其对象并不限于数据仓库。
+
+#### 非易失性
+
+操作型数据库主要服务于日常的业务操作，使得数据库需要不断地对数据实时更新，以便迅速获得当前最新数据，不至于影响正常的业务运作。在数据仓库中只要保存过去的业务数据，不需要每一笔业务都实时更新数据仓库，而是根据商业需要每隔一段时间把一批较新的数据导入数据仓库。数据仓库的数据反映的是一段相当长的时间内历史数据的内容，是不同时点的数据库的集合，以及基于这些快照进行统计、综合和重组的导出数据。数据仓库中的数据一般仅执行查询操作，很少会有删除和更新。但是需定期加载和刷新数据。
+
+#### 时变性
+
+数据仓库包含各种粒度的历史数据。数据仓库中的数据可能与某个特定日期、星期、月份、季度或者年份有关。数据仓库的目的是通过分析企业过去一段时间业务的经营状况，挖掘其中隐藏的模式。虽然数据仓库的用户不能修改数据，但并不是说数据仓库的数据是永远不变的。分析的结果只能反映过去的情况，当业务变化后，挖掘出的模式会失去时效性。因此数据仓库的数据需要定时更新，以适应决策的需要。
+
+### 数据库与数据仓库的区别
+
+数据库与数据仓库的区别实际讲的是OLTP与OLAP 的区别。
+
+#### 操作型处理
+
+联机事务处理OLTP（On-Line Transaction Processing，），也可以称面向交易的处理系统，它是针对具体业务在数据库联机的日常操作，通常对少数记录进行查询、修改。用户较为关心操作的响应时间、数据的安全性、完整性和并发支持的用户数等问题。传统的数据库系统作为数据管理的主要手段，主要用于操作型处理。
+
+#### 分析型处理
+
+联机分析处理 OLAP（On-Line Analytical Processing）一般针对某些主题的历史数据进行分析，支持管理决策。
+
+数据仓库的出现，并不是要取代数据库。
+
+1. 数据库是面向事务的设计，数据仓库是面向主题设计的。
+2. 数据库一般存储业务数据，数据仓库存储的一般是历史数据。
+3. 数据库设计是尽量避免冗余，一般针对某一业务应用进行设计，比如一张简单的User表，记录用户名、密码等简单数据即可，符合业务应用，但是不符合分析。数据仓库在设计是有意引入冗余，依照分析需求，分析维度、分析指标进行设计。
+4. 数据库是为捕获数据而设计，数据仓库是为分析数据而设计。
+
+数据仓库，是在数据库已经大量存在的情况下，为了进一步挖掘数据资源、为了决策需要而产生的，它决不是所谓的“大型数据库”
+
+### 分层架构
+
+按照数据流入流出的过程，数据仓库架构可分为三层——源数据、数据仓库、数据应用。数据仓库的数据来源于不同的源数据，并提供多样的数据应用，数据自下而上流入数据仓库后向上层开放应用，而数据仓库只是中间集成化数据管理的一个平台。
+
+#### 源数据层（ODS）
+
+此层数据无任何更改，直接沿用外围系统数据结构和数据，不对外开 放；为临时存储层，是接口数据的临时存储区域，为后一步的数据处理做准备。来源一般包括：点击流日志(Click Stream)、数据库数据(OLTP)、文档数据(Documents)、其它。
+
+#### 数据仓库层（DW）
+
+也称为细节层，DW层的数据应该是一致的、准确的、干净的数据，即对源系统数据进行了清洗（去除了杂质）后的数据。
+
+#### 数据应用层（DA或APP）
+
+前端应用直接读取的数据源；根据报表、专题分析需求而计算 生成的数据。
+
+数据仓库从各数据源获取数据及在数据仓库内的数据转换和流动都可以认为是ETL（抽取 Extra, 转化Transfer, 装载Load）的过程，ETL是数据仓库的流水线，也可以认为是数据仓库的 血液，它维系着数据仓库中数据的新陈代谢，而数据仓库日常的管理和维护工作的大部分精 力就是保持ETL的正常和稳定。
+
+## Hive的基本概念
+
+### 简介
+
+Hive是基于Hadoop的一个数据仓库工具，可以将结构化的数据文件映射为一张数据库表，并提供类SQL查询功能。其本质是将SQL转换为MapReduce的任务进行运算，底层由HDFS来提供数据的存储，说白了hive可以理解为一个将SQL转换为MapReduce的任务的工具，甚至更进一步可以说hive就是一个MapReduce的客户端。
+
+1. 采用类SQL语法去操作数据，提供快速开发的能力。
+2. 避免了去写MapReduce，减少开发人员的学习成本。
+3. 功能扩展很方便。
+
+### Hive与Hadoop的关系
+
+Hive利用HDFS存储数据，利用MapReduce查询分析数据
+
+```mermaid
+graph LR
+  A(客户端)-->|发出sql|B[Hive处理转换成MapReduce]
+  B[Hive处理转换成MapReduce]-->|提交任务到Hadoop|C(MapReduce运行)
+```
+
+## 安装
+
+下载地址：
+
+http://archive.apache.org/dist/hive/
+
+### 上传并解压安装包
+
+### 安装mysql
+
+### 修改hive的配置文件
+
+hive-env.sh
+
+```sh
+HADOOP_HOME=/usr/local/hadoop-2.7.5/
+export HIVE_CONF_DIR=/usr/local/hive/conf
+```
+
+hive-site.xml
+
+这个文件没有template，直接新增
+
+```xml
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+<configuration>
+<property>
+      <name>javax.jdo.option.ConnectionUserName</name>
+      <value>root</value>
+  </property>
+  <property>
+      <name>javax.jdo.option.ConnectionPassword</name>
+      <value>123456</value>
+  </property>
+  <property>
+      <name>javax.jdo.option.ConnectionURL</name>
+      <value>jdbc:mysql://server01:3306/hive?createDatabaseIfNotExist=true&amp;useSSL=false</value>
+  </property>
+  <property>
+      <name>javax.jdo.option.ConnectionDriverName</name>
+      <value>com.mysql.jdbc.Driver</value>
+  </property>
+  <property>
+      <name>hive.metastore.schema.verification</name>
+      <value>false</value>
+  </property>
+  <property>
+    <name>datanucleus.schema.autoCreateAll</name>
+    <value>true</value>
+  </property>
+  <property>
+    <name>hive.server2.thrift.bind.host</name>
+    <value>server01</value>
+  </property>
+</configuration>
+```
+
+### 添加mysql驱动包
+
+hive使用mysql作为元数据存储，必然需要连接mysql数据库，所以添加一个mysql的连接驱动包到hive的安装目录：/usr/local/hive/lib/下，然后就可以准备启动hive了
+
+### 配置hive的环境变量
+
+```sh
+export HIVE_HOME=/usr/local/hive
+export PATH=$PATH:$HIVE_HOME/bin
+```
+
+## 交互方式
+
+### bin/hive
+
+```bash
+[root@server01 /]# hive
+hive> show databases;
+OK
+default
+Time taken: 1.373 seconds, Fetched: 1 row(s)
+hive>
+```
+
+### 使用sql语句或者sql脚本进行交互
+
+```bash
+[root@server01 /]# hive -e "show databases;"
+which: no hbase in (/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/usr/local/java/jdk1.8.0_144/bin:/usr/local/hadoop-2.7.5/bin:/usr/local/hadoop-2.7.5/sbin:/usr/local/hive/bin:/root/bin)
+SLF4J: Class path contains multiple SLF4J bindings.
+SLF4J: Found binding in [jar:file:/usr/local/hive/lib/log4j-slf4j-impl-2.4.1.jar!/org/slf4j/impl/StaticLoggerBinder.class]
+SLF4J: Found binding in [jar:file:/usr/local/hadoop-2.7.5/share/hadoop/common/lib/slf4j-log4j12-1.7.10.jar!/org/slf4j/impl/StaticLoggerBinder.class]
+SLF4J: See http://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J: Actual binding is of type [org.apache.logging.slf4j.Log4jLoggerFactory]
+
+Logging initialized using configuration in jar:file:/usr/local/hive/lib/hive-common-2.1.1.jar!/hive-log4j2.properties Async: true
+OK
+default
+Time taken: 1.757 seconds, Fetched: 1 row(s)
+```
+
+```bash
+[root@server01 /]# cd /opt
+[root@server01 opt]# vim hive.sql
+create database if not exists mytest;
+use mytest;
+create table stu(id int,name string);
+[root@server01 opt]# hive -f /opt/hive.sql
+which: no hbase in (/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/usr/local/java/jdk1.8.0_144/bin:/usr/local/hadoop-2.7.5/bin:/usr/local/hadoop-2.7.5/sbin:/usr/local/hive/bin:/root/bin)
+SLF4J: Class path contains multiple SLF4J bindings.
+SLF4J: Found binding in [jar:file:/usr/local/hive/lib/log4j-slf4j-impl-2.4.1.jar!/org/slf4j/impl/StaticLoggerBinder.class]
+SLF4J: Found binding in [jar:file:/usr/local/hadoop-2.7.5/share/hadoop/common/lib/slf4j-log4j12-1.7.10.jar!/org/slf4j/impl/StaticLoggerBinder.class]
+SLF4J: See http://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J: Actual binding is of type [org.apache.logging.slf4j.Log4jLoggerFactory]
+
+Logging initialized using configuration in jar:file:/usr/local/hive/lib/hive-common-2.1.1.jar!/hive-log4j2.properties Async: true
+OK
+Time taken: 2.319 seconds
+OK
+Time taken: 0.037 seconds
+OK
+Time taken: 0.627 seconds
 ```
 

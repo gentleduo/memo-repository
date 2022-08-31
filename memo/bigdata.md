@@ -3919,3 +3919,520 @@ hive> drop database foo;
 hive> drop database myhive2;
 ```
 
+### 数据库表操作
+
+#### 语法
+
+```sql
+create [external] table [if not exists] table_name (
+col_name data_type [comment '字段描述信息']
+col_name data_type [comment '字段描述信息'])
+[comment '表的描述信息']
+[partitioned by (col_name data_type,...)]
+[clustered by (col_name,col_name,...)]
+[sorted by (col_name [asc|desc],...) into num_buckets buckets]
+[row format row_format]
+[storted as ....]
+[location '指定表的路径']
+```
+
+#### 说明
+
+##### create table
+
+创建一个指定名字的表。如果相同名字的表已经存在，则抛出异常；用户可以用 IF NOT EXISTS 选项来忽略这个异常。
+
+##### external
+
+可以让用户创建一个外部表，在建表的同时指定一个指向实际数据的路径 （LOCATION），Hive 创建内部表时，会将数据移动到数据仓库指向的路径；若创建外部 表，仅记录数据所在的路径，不对数据的位置做任何改变。在删除表的时候，内部表的 元数据和数据会被一起删除，而外部表只删除元数据，不删除数据。
+
+##### comment
+
+表示注释,默认不能使用中文
+
+##### partitioned by
+
+表示使用表分区,一个表可以拥有一个或者多个分区，每一个分区单独存在一个目录下
+
+##### clustered by
+
+对于每一个表分文件， Hive可以进一步组织成桶，也就是说桶是更为细粒 度的数据范围划分。Hive也是 针对某一列进行桶的组织
+
+##### sorted by
+
+指定排序字段和排序规则
+
+##### row format
+
+指定表文件字段分隔符
+
+##### storted as
+
+指定表文件的存储格式, 常用格式:SEQUENCEFILE, TEXTFILE, RCFILE,如果文件 数据是纯文本，可以使用 STORED AS TEXTFILE。如果数据需要压缩，使用 storted as SEQUENCEFILE
+
+##### location
+
+指定表文件的存储路径
+
+####  内部表的操作
+
+创建表时,如果没有使用external关键字,则该表是内部表（managed table）
+
+Hive建表字段类型
+
+| 分类     | 类型      | 描述                                           | 字面量示例                                                   |
+| -------- | --------- | ---------------------------------------------- | ------------------------------------------------------------ |
+| 原始类型 | BOOLEAN   | true/false                                     | TRUE                                                         |
+|          | TINYINT   | 1字节的有符号整数,-128~127                     | 1Y                                                           |
+|          | SMALLINT  | 2个字节的有符号整数，-32768~32767              | 1S                                                           |
+|          | INT       | 4个字节的带符号整数                            | 1                                                            |
+|          | BIGINT    | 8字节带符号整数                                | 1L                                                           |
+|          | FLOAT     | 4字节单精度浮点数                              | 1.0                                                          |
+|          | DOUBLE    | 8字节双精度浮点数                              | 1.0                                                          |
+|          | DEICIMAL  | 任意精度的带符号小数                           | 1.0                                                          |
+|          | STRING    | 字符串，变长                                   | “a”,’b’                                                      |
+|          | VARCHAR   | 变长字符串                                     | “a”,’b’                                                      |
+|          | CHAR      | 固定长度字符串                                 | “a”,’b’                                                      |
+|          | BINARY    | 字节数组                                       |                                                              |
+|          | TIMESTAMP | 时间戳，毫秒值精度                             | 122327493795                                                 |
+|          | DATE      | 日期                                           | ‘2016-03-29’                                                 |
+|          | INTERVAL  | 时间频率间隔                                   |                                                              |
+| 复杂类型 | ARRAY     | 有序的的同类型的集合                           | array(1,2)                                                   |
+|          | MAP       | key-value,key必须为原始类型，value可以任意类型 | map(‘a’,1,’b’,2)                                             |
+|          | STRUCT    | 字段集合,类型可以不同                          | struct(‘1’,1,1.0),named_stract(‘col1’,’1’,’col2’,1,’clo3’,1.0) |
+|          | UNION     | 在有限取值范围内的一个值                       | create_union(1,’a’,63)                                       |
+
+##### 建表入门
+
+```sql
+use myhive;
+create table stu(id int,name string);
+insert into stu values (1,"zhangsan"); #插入数据
+select * from stu;
+```
+
+##### 创建表并指定字段之间的分隔符
+
+```sql
+create  table if not exists stu2(id int ,name string) row format delimited fields terminated by '\t';
+```
+
+##### 创建表并指定表文件的存放路径
+
+```sql
+create  table if not exists stu2(id int ,name string) row format delimited fields terminated by '\t' location '/user/stu2';
+```
+
+##### 根据查询结果创建表
+
+```sql
+create table stu3 as select * from stu2; # 通过复制表结构和表内容创建新表
+```
+
+##### 根据已经存在的表结构创建表
+
+```sql
+create table stu4 like stu;
+```
+
+##### 查询表的详细信息
+
+```sql
+desc formatted stu2;
+```
+
+##### 删除表
+
+```sql
+drop table stu4;
+```
+
+#### 外部表的操作
+
+##### 说明
+
+外部表因为是指定其他的hdfs路径的数据加载到表当中来，所以hive表会认为自己不完全独占 这份数据，所以删除hive表的时候，数据仍然存放在hdfs当中，不会删掉.
+
+##### 内部表和外部表的使用场景
+
+每天将收集到的网站日志定期流入HDFS文本文件（各部门共享）。在外部表（原始日志表）的基础上各部门再根据各自的需要做大量 的统计分析，在这个过程中用到的中间表、结果表则使用内部表存储，数据通过SELECT+INSERT进入各部门的内部表。
+
+##### 案例
+
+分别创建老师与学生表外部表，并向表中加载数据
+
+###### 创建老师表
+
+```hive
+hive> use myhive;
+OK
+Time taken: 1.11 seconds
+hive> create external table teacher (t_id string,t_name string) row format delimited fields terminated by '\t';
+OK
+Time taken: 0.855 seconds
+
+```
+
+###### 创建学生表
+
+```hive
+hive> create external table student (s_id string,s_name string,s_birth string , s_sex string ) row format delimited fields terminated by '\t';
+OK
+Time taken: 0.173 seconds
+```
+
+###### 加载数据
+
+1. 方式1
+
+   将hdfs文件映射成表
+
+   ```bash
+   [root@server01 opt]# vim teacher.txt
+   1       zhangsan
+   2       lisi
+   3       wangwu
+   # 将文件直接传到hdfs的表目录：/user/hive/warehouse/myhive.db/teacher后，hive会自动将hdfs文件映射成一张表
+   [root@server01 opt]# hdfs dfs -put teacher.txt /user/hive/warehouse/myhive.db/teacher
+   ```
+
+   查询
+
+   ```hive
+   hive> select * from teacher;
+   OK
+   1       zhangsan
+   2       lisi
+   3       wangwu
+   Time taken: 1.462 seconds, Fetched: 3 row(s)
+   ```
+
+2. 方式2
+
+   加载数据
+
+   ```hive
+   hive> load data local inpath '/opt/bigdata/hive/student.csv' into table student;
+   Loading data to table myhive.student
+   OK
+   Time taken: 1.027 seconds
+   hive> select * from student;
+   OK
+   01      赵雷    1990-01-01      男
+   02      钱电    1990-12-21      男
+   03      孙风    1990-05-20      男
+   04      李云    1990-08-06      男
+   05      周梅    1991-12-01      女
+   06      吴兰    1992-03-01      女
+   07      郑竹    1989-07-01      女
+   08      王菊    1990-01-20      女
+   Time taken: 0.208 seconds, Fetched: 8 row(s)
+   ```
+
+   加载数据并覆盖已有数据
+
+   ```hive
+   hive> load data local inpath '/opt/bigdata/hive/student.csv' overwrite into table student;
+   Loading data to table myhive.student
+   Moved: 'hdfs://server01:8020/user/hive/warehouse/myhive.db/student/student.csv' to trash at: hdfs://server01:8020/user/root/.Trash/Current
+   OK
+   Time taken: 0.517 seconds
+   hive> drop table student;
+   OK
+   Time taken: 3.192 seconds
+   hive> select * from student;
+   FAILED: SemanticException [Error 10001]: Line 1:14 Table not found 'student'
+   hive> create external table student (s_id string,s_name string,s_birth string , s_sex string ) row format delimited fields terminated by '\t';
+   OK
+   Time taken: 0.105 seconds
+   hive> select * from student;
+   OK
+   01      赵雷    1990-01-01      男
+   02      钱电    1990-12-21      男
+   03      孙风    1990-05-20      男
+   04      李云    1990-08-06      男
+   05      周梅    1991-12-01      女
+   06      吴兰    1992-03-01      女
+   07      郑竹    1989-07-01      女
+   08      王菊    1990-01-20      女
+   Time taken: 0.128 seconds, Fetched: 8 row(s)
+   ```
+
+   删除外部表只会删元数据，真实的数据不会删除，当重新创建已经删除的外部表后，hive又会自动建立映射关系。说表和表数据只是一个映射关系，当表被删除后数据还是在的。
+
+   从hdfs文件系统向表中加载数据（需要提前将数据上传到hdfs文件系统）
+
+   ```bash
+   [root@server01 hive]# cd /opt/bigdata/hive
+   [root@server01 hive]# hdfs dfs -mkdir -p /hivedatas
+   [root@server01 hive]# hdfs dfs -put techer.csv /hivedatas/
+   ```
+
+   ```hive
+   hive> load data inpath '/hivedatas/techer.csv' overwrite into table teacher;
+   Loading data to table myhive.teacher
+   OK
+   Time taken: 0.366 seconds
+   ```
+
+
+### 分区表操作
+
+在大数据中，最常用的一种思想就是分治，可以把大的文件切割划分成一个个的小的文件，这样每次操作一个小的文件就会很容易了，同样的道理，在hive当中也是支持这种思想的，就是可以把大的数据，按照每月，或者天进行切分成一个个的小的文件,存放在不同的文件夹中.
+
+#### 创建分区表
+
+```hive
+hive> create table score(s_id string,c_id string, s_score int) partitioned by (month string) row format delimited fields terminated by '\t';
+OK
+Time taken: 0.234 seconds
+```
+
+#### 创建多分区表
+
+会在hdfs中创建多级目录
+
+```hive
+hive> create table score2 (s_id string,c_id string, s_score int) partitioned by (year string,month string,day string) row format delimited fields terminated by '\t';
+OK
+Time taken: 0.249 seconds
+```
+
+#### 加载数据到分区表中
+
+```hive
+hive> load data local inpath '/opt/bigdata/hive/score.csv' into table score partition (month='202207');
+Loading data to table myhive.score partition (month=202207)
+OK
+Time taken: 0.696 seconds
+hive> load data local inpath '/opt/bigdata/hive/score.csv' into table score partition (month='202208');
+Loading data to table myhive.score partition (month=202208)
+OK
+Time taken: 0.651 seconds
+```
+
+#### 加载数据到多分区表中
+
+```hive
+hive> load data local inpath '/opt/bigdata/hive/score.csv' into table score2 partition (year='2022',month='08',day='01');
+Loading data to table myhive.score2 partition (year=2022, month=08, day=01)
+OK
+Time taken: 0.768 seconds
+```
+
+#### 查询
+
+```hive
+hive> select * from score;
+OK
+01      01      80      202207
+01      02      90      202207
+01      03      99      202207
+02      01      70      202207
+02      02      60      202207
+02      03      80      202207
+03      01      80      202207
+03      02      80      202207
+03      03      80      202207
+04      01      50      202207
+04      02      30      202207
+04      03      20      202207
+05      01      76      202207
+05      02      87      202207
+06      01      31      202207
+06      03      34      202207
+07      02      89      202207
+07      03      98      202207
+01      01      80      202208
+01      02      90      202208
+01      03      99      202208
+02      01      70      202208
+02      02      60      202208
+02      03      80      202208
+03      01      80      202208
+03      02      80      202208
+03      03      80      202208
+04      01      50      202208
+04      02      30      202208
+04      03      20      202208
+05      01      76      202208
+05      02      87      202208
+06      01      31      202208
+06      03      34      202208
+07      02      89      202208
+07      03      98      202208
+Time taken: 0.154 seconds, Fetched: 36 row(s)
+hive> select * from score where month = '202207';
+OK
+01      01      80      202207
+01      02      90      202207
+01      03      99      202207
+02      01      70      202207
+02      02      60      202207
+02      03      80      202207
+03      01      80      202207
+03      02      80      202207
+03      03      80      202207
+04      01      50      202207
+04      02      30      202207
+04      03      20      202207
+05      01      76      202207
+05      02      87      202207
+06      01      31      202207
+06      03      34      202207
+07      02      89      202207
+07      03      98      202207
+Time taken: 0.153 seconds, Fetched: 18 row(s)
+```
+
+#### 多分区联合查询
+
+```hive
+hive> select * from score where month = '202207' union all select * from score where month = '202208';
+WARNING: Hive-on-MR is deprecated in Hive 2 and may not be available in the future versions. Consider using a different execution engine (i.e. spark, tez) or using Hive 1.X releases.
+Query ID = root_20220831131344_f817f033-5e24-4b8b-9597-89d063125af6
+Total jobs = 1
+Launching Job 1 out of 1
+Number of reduce tasks is set to 0 since there's no reduce operator
+Job running in-process (local Hadoop)
+2022-08-31 13:13:47,450 Stage-1 map = 100%,  reduce = 0%
+Ended Job = job_local1450407751_0001
+MapReduce Jobs Launched:
+Stage-Stage-1:  HDFS Read: 3370 HDFS Write: 1772 SUCCESS
+Total MapReduce CPU Time Spent: 0 msec
+OK
+01      01      80      202207
+01      02      90      202207
+01      03      99      202207
+02      01      70      202207
+02      02      60      202207
+02      03      80      202207
+03      01      80      202207
+03      02      80      202207
+03      03      80      202207
+04      01      50      202207
+04      02      30      202207
+04      03      20      202207
+05      01      76      202207
+05      02      87      202207
+06      01      31      202207
+06      03      34      202207
+07      02      89      202207
+07      03      98      202207
+01      01      80      202208
+01      02      90      202208
+01      03      99      202208
+02      01      70      202208
+02      02      60      202208
+02      03      80      202208
+03      01      80      202208
+03      02      80      202208
+03      03      80      202208
+04      01      50      202208
+04      02      30      202208
+04      03      20      202208
+05      01      76      202208
+05      02      87      202208
+06      01      31      202208
+06      03      34      202208
+07      02      89      202208
+07      03      98      202208
+Time taken: 2.699 seconds, Fetched: 36 row(s)
+```
+
+#### 查看分区
+
+```hive
+hive> show partitions score;
+OK
+month=202207
+month=202208
+Time taken: 0.103 seconds, Fetched: 2 row(s)
+```
+
+#### 添加分区
+
+```hive
+hive> alter table score add partition(month='202209');
+OK
+Time taken: 0.164 seconds
+```
+
+#### 删除分区
+
+```hive
+hive> alter table score drop partition(month='202209');
+Moved: 'hdfs://server01:8020/user/hive/warehouse/myhive.db/score/month=202209' to trash at: hdfs://server01:8020/user/root/.Trash/Current
+Dropped the partition month=202209
+OK
+Time taken: 0.326 seconds
+```
+
+#### 综合练习
+
+在有一个文件score.csv文件，存放在集群的这个目录下/scoredatas/month=20220801，这个文件每天都会生成，存放到对应的日期文件夹下面去，文件别人也需要公用，不能移动。需求，创建hive对应的表，并将数据加载到表中，进行数据统计分析，且删除表之后，数据不能删除
+
+##### 数据准备
+
+```bash
+[root@server01 hive]# hdfs dfs -mkdir -p /scoredatas/month=20220801
+[root@server01 hive]# hdfs dfs -put /opt/bigdata/hive/score.csv /scoredatas/month=20220801/
+```
+
+##### 创建外部分区表，并指定文件数据存放目录
+
+```hive
+hive> create external table score3(s_id string, c_id string,s_score int) partitioned by (month string) row format delimited fields terminated by '\t' location '/scoredatas';
+OK
+Time taken: 0.135 seconds
+hive> select * from score3;
+OK
+Time taken: 0.104 seconds
+```
+
+##### 进行表的修复
+
+建立表与数据文件之间的一个关系映射。
+
+```hive
+hive> msck repair table score3;
+OK
+Partitions not in metastore:    score3:month=20220801
+Repair: Added partition to metastore score3:month=20220801
+Time taken: 0.21 seconds, Fetched: 2 row
+```
+
+注意：如果创建的表是不带分区的则不需要进行表修复。例如：
+
+```bash
+[root@server01 hive]# hdfs dfs -mkdir -p /scorelog
+[root@server01 hive]# hdfs dfs -put /opt/bigdata/hive/score.csv /scorelog/
+```
+
+```hive
+hive> create external table score4(s_id string, c_id string,s_score int) row format delimited fields terminated by '\t' location '/scorelog';
+OK
+Time taken: 0.069 seconds
+hive> select * from score4;
+OK
+01      01      80
+01      02      90
+01      03      99
+02      01      70
+02      02      60
+02      03      80
+03      01      80
+03      02      80
+03      03      80
+04      01      50
+04      02      30
+04      03      20
+05      01      76
+05      02      87
+06      01      31
+06      03      34
+07      02      89
+07      03      98
+Time taken: 0.084 seconds, Fetched: 18 row(s)
+```
+

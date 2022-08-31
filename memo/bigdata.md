@@ -3765,7 +3765,7 @@ export HIVE_CONF_DIR=/usr/local/hive/conf
 
 hive-site.xml
 
-这个文件没有template，直接新增
+$HIVE_CONF_DIR目录下只有hive-default.xml.template文件，用户如果没有自定义配置文件的话就使用hive-default.xml
 
 ```xml
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
@@ -3798,6 +3798,11 @@ hive-site.xml
   <property>
     <name>hive.server2.thrift.bind.host</name>
     <value>server01</value>
+  </property>
+  <!--设置reduce个数-->
+  <property>
+    <name>mapreduce.job.reduces</name>
+    <value>3</value>
   </property>
 </configuration>
 ```
@@ -4436,3 +4441,807 @@ OK
 Time taken: 0.084 seconds, Fetched: 18 row(s)
 ```
 
+### 分桶表操作
+
+分桶，就是将数据按照指定的字段进行划分到多个文件当中去,分桶就是MapReduce中的分区.
+
+#### 开启Hive的分桶功能及
+
+```hive
+hive> set hive.enforce.bucketing=true;
+```
+
+#### 设置Reduce个数
+
+```hive
+hive> set mapreduce.job.reduces=3;
+```
+
+#### 查看设置reduce个数
+
+```hive
+hive> set mapreduce.job.reduces;
+mapreduce.job.reduces=3
+```
+
+#### 创建分桶表
+
+```hive
+hive> create table course (c_id string,c_name string,t_id string) clustered by(c_id) into 3 buckets row format delimited fields terminated by '\t';
+OK
+Time taken: 0.137 seconds
+```
+
+由于分桶表的数据加载需要通过mapreduce，所以通过hdfs dfs -put文件或者通过load data都不行，只能通过insert overwrite，创建普通表，并通过insert overwriter的方式将普通表的数据通过查询的方式加载到分桶表当中去。
+
+#### 创建普通表
+
+```hive
+hive> create table course_common (c_id string,c_name string,t_id string) row format delimited fields terminated by '\t';
+OK
+Time taken: 0.134 seconds
+```
+
+#### 普通表中加载数据
+
+```hive
+hive> load data local inpath '/opt/bigdata/hive/course.csv' into table course_common;
+Loading data to table myhive.course_common
+OK
+Time taken: 0.314 seconds
+```
+
+#### 通过insert overwrite给桶表中加载数据
+
+```hive
+hive> insert overwrite table course select * from course_common cluster by(c_id);
+WARNING: Hive-on-MR is deprecated in Hive 2 and may not be available in the future versions. Consider using a different execution engine (i.e. spark, tez) or using Hive 1.X releases.
+Query ID = root_20220831142835_0e879fe0-e237-47d9-b636-4ef502ab4445
+Total jobs = 2
+Launching Job 1 out of 2
+Number of reduce tasks not specified. Defaulting to jobconf value of: 3
+In order to change the average load for a reducer (in bytes):
+  set hive.exec.reducers.bytes.per.reducer=<number>
+In order to limit the maximum number of reducers:
+  set hive.exec.reducers.max=<number>
+In order to set a constant number of reducers:
+  set mapreduce.job.reduces=<number>
+Job running in-process (local Hadoop)
+2022-08-31 14:28:37,391 Stage-1 map = 100%,  reduce = 100%
+Ended Job = job_local1299401726_0002
+Launching Job 2 out of 2
+Number of reduce tasks determined at compile time: 3
+In order to change the average load for a reducer (in bytes):
+  set hive.exec.reducers.bytes.per.reducer=<number>
+In order to limit the maximum number of reducers:
+  set hive.exec.reducers.max=<number>
+In order to set a constant number of reducers:
+  set mapreduce.job.reduces=<number>
+Job running in-process (local Hadoop)
+2022-08-31 14:28:39,918 Stage-2 map = 100%,  reduce = 67%
+2022-08-31 14:28:40,969 Stage-2 map = 100%,  reduce = 100%
+Ended Job = job_local123090463_0003
+Loading data to table myhive.course
+MapReduce Jobs Launched:
+Stage-Stage-1:  HDFS Read: 8516 HDFS Write: 3700 SUCCESS
+Stage-Stage-2:  HDFS Read: 8516 HDFS Write: 4192 SUCCESS
+Total MapReduce CPU Time Spent: 0 msec
+OK
+Time taken: 5.688 seconds
+```
+
+## 修改表结构
+
+### 重命名
+
+```hive
+hive> alter table score4 rename to score5;
+OK
+Time taken: 0.162 seconds
+```
+
+### 查询表结构
+
+```hive
+hive> desc score5;
+OK
+s_id                    string
+c_id                    string
+s_score                 int
+Time taken: 0.05 seconds, Fetched: 3 row(s)
+```
+
+### 增加/修改列信息
+
+#### 添加列
+
+```hive
+hive> alter table score5 add columns (mycol string, mysco int);
+OK
+Time taken: 0.127 seconds
+hive> desc score5;
+OK
+s_id                    string
+c_id                    string
+s_score                 int
+mycol                   string
+mysco                   int
+Time taken: 0.048 seconds, Fetched: 5 row(s)
+```
+
+#### 更新列
+
+```hive
+hive> alter table score5 change column mysco mysconew int;
+OK
+Time taken: 0.176 seconds
+hive> desc score5;
+OK
+s_id                    string
+c_id                    string
+s_score                 int
+mycol                   string
+mysconew                int
+Time taken: 0.024 seconds, Fetched: 5 row(s)
+```
+
+### 删除表
+
+```hive
+hive> drop table score5;
+OK
+Time taken: 0.172 seconds
+```
+
+## 查询语法
+
+### SELECT
+
+```hive
+SELECT [ALL | DISTINCT] select_expr, select_expr, ...
+FROM table_reference
+[WHERE where_condition]
+[GROUP BY col_list [HAVING condition]]
+[CLUSTER BY col_list
+| [DISTRIBUTE BY col_list] [SORT BY| ORDER BY col_list]
+]
+[LIMIT number]
+```
+
+1. order by 会对输入做全局排序，因此只有一个reducer，会导致当输入规模较大时，需要较长的计算时间。
+2. sort by不是全局排序，其在数据进入reducer前完成排序。因此，如果用sort by进行排序，并且设置mapred.reduce.tasks>1，则sort by只保证每个reducer的输出有序，不保证全局有序。
+3. distribute by(字段)根据指定的字段将数据分到不同的reducer（即：分区），且分发算法是hash散列。
+4. cluster by(字段) 除了具有distribute by的功能外，还会对该字段进行排序。
+
+因此，如果distribute 和sort字段是同一个时，此时， cluster by = distribute by + sort by
+
+#### 全表查询
+
+```hive
+hive> select * from score;
+```
+
+#### 选择特定列
+
+```hive
+hive> select s_id ,c_id from score;
+```
+
+#### 列别名
+
+```hive
+hive> select s_id as myid ,c_id from score;
+```
+
+### 常用函数
+
+#### 求总行数（count）
+
+```hive
+hive> select count(1) from score;
+```
+
+#### 求分数的最大值（max）
+
+```hive
+hive> select max(s_score) from score;
+```
+
+#### 求分数的最小值（min）
+
+```hive
+hive> select min(s_score) from score;
+```
+
+#### 求分数的总和（sum）
+
+```hive
+hive> select sum(s_score) from score;
+```
+
+#### 求分数的平均值（avg）
+
+```hive
+hive> select avg(s_score) from score;
+```
+
+### LIMIT
+
+典型的查询会返回多行数据。LIMIT子句用于限制返回的行数。
+
+```hive
+hive> select * from score limit 3;
+OK
+01      01      80      202207
+01      02      90      202207
+01      03      99      202207
+Time taken: 0.152 seconds, Fetched: 3 row(s)
+```
+
+### LIKE和RLIKE
+
+使用LIKE运算选择类似的值，选择条件可以包含字符或数字:
+
+1. % 代表零个或多个字符(任意个字符)。
+2. _ 代表一个字符。
+
+RLIKE子句是Hive中这个功能的一个扩展，其可以通过Java的正则表达式这个更强大的语言来指定匹配条件。
+
+查找以8开头的所有成绩
+
+```hive
+hive> select * from score where s_score like '8%';
+OK
+01      01      80      202207
+02      03      80      202207
+03      01      80      202207
+03      02      80      202207
+03      03      80      202207
+05      02      87      202207
+07      02      89      202207
+01      01      80      202208
+02      03      80      202208
+03      01      80      202208
+03      02      80      202208
+03      03      80      202208
+05      02      87      202208
+07      02      89      202208
+Time taken: 0.175 seconds, Fetched: 14 row(s)
+```
+
+查找第二个数值为9的所有成绩数据
+
+```hive
+hive> select * from score where s_score like '_9%';
+OK
+01      03      99      202207
+07      02      89      202207
+01      03      99      202208
+07      02      89      202208
+Time taken: 0.157 seconds, Fetched: 4 row(s)
+```
+
+查找s_id中含1的数据
+
+```hive
+hive> select * from score where s_id rlike '[1]';
+OK
+01      01      80      202207
+01      02      90      202207
+01      03      99      202207
+01      01      80      202208
+01      02      90      202208
+01      03      99      202208
+Time taken: 0.127 seconds, Fetched: 6 row(s)
+```
+
+### GROUP BY
+
+GROUP BY语句通常会和聚合函数一起使用，按照一个或者多个列队结果进行分组，然后对每 个组执行聚合操作。
+
+计算每个学生的平均分数
+
+```hive
+hive> select s_id ,avg(s_score) from score group by s_id;
+WARNING: Hive-on-MR is deprecated in Hive 2 and may not be available in the future versions. Consider using a different execution engine (i.e. spark, tez) or using Hive 1.X releases.
+Query ID = root_20220831161108_570580c6-2548-4a5d-ae23-30ec93c62b66
+Total jobs = 1
+Launching Job 1 out of 1
+Number of reduce tasks not specified. Defaulting to jobconf value of: 3
+In order to change the average load for a reducer (in bytes):
+  set hive.exec.reducers.bytes.per.reducer=<number>
+In order to limit the maximum number of reducers:
+  set hive.exec.reducers.max=<number>
+In order to set a constant number of reducers:
+  set mapreduce.job.reduces=<number>
+Job running in-process (local Hadoop)
+2022-08-31 16:11:09,949 Stage-1 map = 100%,  reduce = 100%
+Ended Job = job_local1835751581_0009
+MapReduce Jobs Launched:
+Stage-Stage-1:  HDFS Read: 29588 HDFS Write: 4684 SUCCESS
+Total MapReduce CPU Time Spent: 0 msec
+OK
+03      80.0
+06      32.5
+01      89.66666666666667
+04      33.333333333333336
+07      93.5
+02      70.0
+05      81.5
+Time taken: 1.472 seconds, Fetched: 7 row(s)
+```
+
+### HAVING
+
+having与where不同点：
+
+1. where针对表中的列发挥作用，查询数据；having针对查询结果中的列发挥作用，筛选数据。
+2. where后面不能写分组函数，而having后面可以使用分组函数。
+3. having只用于group by分组统计语句。
+
+求每个学生平均分数大于85的人
+
+```hive
+hive> select s_id ,avg(s_score) avgscore from score group by s_id having avgscore > 85;
+WARNING: Hive-on-MR is deprecated in Hive 2 and may not be available in the future versions. Consider using a different execution engine (i.e. spark, tez) or using Hive 1.X releases.
+Query ID = root_20220831161302_eac518da-324d-4c68-8ff9-f3ff0335611f
+Total jobs = 1
+Launching Job 1 out of 1
+Number of reduce tasks not specified. Defaulting to jobconf value of: 3
+In order to change the average load for a reducer (in bytes):
+  set hive.exec.reducers.bytes.per.reducer=<number>
+In order to limit the maximum number of reducers:
+  set hive.exec.reducers.max=<number>
+In order to set a constant number of reducers:
+  set mapreduce.job.reduces=<number>
+Job running in-process (local Hadoop)
+2022-08-31 16:13:04,429 Stage-1 map = 100%,  reduce = 100%
+Ended Job = job_local364563648_0010
+MapReduce Jobs Launched:
+Stage-Stage-1:  HDFS Read: 30884 HDFS Write: 4684 SUCCESS
+Total MapReduce CPU Time Spent: 0 msec
+OK
+01      89.66666666666667
+07      93.5
+Time taken: 1.565 seconds, Fetched: 2 row(s)
+```
+
+### JOIN
+
+Hive支持通常的SQL JOIN语句，但是只支持等值连接，不支持非等值连接。
+
+#### 内连接
+
+内连接：只有进行连接的两个表中都存在与连接条件相匹配的数据才会被保留下来。
+
+```hive
+hive> select * from teacher t inner join course c on t.t_id = c.t_id;
+WARNING: Hive-on-MR is deprecated in Hive 2 and may not be available in the future versions. Consider using a different execution engine (i.e. spark, tez) or using Hive 1.X releases.
+Query ID = root_20220831161427_5150cf98-ced4-48b4-95ae-682aafebae53
+Total jobs = 1
+SLF4J: Class path contains multiple SLF4J bindings.
+SLF4J: Found binding in [jar:file:/usr/local/hive/lib/log4j-slf4j-impl-2.4.1.jar!/org/slf4j/impl/StaticLoggerBinder.class]
+SLF4J: Found binding in [jar:file:/usr/local/hadoop-2.7.5/share/hadoop/common/lib/slf4j-log4j12-1.7.10.jar!/org/slf4j/impl/StaticLoggerBinder.class]
+SLF4J: See http://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J: Actual binding is of type [org.apache.logging.slf4j.Log4jLoggerFactory]
+2022-08-31 16:14:38     Starting to launch local task to process map join;      maximum memory = 518979584
+2022-08-31 16:14:39     Dump the side-table for tag: 0 with group count: 3 into file: file:/tmp/root/bbef36fd-2385-4292-978a-9fdf19b2da63/hive_2022-08-31_16-14-27_645_7608515339673598536-1/-local-10004/HashTable-Stage-3/MapJoin-mapfile10--.hashtable
+2022-08-31 16:14:39     Uploaded 1 File to: file:/tmp/root/bbef36fd-2385-4292-978a-9fdf19b2da63/hive_2022-08-31_16-14-27_645_7608515339673598536-1/-local-10004/HashTable-Stage-3/MapJoin-mapfile10--.hashtable (344 bytes)
+2022-08-31 16:14:39     End of local task; Time Taken: 1.711 sec.
+Execution completed successfully
+MapredLocal task succeeded
+Launching Job 1 out of 1
+Number of reduce tasks is set to 0 since there's no reduce operator
+Job running in-process (local Hadoop)
+2022-08-31 16:14:43,245 Stage-3 map = 100%,  reduce = 0%
+Ended Job = job_local1489247584_0012
+MapReduce Jobs Launched:
+Stage-Stage-3:  HDFS Read: 16155 HDFS Write: 2342 SUCCESS
+Total MapReduce CPU Time Spent: 0 msec
+OK
+03      王五    03      英语    03
+01      张三    02      数学    01
+02      李四    01      语文    02
+Time taken: 15.605 seconds, Fetched: 3 row(s)
+```
+
+#### 左外连接
+
+左外连接：JOIN操作符左边表中符合WHERE子句的所有记录将会被返回。 查询老师对应的课 程
+
+```hive
+hive> select * from teacher t left join course c on t.t_id = c.t_id;
+WARNING: Hive-on-MR is deprecated in Hive 2 and may not be available in the future versions. Consider using a different execution engine (i.e. spark, tez) or using Hive 1.X releases.
+Query ID = root_20220831161709_a6cadbf6-0d79-4bed-a89d-b64d664c3c0f
+Total jobs = 1
+SLF4J: Class path contains multiple SLF4J bindings.
+SLF4J: Found binding in [jar:file:/usr/local/hive/lib/log4j-slf4j-impl-2.4.1.jar!/org/slf4j/impl/StaticLoggerBinder.class]
+SLF4J: Found binding in [jar:file:/usr/local/hadoop-2.7.5/share/hadoop/common/lib/slf4j-log4j12-1.7.10.jar!/org/slf4j/impl/StaticLoggerBinder.class]
+SLF4J: See http://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J: Actual binding is of type [org.apache.logging.slf4j.Log4jLoggerFactory]
+2022-08-31 16:17:19     Starting to launch local task to process map join;      maximum memory = 518979584
+2022-08-31 16:17:21     Dump the side-table for tag: 1 with group count: 3 into file: file:/tmp/root/bbef36fd-2385-4292-978a-9fdf19b2da63/hive_2022-08-31_16-17-09_865_1618300336243957525-1/-local-10004/HashTable-Stage-3/MapJoin-mapfile21--.hashtable
+2022-08-31 16:17:21     Uploaded 1 File to: file:/tmp/root/bbef36fd-2385-4292-978a-9fdf19b2da63/hive_2022-08-31_16-17-09_865_1618300336243957525-1/-local-10004/HashTable-Stage-3/MapJoin-mapfile21--.hashtable (353 bytes)
+2022-08-31 16:17:21     End of local task; Time Taken: 1.729 sec.
+Execution completed successfully
+MapredLocal task succeeded
+Launching Job 1 out of 1
+Number of reduce tasks is set to 0 since there's no reduce operator
+Job running in-process (local Hadoop)
+2022-08-31 16:17:24,850 Stage-3 map = 100%,  reduce = 0%
+Ended Job = job_local954173857_0014
+MapReduce Jobs Launched:
+Stage-Stage-3:  HDFS Read: 8183 HDFS Write: 1171 SUCCESS
+Total MapReduce CPU Time Spent: 0 msec
+OK
+01      张三    02      数学    01
+02      李四    01      语文    02
+03      王五    03      英语    03
+Time taken: 14.991 seconds, Fetched: 3 row(s)
+```
+
+#### 右外连接
+
+右外连接：JOIN操作符右边表中符合WHERE子句的所有记录将会被返回。
+
+```hive
+hive> select * from teacher t right join course c on t.t_id = c.t_id;
+WARNING: Hive-on-MR is deprecated in Hive 2 and may not be available in the future versions. Consider using a different execution engine (i.e. spark, tez) or using Hive 1.X releases.
+Query ID = root_20220831161934_9f194288-0fea-43b9-9f2b-b4a0952cf632
+Total jobs = 1
+SLF4J: Class path contains multiple SLF4J bindings.
+SLF4J: Found binding in [jar:file:/usr/local/hive/lib/log4j-slf4j-impl-2.4.1.jar!/org/slf4j/impl/StaticLoggerBinder.class]
+SLF4J: Found binding in [jar:file:/usr/local/hadoop-2.7.5/share/hadoop/common/lib/slf4j-log4j12-1.7.10.jar!/org/slf4j/impl/StaticLoggerBinder.class]
+SLF4J: See http://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J: Actual binding is of type [org.apache.logging.slf4j.Log4jLoggerFactory]
+2022-08-31 16:19:44     Starting to launch local task to process map join;      maximum memory = 518979584
+2022-08-31 16:19:46     Dump the side-table for tag: 0 with group count: 3 into file: file:/tmp/root/bbef36fd-2385-4292-978a-9fdf19b2da63/hive_2022-08-31_16-19-34_144_6731761041383703760-1/-local-10004/HashTable-Stage-3/MapJoin-mapfile30--.hashtable
+2022-08-31 16:19:46     Uploaded 1 File to: file:/tmp/root/bbef36fd-2385-4292-978a-9fdf19b2da63/hive_2022-08-31_16-19-34_144_6731761041383703760-1/-local-10004/HashTable-Stage-3/MapJoin-mapfile30--.hashtable (344 bytes)
+2022-08-31 16:19:46     End of local task; Time Taken: 1.803 sec.
+Execution completed successfully
+MapredLocal task succeeded
+Launching Job 1 out of 1
+Number of reduce tasks is set to 0 since there's no reduce operator
+Job running in-process (local Hadoop)
+2022-08-31 16:19:49,663 Stage-3 map = 100%,  reduce = 0%
+Ended Job = job_local212957694_0015
+MapReduce Jobs Launched:
+Stage-Stage-3:  HDFS Read: 16647 HDFS Write: 2342 SUCCESS
+Total MapReduce CPU Time Spent: 0 msec
+OK
+03      王五    03      英语    03
+01      张三    02      数学    01
+02      李四    01      语文    02
+Time taken: 15.522 seconds, Fetched: 3 row(s)
+```
+
+#### 多表连接
+
+连接 n个表，至少需要n-1个连接条件。例如：连接三个表，至少需要两个连接条件。 多表连接查询，查询老师对应的课程，以及对应的分数，对应的学生
+
+```hive
+hive> select * from teacher t left join course c on t.t_id = c.t_id left join score s on s.c_id = c.c_id left join student stu on s.s_id = stu.s_id;
+WARNING: Hive-on-MR is deprecated in Hive 2 and may not be available in the future versions. Consider using a different execution engine (i.e. spark, tez) or using Hive 1.X releases.
+Query ID = root_20220831162044_665f46af-81c3-45ad-b30d-ad2f46ae29ae
+Total jobs = 1
+SLF4J: Class path contains multiple SLF4J bindings.
+SLF4J: Found binding in [jar:file:/usr/local/hive/lib/log4j-slf4j-impl-2.4.1.jar!/org/slf4j/impl/StaticLoggerBinder.class]
+SLF4J: Found binding in [jar:file:/usr/local/hadoop-2.7.5/share/hadoop/common/lib/slf4j-log4j12-1.7.10.jar!/org/slf4j/impl/StaticLoggerBinder.class]
+SLF4J: See http://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J: Actual binding is of type [org.apache.logging.slf4j.Log4jLoggerFactory]
+2022-08-31 16:20:54     Starting to launch local task to process map join;      maximum memory = 518979584
+2022-08-31 16:20:56     Dump the side-table for tag: 1 with group count: 8 into file: file:/tmp/root/bbef36fd-2385-4292-978a-9fdf19b2da63/hive_2022-08-31_16-20-44_052_8952827809831279621-1/-local-10006/HashTable-Stage-7/MapJoin-mapfile41--.hashtable
+2022-08-31 16:20:56     Uploaded 1 File to: file:/tmp/root/bbef36fd-2385-4292-978a-9fdf19b2da63/hive_2022-08-31_16-20-44_052_8952827809831279621-1/-local-10006/HashTable-Stage-7/MapJoin-mapfile41--.hashtable (607 bytes)
+2022-08-31 16:20:56     Dump the side-table for tag: 1 with group count: 3 into file: file:/tmp/root/bbef36fd-2385-4292-978a-9fdf19b2da63/hive_2022-08-31_16-20-44_052_8952827809831279621-1/-local-10006/HashTable-Stage-7/MapJoin-mapfile51--.hashtable
+2022-08-31 16:20:56     Uploaded 1 File to: file:/tmp/root/bbef36fd-2385-4292-978a-9fdf19b2da63/hive_2022-08-31_16-20-44_052_8952827809831279621-1/-local-10006/HashTable-Stage-7/MapJoin-mapfile51--.hashtable (887 bytes)
+2022-08-31 16:20:56     Dump the side-table for tag: 1 with group count: 3 into file: file:/tmp/root/bbef36fd-2385-4292-978a-9fdf19b2da63/hive_2022-08-31_16-20-44_052_8952827809831279621-1/-local-10006/HashTable-Stage-7/MapJoin-mapfile61--.hashtable
+2022-08-31 16:20:56     Uploaded 1 File to: file:/tmp/root/bbef36fd-2385-4292-978a-9fdf19b2da63/hive_2022-08-31_16-20-44_052_8952827809831279621-1/-local-10006/HashTable-Stage-7/MapJoin-mapfile61--.hashtable (353 bytes)
+2022-08-31 16:20:56     End of local task; Time Taken: 2.39 sec.
+Execution completed successfully
+MapredLocal task succeeded
+Launching Job 1 out of 1
+Number of reduce tasks is set to 0 since there's no reduce operator
+Job running in-process (local Hadoop)
+2022-08-31 16:20:59,769 Stage-7 map = 100%,  reduce = 0%
+Ended Job = job_local1814042043_0016
+MapReduce Jobs Launched:
+Stage-Stage-7:  HDFS Read: 8360 HDFS Write: 1171 SUCCESS
+Total MapReduce CPU Time Spent: 0 msec
+OK
+01      张三    02      数学    01      01      02      90      202207  01      赵雷    1990-01-01      男
+01      张三    02      数学    01      02      02      60      202207  02      钱电    1990-12-21      男
+01      张三    02      数学    01      03      02      80      202207  03      孙风    1990-05-20      男
+01      张三    02      数学    01      04      02      30      202207  04      李云    1990-08-06      男
+01      张三    02      数学    01      05      02      87      202207  05      周梅    1991-12-01      女
+01      张三    02      数学    01      07      02      89      202207  07      郑竹    1989-07-01      女
+01      张三    02      数学    01      01      02      90      202208  01      赵雷    1990-01-01      男
+01      张三    02      数学    01      02      02      60      202208  02      钱电    1990-12-21      男
+01      张三    02      数学    01      03      02      80      202208  03      孙风    1990-05-20      男
+01      张三    02      数学    01      04      02      30      202208  04      李云    1990-08-06      男
+01      张三    02      数学    01      05      02      87      202208  05      周梅    1991-12-01      女
+01      张三    02      数学    01      07      02      89      202208  07      郑竹    1989-07-01      女
+02      李四    01      语文    02      01      01      80      202207  01      赵雷    1990-01-01      男
+02      李四    01      语文    02      02      01      70      202207  02      钱电    1990-12-21      男
+02      李四    01      语文    02      03      01      80      202207  03      孙风    1990-05-20      男
+02      李四    01      语文    02      04      01      50      202207  04      李云    1990-08-06      男
+02      李四    01      语文    02      05      01      76      202207  05      周梅    1991-12-01      女
+02      李四    01      语文    02      06      01      31      202207  06      吴兰    1992-03-01      女
+02      李四    01      语文    02      01      01      80      202208  01      赵雷    1990-01-01      男
+02      李四    01      语文    02      02      01      70      202208  02      钱电    1990-12-21      男
+02      李四    01      语文    02      03      01      80      202208  03      孙风    1990-05-20      男
+02      李四    01      语文    02      04      01      50      202208  04      李云    1990-08-06      男
+02      李四    01      语文    02      05      01      76      202208  05      周梅    1991-12-01      女
+02      李四    01      语文    02      06      01      31      202208  06      吴兰    1992-03-01      女
+03      王五    03      英语    03      01      03      99      202207  01      赵雷    1990-01-01      男
+03      王五    03      英语    03      02      03      80      202207  02      钱电    1990-12-21      男
+03      王五    03      英语    03      03      03      80      202207  03      孙风    1990-05-20      男
+03      王五    03      英语    03      04      03      20      202207  04      李云    1990-08-06      男
+03      王五    03      英语    03      06      03      34      202207  06      吴兰    1992-03-01      女
+03      王五    03      英语    03      07      03      98      202207  07      郑竹    1989-07-01      女
+03      王五    03      英语    03      01      03      99      202208  01      赵雷    1990-01-01      男
+03      王五    03      英语    03      02      03      80      202208  02      钱电    1990-12-21      男
+03      王五    03      英语    03      03      03      80      202208  03      孙风    1990-05-20      男
+03      王五    03      英语    03      04      03      20      202208  04      李云    1990-08-06      男
+03      王五    03      英语    03      06      03      34      202208  06      吴兰    1992-03-01      女
+03      王五    03      英语    03      07      03      98      202208  07      郑竹    1989-07-01      女
+Time taken: 15.722 seconds, Fetched: 36 row(s)
+```
+
+大多数情况下，Hive会对每对JOIN连接对象启动一个MapReduce任务。本例中会首先启动一个MapReduce job对表techer和表course进行连接操作，然后会再启动一个MapReduce job将第一个MapReduce job的输出和表score;进行连接操作。
+
+### ORDER BY
+
+全局排序，一个reduce
+
+1. 使用 ORDER BY 子句排序 ASC（ascend）: 升序（默认） DESC（descend）: 降序
+2. ORDER BY 子句在SELECT语句的结尾。
+
+```hive
+hive> SELECT * FROM student s LEFT JOIN score sco ON s.s_id = sco.s_id ORDER BY sco.s_score DESC;
+WARNING: Hive-on-MR is deprecated in Hive 2 and may not be available in the future versions. Consider using a different execution engine (i.e. spark, tez) or using Hive 1.X releases.
+Query ID = root_20220831162600_4cf2c222-3a33-4442-82f9-183034d6f623
+Total jobs = 1
+SLF4J: Class path contains multiple SLF4J bindings.
+SLF4J: Found binding in [jar:file:/usr/local/hive/lib/log4j-slf4j-impl-2.4.1.jar!/org/slf4j/impl/StaticLoggerBinder.class]
+SLF4J: Found binding in [jar:file:/usr/local/hadoop-2.7.5/share/hadoop/common/lib/slf4j-log4j12-1.7.10.jar!/org/slf4j/impl/StaticLoggerBinder.class]
+SLF4J: See http://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J: Actual binding is of type [org.apache.logging.slf4j.Log4jLoggerFactory]
+2022-08-31 16:26:11     Starting to launch local task to process map join;      maximum memory = 518979584
+2022-08-31 16:26:12     Dump the side-table for tag: 1 with group count: 7 into file: file:/tmp/root/bbef36fd-2385-4292-978a-9fdf19b2da63/hive_2022-08-31_16-26-00_468_3536626744031857119-1/-local-10005/HashTable-Stage-2/MapJoin-mapfile71--.hashtable
+2022-08-31 16:26:12     Uploaded 1 File to: file:/tmp/root/bbef36fd-2385-4292-978a-9fdf19b2da63/hive_2022-08-31_16-26-00_468_3536626744031857119-1/-local-10005/HashTable-Stage-2/MapJoin-mapfile71--.hashtable (951 bytes)
+2022-08-31 16:26:12     End of local task; Time Taken: 1.743 sec.
+Execution completed successfully
+MapredLocal task succeeded
+Launching Job 1 out of 1
+Number of reduce tasks determined at compile time: 1
+In order to change the average load for a reducer (in bytes):
+  set hive.exec.reducers.bytes.per.reducer=<number>
+In order to limit the maximum number of reducers:
+  set hive.exec.reducers.max=<number>
+In order to set a constant number of reducers:
+  set mapreduce.job.reduces=<number>
+Job running in-process (local Hadoop)
+2022-08-31 16:26:15,821 Stage-2 map = 100%,  reduce = 100%
+Ended Job = job_local938150601_0017
+MapReduce Jobs Launched:
+Stage-Stage-2:  HDFS Read: 17120 HDFS Write: 2342 SUCCESS
+Total MapReduce CPU Time Spent: 0 msec
+OK
+01      赵雷    1990-01-01      男      01      03      99      202208
+01      赵雷    1990-01-01      男      01      03      99      202207
+07      郑竹    1989-07-01      女      07      03      98      202207
+07      郑竹    1989-07-01      女      07      03      98      202208
+01      赵雷    1990-01-01      男      01      02      90      202207
+01      赵雷    1990-01-01      男      01      02      90      202208
+07      郑竹    1989-07-01      女      07      02      89      202208
+07      郑竹    1989-07-01      女      07      02      89      202207
+05      周梅    1991-12-01      女      05      02      87      202207
+05      周梅    1991-12-01      女      05      02      87      202208
+02      钱电    1990-12-21      男      02      03      80      202208
+01      赵雷    1990-01-01      男      01      01      80      202208
+02      钱电    1990-12-21      男      02      03      80      202207
+01      赵雷    1990-01-01      男      01      01      80      202207
+03      孙风    1990-05-20      男      03      03      80      202208
+03      孙风    1990-05-20      男      03      02      80      202208
+03      孙风    1990-05-20      男      03      01      80      202208
+03      孙风    1990-05-20      男      03      03      80      202207
+03      孙风    1990-05-20      男      03      02      80      202207
+03      孙风    1990-05-20      男      03      01      80      202207
+05      周梅    1991-12-01      女      05      01      76      202207
+05      周梅    1991-12-01      女      05      01      76      202208
+02      钱电    1990-12-21      男      02      01      70      202207
+02      钱电    1990-12-21      男      02      01      70      202208
+02      钱电    1990-12-21      男      02      02      60      202207
+02      钱电    1990-12-21      男      02      02      60      202208
+04      李云    1990-08-06      男      04      01      50      202207
+04      李云    1990-08-06      男      04      01      50      202208
+06      吴兰    1992-03-01      女      06      03      34      202207
+06      吴兰    1992-03-01      女      06      03      34      202208
+06      吴兰    1992-03-01      女      06      01      31      202207
+06      吴兰    1992-03-01      女      06      01      31      202208
+04      李云    1990-08-06      男      04      02      30      202207
+04      李云    1990-08-06      男      04      02      30      202208
+04      李云    1990-08-06      男      04      03      20      202207
+04      李云    1990-08-06      男      04      03      20      202208
+08      王菊    1990-01-20      女      NULL    NULL    NULL    NULL
+Time taken: 15.361 seconds, Fetched: 37 row(s)
+```
+
+### SORT BY
+
+每个MapReduce内部进行排序，对全局结果集来说不是排序。
+
+设置reduce个数
+
+```hive
+hive> set mapreduce.job.reduces=3;
+```
+
+查询成绩按照成绩降序排列
+
+```hive
+hive> select * from score sort by s_score;
+WARNING: Hive-on-MR is deprecated in Hive 2 and may not be available in the future versions. Consider using a different execution engine (i.e. spark, tez) or using Hive 1.X releases.
+Query ID = root_20220831162958_f0e55d69-8970-493f-9ade-c1e56b21cf66
+Total jobs = 1
+Launching Job 1 out of 1
+Number of reduce tasks not specified. Defaulting to jobconf value of: 3
+In order to change the average load for a reducer (in bytes):
+  set hive.exec.reducers.bytes.per.reducer=<number>
+In order to limit the maximum number of reducers:
+  set hive.exec.reducers.max=<number>
+In order to set a constant number of reducers:
+  set mapreduce.job.reduces=<number>
+Job running in-process (local Hadoop)
+2022-08-31 16:29:59,951 Stage-1 map = 100%,  reduce = 100%
+Ended Job = job_local670389688_0018
+MapReduce Jobs Launched:
+Stage-Stage-1:  HDFS Read: 35536 HDFS Write: 4684 SUCCESS
+Total MapReduce CPU Time Spent: 0 msec
+OK
+04      03      20      202208
+06      01      31      202207
+06      03      34      202208
+04      01      50      202207
+02      02      60      202207
+02      01      70      202208
+03      02      80      202207
+02      03      80      202207
+03      01      80      202207
+03      03      80      202207
+03      01      80      202208
+02      03      80      202208
+01      01      80      202208
+05      02      87      202208
+07      03      98      202208
+07      03      98      202207
+04      03      20      202207
+04      02      30      202207
+04      02      30      202208
+02      01      70      202207
+03      02      80      202208
+03      03      80      202208
+05      02      87      202207
+07      02      89      202208
+07      02      89      202207
+01      02      90      202208
+01      02      90      202207
+01      03      99      202207
+06      01      31      202208
+06      03      34      202207
+04      01      50      202208
+02      02      60      202208
+05      01      76      202208
+05      01      76      202207
+01      01      80      202207
+01      03      99      202208
+Time taken: 1.504 seconds, Fetched: 36 row(s)
+```
+
+将查询结果导入到文件中（按照成绩降序排列）
+
+```hive
+hive> insert overwrite local directory '/opt/bigdata/hive/sort_result' select * from score sort by s_score;
+WARNING: Hive-on-MR is deprecated in Hive 2 and may not be available in the future versions. Consider using a different execution engine (i.e. spark, tez) or using Hive 1.X releases.
+Query ID = root_20220831163143_69f14887-68b6-44d7-b9c6-809bd4f0d112
+Total jobs = 1
+Launching Job 1 out of 1
+Number of reduce tasks not specified. Defaulting to jobconf value of: 3
+In order to change the average load for a reducer (in bytes):
+  set hive.exec.reducers.bytes.per.reducer=<number>
+In order to limit the maximum number of reducers:
+  set hive.exec.reducers.max=<number>
+In order to set a constant number of reducers:
+  set mapreduce.job.reduces=<number>
+Job running in-process (local Hadoop)
+2022-08-31 16:31:45,095 Stage-1 map = 100%,  reduce = 100%
+Ended Job = job_local44799780_0019
+Moving data to local directory /opt/bigdata/hive/sort_result
+MapReduce Jobs Launched:
+Stage-Stage-1:  HDFS Read: 36832 HDFS Write: 4684 SUCCESS
+Total MapReduce CPU Time Spent: 0 msec
+OK
+Time taken: 1.325 seconds
+```
+
+### DISTRIBUTE BY
+
+Distribute By：类似MR中partition，进行分区，结合sort by使用。注意，Hive要求DISTRIBUTE BY语句要写在SORT BY语句之前。对于distribute by进行测试，一定要分配多reduce进行处理，否则无法看到distribute by的效
+果。
+
+案例实操：先按照学生id进行分区，再按照学生成绩进行排序。
+
+设置reduce的个数，将我们对应的s_id划分到对应的reduce当中去
+
+```hive
+hive> set mapreduce.job.reduces=7;
+```
+
+通过distribute by进行数据的分区
+
+```hive
+hive> insert overwrite local directory '/opt/bigdata/hive/sort_result1' select * from score distribute by s_id sort by s_score;
+WARNING: Hive-on-MR is deprecated in Hive 2 and may not be available in the future versions. Consider using a different execution engine (i.e. spark, tez) or using Hive 1.X releases.
+Query ID = root_20220831163514_7e190db6-af8a-4ec6-89e7-f9958dd7d449
+Total jobs = 1
+Launching Job 1 out of 1
+Number of reduce tasks not specified. Defaulting to jobconf value of: 7
+In order to change the average load for a reducer (in bytes):
+  set hive.exec.reducers.bytes.per.reducer=<number>
+In order to limit the maximum number of reducers:
+  set hive.exec.reducers.max=<number>
+In order to set a constant number of reducers:
+  set mapreduce.job.reduces=<number>
+Job running in-process (local Hadoop)
+2022-08-31 16:35:15,554 Stage-1 map = 100%,  reduce = 100%
+Ended Job = job_local879845742_0020
+Moving data to local directory /opt/bigdata/hive/sort_result1
+MapReduce Jobs Launched:
+Stage-Stage-1:  HDFS Read: 76256 HDFS Write: 9368 SUCCESS
+Total MapReduce CPU Time Spent: 0 msec
+OK
+Time taken: 1.375 seconds
+```
+
+### CLUSTER BY
+
+当distribute by和sort by字段相同时，可以使用cluster by方式。cluster by除了具有distribute by的功能外还兼具sort by的功能。但是排序只能是倒序排序，不 能指定排序规则为ASC或者DESC。
+
+以下两种写法等价：
+
+```hive
+hive> select * from score cluster by s_id;
+hive> select * from score distribute by s_id sort by s_id;
+```
+
+## 参数配置
+
+开发Hive应用时，不可避免地需要设定Hive的参数。设定Hive的参数可以调优HQL代码的执行 效率，或帮助定位问题。对于一般参数，有以下三种设定方式：
+
+### 配置文件
+
+- 用户自定义配置文件：$HIVE_CONF_DIR/hive-site.xml
+- 默认配置文件： $HIVE_CONF_DIR/hive-default.xml
+
+用户自定义配置会覆盖默认配置。另外，Hive也会读入Hadoop的配置，因为Hive是作为Hadoop的客户端启动的，Hive的配置会 覆盖Hadoop的配置。配置文件的设定对本机启动的所有Hive进程都有效。
+
+### 命令行参数
+
+启动Hive（客户端或Server方式）时，可以在命令行添加-hiveconf param=value 来设定参数，例如：
+
+```bash
+[root@server01 sort_result2]# hive -hiveconf hive.root.logger=INFO,console
+```
+
+这一设定对本次启动的Session（对于Server方式启动，则是所有请求的Sessions）有效。
+
+### 参数声明
+
+```hive
+hive> set mapreduce.job.reduces;
+mapreduce.job.reduces=3
+```
+
+这一设定的作用域也是session级的。这个mapreduce.job.reduces也可以在配置文件中设置。
+
+上述三种设定方式的优先级依次递增。即参数声明覆盖命令行参数，命令行参数覆盖配置文 件设定。注意某些系统级的参数，例如log4j相关的设定，必须用前两种方式设定，因为那些 参数的读取在Session建立以前已经完成了。

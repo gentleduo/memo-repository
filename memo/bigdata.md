@@ -3804,6 +3804,36 @@ $HIVE_CONF_DIR目录下只有hive-default.xml.template文件，用户如果没�
     <name>mapreduce.job.reduces</name>
     <value>3</value>
   </property>
+  <!-- 开启Map输出阶段压缩-->
+  <property>
+    <name>hive.exec.compress.intermediate</name>
+    <value>true</value>
+  </property>
+  <property>
+    <name>mapreduce.map.output.compress</name>
+    <value>true</value>
+  </property>
+  <property>
+    <name>mapreduce.map.output.compress.codec</name>
+    <value>org.apache.hadoop.io.compress.SnappyCodec</value>
+  </property>
+  <!--开启Reduce输出阶段压缩-->
+  <property>
+    <name>hive.exec.compress.output</name>
+    <value>true</value>
+  </property>
+  <property>
+    <name>mapreduce.output.fileoutputformat.compress</name>
+    <value>true</value>
+  </property>
+  <property>
+    <name>mapreduce.output.fileoutputformat.compress.codec</name>
+    <value>org.apache.hadoop.io.compress.SnappyCodec</value>
+  </property>
+  <property>
+    <name>mapreduce.output.fileoutputformat.compress.type</name>
+    <value>BLOCK</value>
+  </property>
 </configuration>
 ```
 
@@ -5245,3 +5275,635 @@ mapreduce.job.reduces=3
 这一设定的作用域也是session级的。这个mapreduce.job.reduces也可以在配置文件中设置。
 
 上述三种设定方式的优先级依次递增。即参数声明覆盖命令行参数，命令行参数覆盖配置文 件设定。注意某些系统级的参数，例如log4j相关的设定，必须用前两种方式设定，因为那些 参数的读取在Session建立以前已经完成了。
+
+## 函数
+
+### 内置函数
+
+内容较多，见《Hive官方文档》
+
+https://cwiki.apache.org/confluence/display/Hive/LanguageManual+UDF
+
+查看系统自带的函数
+
+```hive
+hive> show functions;
+```
+
+显示自带的函数的用法
+
+```hive
+hive> desc function upper;
+OK
+upper(str) - Returns str with all characters changed to uppercase
+Time taken: 0.049 seconds, Fetched: 1 row(s)
+```
+
+详细显示自带的函数的用法
+
+```hive
+hive> desc function extended upper;
+OK
+upper(str) - Returns str with all characters changed to uppercase
+Synonyms: ucase
+Example:
+  > SELECT upper('Facebook') FROM src LIMIT 1;
+  'FACEBOOK'
+Time taken: 0.008 seconds, Fetched: 5 row(s)
+```
+
+字符串连接函数： concat
+
+```hive
+hive> select concat('abc','def','ghi');
+OK
+abcdefghi
+Time taken: 0.07 seconds, Fetched: 1 row(s)
+```
+
+带分隔符字符串连接函数：concat_ws
+
+```hive
+hive> select concat_ws(',','abc','def','gh');
+OK
+abc,def,gh
+Time taken: 0.04 seconds, Fetched: 1 row(s)
+```
+
+类型转换：cast
+
+```hive
+hive> select cast(1.5 as int);
+OK
+1
+Time taken: 0.045 seconds, Fetched: 1 row(s)
+```
+
+json解析函数：get_json_object
+
+```hive
+hive> select get_json_object('{"name":"jack","age":"20"}','$.name');
+OK
+jack
+Time taken: 0.084 seconds, Fetched: 1 row(s)
+```
+
+URL解析函数：parse_url
+
+```hive
+hive>  select parse_url('http://facebook.com/path1/p.php?k1=v1&k2=v2#Ref1','HOST');
+OK
+facebook.com
+Time taken: 0.041 seconds, Fetched: 1 row(s)
+```
+
+### 自定义函数
+
+Hive 自带了一些函数，比如：max/min等，当Hive提供的内置函数无法满足你的业务处 理需要时，此时就可以考虑使用用户自定义函数(UDF)。根据用户自定义函数类别分为以下三种：
+
+- UDF（User-Defined-Function）
+
+  一进一出
+
+- UDAF（User-Defined Aggregation Function）
+
+  聚集函数，多进一出
+
+  类似于： count / max / min
+
+- UDTF（User-Defined Table-Generating Functions）
+
+  一进多出
+
+  如 lateral view explore()
+
+注意事项：
+
+1. UDF必须要有返回类型，可以返回null，但是返回类型不能为void；
+2. UDF中常用Text/LongWritable等类型，不推荐使用java类型；
+
+#### UDF 开发实例
+
+##### 创建Maven工程
+
+```xml
+<dependencies>
+    <!-- https://mvnrepository.com/artifact/org.apache.hive/hive-exec -->
+    <dependency>
+        <groupId>org.apache.hive</groupId>
+        <artifactId>hive-exec</artifactId>
+        <version>2.1.1</version>
+    </dependency>
+    <!-- https://mvnrepository.com/artifact/org.apache.hadoop/hadoop-common -->
+    <dependency>
+        <groupId>org.apache.hadoop</groupId>
+        <artifactId>hadoop-common</artifactId>
+        <version>2.7.5</version>
+    </dependency>
+</dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.0</version>
+                <configuration>
+                    <source>1.8</source>
+                    <target>1.8</target>
+                    <encoding>UTF-8</encoding>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+```
+
+##### 开发Java类集成UDF
+
+```java
+public class CustomUDF extends UDF{
+    public Text evaluate(final Text str){
+        String tmp_str = str.toString();
+        if(str != null && !tmp_str.equals("")){
+          String str_ret =   tmp_str.substring(0, 1).toUpperCase() +
+tmp_str.substring(1);
+          return  new Text(str_ret);
+       }
+        return  new Text("");
+   }
+}
+```
+
+##### 项目打包，并上传到hive的lib目录下
+
+##### 添加jar包
+
+```hive
+hive> add jar /usr/local/hive/lib/my_upper.jar;
+```
+
+##### 设置函数与自定义函数关联
+
+```hive
+hive> create temporary function my_upper as 'org.duo.udf.CustomUDF';
+```
+
+##### 使用自定义函数
+
+```hive
+hive> select my_upper('abc');
+```
+
+## 数据压缩
+
+在实际工作当中，hive当中处理的数据，一般都需要经过压缩，前面已经配置过hadoop的压缩，这里的hive也是一样的可以使用压缩来节省MR处理的网络带宽
+
+### MR支持的压缩编码
+
+| 压缩格式 | 工具  | 算法    | 文件扩展名 | 是否可切分 |
+| -------- | ----- | ------- | ---------- | ---------- |
+| DEFAULT  | 无    | DEFAULT | .deflate   | 否         |
+| Gzip     | gzip  | DEFAULT | .gz        | 否         |
+| bzip2    | bzip2 | bzip2   | .bz2       | 是         |
+| LZO      | lzop  | LZO     | .lzo       | 否         |
+| LZ4      | 无    | LZ4     | .lz4       | 否         |
+| Snappy   | 无    | Snappy  | .snappy    | 否         |
+
+为了支持多种压缩/解压缩算法，Hadoop引入了编码/解码器，如下表所示
+
+| 压缩格式 | 对应的编码/解码器                          |
+| -------- | ------------------------------------------ |
+| DEFLATE  | org.apache.hadoop.io.compress.DefaultCodec |
+| gzip     | org.apache.hadoop.io.compress.GzipCodec    |
+| bzip2    | org.apache.hadoop.io.compress.BZip2Codec   |
+| LZO      | com.hadoop.compression.lzo.LzopCodec       |
+| LZ4      | org.apache.hadoop.io.compress.Lz4Codec     |
+| Snappy   | org.apache.hadoop.io.compress.SnappyCodec  |
+
+压缩性能的比较
+
+| 压缩算法 | 原始文件大小 | 压缩文件大小 | 压缩速度 | 解压速度 |
+| -------- | ------------ | ------------ | -------- | -------- |
+| gzip     | 8.3GB        | 1.8GB        | 17.5MB/s | 58MB/s   |
+| bzip2    | 8.3GB        | 1.1GB        | 2.4MB/s  | 9.5MB/s  |
+| LZO      | 8.3GB        | 2.9GB        | 49.3MB/s | 74.6MB/s |
+
+### 压缩配置参数
+
+要在Hadoop中启用压缩，可以配置如下参数（mapred-site.xml文件中）：
+
+| 数                                                | 默认值                                                       | 阶段        | 建议                                         |
+| ------------------------------------------------- | ------------------------------------------------------------ | ----------- | :------------------------------------------- |
+| io.compression.codecs   （在core-site.xml中配置） | org.apache.hadoop.io.compress.DefaultCodec, org.apache.hadoop.io.compress.GzipCodec, org.apache.hadoop.io.compress.BZip2Codec,org.apache.hadoop.io.compress.Lz4Codec | 输入压缩    | Hadoop使用文件扩展名判断是否支持某种编解码器 |
+| mapreduce.map.output.compress                     | false                                                        | mapper输出  | 这个参数设为true启用压缩                     |
+| mapreduce.map.output.compress.codec               | org.apache.hadoop.io.compress.DefaultCodec                   | mapper输出  | 使用LZO、LZ4或snappy编解码器在此阶段压缩数据 |
+| mapreduce.output.fileoutputformat.compress        | false                                                        | reducer输出 | 这个参数设为true启用压缩                     |
+| mapreduce.output.fileoutputformat.compress.codec  | org.apache.hadoop.io.compress. DefaultCodec                  | reducer输出 | 使用标准工具或者编解码器，如gzip和bzip2      |
+| mapreduce.output.fileoutputformat.compress.type   | RECORD                                                       |             |                                              |
+
+### Hive开启Map输出阶段压缩
+
+开启map输出阶段压缩可以减少job中map和Reduce task间数据传输量。具体配置如下：
+
+**案例实操：**
+
+1）开启hive中间传输数据压缩功能
+
+~~~sql
+hive> set hive.exec.compress.intermediate=true;
+~~~
+
+2）开启mapreduce中map输出压缩功能
+
+~~~sql
+hive> set mapreduce.map.output.compress=true;
+~~~
+
+3）设置mapreduce中map输出数据的压缩方式
+
+~~~sql
+hive> set mapreduce.map.output.compress.codec=org.apache.hadoop.io.compress.SnappyCodec;
+~~~
+
+4）执行查询语句
+
+```hive
+hive> select count(1) from score;
+```
+
+### Hive开启Reduce输出阶段压缩
+
+当Hive将输出写入到表中时，输出内容同样可以进行压缩。属性hive.exec.compress.output控制着这个功能。用户可能需要保持默认设置文件中的默认值false，这样默认的输出就是非压缩的纯文本文件了。用户可以通过在查询语句或执行脚本中设置这个值为true，来开启输出结果压缩功能。
+
+**案例实操**：
+
+1）开启hive最终输出数据压缩功能
+
+~~~sql
+hive> set hive.exec.compress.output=true;
+~~~
+
+2）开启mapreduce最终输出数据压缩
+
+~~~sql
+hive> set mapreduce.output.fileoutputformat.compress=true;
+~~~
+
+3）设置mapreduce最终数据输出压缩方式
+
+~~~sql
+hive> set mapreduce.output.fileoutputformat.compress.codec = org.apache.hadoop.io.compress.SnappyCodec;
+~~~
+
+4）设置mapreduce最终数据输出压缩为块压缩
+
+~~~sql
+hive> set mapreduce.output.fileoutputformat.compress.type=BLOCK;
+~~~
+
+5）测试一下输出结果是否是压缩文件
+
+```hive
+hive> insert overwrite local directory '/opt/bigdata/hive/snappy' select * from score distribute by s_id sort by s_id desc;
+```
+
+## 数据存储格式
+
+Hive支持的存储数的格式主要有：TEXTFILE（行式存储） 、SEQUENCEFILE(行式存储)、 ORC（列式存储）、PARQUET（列式存储）。
+
+### 列式存储和行式存储
+
+行存储的特点： 查询满足条件的一整行数据的时候，列存储则需要去每个聚集的字段找到对 应的每个列的值，行存储只需要找到其中一个值，其余的值都在相邻地方，所以此时行存储 查询的速度更快。
+
+列存储的特点： 因为每个字段的数据聚集存储，在查询只需要少数几个字段的时候，能大大 减少读取的数据量；每个字段的数据类型一定是相同的，列式存储可以针对性的设计更好的 设计压缩算法。
+
+TEXTFILE和SEQUENCEFILE的存储格式都是基于行存储的； ORC和PARQUET是基于列式存储的。
+
+### 常用数据存储格式
+
+#### TEXTFILE格式
+
+默认格式，数据不做压缩，磁盘开销大，数据解析开销大。可结合Gzip、Bzip2使用
+
+#### ORC格式
+
+Orc (Optimized Row Columnar)是hive 0.11版里引入的新的存储格式。每个Orc文件由1个或多个stripe组成，每个stripe250MB大小，每个Stripe里有三部分 组成，分别是Index Data,Row Data,Stripe Footer：
+
+1. indexData：某些列的索引数据 
+2. rowData :真正的数据存储 
+3. StripFooter：stripe的元数据信息
+
+#### PARQUET格式
+
+Parquet是面向分析型业务的列式存储格式，由Twitter和Cloudera合作开发，Parquet文件是以二进制方式存储的，所以是不可以直接读取的，文件中包括该文件的数据和 元数据，因此Parquet格式文件是自解析的。通常情况下，在存储Parquet数据的时候会按照Block大小设置行组的大小，由于一般情况下每一个Mapper任务处理数据的最小单位是一个Block，这样可以把每一个行组由一个Mapper任务处理，增大任务执行并行度。
+
+## 文件存储格式与数据压缩结合
+
+### 压缩比
+
+#### TextFile
+
+##### 创建表，存储数据格式为TEXTFILE
+
+```hive
+hive> create table log_text ( track_time string, url string, session_id string, referer string, ip string, end_user_id string, city_id string ) ROW FORMAT DELIMITED FIELDS TERMINATED BY '\t' STORED AS TEXTFILE ;
+```
+
+##### 向表中加载数据
+
+```hive
+hive> load data local inpath '/opt/bigdata/hive/log.data' into table log_text ;
+Loading data to table myhive.log_text
+OK
+Time taken: 1.681 seconds
+```
+
+##### 查看表中数据大小
+
+```hive
+hive> dfs -du -h /user/hive/warehouse/myhive.db/log_text;
+18.1 M  /user/hive/warehouse/myhive.db/log_text/log.data
+```
+
+#### ORC
+
+##### 创建表，存储数据格式为ORC
+
+```hive
+hive> create table log_orc ( track_time string, url string, session_id string, referer string, ip string, end_user_id string, city_id string ) ROW FORMAT DELIMITED FIELDS TERMINATED BY '\t' STORED AS orc ;
+OK
+Time taken: 0.164 seconds
+```
+
+##### 向表中加载数据
+
+```hive
+hive> insert into table log_orc select * from log_text ;
+WARNING: Hive-on-MR is deprecated in Hive 2 and may not be available in the future versions. Consider using a different execution engine (i.e. spark, tez) or using Hive 1.X releases.
+Query ID = root_20220831195238_dd666792-5a33-42a4-b27f-6f2487b0fb2c
+Total jobs = 1
+Launching Job 1 out of 1
+Number of reduce tasks is set to 0 since there's no reduce operator
+Job running in-process (local Hadoop)
+2022-08-31 19:52:40,647 Stage-1 map = 0%,  reduce = 0%
+2022-08-31 19:52:43,668 Stage-1 map = 100%,  reduce = 0%
+Ended Job = job_local225775947_0003
+Stage-4 is selected by condition resolver.
+Stage-3 is filtered out by condition resolver.
+Stage-5 is filtered out by condition resolver.
+Moving data to directory hdfs://server01:8020/user/hive/warehouse/myhive.db/log_orc/.hive-staging_hive_2022-08-31_19-52-38_145_6955550278273650885-1/-ext-10000
+Loading data to table myhive.log_orc
+MapReduce Jobs Launched:
+Stage-Stage-1:  HDFS Read: 19015527 HDFS Write: 21928808 SUCCESS
+Total MapReduce CPU Time Spent: 0 msec
+OK
+Time taken: 6.039 seconds
+```
+
+##### 查看表中数据大小
+
+```hive
+hive> dfs -du -h /user/hive/warehouse/myhive.db/log_orc;
+2.8 M  /user/hive/warehouse/myhive.db/log_orc/000000_0
+```
+
+#### Parquet
+
+##### 创建表，存储数据格式为parquet
+
+```hive
+hive> create table log_parquet ( track_time string, url string, session_id string, referer string, ip string, end_user_id string, city_id string ) ROW FORMAT DELIMITED FIELDS TERMINATED BY '\t' STORED AS PARQUET ;
+OK
+Time taken: 0.209 seconds
+```
+
+##### 向表中加载数据
+
+```hive
+hive> insert into table log_parquet select * from log_text ;
+WARNING: Hive-on-MR is deprecated in Hive 2 and may not be available in the future versions. Consider using a different execution engine (i.e. spark, tez) or using Hive 1.X releases.
+Query ID = root_20220831195410_085df567-8b76-48e5-9574-03d22199fbb7
+Total jobs = 3
+Launching Job 1 out of 3
+Number of reduce tasks is set to 0 since there's no reduce operator
+Job running in-process (local Hadoop)
+2022-08-31 19:54:11,711 Stage-1 map = 0%,  reduce = 0%
+SLF4J: Failed to load class "org.slf4j.impl.StaticLoggerBinder".
+SLF4J: Defaulting to no-operation (NOP) logger implementation
+SLF4J: See http://www.slf4j.org/codes.html#StaticLoggerBinder for further details.
+2022-08-31 19:54:14,722 Stage-1 map = 100%,  reduce = 0%
+Ended Job = job_local1188880581_0004
+Stage-4 is selected by condition resolver.
+Stage-3 is filtered out by condition resolver.
+Stage-5 is filtered out by condition resolver.
+Moving data to directory hdfs://server01:8020/user/hive/warehouse/myhive.db/log_parquet/.hive-staging_hive_2022-08-31_19-54-10_140_7840170999287515047-1/-ext-10000
+Loading data to table myhive.log_parquet
+MapReduce Jobs Launched:
+Stage-Stage-1:  HDFS Read: 38030486 HDFS Write: 35649792 SUCCESS
+Total MapReduce CPU Time Spent: 0 msec
+OK
+Time taken: 5.024 seconds
+```
+
+##### 查看表中数据大小
+
+```hive
+hive> dfs -du -h /user/hive/warehouse/myhive.db/log_parquet;
+13.1 M  /user/hive/warehouse/myhive.db/log_parquet/000000_0
+```
+
+#### 存储文件的压缩比总结
+
+ORC > Parquet > textFile
+
+### 查询速度
+
+#### TextFile
+
+```hive
+hive> select count(*) from log_text;
+WARNING: Hive-on-MR is deprecated in Hive 2 and may not be available in the future versions. Consider using a different execution engine (i.e. spark, tez) or using Hive 1.X releases.
+Query ID = root_20220831195652_1668d4bb-3e42-4a1d-976b-f873345bc230
+Total jobs = 1
+Launching Job 1 out of 1
+Number of reduce tasks determined at compile time: 1
+In order to change the average load for a reducer (in bytes):
+  set hive.exec.reducers.bytes.per.reducer=<number>
+In order to limit the maximum number of reducers:
+  set hive.exec.reducers.max=<number>
+In order to set a constant number of reducers:
+  set mapreduce.job.reduces=<number>
+Job running in-process (local Hadoop)
+2022-08-31 19:56:54,076 Stage-1 map = 100%,  reduce = 100%
+Ended Job = job_local1661940817_0005
+MapReduce Jobs Launched:
+Stage-Stage-1:  HDFS Read: 114090894 HDFS Write: 71299584 SUCCESS
+Total MapReduce CPU Time Spent: 0 msec
+OK
+100000
+Time taken: 1.971 seconds, Fetched: 1 row(s)
+```
+
+#### ORC
+
+```hive
+hive> select count(*) from log_orc;
+WARNING: Hive-on-MR is deprecated in Hive 2 and may not be available in the future versions. Consider using a different execution engine (i.e. spark, tez) or using Hive 1.X releases.
+Query ID = root_20220831195718_751c7627-d016-48b4-80be-17d68b17b952
+Total jobs = 1
+Launching Job 1 out of 1
+Number of reduce tasks determined at compile time: 1
+In order to change the average load for a reducer (in bytes):
+  set hive.exec.reducers.bytes.per.reducer=<number>
+In order to limit the maximum number of reducers:
+  set hive.exec.reducers.max=<number>
+In order to set a constant number of reducers:
+  set mapreduce.job.reduces=<number>
+Job running in-process (local Hadoop)
+2022-08-31 19:57:20,318 Stage-1 map = 100%,  reduce = 100%
+Ended Job = job_local1388576768_0006
+MapReduce Jobs Launched:
+Stage-Stage-1:  HDFS Read: 114124144 HDFS Write: 71299584 SUCCESS
+Total MapReduce CPU Time Spent: 0 msec
+OK
+100000
+Time taken: 1.407 seconds, Fetched: 1 row(s)
+```
+
+#### Parquet
+
+```hive
+hive> select count(*) from log_parquet;
+WARNING: Hive-on-MR is deprecated in Hive 2 and may not be available in the future versions. Consider using a different execution engine (i.e. spark, tez) or using Hive 1.X releases.
+Query ID = root_20220831195750_534a427d-0cbb-4c16-bed1-4624c6b5c1fc
+Total jobs = 1
+Launching Job 1 out of 1
+Number of reduce tasks determined at compile time: 1
+In order to change the average load for a reducer (in bytes):
+  set hive.exec.reducers.bytes.per.reducer=<number>
+In order to limit the maximum number of reducers:
+  set hive.exec.reducers.max=<number>
+In order to set a constant number of reducers:
+  set mapreduce.job.reduces=<number>
+Job running in-process (local Hadoop)
+2022-08-31 19:57:51,528 Stage-1 map = 0%,  reduce = 0%
+2022-08-31 19:57:52,534 Stage-1 map = 100%,  reduce = 100%
+Ended Job = job_local1724600551_0007
+MapReduce Jobs Launched:
+Stage-Stage-1:  HDFS Read: 141567992 HDFS Write: 71299584 SUCCESS
+Total MapReduce CPU Time Spent: 0 msec
+OK
+100000
+Time taken: 2.424 seconds, Fetched: 1 row(s)
+```
+
+#### 存储文件的查询速度总结
+
+ORC > TextFile > Parquet
+
+### ORC存储指定压缩方式
+
+官网：https://cwiki.apache.org/confluence/display/Hive/LanguageManual+ORC
+
+#### ORC存储方式的压缩：
+
+| Key                      | Default    | Notes                                                        |
+| ------------------------ | ---------- | ------------------------------------------------------------ |
+| orc.compress             | `ZLIB`     | high level compression (one of NONE, ZLIB, SNAPPY)           |
+| orc.compress.size        | 262,144    | number of bytes in each compression chunk                    |
+| orc.stripe.size          | 67,108,864 | number of bytes in each stripe                               |
+| orc.row.index.stride     | 10,000     | number of rows between index entries (must be >= 1000)       |
+| orc.create.index         | true       | whether to create row indexes                                |
+| orc.bloom.filter.columns | ""         | comma separated list of column names for which bloom filter should be created |
+| orc.bloom.filter.fpp     | 0.05       | false positive probability for bloom filter (must >0.0 and <1.0) |
+
+#### 创建一个非压缩的的ORC存储方式
+
+##### 建表语句
+
+```hive
+hive> create table log_orc_none( track_time string, url string, session_id string, referer string, ip string, end_user_id string, city_id string ) ROW FORMAT DELIMITED FIELDS TERMINATED BY '\t' STORED AS orc tblproperties ("orc.compress"="NONE");
+OK
+Time taken: 0.173 seconds
+```
+
+##### 插入数据
+
+```hive
+hive> insert into table log_orc_none select * from log_text ;
+WARNING: Hive-on-MR is deprecated in Hive 2 and may not be available in the future versions. Consider using a different execution engine (i.e. spark, tez) or using Hive 1.X releases.
+Query ID = root_20220831200111_6fade8cc-2754-49c3-b988-62f87256e111
+Total jobs = 1
+Launching Job 1 out of 1
+Number of reduce tasks is set to 0 since there's no reduce operator
+Job running in-process (local Hadoop)
+2022-08-31 20:01:13,153 Stage-1 map = 0%,  reduce = 0%
+2022-08-31 20:01:14,159 Stage-1 map = 100%,  reduce = 0%
+Ended Job = job_local1422694790_0008
+Stage-4 is selected by condition resolver.
+Stage-3 is filtered out by condition resolver.
+Stage-5 is filtered out by condition resolver.
+Moving data to directory hdfs://server01:8020/user/hive/warehouse/myhive.db/log_orc_none/.hive-staging_hive_2022-08-31_20-01-11_679_8596868928907176395-1/-ext-10000
+Loading data to table myhive.log_orc_none
+MapReduce Jobs Launched:
+Stage-Stage-1:  HDFS Read: 89798875 HDFS Write: 43714105 SUCCESS
+Total MapReduce CPU Time Spent: 0 msec
+OK
+Time taken: 2.9 seconds
+```
+
+##### 查看插入后数据
+
+```hive
+hive> dfs -du -h /user/hive/warehouse/myhive.db/log_orc_none;
+7.7 M  /user/hive/warehouse/myhive.db/log_orc_none/000000_0
+```
+
+#### 创建一个SNAPPY压缩的ORC存储方式
+
+##### 建表语句
+
+```hive
+hive> dfs -du -h /user/hive/warehouse/myhive.db/log_orc_none;
+7.7 M  /user/hive/warehouse/myhive.db/log_orc_none/000000_0
+hive> create table log_orc_snappy( track_time string, url string, session_id string, referer string, ip string, end_user_id string, city_id string ) ROW FORMAT DELIMITED FIELDS TERMINATED BY '\t' STORED AS orc tblproperties ("orc.compress"="SNAPPY");
+OK
+Time taken: 0.127 seconds
+```
+
+##### 插入数据
+
+```hive
+hive> insert into table log_orc_snappy select * from log_text ;
+WARNING: Hive-on-MR is deprecated in Hive 2 and may not be available in the future versions. Consider using a different execution engine (i.e. spark, tez) or using Hive 1.X releases.
+Query ID = root_20220831200248_4151155d-f785-49c0-8f62-57bb41330798
+Total jobs = 1
+Launching Job 1 out of 1
+Number of reduce tasks is set to 0 since there's no reduce operator
+Job running in-process (local Hadoop)
+2022-08-31 20:02:50,238 Stage-1 map = 0%,  reduce = 0%
+2022-08-31 20:02:51,242 Stage-1 map = 100%,  reduce = 0%
+Ended Job = job_local870189240_0009
+Stage-4 is selected by condition resolver.
+Stage-3 is filtered out by condition resolver.
+Stage-5 is filtered out by condition resolver.
+Moving data to directory hdfs://server01:8020/user/hive/warehouse/myhive.db/log_orc_snappy/.hive-staging_hive_2022-08-31_20-02-48_737_7439308229440473484-1/-ext-10000
+Loading data to table myhive.log_orc_snappy
+MapReduce Jobs Launched:
+Stage-Stage-1:  HDFS Read: 108813839 HDFS Write: 47680867 SUCCESS
+Total MapReduce CPU Time Spent: 0 msec
+OK
+Time taken: 2.944 seconds
+```
+
+##### 查看插入后数据
+
+```hive
+hive> dfs -du -h /user/hive/warehouse/myhive.db/log_orc_snappy ;
+3.8 M  /user/hive/warehouse/myhive.db/log_orc_snappy/000000_0
+```
+
+### 存储方式和压缩总结：
+
+在实际的项目开发当中，hive表的数据存储格式一般选择：orc或parquet。压缩方式一般选 择snappy。
+

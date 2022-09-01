@@ -5907,3 +5907,260 @@ hive> dfs -du -h /user/hive/warehouse/myhive.db/log_orc_snappy ;
 
 在实际的项目开发当中，hive表的数据存储格式一般选择：orc或parquet。压缩方式一般选 择snappy。
 
+## 调优
+
+### Fetch抓取
+
+Hive中对某些情况的查询可以不必使用MapReduce计算。例如：SELECT * FROM score;在这种情况下，Hive可以简单地读取score对应的存储目录下的文件，然后输出查询结果到控制台。通过设置hive.fetch.task.conversion参数,可以控制查询语句是否走MapReduce，该参数默认为more
+
+1. 把hive.fetch.task.conversion设置成none，然后执行查询语句，都会执行mapreduce程序。
+
+   ```hive
+   hive> set hive.fetch.task.conversion=none;
+   hive> select * from score;
+   hive> select s_score from score;
+   hive> select s_score from score limit 3;
+
+2. 把hive.fetch.task.conversion设置成more，然后执行查询语句，如下查询方式都不会执行mapreduce程序。
+
+   ```hive
+   hive> set hive.fetch.task.conversion=more;
+   hive> select * from score;
+   hive> select s_score from score;
+   hive> select s_score from score limit 3;
+   ```
+
+### 本地模式
+
+大多数的Hadoop Job是需要Hadoop提供的完整的可扩展性来处理大数据集的。不过，有时Hive的输入数据量是非常小的。在这种情况下，为查询触发执行任务时消耗可能会比实际job的执行时间要多的多。对于大多数这种情况，Hive可以通过本地模式在单台机器上处理所有的任务。对于小数据集，执行时间可以明显被缩短。用户可以通过设置hive.exec.mode.local.auto的值为true，来让Hive在适当的时候自动启动这个优化，该参数默认为false。
+
+1. 开启本地模式，并执行查询语句
+
+   ```hive
+   hive> set hive.exec.mode.local.auto=true;
+   hive> select * from score cluster by s_id;
+   ```
+
+   
+
+2. 关闭本地模式，并执行查询语句
+
+   ```hive
+   hive> set hive.exec.mode.local.auto=false;
+   hive> select * from score cluster by s_id;
+   ```
+
+### MapJoin
+
+如果不指定MapJoin或者不符合MapJoin的条件，那么Hive解析器会在Reduce阶段完成join,容易发生数据倾斜。可以用MapJoin把小表全部加载到内存在map端进行join，避免reducer处理，该参数默认为true。
+
+开启MapJoin参数设置：
+
+1. 设置自动选择Mapjoin
+
+   ```hive
+   hive> set hive.auto.convert.join = true;
+   ```
+
+2. 大表小表的阈值设置（默认25M以下认为是小表）：
+
+   ```hive
+   hive> set hive.mapjoin.smalltable.filesize=25123456;
+   ```
+
+### Group By
+
+默认情况下，Map阶段同一Key数据分发给一个reduce，当一个key数据过大时就倾斜了。并不是所有的聚合操作都需要在Reduce端完成，很多聚合操作都可以先在Map端进行部分聚合，最后在Reduce端得出最终结果，该参数默认为true。
+
+1. 是否在Map端进行聚合，默认为True
+
+   ```hive
+   hive> set hive.map.aggr = true;
+   ```
+
+2. 在Map端进行聚合操作的条目数目
+
+   ```hive
+   hive> hive.groupby.mapaggr.checkinterval = 100000;
+   ```
+
+3. 有数据倾斜的时候进行负载均衡（默认是false）
+
+   ```hive
+   hive> hive.groupby.skewindata = true;
+   ```
+
+当选项设定为 true，生成的查询计划会有两个MR Job：
+
+1. 第一个MR Job中，Map的输出结果会随机分布到Reduce中，每个Reduce做部分聚合操作，并输出结果，这样处理的结果是相同的Group By Key有可能被分发到不同的Reduce中，从而达到负载均衡的目的；
+2. 第二个MR Job再根据预处理的数据结果按照Group By Key分布到Reduce中（这个过程可以保证相同的Group By Key被分布到同一个Reduce中），最后完成最终的聚合操作。
+
+### Count(distinct)
+
+数据量小的时候无所谓，数据量大的情况下，由于COUNT DISTINCT操作需要用一个Reduce Task来完成，这一个Reduce需要处理的数据量太大，就会导致整个Job很难完成，一般COUNT DISTINCT使用先GROUP BY再COUNT的方式替换：
+
+```hive
+hive> select count(distinct s_id) from score;
+hive> select count(s_id) from (select id from score group by s_id) a;
+```
+
+### 笛卡尔积
+
+尽量避免笛卡尔积，即避免join的时候不加on条件，或者无效的on条件，Hive只能使用1个reducer来完成笛卡尔积。
+
+### 动态分区调整
+
+往hive分区表中插入数据时，hive提供了一个动态分区功能，其可以基于查询参数的位置去推断分区的名称，从而建立分区。使用Hive的动态分区，需要进行相应的配置。
+
+Hive的动态分区是以第一个表的分区规则，来对应第二个表的分区规则，将第一个表的所有分区，全部拷贝到第二个表中来，第二个表在加载数据的时候，不需要指定分区了，直接用第一个表的分区即可
+
+开启动态分区参数设置
+
+1. 开启动态分区功能（默认true，开启）
+
+   ```hive
+   hive> set hive.exec.dynamic.partition=true;
+   ```
+
+2. 设置为非严格模式（动态分区的模式，默认strict，表示必须指定至少一个分区为静态分区，nonstrict模式表示允许所有的分区字段都可以使用动态分区。）
+
+   ```hive
+   hive> set hive.exec.dynamic.partition.mode=nonstrict;
+   ```
+
+3. 在所有执行MR的节点上，最大一共可以创建多少个动态分区。
+
+   ```hive
+   hive> set hive.exec.max.dynamic.partitions=1000;
+   ```
+
+4. 在每个执行MR的节点上，最大可以创建多少个动态分区。该参数需要根据实际的数据来设定。
+
+   ```hive
+   hive> set hive.exec.max.dynamic.partitions.pernode=100;
+   ```
+
+5. 整个MR Job中，最大可以创建多少个HDFS文件。
+
+   ```hive
+   hive> set hive.exec.max.created.files=100000;
+   ```
+
+6. 当有空分区生成时，是否抛出异常。一般不需要设置。
+
+   ```hive
+   hive> set hive.error.on.empty.partition=false;
+   ```
+
+案例操作
+
+需求：将ori中的数据按照时间(如：20111231234568)，插入到目标表ori_partitioned的相应分区中。
+
+1. 准备数据原表
+
+   ```hive
+   hive> create table ori_partitioned(id bigint, time bigint, uid string, keyword string, url_rank int, click_num int, click_url string) PARTITIONED BY (p_time bigint) row format delimited fields terminated by '\t';
+   OK
+   Time taken: 0.74 seconds
+   hive> load data local inpath '/opt/bigdata/hive/small_data' into  table ori_partitioned partition (p_time='20111230000010');
+   Loading data to table myhive.ori_partitioned partition (p_time=20111230000010)
+   OK
+   Time taken: 2.698 seconds
+   hive> load data local inpath '/opt/bigdata/hive/small_data' into  table ori_partitioned partition (p_time='20111230000011');
+   Loading data to table myhive.ori_partitioned partition (p_time=20111230000011)
+   OK
+   Time taken: 1.063 seconds
+   ```
+
+2. 创建目标分区表
+
+   ```hive
+   hive> create table ori_partitioned_target(id bigint, time bigint, uid string, keyword string, url_rank int, click_num int, click_url string) PARTITIONED BY (p_time STRING) row format delimited fields terminated by '\t';
+   OK
+   Time taken: 0.164 seconds
+   ```
+
+3. 向目标分区表加载数据
+
+   如果按照之前介绍的往指定一个分区中Insert数据，那么这个需求很不容易实现。这时候就需要使用动态分区来实现。
+
+   ```hive
+   hive> INSERT overwrite TABLE ori_partitioned_target PARTITION (p_time) SELECT id, time, uid, keyword, url_rank, click_num, click_url, p_time FROM ori_partitioned;
+   WARNING: Hive-on-MR is deprecated in Hive 2 and may not be available in the future versions. Consider using a different execution engine (i.e. spark, tez) or using Hive 1.X releases.
+   Query ID = root_20220901141116_eb4d677c-b925-4756-9aa7-cebbe8f53b24
+   Total jobs = 3
+   Launching Job 1 out of 3
+   Number of reduce tasks is set to 0 since there's no reduce operator
+   Job running in-process (local Hadoop)
+   2022-09-01 14:11:20,568 Stage-1 map = 0%,  reduce = 0%
+   2022-09-01 14:11:24,624 Stage-1 map = 100%,  reduce = 0%
+   Ended Job = job_local885366507_0001
+   Stage-4 is selected by condition resolver.
+   Stage-3 is filtered out by condition resolver.
+   Stage-5 is filtered out by condition resolver.
+   Moving data to directory hdfs://server01:8020/user/hive/warehouse/myhive.db/ori_partitioned_target/.hive-staging_hive_2022-09-01_14-11-16_513_8999722180766104875-1/-ext-10000
+   Loading data to table myhive.ori_partitioned_target partition (p_time=null)
+   
+   
+            Time taken to load dynamic partitions: 0.443 seconds
+            Time taken for adding to write entity : 0.001 seconds
+   MapReduce Jobs Launched:
+   Stage-Stage-1:  HDFS Read: 24036712 HDFS Write: 38207837 SUCCESS
+   Total MapReduce CPU Time Spent: 0 msec
+   OK
+   Time taken: 9.284 seconds
+   ```
+
+   注意：在SELECT子句的最后几个字段，必须对应前面PARTITION (p_time)中指定的分区字段，包括顺序。
+
+4. 查看分区
+
+   ```hive
+   hive> show partitions ori_partitioned_target; 
+   ```
+
+### 并行执行
+
+Hive会将一个查询转化成一个或者多个阶段。这样的阶段可以是MapReduce阶段、抽样阶段、合并阶段、limit阶段。或者Hive执行过程中可能需要的其他阶段。默认情况下，Hive一次只会执行一个阶段。不过，某个特定的job可能包含众多的阶段，而这些阶段可能并非完全互相依赖的，也就是说有些阶段是可以并行执行的，这样可能使得整个job的执行时间缩短。不过，如果有更多的阶段可以并行执行，那么job可能就越快完成。通过设置参数hive.exec.parallel值为true，就可以开启并发执行。不过，在共享集群中，需要注意下，如果job中并行阶段增多，那么集群利用率就会增加，该参数的默认值为false。
+
+```hive
+hive> hive.exec.parallel = true;
+```
+
+### 严格模式
+
+Hive提供了一个严格模式，可以防止用户执行那些可能意向不到的不好的影响的查询。开启严格模式需要修改hive.mapred.mode值为strict，开启严格模式可以禁止3种类型的查询，该参数默认为非严格模式nonstrict 。
+
+```hive
+hive> set hive.mapred.mode = strict;
+```
+
+1. 对于分区表，在where语句中必须含有分区字段作为过滤条件来限制范围，否则不允许执行`。换句话说，就是用户不允许扫描所有分区。进行这个限制的原因是，通常分区表都拥有非常大的数据集，而且数据增加迅速。没有进行分区限制的查询可能会消耗令人不可接受的巨大资源来处理这个表。
+
+2. 对于使用了order by语句的查询，要求必须使用limit语句`。因为order by为了执行排序过程会将所有的结果数据分发到同一个Reducer中进行处理，强制要求用户增加这个LIMIT语句可以防止Reducer额外执行很长一段时间。
+
+3. 限制笛卡尔积的查询`。对关系型数据库非常了解的用户可能期望在执行JOIN查询的时候不使用ON语句而是使用where语句，这样关系数据库的执行优化器就可以高效地将WHERE语句转化成那个ON语句。不幸的是，Hive并不会执行这种优化，因此，如果表足够大，那么这个查询就会出现不可控的情况。
+
+### JVM重用
+
+JVM重用是Hadoop调优参数的内容，其对Hive的性能具有非常大的影响，特别是对于很难避免小文件的场景或task特别多的场景，这类场景大多数执行时间都很短。Hadoop的默认配置通常是使用派生JVM来执行map和Reduce任务的。这时JVM的启动过程可能会造成相当大的开销，尤其是执行的job包含有成百上千task任务的情况。JVM重用可以使得JVM实例在同一个job中重新使用N次。N的值可以在Hadoop的mapred-site.xml文件中进行配置。通常在10-20之间，具体多少需要根据具体业务场景测试得出。
+
+在hive当中通过mapred.job.reuse.jvm.num.tasks来设置jvm重用：
+
+```hive
+hive> set  mapred.job.reuse.jvm.num.tasks = 10;
+```
+
+这个功能的缺点是，开启JVM重用将一直占用使用到的task插槽，以便进行重用，直到任务完成后才能释放。如果某个“不平衡的”job中有某几个reduce task执行的时间要比其他Reduce task消耗的时间多的多的话，那么保留的插槽就会一直空闲着却无法被其他的job使用，直到所有的task都结束了才会释放。
+
+### 推测执行
+
+在分布式集群环境下，因为程序Bug（包括Hadoop本身的bug），负载不均衡或者资源分布不均等原因，会造成同一个作业的多个任务之间运行速度不一致，有些任务的运行速度可能明显慢于其他任务（比如一个作业的某个任务进度只有50%，而其他所有任务已经运行完毕），则这些任务会拖慢作业的整体执行进度。为了避免这种情况发生，Hadoop采用了推测执行（Speculative Execution）机制，它根据一定的法则推测出“拖后腿”的任务，并为这样的任务启动一个备份任务，让该任务与原始任务同时处理同一份数据，并最终选用最先成功运行完成任务的计算结果作为最终结果。
+
+```hive
+hive> set mapred.map.tasks.speculative.execution=true
+hive> set mapred.reduce.tasks.speculative.execution=true
+hive> set hive.mapred.reduce.tasks.speculative.execution=true;
+```
+
+关于调优这些推测执行变量，还很难给一个具体的建议。如果用户对于运行时的偏差非常敏感的话，那么可以将这些功能关闭掉。如果用户因为输入数据量很大而需要执行长时间的map或者Reduce task的话，那么启动推测执行造成的浪费是非常巨大大。

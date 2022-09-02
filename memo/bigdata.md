@@ -5235,7 +5235,7 @@ Time taken: 1.375 seconds
 
 ### CLUSTER BY
 
-当distribute by和sort by字段相同时，可以使用cluster by方式。cluster by除了具有distribute by的功能外还兼具sort by的功能。但是排序只能是倒序排序，不 能指定排序规则为ASC或者DESC。
+当distribute by和sort by字段相同时，可以使用cluster by方式。cluster by除了具有distribute by的功能外还兼具sort by的功能。但是排序只能是倒序排序，不能指定排序规则为ASC或者DESC。
 
 以下两种写法等价：
 
@@ -6164,3 +6164,579 @@ hive> set hive.mapred.reduce.tasks.speculative.execution=true;
 ```
 
 关于调优这些推测执行变量，还很难给一个具体的建议。如果用户对于运行时的偏差非常敏感的话，那么可以将这些功能关闭掉。如果用户因为输入数据量很大而需要执行长时间的map或者Reduce task的话，那么启动推测执行造成的浪费是非常巨大大。
+
+# Impala
+
+## 基本介绍
+
+impala是cloudera提供的一款高效率的sql查询工具，提供实时的查询效果，官方测试性能比hive快10到100倍，其sql查询比sparkSQL还要更加快速，号称是当前大数据领域最快的查询sql工具，
+
+impala是参照谷歌的新三篇论文（Caffeine--网络搜索引擎、Pregel--分布式图计算、Dremel--交互式分析工具）当中的Dremel实现而来，其中旧三篇论文分别是（BigTable，GFS，MapReduce）分别对应HBase、HDFS以及MapReduce。
+
+impala是基于hive并使用内存进行计算，兼顾数据仓库，具有实时，批处理，多并发等优点。
+
+## Impala与Hive关系
+
+impala是基于hive的大数据分析查询引擎，直接使用hive的元数据库metadata，意味着impala元数据都存储在hive的metastore当中，并且impala兼容hive的绝大多数sql语法。所以需要安装impala的话，必须先安装hive，保证hive安装成功，并且还需要启动hive的metastore服务。
+
+```bash
+[root@server01 tmp]# nohup hive --service metastore >> ~/metastore.log 2>&1 &
+```
+
+Hive元数据包含用Hive创建的database、table等元信息。元数据存储在关系型数据库中，如Derby、MySQL等。
+
+客户端连接metastore服务，metastore再去连接MySQL数据库来存取元数据。有了metastore服务，就可以有多个客户端同时连接，而且这些客户端不需要知道MySQL数据库的用户名和密码，只需要连接metastore 服务即可。
+
+Hive适合于长时间的批处理查询分析，而Impala适合于实时交互式SQL查询。可以先使用hive进行数据转换处理，之后使用Impala在Hive处理后的结果数据集上进行快速的数据分析。
+
+## Impala与Hive异同
+
+Impala 与Hive都是构建在Hadoop之上的数据查询工具各有不同的侧重适应面，但从客户端使用来看Impala与Hive有很多的共同之处，如数据表元数据、ODBC/JDBC驱动、SQL语法、灵活的文件格式、存储资源池等。
+
+但是Impala跟Hive最大的优化区别在于：没有使用 MapReduce进行并行计算，虽然MapReduce是非常好的并行计算框架，但它更多的面向批处理模式，而不是面向交互式的SQL执行。与 MapReduce相比，Impala把整个查询分成一执行计划树，而不是一连串的MapReduce任务，在分发执行计划后，Impala使用拉式获取数据的方式获取结果，把结果数据组成按执行树流式传递汇集，减少的了把中间结果写入磁盘的步骤，再从磁盘读取数据的开销。Impala使用服务的方式避免每次执行查询都需要启动的开销，即相比Hive没了MapReduce启动时间。
+
+### Impala使用的优化技术
+
+1. 使用LLVM产生运行代码，针对特定查询生成特定代码，同时使用Inline的方式减少函数调用的开销，加快执行效率。(C++特性)
+2. 充分利用可用的硬件指令（SSE4.2）。
+3. 更好的IO调度，Impala知道数据块所在的磁盘位置能够更好的利用多磁盘的优势，同时Impala支持直接数据块读取和本地代码计算checksum。
+4. 通过选择合适数据存储格式可以得到最好性能（Impala支持多种存储格式）。
+5. 最大使用内存，中间结果不写磁盘，及时通过网络以stream的方式传递。
+
+### 执行计划
+
+#### Hive
+
+依赖于MapReduce执行框架，执行计划分成 map->shuffle->reduce->map->shuffle->reduce…的模型。如果一个Query会 被编译成多轮MapReduce，则会有更多的写中间结果。由于MapReduce执行框架本身的特点，过多的中间过程会增加整个Query的执行时间。
+
+#### Impala
+
+把执行计划表现为一棵完整的执行计划树，可以更自然地分发执行计划到各个Impalad执行查询，而不用像Hive那样把它组合成管道型的 map->reduce模式，以此保证Impala有更好的并发性和避免不必要的中间sort与shuffle。
+
+### 数据流
+
+#### Hive
+
+采用推的方式，每一个计算节点计算完成后将数据主动推给后续节点。
+
+#### Impala
+
+用拉的方式，后续节点通过getNext主动向前面节点要数据，以此方式数据可以流式的返回给客户端，且只要有1条数据被处理完，就可以立即展现出来，而不用等到全部处理完成，更符合SQL交互式查询使用。
+
+### 内存使用
+
+#### Hive
+
+在执行过程中如果内存放不下所有数据，则会使用外存，以保证Query能顺序执行完。每一轮MapReduce结束，中间结果也会写入HDFS中，同样由于MapReduce执行架构的特性，shuffle过程也会有写本地磁盘的操作。
+
+#### Impala
+
+在遇到内存放不下数据时，版本1.0.1是直接返回错误，而不会利用外存，以后版本应该会进行改进。这使用得Impala目前处理Query会受到一定的限制，最好还是与Hive配合使用。
+
+### 调度
+
+#### Hive
+
+任务调度依赖于Hadoop的调度策略。
+
+#### Impala
+
+调度由自己完成，目前只有一种调度器simple-schedule，它会尽量满足数据的局部性，扫描数据的进程尽量靠近数据本身所在的物理机器。调度器 目前还比较简单，在SimpleScheduler::GetBackend中可以看到，现在还没有考虑负载，网络IO状况等因素进行调度。但目前 Impala已经有对执行过程的性能统计分析，应该以后版本会利用这些统计信息进行调度吧。
+
+### 容错
+
+#### Hive
+
+依赖于Hadoop的容错能力。
+
+#### Impala
+
+在查询过程中，没有容错逻辑，如果在执行过程中发生故障，则直接返回错误（这与Impala的设计有关，因为Impala定位于实时查询，一次查询失败， 再查一次就好了，再查一次的成本很低）。
+
+### 适用面
+
+#### Hive
+
+复杂的批处理查询任务，数据转换任务。
+
+#### Impala
+
+实时数据分析，因为不支持UDF，能处理的问题域有一定的限制，与Hive配合使用,对Hive的结果数据集进行实时分析。
+
+## Impala架构
+
+Impala主要由Impalad、 State Store、Catalogd和CLI组成。
+
+### Impalad
+
+与DataNode运行在同一节点上，由Impalad进程表示，它接收客户端的查询请求（接收查询请求的Impalad为Coordinator，Coordinator通过JNI调用java前端解释SQL查询语句，生成查询计划树，再通过调度器把执行计划分发给具有相应数据的其它Impalad进行执行），读写数据，并行执行查询，并把结果通过网络流式的传送回给Coordinator，由Coordinator返回给客户端。同时Impalad也与State Store保持连接，用于确定哪个Impalad是健康和可以接受新的工作。在Impalad中启动三个ThriftServer: beeswax_server（连接客户端），hs2_server（借用Hive元数据）， be_server（Impalad内部使用）和一个ImpalaServer服务。
+
+### Impala State Store
+
+跟踪集群中的Impalad的健康状态及位置信息，由statestored进程表示，它通过创建多个线程来处理Impalad的注册订阅和与各Impalad保持心跳连接，各Impalad都会缓存一份State Store中的信息，当State Store离线后（Impalad发现State Store处于离线时，会进入recovery模式，反复注册，当State Store重新加入集群后，自动恢复正常，更新缓存数据）因为Impalad有State Store的缓存仍然可以工作，但会因为有些Impalad失效了，而已缓存数据无法更新，导致把执行计划分配给了失效的Impalad，导致查询失败。
+
+### CLI
+
+CLI: 提供给用户查询使用的命令行工具（Impala Shell使用python实现），同时Impala还提供了Hue，JDBC， ODBC使用接口。
+
+### Catalogd
+
+Catalogd：作为metadata访问网关，从Hive Metastore等外部catalog中获取元数据信息，放到impala自己的catalog结构中。impalad执行ddl命令时通过catalogd由其代为执行，该更新则由statestored广播。
+
+## Impala查询处理过程
+
+Impalad分为Java前端与C++处理后端，接受客户端连接的Impalad即作为这次查询的Coordinator，Coordinator通过JNI调用Java前端对用户的查询SQL进行分析生成执行计划树。
+
+Java前端产生的执行计划树以Thrift数据格式返回给C++后端（Coordinator）（执行计划分为多个阶段，每一个阶段叫做一个PlanFragment，每一个PlanFragment在执行时可以由多个Impalad实例并行执行(有些PlanFragment只能由一个Impalad实例执行,如聚合操作)，整个执行计划为一执行计划树）。
+
+Coordinator根据执行计划，数据存储信息（Impala通过libhdfs与HDFS进行交互。通过hdfsGetHosts方法获得文件数据块所在节点的位置信息），通过调度器（现在只有simple-scheduler, 使用round-robin算法）Coordinator::Exec对生成的执行计划树分配给相应的后端执行器Impalad执行（查询会使用LLVM进行代码生成，编译，执行），通过调用GetNext()方法获取计算结果。
+
+如果是insert语句，则将计算结果通过libhdfs写回HDFS当所有输入数据被消耗光，执行结束，之后注销此次查询服务。
+
+# Sqoop
+
+## 介绍 
+
+Apache Sqoop是在Hadoop生态体系和RDBMS体系之间传送数据的一种工具。来自于Apache软件基金会提供。
+Sqoop工作机制是将导入或导出命令翻译成mapreduce程序来实现。在翻译出的mapreduce中主要是对inputformat和outputformat进行定制。
+
+Hadoop生态系统包括：HDFS、Hive、Hbase等
+
+RDBMS体系包括：Mysql、Oracle、DB2等
+
+Sqoop可以理解为：“SQL 到 Hadoop 和 Hadoop 到SQL”。
+
+站在Apache立场看待数据流转问题，可以分为数据的导入导出:
+
+Import：数据导入。RDBMS----->Hadoop
+
+Export：数据导出。Hadoop---->RDBMS
+
+## 安装
+
+### 环境变量
+
+```sh
+export SQOOP_HOME=/usr/local/sqoop
+export PATH=$PATH:$SQOOP_HOME/bin
+```
+
+### 配置文件修改
+
+```bash
+[root@server01 conf]# cd $SQOOP_HOME/conf
+[root@server01 conf]# mv sqoop-env-template.sh sqoop-env.sh
+[root@server01 conf]# vim sqoop-env.sh
+#修改如下三个配置项
+export HADOOP_COMMON_HOME=/usr/local/hadoop-2.7.5
+export HADOOP_MAPRED_HOME=/usr/local/hadoop-2.7.5
+export HIVE_HOME=/usr/local/hive
+#加入mysql的jdbc驱动包
+[root@server01 conf]# cp /usr/local/hive/lib/mysql-connector-java-5.1.38.jar $SQOOP_HOME/lib/
+#验证启动
+[root@server01 conf]# sqoop list-databases --connect jdbc:mysql://localhost:3306/ --username root --password 123456
+```
+
+## 全量导入hdfs
+
+```bash
+[root@server01 conf]# sqoop import --connect jdbc:mysql://server01:3306/userdb --username root --password 123456 --delete-target-dir --fields-terminated-by '\t' --split-by id --target-dir /sqoopresult1 --table emp --m 2
+```
+
+在HDFS上默认用逗号,分隔emp表的数据和字段。可以通过--fields-terminated-by '\t'来指定分隔符；
+
+--split-by id通常配合-m 2参数使用。用于指定根据哪个字段进行划分并启动多少个maptask。首先sqoop会向关系型数据库比如mysql发送一个命令:select max(id),min(id) from test。然后会把max、min之间的区间平均分为10分，最后10个并行的map去找数据库，导数据就正式开始
+
+## 全量导入hive
+
+### 方式一：先复制表结构到hive中再导入数据
+
+复制表结构：
+
+```hive
+[root@server01 conf]# sqoop create-hive-table --connect jdbc:mysql://server01:3306/userdb --table emp_add --username root --password 123456 --hive-table myhive.emp_add_sp
+```
+
+--table emp_add为mysql中的数据库sqoopdb中的表。
+
+--hive-table emp_add_sp 为hive中新建的表名称。
+
+从关系数据库导入文件到hive中：
+
+```hive
+[root@server01 conf]# sqoop import --connect jdbc:mysql://server01:3306/userdb --username root --password 123456 --table emp_add --hive-table myhive.emp_add_sp --hive-import --m 1
+```
+
+### 方式二：直接复制表结构数据到hive中
+
+包括表结构和数据会一起导入，并且在hive中会自动创建同名的表
+
+```hive
+[root@server01 conf]# sqoop import --connect jdbc:mysql://server01:3306/userdb --username root --password 123456 --table emp_conn --hive-import --m 1 --hive-database myhive;
+```
+
+## 导入表数据子集
+
+### where过滤
+
+--where可以指定从关系数据库导入数据时的查询条件。它执行在数据库服务器相应的SQL查询，并将结果存储在HDFS的目标目录。
+
+```bash
+[root@server01 conf]# sqoop import --connect jdbc:mysql://server01:3306/userdb --username root --password 123456 --where "city ='sec-bad'" --target-dir /wherequery --table emp_add --m 1
+```
+
+### query查询
+
+```hive
+[root@server01 conf]# sqoop import --connect jdbc:mysql://server01:3306/userdb --username root --password 123456 --target-dir /wherequery12 --query 'select id,name,deg from emp WHERE  id>1203 and $CONDITIONS' --split-by id --fields-terminated-by '\001' --m 2
+```
+
+注意事项：
+
+- 使用sql语句来进行查找是不能加参数--table 
+- 并且必须要添加where条件，
+- 并且where条件后面必须带一个$CONDITIONS 这个字符串，
+- 并且这个sql语句必须用单引号，不能用双引号
+
+## 增量导入
+
+-check-column (col)	
+
+用来指定一些列，这些列在增量导入时用来检查这些数据是否作为增量数据进行导入，和关系型数据库中的自增字段及时间戳类似。 
+
+注意:这些被指定的列的类型不能使任意字符类型，如char、varchar等类型都是不可以的，同时-- check-column可以去指定多个列。
+
+--incremental (mode)	
+
+append：追加，比如对大于last-value指定的值之后的记录进行追加导入。lastmodified：最后的修改时间，追加
+
+last-value指定的日期之后的记录
+
+--last-value (value)
+
+指定自从上次导入后列的最大值（大于该指定的值），也可以自己设定某一值
+
+### Append模式增量导入
+
+执行以下指令先将数据导入
+
+```bash
+[root@server01 ~]# sqoop import --connect jdbc:mysql://server01:3306/userdb --username root --password 123456 --target-dir /appendresult --table emp --m 1
+```
+
+在mysql的emp中插入2条数据:
+
+```sql
+insert into `userdb`.`emp` (`id`, `name`, `deg`, `salary`, `dept`) values ('1206', 'allen', 'admin', '30000', 'tp');
+insert into `userdb`.`emp` (`id`, `name`, `deg`, `salary`, `dept`) values ('1207', 'woon', 'admin', '40000', 'tp');
+```
+
+执行如下的指令，实现增量的导入
+
+```bash
+[root@server01 ~]# sqoop import --connect jdbc:mysql://server01:3306/userdb --username root --password 123456 --table emp --m 1 --target-dir /appendresult --incremental append --check-column id --last-value 1205;
+```
+
+### Lastmodified模式:append增量导入
+
+首先创建一个customer表，指定一个时间戳字段，此处的时间戳设置为在数据的产生和更新时都会发生改变。
+
+```sql
+CREATE TABLE customertest(id INT,NAME VARCHAR(20),last_mod TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP);
+```
+
+分别插入如下记录:
+
+```sql
+insert into customertest(id,name) values(1,'neil');
+insert into customertest(id,name) values(2,'jack');
+insert into customertest(id,name) values(3,'martin');
+insert into customertest(id,name) values(4,'tony');
+insert into customertest(id,name) values(5,'eric');
+
+```
+
+执行sqoop指令将数据全部导入hdfs:
+
+```bash
+[root@server01 ~]# sqoop import --connect jdbc:mysql://server01:3306/userdb --username root --password 123456 --target-dir /lastmodifiedresult --table customertest --m 1
+```
+
+再次插入一条数据进入customertest表
+
+```sql
+INSERT INTO customertest(id,NAME) VALUES(6,'james');
+```
+
+使用incremental的方式进行增量的导入
+
+```bash
+[root@server01 ~]# sqoop import --connect jdbc:mysql://server01:3306/userdb --username root --password 123456 --table customertest --target-dir /lastmodifiedresult --check-column last_mod --incremental lastmodified --last-value "2022-09-02 12:32:36" --m 1 --append
+```
+
+此处发现此处插入了2条数据，这是为什么呢？ 这是因为采用lastmodified模式去处理增量时，会将大于等于last-value值的数据当做增量插入
+
+### Lastmodified模式:merge-key增量导入
+
+使用lastmodified模式进行增量处理要指定增量数据是以append模式(附加)还是merge-key(合并)模式添加
+
+接下来使用merge-by的模式进行增量更新
+
+首先更新id为1的name字段。
+
+```sql
+UPDATE customertest SET NAME = 'Neil' WHERE id = 1;
+```
+
+执行如下指令，把id字段作为merge-key
+
+```bash
+sqoop import --connect jdbc:mysql://server01:3306/userdb --username root --password 123456 --table customertest --target-dir /lastmodifiedresult --check-column last_mod --incremental lastmodified --last-value "2022-09-02 12:56:54" --m 1 --merge-key id
+```
+
+由于merge-key这种模式是进行了一次完整的mapreduce操作，因此最终我们在lastmodifiedresult文件夹下可以看到生成的为part-r-00000这样的文件，会发现id=1的name已经得到修改，同时新增了id=6的数据
+
+## Sqoop导出
+
+将数据从Hadoop生态体系导出到RDBMS数据库导出前，目标表必须存在于目标数据库中。
+
+export有三种模式：
+
+1. 默认操作是从将文件中的数据使用INSERT语句插入到表中。
+2. 更新模式：Sqoop将生成UPDATE替换数据库中现有记录的语句。
+3. 调用模式：Sqoop将为每条记录创建一个存储过程调用。
+
+### 默认模式
+
+默认情况下，sqoop export将每行输入记录转换成一条INSERT语句，添加到目标数据库表中。如果数据库中的表具有约束条件（例如，其值必须唯一的主键列）并且已有数据存在，则必须注意避免插入违反这些约束条件的记录。如果INSERT语句失败，导出过程将失败。此模式主要用于将记录导出到可以接收这些结果的空表中。通常用于全表数据导出。导出时可以是将Hive表中的全部记录或者HDFS数据（可以是全部字段也可以部分字段）导出到Mysql目标表。
+
+准备HDFS数据，在HDFS文件系统中“/emp_data/”目录的下创建一个文件emp_data.txt
+
+```markdown
+1201,gopal,manager,50000,TP
+1202,manisha,preader,50000,TP
+1203,kalil,php dev,30000,AC
+1204,prasanth,php dev,30000,AC
+1205,kranthi,admin,20000,TP
+1206,satishp,grpdes,20000,GR
+```
+
+手动创建mysql中的目标表
+
+```sql
+CREATE TABLE employee ( 
+   id INT NOT NULL PRIMARY KEY, 
+   NAME VARCHAR(20), 
+   deg VARCHAR(20),
+   salary INT,
+   dept VARCHAR(10));
+```
+
+执行导出命令
+
+```bash
+sqoop export --connect jdbc:mysql://server01:3306/userdb --username root --password 123456 --table employee --columns id,name,deg,salary,dept --export-dir /emp_data/
+```
+
+### 更新导出(updateonly)
+
+-- update-key，更新标识，即根据某个字段进行更新，例如id，可以指定多个更新标识的字段，多个字段之间用逗号分隔。
+
+-- updatemod，指定updateonly（默认模式），仅仅更新已存在的数据记录，不会插入新纪录。
+
+在HDFS文件系统中“/updateonly_1/”目录的下创建一个文件updateonly_1.txt：
+
+```markdown
+1201,gopal,manager,50000
+1202,manisha,preader,50000
+1203,kalil,php dev,30000
+```
+
+手动创建mysql中的目标表
+
+```mysql
+mysql> USE userdb;
+mysql> CREATE TABLE updateonly ( 
+   id INT NOT NULL PRIMARY KEY, 
+   name VARCHAR(20), 
+   deg VARCHAR(20),
+   salary INT);
+```
+
+先执行全部导出操作
+
+```bash
+sqoop export \
+--connect jdbc:mysql://server01:3306/userdb \
+--username root \
+--password 123456 \
+--table updateonly \
+--export-dir /updateonly_1/
+```
+
+新增一个文件updateonly_2.txt：修改了前三条数据并且新增了一条记录
+
+```markdown
+1201,gopal,manager,1212
+1202,manisha,preader,1313
+1203,kalil,php dev,1414
+1204,allen,java,1515
+```
+
+```bash
+[root@server01 opt]# hdfs dfs -mkdir /updateonly_2
+[root@server01 opt]# hdfs dfs -put updateonly_2.txt /updateonly_2
+```
+
+执行更新导出
+
+```bash
+sqoop export \
+--connect jdbc:mysql://server01:3306/userdb \
+--username root \
+--password 123456 \
+--table updateonly \
+--export-dir /updateonly_2/ \
+--update-key id \
+--update-mode updateonly
+```
+
+### 更新导出(allowinsert)
+
+-- update-key，更新标识，即根据某个字段进行更新，例如id，可以指定多个更新标识的字段，多个字段之间用逗号分隔。
+
+-- updatemod，指定allowinsert，更新已存在的数据记录，同时插入新纪录。实质上是一个insert & update的操作。
+
+创建一个文件allowinsert_1.txt：
+
+```markdown
+1201,gopal,manager,50000
+1202,manisha,preader,50000
+1203,kalil,php dev,30000
+```
+
+上传至hdfs：/allowinsert_1/目录下
+
+```bash
+[root@server01 opt]# hdfs dfs -mkdir /allowinsert_1
+[root@server01 opt]# hdfs dfs -put ./allowinsert_1.txt /allowinsert_1
+```
+
+手动创建mysql中的目标表
+
+```sql
+mysql> USE userdb;
+mysql> CREATE TABLE allowinsert ( 
+   id INT NOT NULL PRIMARY KEY, 
+   name VARCHAR(20), 
+   deg VARCHAR(20),
+   salary INT);
+```
+
+先执行全部导出操作
+
+```bash
+sqoop export \
+--connect jdbc:mysql://server01:3306/userdb \
+--username root \
+--password 123456 \
+--table allowinsert \
+--export-dir /allowinsert_1/
+```
+
+创建allowinsert_2.txt，修改了前三条数据并且新增了一条记录
+
+```markdown
+1201,gopal,manager,1212
+1202,manisha,preader,1313
+1203,kalil,php dev,1414
+1204,allen,java,1515
+```
+
+上传至hdfs：/allowinsert_2/目录下
+
+```bash
+[root@server01 opt]# hdfs dfs -mkdir /allowinsert_2
+[root@server01 opt]# hdfs dfs -put ./allowinsert_2.txt /allowinsert_2
+```
+
+执行更新导出
+
+```bash
+sqoop export \
+--connect jdbc:mysql://server01:3306/userdb \
+--username root --password 123456 \
+--table allowinsert \
+--export-dir /allowinsert_2/ \
+--update-key id \
+--update-mode allowinsert
+```
+
+## Sqoop job作业
+
+创建好的job不会立即执行，需要通过执行作业命令才会触发作业的执行，所以Sqoop job作业适合定时任务场景。
+
+### 创建作业(--create)
+
+```bash
+sqoop job --create gentleduojob1 -- import --connect jdbc:mysql://server01:3306/userdb \
+--username root \
+--password 123456 \
+--target-dir /sqoopjob1 \
+--table emp --m 1
+```
+
+注意import前要有空格
+
+### 验证作业 (--list)
+
+```bash
+sqoop job --list
+```
+
+### 执行作业 (--exec)
+
+```bash
+sqoop job --exec itcastjob1
+```
+
+### job的免密输入
+
+sqoop在创建job时，如果使用--password将出现警告，并且每次都要手动输入密码才能执行job；
+
+使用--password-file参数，可以避免输入mysql密码，sqoop规定密码文件必须存放在HDFS上，并且权限必须是400。
+
+```bash
+[root@server01 opt]# echo -n "123456" > itcastmysql.pwd
+[root@server01 opt]# hdfs dfs -mkdir -p /input/sqoop/pwd/
+[root@server01 opt]# hdfs dfs -put itcastmysql.pwd /input/sqoop/pwd/
+[root@server01 opt]# hdfs dfs -chmod 400 /input/sqoop/pwd/itcastmysql.pwd
+```
+
+在sqoop的sqoop-site.xml文件中添加如下配置项：
+
+```xml
+<property>
+    <name>sqoop.metastore.client.record.password</name>
+    <value>true</value>
+    <description>If true, allow saved passwords in the metastore.
+    </description>
+</property>
+```
+
+创建sqoop job
+
+```bash
+sqoop job --create gentleduojob2 -- import --connect jdbc:mysql://server01:3306/userdb \
+--username root \
+--password-file /input/sqoop/pwd/itcastmysql.pwd \
+--target-dir /sqoopjob2 \
+--table emp --m 1
+```
+
+执行job
+
+```bash
+sqoop job -exec gentleduojob2
+```
+

@@ -6740,3 +6740,1661 @@ sqoop job --create gentleduojob2 -- import --connect jdbc:mysql://server01:3306/
 sqoop job -exec gentleduojob2
 ```
 
+# Flume
+
+## 概述
+
+Flume是Cloudera提供的一个高可用的，高可靠的，分布式的海量日志采集、聚合和传输的软件。
+
+Flume的核心是把数据从数据源(source)收集过来，再将收集到的数据送到指定的目的地(sink)。为了保证输送的过程一定成功，在送到目的地(sink)之前，会先缓存数据(channel),待数据真正到达目的地(sink)后，flume在删除自己缓存的数据。
+
+Flume支持定制各类数据发送方，用于收集各类型数据；同时，Flume支持定制各种数据接受方，用于最终存储数据。一般的采集需求，通过对flume的简单配置即可实现。针对特殊场景也具备良好的自定义扩展能力。因此，flume可以适用于大部分的日常数据采集场景。
+
+当前Flume有两个版本。Flume 0.9X版本的统称Flume OG（original generation），Flume1.X版本的统称Flume NG（next generation）。由于Flume NG经过核心组件、核心配置以及代码架构重构，与Flume OG有很大不同，使用时请注意区分。改动的另一原因是将Flume纳入 apache 旗下，Cloudera Flume 改名为 Apache Flume。
+
+## 运行机制
+
+Flume系统中核心的角色是agent，agent本身是一个Java进程，一般运行在日志收集节点。每一个agent相当于一个数据传递员，内部有三个组件：
+
+1. Source：采集源，用于跟数据源对接，以获取数据；
+2. Sink：下沉地，采集数据的传送目的，用于往下一级agent传递数据或者往最终存储系统传递数据；
+3. Channel：agent内部的数据传输通道，用于从source将数据传递到sink；
+
+在整个数据的传输的过程中，流动的是event，它是Flume内部数据传输的最基本单元。event将传输的数据进行封装。如果是文本文件，通常是一行记录，event也是事务的基本单位。event从source，流向channel，再到sink，本身为一个字节数组，并可携带headers(头信息)信息。event代表着一个数据的最小完整单元，从外部数据源来，向外部的目的地去。一个完整的event包括：event headers、event body、event信息，其中event信息就是flume收集到的日记记录。
+
+## 安装部署
+
+上传安装包到数据源所在节点上，然后解压，最后进入flume的目录，修改conf下的flume-env.sh，在里面配置JAVA_HOME，添加环境变量：
+
+```properties
+export FLUME_HOME=/usr/local/flume
+export PATH=$PATH:$FLUME_HOME/bin
+```
+
+先用一个最简单的例子来测试一下程序环境是否正常
+
+先在flume的conf目录下新建一个文件：netcat-logger.conf
+
+```properties
+#从网络端口接收数据，下沉到logger
+# Name the components on this agent
+a1.sources = r1
+a1.sinks = k1
+a1.channels = c1
+
+# Describe/configure the source
+a1.sources.r1.type = netcat
+a1.sources.r1.bind = localhost
+a1.sources.r1.port = 44444
+
+# Describe the sink
+a1.sinks.k1.type = logger
+
+# Use a channel which buffers events in memory
+a1.channels.c1.type = memory
+a1.channels.c1.capacity = 1000
+a1.channels.c1.transactionCapacity = 100
+
+# Bind the source and sink to the channel
+a1.sources.r1.channels = c1
+a1.sinks.k1.channel = c1
+```
+
+启动agent去采集数据
+
+```bash
+[root@server01 conf]# flume-ng agent --conf /usr/local/flume/conf --conf-file /usr/local/flume/conf/netcat-logger.conf --name a1 -Dflume.root.logger=INFO,console
+Info: Sourcing environment configuration script /usr/local/flume/conf/flume-env.sh
+```
+
+- --conf指定配置文件的目录
+- --conf-file指定采集方案路径
+- --name  agent进程名字 要跟采集方案中保持一致
+
+测试
+
+```bash
+[root@server01 ~]# telnet localhost 44444
+```
+
+## 简单案例
+
+### 采集目录到HDFS
+
+采集需求：服务器的某特定目录下，会不断产生新的文件，每当有新文件出现，就需要把文件采集到HDFS中去根据需求，首先定义以下3大要素
+
+1. 采集源，即source——监控文件目录 :  spooldir
+2. 下沉目标，即sink——HDFS文件系统  :  hdfs sink
+3. source和sink之间的传递通道——channel，可用file channel 也可以用内存channel
+
+配置文件编写
+
+```properties
+# Name the components on this agent
+a1.sources = r1
+a1.sinks = k1
+a1.channels = c1
+
+# Describe/configure the source
+##注意：不能往监控目中重复丢同名文件
+a1.sources.r1.type = spooldir
+a1.sources.r1.spoolDir = /opt/logs
+a1.sources.r1.fileHeader = true
+
+# Describe the sink
+a1.sinks.k1.type = hdfs
+a1.sinks.k1.channel = c1
+a1.sinks.k1.hdfs.path = /flume/events/%y-%m-%d/%H%M/
+a1.sinks.k1.hdfs.filePrefix = events-
+# 控制hdfs中的文件夹以多少时间间隔滚动，以下述为例：就会每10分钟生成一个文件夹
+a1.sinks.k1.hdfs.round = true
+a1.sinks.k1.hdfs.roundValue = 10
+a1.sinks.k1.hdfs.roundUnit = minute
+# roll控制写入hdfs的文件以何种方式进行滚动
+# 如果三个都配置，谁先满足谁触发滚动，如果不想以某种属性滚动，设置为0即可
+# sink间隔多长将临时文件滚动成最终目标文件，单位：秒；如果设置成0，则表示不根据时间来滚动文件；默认值：30。注：滚动（roll）指的是，hdfs sink将临时文件重命名成最终目标文件，并新打开一个临时文件来写入数据；
+a1.sinks.k1.hdfs.rollInterval = 3 #以时间间隔
+# 当临时文件达到该大小（单位：bytes）时，滚动成目标文件；如果设置成0，则表示不根据临时文件大小来滚动文件；默认值：1024。
+a1.sinks.k1.hdfs.rollSize = 20 #以文件大小
+# 当events数据达到该数量时候，将临时文件滚动成目标文件；当events数据达到该数量时候，将临时文件滚动成目标文件；默认值：10。
+a1.sinks.k1.hdfs.rollCount = 5 #以event个数
+a1.sinks.k1.hdfs.batchSize = 1
+a1.sinks.k1.hdfs.useLocalTimeStamp = true
+#生成的文件类型，默认是Sequencefile，可用DataStream，则为普通文本
+a1.sinks.k1.hdfs.fileType = DataStream
+
+# Use a channel which buffers events in memory
+a1.channels.c1.type = memory
+a1.channels.c1.capacity = 1000
+a1.channels.c1.transactionCapacity = 100
+
+# Bind the source and sink to the channel
+a1.sources.r1.channels = c1
+a1.sinks.k1.channel = c1
+```
+
+Channel参数解释：
+
+1. capacity：默认该通道中最大的可以存储的event数量
+2. trasactionCapacity：每次最大可以从source中拿到或者送到sink中的event数量
+
+注意其监控的文件夹下面不能有同名文件的产生，如果有，报错且罢工，后续就不再进行数据的监视采集了
+
+启动命令
+
+```bash
+flume-ng agent -c /usr/local/flume/conf -f /usr/local/flume/conf/spool-hdfs.conf -n a1 -Dflume.root.logger=INFO,console
+```
+
+### 采集文件到HDFS
+
+采集需求：比如业务系统使用log4j生成的日志，日志内容不断增加，需要把追加到日志文件中的数据实时采集到hdfs
+根据需求，首先定义以下3大要素
+
+1. 采集源，即source——监控文件内容更新 :  exec  ‘tail -F file’
+2. 下沉目标，即sink——HDFS文件系统  :  hdfs sink
+3. Source和sink之间的传递通道——channel，可用file channel 也可以用 内存channel
+
+配置文件编写
+
+```properties
+# Name the components on this agent
+a1.sources = r1
+a1.sinks = k1
+a1.channels = c1
+
+# Describe/configure the source
+a1.sources.r1.type = exec
+a1.sources.r1.command = tail -F /opt/logs/test.log
+a1.sources.r1.channels = c1
+
+# Describe the sink
+a1.sinks.k1.type = hdfs
+a1.sinks.k1.channel = c1
+a1.sinks.k1.hdfs.path = /flume/tailout/%y-%m-%d/%H-%M/
+a1.sinks.k1.hdfs.filePrefix = events-
+a1.sinks.k1.hdfs.round = true
+a1.sinks.k1.hdfs.roundValue = 10
+a1.sinks.k1.hdfs.roundUnit = minute
+a1.sinks.k1.hdfs.rollInterval = 0
+a1.sinks.k1.hdfs.rollSize = 10485760
+a1.sinks.k1.hdfs.rollCount = 0
+a1.sinks.k1.hdfs.batchSize = 1
+a1.sinks.k1.hdfs.useLocalTimeStamp = true
+#生成的文件类型，默认是Sequencefile，可用DataStream，则为普通文本
+a1.sinks.k1.hdfs.fileType = DataStream
+
+# Use a channel which buffers events in memory
+a1.channels.c1.type = memory
+a1.channels.c1.capacity = 1000
+a1.channels.c1.transactionCapacity = 100
+
+# Bind the source and sink to the channel
+a1.sources.r1.channels = c1
+a1.sinks.k1.channel = c1
+```
+
+启动命令
+
+```bash
+[root@server01 conf]# flume-ng agent -c /usr/local/flume/conf -f /usr/local/flume/conf/tail-hdfs.conf -n a1 -Dflume.root.logger=INFO,console
+```
+
+模拟数据实时产生
+
+```bash
+[root@server01 logs]# while true; do date >> /opt/logs/test.log;sleep 1;done
+```
+
+## load-balance
+
+负载均衡是用于解决一台机器(一个进程)无法解决所有请求而产生的一种算法。Load balancing Sink Processor能够实现load balance功能，如下面的示例：Agent1是一个路由节点，负责将Channel暂存的Event均衡到对应的多个Sink组件上，而每个Sink组件分别连接到一个独立的Agent上
+
+flume的负载均衡
+
+1. 所谓的负载均衡 用于解决一个进程或者程序处理不了所有请求 多个进程一起处理的场景
+2. 同一个请求只能交给一个进行处理 避免数据重复
+3. 如何分配请求就涉及到了负载均衡的算法：轮询（round_robin）  随机（random）  权重
+
+flume串联跨网络传输数据
+
+1. avro sink  
+
+2. avro source
+
+3. 使用上述两个组件指定绑定的端口ip 就可以满足数据跨网络的传递 通常用于flume串联架构中
+
+exec-avro.conf
+
+```properties
+#agent1 name
+agent1.channels = c1
+agent1.sources = r1
+agent1.sinks = k1 k2
+
+#set gruop
+agent1.sinkgroups = g1
+
+#set channel
+agent1.channels.c1.type = memory
+agent1.channels.c1.capacity = 1000
+agent1.channels.c1.transactionCapacity = 100
+
+agent1.sources.r1.channels = c1
+agent1.sources.r1.type = exec
+agent1.sources.r1.command = tail -F /opt/logs/123.log
+
+# set sink1
+agent1.sinks.k1.channel = c1
+agent1.sinks.k1.type = avro
+agent1.sinks.k1.hostname = server02
+agent1.sinks.k1.port = 52020
+
+# set sink2
+agent1.sinks.k2.channel = c1
+agent1.sinks.k2.type = avro
+agent1.sinks.k2.hostname = server03
+agent1.sinks.k2.port = 52020
+
+#set sink group
+agent1.sinkgroups.g1.sinks = k1 k2
+
+#set failover
+agent1.sinkgroups.g1.processor.type = load_balance
+agent1.sinkgroups.g1.processor.backoff = true
+agent1.sinkgroups.g1.processor.selector = round_robin
+agent1.sinkgroups.g1.processor.selector.maxTimeOut=10000
+
+```
+
+avro-logger.conf(server02)
+
+```properties
+# Name the components on this agent
+a1.sources = r1
+a1.sinks = k1
+a1.channels = c1
+
+# Describe/configure the source
+a1.sources.r1.type = avro
+a1.sources.r1.channels = c1
+a1.sources.r1.bind = server02
+a1.sources.r1.port = 52020
+
+# Describe the sink
+a1.sinks.k1.type = logger
+
+# Use a channel which buffers events in memory
+a1.channels.c1.type = memory
+a1.channels.c1.capacity = 1000
+a1.channels.c1.transactionCapacity = 100
+
+# Bind the source and sink to the channel
+a1.sources.r1.channels = c1
+a1.sinks.k1.channel = c1
+```
+
+avro-logger.conf(server03)
+
+```properties
+# Name the components on this agent
+a1.sources = r1
+a1.sinks = k1
+a1.channels = c1
+
+# Describe/configure the source
+a1.sources.r1.type = avro
+a1.sources.r1.channels = c1
+a1.sources.r1.bind = server03
+a1.sources.r1.port = 52020
+
+# Describe the sink
+a1.sinks.k1.type = logger
+
+# Use a channel which buffers events in memory
+a1.channels.c1.type = memory
+a1.channels.c1.capacity = 1000
+a1.channels.c1.transactionCapacity = 100
+
+# Bind the source and sink to the channel
+a1.sources.r1.channels = c1
+a1.sinks.k1.channel = c1
+```
+
+启动server02上的agent
+
+```bash
+[root@server02 conf]# flume-ng agent -c /usr/local/flume/conf -f /usr/local/flume/conf/avro-logger.conf -n a1 -Dflume.root.logger=INFO,console
+```
+
+启动server03上的agent
+
+```bash
+[root@server03 conf]# flume-ng agent -c /usr/local/flume/conf -f /usr/local/flume/conf/avro-logger.conf -n a1 -Dflume.root.logger=INFO,console
+```
+
+启动agent1
+
+```bash
+[root@server01 conf]# flume-ng agent -c /usr/local/flume/conf -f /usr/local/flume/conf/exec-avro.conf -n agent1 -Dflume.root.logger=INFO,console
+```
+
+模拟实时数据
+
+```bash
+[root@server01 logs]# while true; do date >> /opt/logs/123.log;sleep 1;done
+```
+
+## failover
+
+Failover Sink Processor能够实现failover功能，具体流程类似load balance，但是内部处理机制与load balance完全不同。
+Failover Sink Processor维护一个优先级Sink组件列表，只要有一个Sink组件可用，Event就被传递到下一个组件。故障转移机制的作用是将失败的Sink降级到一个池，在这些池中它们被分配一个冷却时间，随着故障的连续，在重试之前冷却时间增加。一旦Sink成功发送一个事件，它将恢复到活动池。 Sink具有与之相关的优先级，数量越大，优先级越高。
+
+flume failover
+
+1. 容错又称之为故障转移  容忍错误的发生。
+2. 通常用于解决单点故障 给容易出故障的地方设置备份
+3. 备份越多 容错能力越强  但是资源的浪费越严重
+
+exec-avro.conf
+
+```properties
+#agent1 name
+agent1.channels = c1
+agent1.sources = r1
+agent1.sinks = k1 k2
+
+#set gruop
+agent1.sinkgroups = g1
+
+#set channel
+agent1.channels.c1.type = memory
+agent1.channels.c1.capacity = 1000
+agent1.channels.c1.transactionCapacity = 100
+
+agent1.sources.r1.channels = c1
+agent1.sources.r1.type = exec
+agent1.sources.r1.command = tail -F /opt/logs/456.log
+
+# set sink1
+agent1.sinks.k1.channel = c1
+agent1.sinks.k1.type = avro
+agent1.sinks.k1.hostname = server02
+agent1.sinks.k1.port = 52020
+
+# set sink2
+agent1.sinks.k2.channel = c1
+agent1.sinks.k2.type = avro
+agent1.sinks.k2.hostname = server03
+agent1.sinks.k2.port = 52020
+
+#set sink group
+agent1.sinkgroups.g1.sinks = k1 k2
+
+#set failover
+agent1.sinkgroups.g1.processor.type = failover
+agent1.sinkgroups.g1.processor.priority.k1 = 10
+agent1.sinkgroups.g1.processor.priority.k2 = 1
+agent1.sinkgroups.g1.processor.maxpenalty = 10000
+```
+
+avro-logger.conf(server02)
+
+```properties
+# Name the components on this agent
+a1.sources = r1
+a1.sinks = k1
+a1.channels = c1
+
+# Describe/configure the source
+a1.sources.r1.type = avro
+a1.sources.r1.channels = c1
+a1.sources.r1.bind = server02
+a1.sources.r1.port = 52020
+
+# Describe the sink
+a1.sinks.k1.type = logger
+
+# Use a channel which buffers events in memory
+a1.channels.c1.type = memory
+a1.channels.c1.capacity = 1000
+a1.channels.c1.transactionCapacity = 100
+
+# Bind the source and sink to the channel
+a1.sources.r1.channels = c1
+a1.sinks.k1.channel = c1
+```
+
+avro-logger.conf(server03)
+
+```properties
+# Name the components on this agent
+a1.sources = r1
+a1.sinks = k1
+a1.channels = c1
+
+# Describe/configure the source
+a1.sources.r1.type = avro
+a1.sources.r1.channels = c1
+a1.sources.r1.bind = server03
+a1.sources.r1.port = 52020
+
+# Describe the sink
+a1.sinks.k1.type = logger
+
+# Use a channel which buffers events in memory
+a1.channels.c1.type = memory
+a1.channels.c1.capacity = 1000
+a1.channels.c1.transactionCapacity = 100
+
+# Bind the source and sink to the channel
+a1.sources.r1.channels = c1
+a1.sinks.k1.channel = c1
+```
+
+启动server02上的agent
+
+```bash
+[root@server02 conf]# flume-ng agent -c /usr/local/flume/conf -f /usr/local/flume/conf/avro-logger.conf -n a1 -Dflume.root.logger=INFO,console
+```
+
+启动server03上的agent
+
+```ba
+[root@server03 conf]# flume-ng agent -c /usr/local/flume/conf -f /usr/local/flume/conf/avro-logger.conf -n a1 -Dflume.root.logger=INFO,console
+```
+
+启动agent1
+
+```bash
+[root@server01 conf]# flume-ng agent -c /usr/local/flume/conf -f /usr/local/flume/conf/exec-avro.conf -n agent1 -Dflume.root.logger=INFO,console
+```
+
+模拟实时数据
+
+```bash
+[root@server01 logs]# while true; do date >> /opt/logs/456.log;sleep 1;done
+```
+
+## Flume拦截器
+
+### 日志的采集和汇总
+
+#### 案例场景
+
+A、B两台日志服务机器实时生产日志主要类型为access.log、nginx.log、web.log 
+
+#### 现在要求
+
+把A、B 机器中的access.log、nginx.log、web.log 采集汇总到C机器上然后统一收集到hdfs中。
+但是在hdfs中要求的目录为：
+
+- /source/logs/access/20160101/**
+- /source/logs/nginx/20160101/**
+- /source/logs/web/20160101/**
+
+#### 静态拦截器
+
+```markdown
+如果没有使用静态拦截器
+Event: { headers:{} body:  36 Sun Jun  2 18:26 }
+
+使用静态拦截器之后 自己添加kv标识对
+Event: { headers:{type=access} body:  36 Sun Jun  2 18:26 }
+Event: { headers:{type=nginx} body:  36 Sun Jun  2 18:26 }
+Event: { headers:{type=web} body:  36 Sun Jun  2 18:26 }
+```
+
+后续在存放数据的时候可以使用flume的规则语法获取到拦截器添加的kv内容
+
+```markdown
+%{type}
+```
+
+exec_source_avro_sink.conf
+
+```properties
+# Name the components on this agent
+a1.sources = r1 r2 r3
+a1.sinks = k1
+a1.channels = c1
+
+# Describe/configure the source
+a1.sources.r1.type = exec
+a1.sources.r1.command = tail -F /opt/logs/access.log
+a1.sources.r1.interceptors = i1
+# static 拦截器的功能就是往采集到的数据的header中插入自己定义的key-value对
+a1.sources.r1.interceptors.i1.type = static
+a1.sources.r1.interceptors.i1.key = type
+a1.sources.r1.interceptors.i1.value = access
+
+a1.sources.r2.type = exec
+a1.sources.r2.command = tail -F /opt/logs/nginx.log
+a1.sources.r2.interceptors = i2
+a1.sources.r2.interceptors.i2.type = static
+a1.sources.r2.interceptors.i2.key = type
+a1.sources.r2.interceptors.i2.value = nginx
+
+a1.sources.r3.type = exec
+a1.sources.r3.command = tail -F /opt/logs/web.log
+a1.sources.r3.interceptors = i3
+a1.sources.r3.interceptors.i3.type = static
+a1.sources.r3.interceptors.i3.key = type
+a1.sources.r3.interceptors.i3.value = web
+
+# Describe the sink
+a1.sinks.k1.type = avro
+a1.sinks.k1.hostname = server02
+a1.sinks.k1.port = 41414
+
+# Use a channel which buffers events in memory
+a1.channels.c1.type = memory
+a1.channels.c1.capacity = 200000
+a1.channels.c1.transactionCapacity = 2000
+
+# Bind the source and sink to the channel
+a1.sources.r1.channels = c1
+a1.sources.r2.channels = c1
+a1.sources.r3.channels = c1
+a1.sinks.k1.channel = c1
+```
+
+avro_source_hdfs_sink.conf
+
+```properties
+#定义agent名， source、channel、sink的名称
+a1.sources = r1
+a1.sinks = k1
+a1.channels = c1
+
+#定义source
+a1.sources.r1.type = avro
+a1.sources.r1.bind = server02
+a1.sources.r1.port =41414
+
+#添加时间拦截器
+a1.sources.r1.interceptors = i1
+a1.sources.r1.interceptors.i1.type = org.apache.flume.interceptor.TimestampInterceptor$Builder
+
+
+#定义channels
+a1.channels.c1.type = memory
+a1.channels.c1.capacity = 200000
+a1.channels.c1.transactionCapacity = 2000
+
+#定义sink
+a1.sinks.k1.type = hdfs
+a1.sinks.k1.hdfs.path=hdfs://server01:8020/source/logs/%{type}/%Y%m%d
+a1.sinks.k1.hdfs.filePrefix =events
+a1.sinks.k1.hdfs.fileType = DataStream
+a1.sinks.k1.hdfs.writeFormat = Text
+#时间类型
+#a1.sinks.k1.hdfs.useLocalTimeStamp = true
+#生成的文件不按条数生成
+a1.sinks.k1.hdfs.rollCount = 0
+#生成的文件不按时间生成
+a1.sinks.k1.hdfs.rollInterval = 0
+#生成的文件按大小生成
+a1.sinks.k1.hdfs.rollSize  = 10485760
+#批量写入hdfs的个数
+a1.sinks.k1.hdfs.batchSize = 2000
+flume操作hdfs的线程数（包括新建，写入等）
+a1.sinks.k1.hdfs.threadsPoolSize=10
+#操作hdfs超时时间
+a1.sinks.k1.hdfs.callTimeout=30000
+
+#组装source、channel、sink
+a1.sources.r1.channels = c1
+a1.sinks.k1.channel = c1
+```
+
+启动server02上的agent(avro_source_hdfs_sink.conf)
+
+```bash
+[root@server02 conf]# flume-ng agent -c /usr/local/flume/conf -f /usr/local/flume/conf/avro_source_hdfs_sink.conf -n a1 -Dflume.root.logger=INFO,console
+```
+
+启动server01上的agent(exec_source_avro_sink.conf)
+
+```bash
+[root@server02 conf]# flume-ng agent -c /usr/local/flume/conf -f /usr/local/flume/conf/exec_source_avro_sink.conf -n a1 -Dflume.root.logger=INFO,console
+```
+
+模拟实时数据
+
+```bash
+[root@server01 logs]# while true; do echo "access access....." >> /opt/logs/access.log;sleep 0.5;done
+```
+
+```bash
+[root@server01 logs]# while true; do echo "web web....." >> /opt/logs/web.log;sleep 0.5;done
+```
+
+```bash
+[root@server01 logs]# while true; do echo "nginx nginx....." >> /opt/logs/nginx.log;sleep 0.5;done
+```
+
+### 自定义拦截器
+
+Flume是Cloudera提供的一个高可用的，高可靠的，分布式的海量日志采集、聚合和传输的系统，Flume支持在日志系统中定制各类数据发送方，用于收集数据；同时，Flume提供对数据进行简单处理，并写到各种数据接受方（可定制）的能力。Flume有各种自带的拦截器，比如：TimestampInterceptor、HostInterceptor、RegexExtractorInterceptor等，通过使用不同的拦截器，实现不同的功能。但是以上的这些拦截器，不能改变原有日志数据的内容或者对日志信息添加一定的处理逻辑，当一条日志信息有几十个甚至上百个字段的时候，在传统的Flume处理下，收集到的日志还是会有对应这么多的字段，也不能对你想要的字段进行对应的处理。
+
+根据实际业务的需求，为了更好的满足数据在应用层的处理，通过自定义Flume拦截器，过滤掉不需要的字段，并对指定字段加密处理，将源数据进行预处理。减少了数据的传输量，降低了存储的开销。
+
+编写 java 代码，自定义拦截器，内容包括：
+
+1. 定义一个类CustomParameterInterceptor实现Interceptor接口。
+2. 在CustomParameterInterceptor类中定义变量，这些变量是需要到 Flume的配置文件中进行配置使用的。每一行字段间的分隔符(fields_separator)、通过分隔符分隔后，所需要列字段的下标（indexs）、多个下标使用的分隔符（indexs_separator)、多个下标使用的分隔符（indexs_separator)。
+3. 添加CustomParameterInterceptor的有参构造方法。并对相应的变量进行处理。将配置文件中传过来的unicode编码进行转换为字符串。
+4. 写具体的要处理的逻辑intercept()方法，一个是单个处理的，一个是批量处理。
+5. 接口中定义了一个内部接口Builder，在configure方法中，进行一些参数配置。并给出，在flume的conf中没配置一些参数时，给出其默认值。通过其builder方法，返回一个CustomParameterInterceptor对象。
+6. 定义一个静态类，类中封装MD5加密方法
+7. 通过以上步骤，自定义拦截器的代码开发已完成，然后打包成jar， 放到Flume的根目录下的lib中
+
+CustomParameterInterceptor.java
+
+```java
+package org.duo.interceptor;
+
+import com.google.common.base.Charsets;
+import org.apache.flume.Context;
+import org.apache.flume.Event;
+import org.apache.flume.interceptor.Interceptor;
+
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+import static org.duo.interceptor.CustomParameterInterceptor.Constants.*;
+
+/**
+ * Created by gentleduo
+ */
+public class CustomParameterInterceptor implements Interceptor {
+
+
+    /**
+     * The field_separator.指明每一行字段的分隔符
+     */
+    private final String fields_separator;
+
+    /**
+     * The indexs.通过分隔符分割后，指明需要那列的字段 下标
+     */
+    private final String indexs;
+
+    /**
+     * The indexs_separator. 多个下标的分隔符
+     */
+    private final String indexs_separator;
+
+    /**
+     * The encrypted_field_index. 需要加密的字段下标
+     */
+    private final String encrypted_field_index;
+
+
+    /**
+     *
+     */
+    public CustomParameterInterceptor(String fields_separator,
+                                      String indexs, String indexs_separator, String encrypted_field_index) {
+        String f = fields_separator.trim();
+        String i = indexs_separator.trim();
+        this.indexs = indexs;
+        this.encrypted_field_index = encrypted_field_index.trim();
+        if (!f.equals("")) {
+            f = UnicodeToString(f);
+        }
+        this.fields_separator = f;
+        if (!i.equals("")) {
+            i = UnicodeToString(i);
+        }
+        this.indexs_separator = i;
+    }
+
+    /*
+     *
+     * \t 制表符 ('\u0009')
+     *
+     */
+
+    public static String UnicodeToString(String str) {
+        Pattern pattern = Pattern.compile("(\\\\u(\\p{XDigit}{4}))");
+        Matcher matcher = pattern.matcher(str);
+        char ch;
+        while (matcher.find()) {
+            ch = (char) Integer.parseInt(matcher.group(2), 16);
+            str = str.replace(matcher.group(1), ch + "");
+        }
+        return str;
+    }
+
+    /*
+     * @see org.apache.flume.interceptor.Interceptor#intercept(org.apache.flume.Event)
+     */
+    public Event intercept(Event event) {
+        if (event == null) {
+            return null;
+        }
+        try {
+            String line = new String(event.getBody(), Charsets.UTF_8);
+            String[] fields_spilts = line.split(fields_separator);
+            String[] indexs_split = indexs.split(indexs_separator);
+            String newLine = "";
+            for (int i = 0; i < indexs_split.length; i++) {
+                int parseInt = Integer.parseInt(indexs_split[i]);
+                //对加密字段进行加密
+                if (!"".equals(encrypted_field_index) && encrypted_field_index.equals(indexs_split[i])) {
+                    newLine += StringUtils.GetMD5Code(fields_spilts[parseInt]);
+                } else {
+                    newLine += fields_spilts[parseInt];
+                }
+
+                if (i != indexs_split.length - 1) {
+                    newLine += fields_separator;
+                }
+            }
+            event.setBody(newLine.getBytes(Charsets.UTF_8));
+            return event;
+        } catch (Exception e) {
+            return event;
+        }
+    }
+
+    /*
+     * @see org.apache.flume.interceptor.Interceptor#intercept(java.util.List)
+     */
+    public List<Event> intercept(List<Event> events) {
+        List<Event> out = new ArrayList<Event>();
+        for (Event event : events) {
+            Event outEvent = intercept(event);
+            if (outEvent != null) {
+                out.add(outEvent);
+            }
+        }
+        return out;
+    }
+
+    /*
+     * @see org.apache.flume.interceptor.Interceptor#initialize()
+     */
+    public void initialize() {
+        // TODO Auto-generated method stub
+
+    }
+
+    /*
+     * @see org.apache.flume.interceptor.Interceptor#close()
+     */
+    public void close() {
+        // TODO Auto-generated method stub
+
+    }
+
+
+    public static class Builder implements Interceptor.Builder {
+
+        /**
+         * The fields_separator.指明每一行字段的分隔符
+         */
+        private String fields_separator;
+
+        /**
+         * The indexs.通过分隔符分割后，指明需要那列的字段 下标
+         */
+        private String indexs;
+
+        /**
+         * The indexs_separator. 多个下标下标的分隔符
+         */
+        private String indexs_separator;
+
+        /**
+         * The encrypted_field. 需要加密的字段下标
+         */
+        private String encrypted_field_index;
+
+        /*
+         * @see org.apache.flume.conf.Configurable#configure(org.apache.flume.Context)
+         */
+        public void configure(Context context) {
+            fields_separator = context.getString(FIELD_SEPARATOR, DEFAULT_FIELD_SEPARATOR);
+            indexs = context.getString(INDEXS, DEFAULT_INDEXS);
+            indexs_separator = context.getString(INDEXS_SEPARATOR, DEFAULT_INDEXS_SEPARATOR);
+            encrypted_field_index = context.getString(ENCRYPTED_FIELD_INDEX, DEFAULT_ENCRYPTED_FIELD_INDEX);
+
+        }
+
+        /*
+         * @see org.apache.flume.interceptor.Interceptor.Builder#build()
+         */
+        public Interceptor build() {
+
+            return new CustomParameterInterceptor(fields_separator, indexs, indexs_separator, encrypted_field_index);
+        }
+    }
+
+
+    /**
+     * The Class Constants.
+     */
+    public static class Constants {
+        /**
+         * The Constant FIELD_SEPARATOR.
+         */
+        public static final String FIELD_SEPARATOR = "fields_separator";
+
+        /**
+         * The Constant DEFAULT_FIELD_SEPARATOR.
+         */
+        public static final String DEFAULT_FIELD_SEPARATOR = " ";
+
+        /**
+         * The Constant INDEXS.
+         */
+        public static final String INDEXS = "indexs";
+
+        /**
+         * The Constant DEFAULT_INDEXS.
+         */
+        public static final String DEFAULT_INDEXS = "0";
+
+        /**
+         * The Constant INDEXS_SEPARATOR.
+         */
+        public static final String INDEXS_SEPARATOR = "indexs_separator";
+
+        /**
+         * The Constant DEFAULT_INDEXS_SEPARATOR.
+         */
+        public static final String DEFAULT_INDEXS_SEPARATOR = ",";
+
+        /**
+         * The Constant ENCRYPTED_FIELD_INDEX.
+         */
+        public static final String ENCRYPTED_FIELD_INDEX = "encrypted_field_index";
+
+        /**
+         * The Constant DEFAUL_TENCRYPTED_FIELD_INDEX.
+         */
+        public static final String DEFAULT_ENCRYPTED_FIELD_INDEX = "";
+
+        /**
+         * The Constant PROCESSTIME.
+         */
+        public static final String PROCESSTIME = "processTime";
+        /**
+         * The Constant PROCESSTIME.
+         */
+        public static final String DEFAULT_PROCESSTIME = "a";
+
+    }
+
+
+    /**
+     * 字符串md5加密
+     */
+    public static class StringUtils {
+        // 全局数组
+        private final static String[] strDigits = {"0", "1", "2", "3", "4", "5",
+                "6", "7", "8", "9", "a", "b", "c", "d", "e", "f"};
+
+        // 返回形式为数字跟字符串
+        private static String byteToArrayString(byte bByte) {
+            int iRet = bByte;
+            // System.out.println("iRet="+iRet);
+            if (iRet < 0) {
+                iRet += 256;
+            }
+            int iD1 = iRet / 16;
+            int iD2 = iRet % 16;
+            return strDigits[iD1] + strDigits[iD2];
+        }
+
+        // 返回形式只为数字
+        private static String byteToNum(byte bByte) {
+            int iRet = bByte;
+            System.out.println("iRet1=" + iRet);
+            if (iRet < 0) {
+                iRet += 256;
+            }
+            return String.valueOf(iRet);
+        }
+
+        // 转换字节数组为16进制字串
+        private static String byteToString(byte[] bByte) {
+            StringBuffer sBuffer = new StringBuffer();
+            for (int i = 0; i < bByte.length; i++) {
+                sBuffer.append(byteToArrayString(bByte[i]));
+            }
+            return sBuffer.toString();
+        }
+
+        public static String GetMD5Code(String strObj) {
+            String resultString = null;
+            try {
+                resultString = new String(strObj);
+                MessageDigest md = MessageDigest.getInstance("MD5");
+                // md.digest() 该函数返回值为存放哈希值结果的byte数组
+                resultString = byteToString(md.digest(strObj.getBytes()));
+            } catch (NoSuchAlgorithmException ex) {
+                ex.printStackTrace();
+            }
+            return resultString;
+        }
+    }
+}
+```
+
+数据：/opt/logs_intercept/testdata
+
+```properties
+13601249301     100     200     300     400     500     600     700
+13601249302     100     200     300     400     500     600     700
+13601249303     100     200     300     400     500     600     700
+13601249304     100     200     300     400     500     600     700
+13601249305     100     200     300     400     500     600     700
+13601249306     100     200     300     400     500     600     700
+13601249307     100     200     300     400     500     600     700
+13601249308     100     200     300     400     500     600     700
+13601249309     100     200     300     400     500     600     700
+13601249310     100     200     300     400     500     600     700
+13601249311     100     200     300     400     500     600     700
+13601249312     100     200     300     400     500     600     700
+13601249313     100     200     300     400     500     600     700
+```
+
+spool-interceptor-hdfs.conf
+
+```properties
+a1.channels = c1
+a1.sources = r1
+a1.sinks = s1
+
+#channel
+a1.channels.c1.type = memory
+a1.channels.c1.capacity=1000
+a1.channels.c1.transactionCapacity=200
+
+#source
+a1.sources.r1.channels = c1
+a1.sources.r1.type = spooldir
+a1.sources.r1.spoolDir = /opt/logs_intercept/
+a1.sources.r1.batchSize= 50
+a1.sources.r1.inputCharset = UTF-8
+
+a1.sources.r1.interceptors =i1 i2
+a1.sources.r1.interceptors.i1.type =org.duo.interceptor.CustomParameterInterceptor$Builder
+a1.sources.r1.interceptors.i1.fields_separator=\\u0009
+a1.sources.r1.interceptors.i1.indexs =0,1,3,5,6
+a1.sources.r1.interceptors.i1.indexs_separator =\\u002c
+a1.sources.r1.interceptors.i1.encrypted_field_index =0
+
+a1.sources.r1.interceptors.i2.type = org.apache.flume.interceptor.TimestampInterceptor$Builder
+
+
+#sink
+a1.sinks.s1.channel = c1
+a1.sinks.s1.type = hdfs
+a1.sinks.s1.hdfs.path =hdfs://server01:8020/intercept/%Y%m%d
+a1.sinks.s1.hdfs.filePrefix = itcasr
+a1.sinks.s1.hdfs.fileSuffix = .dat
+a1.sinks.s1.hdfs.rollSize = 10485760
+a1.sinks.s1.hdfs.rollInterval =20
+a1.sinks.s1.hdfs.rollCount = 0
+a1.sinks.s1.hdfs.batchSize = 2
+a1.sinks.s1.hdfs.round = true
+a1.sinks.s1.hdfs.roundUnit = minute
+a1.sinks.s1.hdfs.threadsPoolSize = 25
+a1.sinks.s1.hdfs.useLocalTimeStamp = true
+a1.sinks.s1.hdfs.minBlockReplicas = 1
+a1.sinks.s1.hdfs.fileType =DataStream
+a1.sinks.s1.hdfs.writeFormat = Text
+a1.sinks.s1.hdfs.callTimeout = 60000
+a1.sinks.s1.hdfs.idleTimeout =60
+
+
+############################################
+bin/flume-ng agent -c conf -f conf/spool-interceptor-hdfs.conf -n a1 -Dflume.root.logger=INFO,console
+```
+
+启动agent
+
+```bash
+[root@server01 conf]# flume-ng agent -c /usr/local/flume/conf -f /usr/local/flume/conf/spool-interceptor-hdfs.conf -n a1 -Dflume.root.logger=INFO,console
+```
+
+## Flume自定义Source
+
+Source是负责接收数据到FlumeAgent的组件。Source组件可以处理各种类型、各种格式的日志数据，包括avro、thrift、exec、jms、spoolingdirectory、netcat、sequencegenerator、syslog、http、legacy。官方提供的source类型已经很多，但是有时候并不能满足实际开发当中的需求，此时我们就需要根据实际需求自定义某些source。如：实时监控MySQL，从MySQL中获取数据传输到HDFS或者其他存储框架，所以此时需要我们自己实现MySQLSource。官方也提供了自定义 source 的接口：官网说明：https://flume.apache.org/FlumeDeveloperGuide.html#source
+
+根据官方说明自定义 mysqlsource 需要继承 AbstractSource 类并实现Configurable 和 PollableSource 接口。
+实现相应方法：
+
+1. getBackOffSleepIncrement() //暂不用
+2. getMaxBackOffSleepInterval() //暂不用
+3. configure(Context context) //初始化 context
+4. process() //获取数据（从 mysql 获取数据，业务处理比较复杂，所以我们定义一个专门的类——QueryMysql 来处理跟 mysql 的交互），封装成 event 并写入 channel，这个方法被循环调用
+5. stop() //关闭相关的资源
+
+创建mysql数据库以及mysql数据库表
+
+```sql
+CREATE DATABASE `mysqlsource`;
+
+USE `mysqlsource`;
+
+/*Table structure for table `flume_meta` */
+DROP TABLE
+IF EXISTS `flume_meta`;
+
+CREATE TABLE `flume_meta` (
+	`source_tab` VARCHAR (255) NOT NULL,
+	`currentIndex` VARCHAR (255) NOT NULL,
+	PRIMARY KEY (`source_tab`)
+) ENGINE = INNODB DEFAULT CHARSET = utf8;
+
+
+/*Table structure for table `student` */
+DROP TABLE
+IF EXISTS `student`;
+
+CREATE TABLE `student` (
+	`id` INT (11) NOT NULL AUTO_INCREMENT,
+	`name` VARCHAR (255) NOT NULL,
+	PRIMARY KEY (`id`)
+) ENGINE = INNODB AUTO_INCREMENT = 5 DEFAULT CHARSET = utf8;
+
+/*Data for the table `student` */
+INSERT INTO `student` (`id`, `name`)
+VALUES
+	(1, 'zhangsan'),
+	(2, 'lisi'),
+	(3, 'wangwu'),
+	(4, 'zhaoliu');
+```
+
+QueryMySql.java
+
+```java
+package org.duo.flumesource;
+
+import org.apache.flume.Context;
+import org.apache.flume.conf.ConfigurationException;
+import org.apache.http.ParseException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.sql.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Properties;
+
+public class QueryMySql {
+    private static final Logger LOG = LoggerFactory.getLogger(QueryMySql.class);
+
+    private int runQueryDelay, //两次查询的时间间隔
+            startFrom,            //开始id
+            currentIndex,	     //当前id
+            recordSixe = 0,      //每次查询返回结果的条数
+            maxRow;                //每次查询的最大条数
+
+
+    private String table,       //要操作的表
+            columnsToSelect,     //用户传入的查询的列
+            customQuery,          //用户传入的查询语句
+            query,                 //构建的查询语句
+            defaultCharsetResultSet;//编码集
+
+    //上下文，用来获取配置文件
+    private Context context;
+
+    //为定义的变量赋值（默认值），可在flume任务的配置文件中修改
+    private static final int DEFAULT_QUERY_DELAY = 10000;
+    private static final int DEFAULT_START_VALUE = 0;
+    private static final int DEFAULT_MAX_ROWS = 2000;
+    private static final String DEFAULT_COLUMNS_SELECT = "*";
+    private static final String DEFAULT_CHARSET_RESULTSET = "UTF-8";
+
+    private static Connection conn = null;
+    private static PreparedStatement ps = null;
+    private static String connectionURL, connectionUserName, connectionPassword;
+
+    //加载静态资源
+    static {
+        Properties p = new Properties();
+        try {
+            p.load(QueryMySql.class.getClassLoader().getResourceAsStream("jdbc.properties"));
+            connectionURL = p.getProperty("dbUrl");
+            connectionUserName = p.getProperty("dbUser");
+            connectionPassword = p.getProperty("dbPassword");
+            Class.forName(p.getProperty("dbDriver"));
+        } catch (Exception e) {
+            LOG.error(e.toString());
+        }
+    }
+
+    //获取JDBC连接
+    private static Connection InitConnection(String url, String user, String pw) {
+        try {
+            Connection conn = DriverManager.getConnection(url, user, pw);
+            if (conn == null)
+                throw new SQLException();
+            return conn;
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return null;
+    }
+
+    //构造方法
+    QueryMySql(Context context) throws ParseException {
+        //初始化上下文
+        this.context = context;
+
+        //有默认值参数：获取flume任务配置文件中的参数，读不到的采用默认值
+        this.columnsToSelect = context.getString("columns.to.select", DEFAULT_COLUMNS_SELECT);
+        this.runQueryDelay = context.getInteger("run.query.delay", DEFAULT_QUERY_DELAY);
+        this.startFrom = context.getInteger("start.from", DEFAULT_START_VALUE);
+        this.defaultCharsetResultSet = context.getString("default.charset.resultset", DEFAULT_CHARSET_RESULTSET);
+
+        //无默认值参数：获取flume任务配置文件中的参数
+        this.table = context.getString("table");
+        this.customQuery = context.getString("custom.query");
+        connectionURL = context.getString("connection.url");
+        connectionUserName = context.getString("connection.user");
+        connectionPassword = context.getString("connection.password");
+        conn = InitConnection(connectionURL, connectionUserName, connectionPassword);
+
+        //校验相应的配置信息，如果没有默认值的参数也没赋值，抛出异常
+        checkMandatoryProperties();
+        //获取当前的id
+        currentIndex = getStatusDBIndex(startFrom);
+        //构建查询语句
+        query = buildQuery();
+    }
+
+    //校验相应的配置信息（表，查询语句以及数据库连接的参数）
+    private void checkMandatoryProperties() {
+        if (table == null) {
+            throw new ConfigurationException("property table not set");
+        }
+        if (connectionURL == null) {
+            throw new ConfigurationException("connection.url property not set");
+        }
+        if (connectionUserName == null) {
+            throw new ConfigurationException("connection.user property not set");
+        }
+        if (connectionPassword == null) {
+            throw new ConfigurationException("connection.password property not set");
+        }
+    }
+
+    //构建sql语句
+    private String buildQuery() {
+        String sql = "";
+        //获取当前id
+        currentIndex = getStatusDBIndex(startFrom);
+        LOG.info(currentIndex + "");
+        if (customQuery == null) {
+            sql = "SELECT " + columnsToSelect + " FROM " + table;
+        } else {
+            sql = customQuery;
+        }
+        StringBuilder execSql = new StringBuilder(sql);
+        //以id作为offset
+        if (!sql.contains("where")) {
+            execSql.append(" where ");
+            execSql.append("id").append(">").append(currentIndex);
+            return execSql.toString();
+        } else {
+            int length = execSql.toString().length();
+            return execSql.toString().substring(0, length - String.valueOf(currentIndex).length()) + currentIndex;
+        }
+    }
+
+    //执行查询
+    List<List<Object>> executeQuery() {
+        try {
+            //每次执行查询时都要重新生成sql，因为id不同
+            customQuery = buildQuery();
+            //存放结果的集合
+            List<List<Object>> results = new ArrayList<>();
+            if (ps == null) {
+                //
+                ps = conn.prepareStatement(customQuery);
+            }
+            ResultSet result = ps.executeQuery(customQuery);
+            while (result.next()) {
+                //存放一条数据的集合（多个列）
+                List<Object> row = new ArrayList<>();
+                //将返回结果放入集合
+                for (int i = 1; i <= result.getMetaData().getColumnCount(); i++) {
+                    row.add(result.getObject(i));
+                }
+                results.add(row);
+            }
+            LOG.info("execSql:" + customQuery + "\nresultSize:" + results.size());
+            return results;
+        } catch (SQLException e) {
+            LOG.error(e.toString());
+            // 重新连接
+            conn = InitConnection(connectionURL, connectionUserName, connectionPassword);
+        }
+        return null;
+    }
+
+    //将结果集转化为字符串，每一条数据是一个list集合，将每一个小的list集合转化为字符串
+    List<String> getAllRows(List<List<Object>> queryResult) {
+        List<String> allRows = new ArrayList<>();
+        if (queryResult == null || queryResult.isEmpty())
+            return allRows;
+        StringBuilder row = new StringBuilder();
+        for (List<Object> rawRow : queryResult) {
+            Object value = null;
+            for (Object aRawRow : rawRow) {
+                value = aRawRow;
+                if (value == null) {
+                    row.append(",");
+                } else {
+                    row.append(aRawRow.toString()).append(",");
+                }
+            }
+            allRows.add(row.toString());
+            row = new StringBuilder();
+        }
+        return allRows;
+    }
+
+    //更新offset元数据状态，每次返回结果集后调用。必须记录每次查询的offset值，为程序中断续跑数据时使用，以id为offset
+    void updateOffset2DB(int size) {
+        //以source_tab做为KEY，如果不存在则插入，存在则更新（每个源表对应一条记录）
+        String sql = "insert into flume_meta(source_tab,currentIndex) VALUES('"
+                + this.table
+                + "','" + (recordSixe += size)
+                + "') on DUPLICATE key update source_tab=values(source_tab),currentIndex=values(currentIndex)";
+        LOG.info("updateStatus Sql:" + sql);
+        execSql(sql);
+    }
+
+    //执行sql语句
+    private void execSql(String sql) {
+        try {
+            ps = conn.prepareStatement(sql);
+            LOG.info("exec::" + sql);
+            ps.execute();
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
+
+    //获取当前id的offset
+    private Integer getStatusDBIndex(int startFrom) {
+        //从flume_meta表中查询出当前的id是多少
+        String dbIndex = queryOne("select currentIndex from flume_meta where source_tab='" + table + "'");
+        if (dbIndex != null) {
+            return Integer.parseInt(dbIndex);
+        }
+        //如果没有数据，则说明是第一次查询或者数据表中还没有存入数据，返回最初传入的值
+        return startFrom;
+    }
+
+    //查询一条数据的执行语句(当前id)
+    private String queryOne(String sql) {
+        ResultSet result = null;
+        try {
+            ps = conn.prepareStatement(sql);
+            result = ps.executeQuery();
+            while (result.next()) {
+                return result.getString(1);
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return null;
+    }
+
+    //关闭相关资源
+    void close() {
+        try {
+            ps.close();
+            conn.close();
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
+
+    int getCurrentIndex() {
+        return currentIndex;
+    }
+
+    void setCurrentIndex(int newValue) {
+        currentIndex = newValue;
+    }
+
+    int getRunQueryDelay() {
+        return runQueryDelay;
+    }
+
+    String getQuery() {
+        return query;
+    }
+
+    String getConnectionURL() {
+        return connectionURL;
+    }
+
+    private boolean isCustomQuerySet() {
+        return (customQuery != null);
+    }
+
+    Context getContext() {
+        return context;
+    }
+
+    public String getConnectionUserName() {
+        return connectionUserName;
+    }
+
+    public String getConnectionPassword() {
+        return connectionPassword;
+    }
+
+    String getDefaultCharsetResultSet() {
+        return defaultCharsetResultSet;
+    }
+}
+
+```
+
+MySqlSource.java
+
+```java
+package org.duo.flumesource;
+
+import org.apache.flume.Context;
+import org.apache.flume.Event;
+import org.apache.flume.EventDeliveryException;
+import org.apache.flume.PollableSource;
+import org.apache.flume.conf.Configurable;
+import org.apache.flume.event.SimpleEvent;
+import org.apache.flume.source.AbstractSource;
+import org.slf4j.Logger;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+
+import static org.slf4j.LoggerFactory.*;
+
+public class MySqlSource extends AbstractSource implements Configurable, PollableSource {
+
+    //打印日志
+    private static final Logger LOG = getLogger(MySqlSource.class);
+    //定义sqlHelper
+    private QueryMySql sqlSourceHelper;
+
+    @Override
+    public long getBackOffSleepIncrement() {
+        return 0;
+    }
+
+    @Override
+    public long getMaxBackOffSleepInterval() {
+        return 0;
+    }
+
+    @Override
+    public void configure(Context context) {
+        //初始化
+        sqlSourceHelper = new QueryMySql(context);
+    }
+
+    @Override
+    public Status process() throws EventDeliveryException {
+        try {
+            //查询数据表
+            List<List<Object>> result = sqlSourceHelper.executeQuery();
+            //存放event的集合
+            List<Event> events = new ArrayList<>();
+            //存放event头集合
+            HashMap<String, String> header = new HashMap<>();
+            //如果有返回数据，则将数据封装为event
+            if (!result.isEmpty()) {
+                List<String> allRows = sqlSourceHelper.getAllRows(result);
+                Event event = null;
+                for (String row : allRows) {
+                    event = new SimpleEvent();
+                    event.setBody(row.getBytes());
+                    event.setHeaders(header);
+                    events.add(event);
+                }
+                //将event写入channel
+                this.getChannelProcessor().processEventBatch(events);
+                //更新数据表中的offset信息
+                sqlSourceHelper.updateOffset2DB(result.size());
+            }
+            //等待时长
+            Thread.sleep(sqlSourceHelper.getRunQueryDelay());
+            return Status.READY;
+        } catch (InterruptedException e) {
+            LOG.error("Error procesing row", e);
+            return Status.BACKOFF;
+        }
+    }
+
+    @Override
+    public synchronized void stop() {
+        LOG.info("Stopping sql source {} ...", getName());
+        try {
+            //关闭资源
+            sqlSourceHelper.close();
+        } finally {
+            super.stop();
+        }
+    }
+}
+```
+
+mysqlsource.conf
+
+```properties
+a1.sources = r1
+a1.sinks = k1
+a1.channels = c1
+
+# Describe/configure the source
+a1.sources.r1.type = org.duo.flumesource.MySqlSource
+a1.sources.r1.connection.url = jdbc:mysql://server01:3306/userdb
+a1.sources.r1.connection.user = root
+a1.sources.r1.connection.password = 123456
+a1.sources.r1.table = student
+a1.sources.r1.columns.to.select = *
+a1.sources.r1.incremental.column.name = id
+a1.sources.r1.incremental.value = 0
+a1.sources.r1.run.query.delay=3000
+
+# Describe the sink
+a1.sinks.k1.type = logger
+
+# Describe the channel
+a1.channels.c1.type = memory
+a1.channels.c1.capacity = 1000
+a1.channels.c1.transactionCapacity = 100
+
+# Bind the source and sink to the channel
+a1.sources.r1.channels = c1
+a1.sinks.k1.channel = c1
+```
+
+启动flume
+
+```bash
+[root@server01 conf]# flume-ng agent -c /usr/local/flume/conf/ -f /usr/local/flume/conf/mysqlsource.conf -n a1 -Dflume.root.logger=INFO,console
+```
+
+## Flume自定义Sink
+
+同自定义 source 类似，对于某些 sink 如果没有我们想要的，我们也可以自定义 sink 实现将数据保存到我们想要的地方去，例如 kafka，或者 mysql，或者文件等等都可以
+
+需求：从网络端口当中发送数据，自定义 sink，使用 sink 从网络端口接收数据，然后将数据保存到本地文件当中去。
+
+MySink.java
+
+```java
+package org.duo.flumesink;
+
+import org.apache.commons.io.FileUtils;
+import org.apache.flume.*;
+import org.apache.flume.conf.Configurable;
+import org.apache.flume.sink.AbstractSink;
+
+import java.io.*;
+
+public class MySink extends AbstractSink implements Configurable {
+    private Context context ;
+    private String filePath = "";
+    private String fileName = "";
+    private File fileDir;
+
+    //这个方法会在初始化调用，主要用于初始化我们的Context，获取我们的一些配置参数
+    @Override
+    public void configure(Context context) {
+        try {
+            this.context = context;
+            filePath = context.getString("filePath");
+            fileName = context.getString("fileName");
+            fileDir = new File(filePath);
+            if(!fileDir.exists()){
+                fileDir.mkdirs();
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+    //这个方法会被反复调用
+    @Override
+    public Status process() throws EventDeliveryException {
+        Event event = null;
+        Channel channel = this.getChannel();
+        Transaction transaction = channel.getTransaction();
+        transaction.begin();
+        while(true){
+            event = channel.take();
+            if(null != event){
+                break;
+            }
+        }
+        byte[] body = event.getBody();
+        String line = new String(body);
+        try {
+            FileUtils.write(new File(filePath+File.separator+fileName),line,true);
+            transaction.commit();
+        } catch (IOException e) {
+            transaction.rollback();
+            e.printStackTrace();
+            return Status.BACKOFF;
+        }finally {
+            transaction.close();
+        }
+        return Status.READY;
+    }
+}
+```
+
+filesink.conf
+
+```properties
+a1.sources = r1
+a1.sinks = k1
+a1.channels = c1
+# Describe/configure the source
+a1.sources.r1.type = netcat
+a1.sources.r1.bind = server01
+a1.sources.r1.port = 5678
+a1.sources.r1.channels = c1
+# # Describe the sink
+a1.sinks.k1.type = org.duo.flumesink.MySink
+a1.sinks.k1.filePath=/opt/logs
+a1.sinks.k1.fileName=filesink.txt
+# # Use a channel which buffers events in memory
+a1.channels.c1.type = memory
+a1.channels.c1.capacity = 1000
+a1.channels.c1.transactionCapacity = 100
+# # Bind the source and sink to the channel
+a1.sources.r1.channels = c1
+a1.sinks.k1.channel = c1
+
+```
+
+启动flume
+
+```bash
+[root@server01 conf]# flume-ng agent -c /usr/local/flume/conf -f /usr/local/flume/conf/filesink.conf -n a1 -Dflume.root.logger=INFO,console
+```
+
+# Azkaban
+
+## 工作流
+
+### 工作流产生背景
+
+工作流（Workflow），指“业务过程的部分或整体在计算机应用环境下的自动化”。是对工作流程及其各操作步骤之间业务规则的抽象、概括描述。工作流解决的主要问题是：为了实现某个业务目标，利用计算机软件在多个参与者之间按某种预定规则自动传递文档、信息或者任务。一个完整的数据分析系统通常都是由多个前后依赖的模块组合构成的：数据采集、数据预处理、数据分析、数据展示等。各个模块单元之间存在时间先后依赖关系，且存在着周期性重复。为了很好地组织起这样的复杂执行计划，需要一个工作流调度系统来调度执行。
+
+### 工作流调度实现方式
+
+简单的任务调度：直接使用linux的crontab来定义,但是缺点也是比较明显，无法设置依赖。复杂的任务调度：自主开发调度平台，使用开源调度系统，比如azkaban、ApacheOozie、Cascading、Hamake等。其中知名度比较高的是ApacheOozie，但是其配置工作流的过程是编写大量的XML配置，而且代码复杂度比较高，不易于二次开发。
+
+### 工作流调度工具之间对比
+
+下面的表格对四种hadoop工作流调度器的关键特性进行了比较，尽管这些工作流调度器能够解决的需求场景基本一致，但在设计理念，目标用户，应用场景等方面还是存在显著的区别，在做技术选型的时候，可以提供参考。
+
+| 特性                 | Hamake               | Oozie             | Azkaban                        | Cascading |
+| -------------------- | -------------------- | ----------------- | ------------------------------ | --------- |
+| 工作流描述语言       | XML                  | XML (xPDL based)  | text file with key/value pairs | Java API  |
+| 依赖机制             | data-driven          | explicit          | explicit                       | explicit  |
+| 是否要 web 容器      | No                   | Yes               | Yes                            | no        |
+| 进度跟踪             | console/log messages | web page          | web page                       | Java API  |
+| Hadoop job 调度 支持 | no                   | yes               | yes                            | no        |
+| 运行模式             | command line utility | daemon            | daemon                         | Java API  |
+| Pig 支持             | yes                  | yes               | yes                            | yes       |
+| 事件通知             | no                   | no                | no                             | yes       |
+| 需要安装             | no                   | yes               | yes                            | no        |
+| 支持的 hadoop 版本   | 0.18+                | 0.20+             | currently unknown              | 0.18+     |
+| 重试支持             | no                   | workflownode evel | yes                            | yes       |
+| 运行任意命令         | yes                  | yes               | yes                            | yes       |
+| Amazon EMR 支 持     | yes                  | no                | currently unknown              | yes       |
+
+## Azkaban介绍
+
+Azkaban是由linkedin（领英）公司推出的一个批量工作流任务调度器，用于在一个工作流内以一个特定的顺序运行一组工作和流程。Azkaban使用job配置文件建立任务之间的依赖关系，并提供一个易于使用的web用户界面维护和跟踪你的工作流。
+
+Azkaban 功能特点：
+
+1. 提供功能清晰，简单易用的 Web UI 界面
+2. 提供 job 配置文件快速建立任务和任务之间的依赖关系
+3. 提供模块化和可插拔的插件机制，原生支持 command、Java、Hive、Pig、Hadoop
+4. 基于 Java 开发，代码结构清晰，易于二次开发
+
+## Azkaban原理架构
+
+1. mysql 服务器: 存储元数据，如项目名称、项目描述、项目权限、任务状态、SLA 规则等
+2. AzkabanWebServer:对外提供 web 服务，使用户可以通过 web 页面管理。职责包括项目管理、权限授权、任务调度、监控 executor。
+3. AzkabanExecutorServer:负责具体的工作流的提交、执行。
+
+## Azkaban三种部署模式
+
+### solo server mode
+
+该模式中 webServer 和 executorServer 运行在同一个进程中，进程名是AzkabanSingleServer。使用自带的 H2 数据库。这种模式包含 Azkaban 的所有特性，但一般用来学习和测试。
+
+### two-server mode
+
+该模式使用 MySQL 数据库， Web Server 和 Executor Server 运行在不同的进程中。
+
+### multiple-executor mode
+
+该模式使用 MySQL 数据库， Web Server 和 Executor Server 运行在不同的机器中。且有多个 Executor Server。该模式适用于大规模应用。

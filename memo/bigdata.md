@@ -4475,7 +4475,7 @@ Time taken: 0.084 seconds, Fetched: 18 row(s)
 
 分桶，就是将数据按照指定的字段进行划分到多个文件当中去,分桶就是MapReduce中的分区.
 
-#### 开启Hive的分桶功能及
+#### 开启Hive的分桶功能
 
 ```hive
 hive> set hive.enforce.bucketing=true;
@@ -8398,3 +8398,291 @@ Azkaban 功能特点：
 ### multiple-executor mode
 
 该模式使用 MySQL 数据库， Web Server 和 Executor Server 运行在不同的机器中。且有多个 Executor Server。该模式适用于大规模应用。
+
+## Azkaban源码编译
+
+Azkaban3.x在安装前需要自己编译成二进制包。并且提前安装好Maven、Ant、Node等软件，具体请参考附件资料
+
+### 编译环境
+
+```bash
+yum install –y git
+yum install –y gcc-c++
+```
+
+### 下载源码解压
+
+```bash
+wget https://github.com/azkaban/azkaban/archive/3.51.0.tar.gz
+tar -zxvf 3.51.0.tar.gz 
+cd ./azkaban-3.51.0/
+```
+
+### 编译源码
+
+```bash
+# Gradle是一个基于Apache Ant和Apache Maven的项目自动化构建工具。-x test 跳过测试。（注意联网下载jar可能会失败、慢）
+./gradlew build installDist -x test
+```
+
+### 编译后安装包路径
+
+编译成功之后就可以在指定的路径下取得对应的安装包了：
+
+#solo-server模式安装包路径
+
+azkaban-solo-server/build/distributions/
+
+#two-server模式和multiple-executor模式web-server安装包路径
+
+azkaban-web-server/build/distributions/
+
+#two-server模式和multiple-executor模式exec-server安装包路径
+
+azkaban-exec-server/build/distributions/
+
+#数据库相关安装包路径
+
+azkaban-db/build/distributions/
+
+## 安装部署
+
+### solo-server模式部署
+
+### two-server模式部署
+
+#### 节点规划
+
+| HOST     | 角色                            |
+| -------- | ------------------------------- |
+| server01 | MySQL                           |
+| server02 | web‐server和exec‐server不同进程 |
+
+#### mysql配置初始化
+
+server01：
+
+Mysql上创建对应的库、增加权限、创建表
+
+```bash
+[root@server01 local]# cd /usr/local
+[root@server01 local]# tar -zxvf azkaban-db-0.1.0-SNAPSHOT.tar.gz
+[root@server01 local]# mv azkaban-db-0.1.0-SNAPSHOT azkaban-db
+[root@server01 local]# mysql -u root -p
+mysql> CREATE DATABASE azkaban_two_server;
+mysql> use azkaban_two_server;
+mysql> source /usr/local/azkaban-db/create-all-sql-0.1.0-SNAPSHOT.sql;
+```
+
+#### web-server服务器配置
+
+server02：
+
+```bash
+[root@server02 local]# tar -zxvf azkaban-web-server-0.1.0-SNAPSHOT.tar.gz
+[root@server02 local]# mv azkaban-web-server-0.1.0-SNAPSHOT azkaban-web-server
+[root@server02 local]# tar -zxvf azkaban-exec-server-0.1.0-SNAPSHOT.tar.gz
+[root@server02 local]# mv azkaban-exec-server-0.1.0-SNAPSHOT azkaban-exec-server
+```
+
+生成SSL证书：
+
+```bash
+#运行此命令后,会提示输入当前生成keystore的密码及相应信息,输入的密码请记住(所有密码统一以123456输入)。完成上述工作后,将在当前目录生成keystore证书文件,将keystore拷贝到 azkaban web服务器根目录中。
+[root@server02 azkaban-web-server]# keytool -keystore keystore -alias jetty -genkey -keyalg RSA
+```
+
+配置conf/azkaban.properties：
+
+```properties
+ # 修改时区，注意后面不要有空格
+default.timezone.id=Asia/Shanghai
+# Azkaban Jetty server properties.
+# 开启使用ssl 并且设置端口
+jetty.use.ssl=true
+jetty.ssl.port=8443
+# Azkaban Executor settings
+# 指定本机Executor的运行端口（增加）
+executor.host=localhost
+executor.port=12321
+# KeyStore for SSL ssl相关配置（增加）
+# 如果keystore密码在azkaban web服务器根目录下，写文件名即可，否则要写文件全路径
+jetty.keystore=keystore
+jetty.password=123456
+jetty.keypassword=123456
+jetty.truststore=keystore
+jetty.trustpassword=123456
+# Azkaban mysql settings by default. Users should configure their own username and password.修改数据库信息
+database.type=mysql
+mysql.port=3306
+mysql.host=server01
+mysql.database=azkaban_two_server
+mysql.user=root
+mysql.password=123456
+mysql.numconnections=100
+#Multiple Executor
+azkaban.use.multiple.executors=true
+# 关闭内存检测：如果不注释的话，它会去检测运行的服务器是否有3G的内存
+#azkaban.executorselector.filters=StaticRemainingFlowSize,MinimumFreeMemory,CpuStatus
+azkaban.executorselector.comparator.NumberOfAssignedFlowComparator=1
+azkaban.executorselector.comparator.Memory=1
+azkaban.executorselector.comparator.LastDispatched=1
+azkaban.executorselector.comparator.CpuUsage=1
+```
+
+新建commonprivate.properties
+
+```bash
+[root@server02 azkaban-web-server]# cd /usr/local/azkaban-web-server
+[root@server02 azkaban-web-server]# mkdir -p plugins/jobtypes
+[root@server02 azkaban-web-server]# vim commonprivate.properties
+azkaban.native.lib=false
+execute.as.user=false
+memCheck.enabled=false
+```
+
+#### exec-server服务器配置
+
+配置conf/azkaban.properties：
+
+```properties
+# 修改时区
+default.timezone.id=Asia/Shanghai
+# Where the Azkaban web server is located，修改web-server的url
+azkaban.webserver.url=https://server02:8443
+# Azkaban mysql settings by default. Users should configure their own username and password.修改数据库信息
+database.type=mysql
+mysql.port=3306
+mysql.host=server01
+mysql.database=azkaban_two_server
+mysql.user=root
+mysql.password=123456
+mysql.numconnections=100
+# Azkaban Executor settings，添加azkaban-exec执行端口
+executor.maxThreads=50
+executor.port=12321
+executor.flow.threads=30
+```
+
+启动集群：
+
+先启动exec-server
+
+```bash
+[root@server02 azkaban-exec-server]# cd /usr/local/azkaban-exec-server
+[root@server02 azkaban-exec-server]# bin/start-exec.sh
+```
+
+需要手动激活executor
+
+```bash
+[root@server02 azkaban-exec-server]# cd /usr/local/azkaban-exec-server
+[root@server02 azkaban-exec-server]# curl -G "server02:$(<./executor.port)/executor?action=activate" && echo
+{"status":"success"}
+```
+
+再启动web-server
+
+```bash
+[root@server02 azkaban-exec-server]# cd /usr/local/azkaban-web-server
+[root@server02 azkaban-web-server]# bin/start-web.sh
+```
+
+### multiple-executor模式部署
+
+multiple-executor模式是多个executor Server分布在不同服务器上，只需要将azkaban-exec-server安装包拷贝到不同机器上即可组成分布式。
+
+```bash
+[root@server02 local]# scp -r azkaban-exec-server/ server03:/usr/local/
+```
+
+先启动exec-server
+
+```bas
+[root@server03 ~]# cd /usr/local/azkaban-exec-server/
+[root@server03 azkaban-exec-server]# bin/start-exec.sh
+```
+
+手动激活executor
+
+```bash
+[root@server03 azkaban-exec-server]# curl -G "server03:$(<./executor.port)/executor?action=activate" && echo
+{"status":"success"}
+```
+
+## 使用实战
+
+### Shell command调度
+
+创建job描述文件：command.job
+
+```markdown
+#command.job
+type=command
+command=sh hello.sh
+```
+
+创建shell脚本：hello.sh
+
+```shell
+#!/bin/bash
+date  > /root/hello.txt
+```
+
+通过azkaban的web管理平台创建project并上传job压缩包，启动执行该job
+
+### job依赖调度
+
+创建有依赖关系的多个job描述
+
+通过dependencies来配置所依赖的job(job文件的第一行# XXX.job来表示job的名称)
+
+第一个job：foo.job
+
+```markdown
+# foo.job
+type=command
+command=echo foo
+```
+
+第二个job：bar.job
+
+```markdown
+# bar.job
+type=command
+dependencies=foo
+command=echo bar
+```
+
+第三个job：duo.job
+
+```markdown
+# duo.job
+type=command
+dependencies=bar
+command=echo duo
+```
+
+### HDFS任务调度
+
+fs.job
+
+```markdown
+# fs.job
+type=command
+command=sh hdfs.sh
+```
+
+hdfs.sh
+
+注意下的hadoop命令要写全路径，因为shell脚本启动相当新起了一个进程不会加载/etc/profile里面的环境变量，但是也可以在shell脚本中通过source命令加载一下/etc/profile里面的环境变量。
+
+```sh
+#!/bin/bash
+/usr/local/hadoop-2.7.5/bin/hadoop fs -mkdir /azaz666
+```
+
+### 定时任务调度
+
+通过页面配置
+

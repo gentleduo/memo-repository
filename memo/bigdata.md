@@ -8686,3 +8686,545 @@ hdfs.sh
 
 通过页面配置
 
+# 网站流量日志分析
+
+## 背景
+
+每个网站都有自己存在的目的和意义。除了政府和公益类网站之外，大多数网站的目的都是为了产生货币收入，说白了就是赚钱。要创建出用户需要的网站就必须进行网站分析，通过分析，找出用户实际需求，构建出符合用户需求的网站。
+
+## 意义
+
+网站分析，可以帮助网站管理员、运营人员、推广人员等实时获取网站流量信息，并从流量来源、网站内容、网站访客特性等多方面提供网站分析的数据依据。从而帮助提高网站流量，提升网站用户体验，让访客更多的沉淀下来变成会员或客户，通过更少的投入获取最大化的收入。
+
+事实上网站分析设计的内容非常广泛，由很多部分组成。每一部分都可以单独作为一个分析项目：
+
+1. 首先，网站分析是网站的眼睛。是从网站的营销角度看到的网站分析。在这部分中，网站分析的主要对象是访问者，访问者在网站中的行为以及不同流量之间的关系。
+2. 其次，网站分析是整个网站的神经系统。这是从产品和架构的角度看到的网站分析。在这部分中，网站分析的主要对象是网站的逻辑和结构，网站的导航结构是否合理，注册购买流程的逻辑是否顺畅。
+3. 最后，网站分析是网站的大脑，在这部门中，网站分析的主要分析对象是投资回报率（ROI）。也就是说在现有的情况下，如何合理的分配预算和资源以完成网站的目标。
+
+终极意义：改善网站的运营，获取更高投资回报率（ROI）。赚更多的钱。
+
+## 如何进行网站分析
+
+### 网站流量质量分析（流量分析）
+
+流量对于每个网站来说都是很重要，但流量并不是越多越好，应该更加看重流量的质量，换句话来说就是流量可以为我们带来多少收入。
+
+### 网站流量多维度细分（流量分析）
+
+细分是指通过不同维度对指标进行分割，查看同一个指标在不同维度下的表 现，进而找出有问题的那部分指标，对这部分指标进行优化。指标是访问量，就是我们常说的流量。在来源维度、媒介维度、时间维 度、位置维度等维度下，我们可以对访问量进行单独或者重叠的多维度细分。
+
+### 网站内容及导航分析（内容分析）
+
+对于所有网站来说，页面都可以被划分为三个类别：导航页、功能页、内容页。首页和列表页都是典型的导航页；站内搜索页面、注册表单页面和购物车页面都是典型的功能页，而产品详情页、新闻和文章页都是典型的内容页。导航页的目的是引导访问者找到信息，功能页的目的是帮助访问者完成特定任务，内容页的目的是向访问者展示信息并帮助访问者进行决策。比如从内容导航分析中，以下两类行为就是网站运营者不希望看到的行为：
+
+1. 第一个问题：访问者从导航类页面（首页）进入，还没有看到内容类页面（详 情页）之前就从导航类页面（列表页）离开网站。在这次访问中，访问者并没有 完成任务，导航类页面也没有将访问者带入到内容类页面（详情页）中。因此， 需要分析导航类页面（列表页）造成访问者中途离开的原因。
+2.  第二个问题：访问者从导航类页面（首页或列表页）进入网站，从内容类页 面（详情页）又返回到导航类页面（首页）。看似访问者在这次访问中完成了任 务（如果浏览内容页就是这个网站的最终目标的话），但其实访问者返回首页是 在开始一次新的导航或任务。说明需要分析内容页的最初设计，并考虑中内容页 提供交叉的信息推荐。
+
+### 网站转化以及漏斗分析（转化分析）
+
+转化，指网站业务流程中的一个封闭渠道，引导用户按照流程最终实现业务 目标（比如商品成交）；在这个渠道中，我们希望访问者一路向前，不要回头也 不要离开，直到完成转化目标。漏斗模型则是指进入渠道的用户在各环节递进过程中逐渐流失的形象描述。对于转化渠道，主要进行两部分的分析：访问者的流失和迷失。
+
+#### 转化中的阻力的流失
+
+转化的阻力是造成访问者流失的主要原因之一。这里的阻力包括：
+
+1. 错误的设计、错误的引导
+2. 错误的设计包括访问者在转化过程中找不到下一步操作的按钮，无法确认订 单信息，或无法完成支付等。 
+3. 错误的引导包括在支付过程中提供很多离开的渠道链接，如不恰当的商品或 者活动推荐、对支付环节中专业名称的解释、帮助信息等内容。
+
+造成流失的原因很多，如：
+
+1. 不恰当的商品或活动推荐
+2. 对支付环节中专业名词的解释、帮助信息等内容不当
+
+#### 访问者的迷失
+
+造成迷失的主要原因是转化流量设计不合理，访问者在特定阶段得不到需要 的信息，并且不能根据现有的信息作出决策，比如在线购买演唱会门票，直 到支付也没看到在线选座的提示，这时候就很可能会产生迷失，返回查看。
+
+## 整体技术流程及架构
+
+### 数据采集
+
+数据采集概念，目前行业会有两种解释： 
+
+1. 一是数据从无到有产生的过程（服务器打印的 log、自定义采集的日志等） 叫做数据采集； 
+2. 另一方面也有把通过使用 Flume等工具把数据采集搬运到指定位置的这个 过程叫做数据采集。 
+
+关于具体含义要结合语境具体分析，明白语境中具体含义即可。
+
+#### 网站流量日志数据获取
+
+随着网站在技术和运营上的不断技术发展，人们对数据的要求越来越高，以 求实现更加精细的运营来提升网站的质量。所以数据的获取方式也随着网站技术 的进步和人们对网站数据需求的加深而不断地发展。从使用发展来看，主要分为 2 类：网站日志文件（Log files）和页面埋点 js 自定义采集。 
+
+##### 网站日志文件
+
+记录网站日志文件的方式是最原始的数据获取方式，主要在服务端完成，在 网站的应用服务器配置相应的写日志的功能就能够实现，很多 web 应用服务器自 带日志的记录功能。如 Nginx 的 access.log 日志等。优点是获取数据时不需要对页面做相关处理，可以直接开始统计相关请求信 息，缺点在于有些信息无法采集，比如用户在页面端的操作（如点击、ajax 的使 用等）无法记录。限制了一些指标的统计和计算。
+
+##### 页面埋点js自定义采集
+
+自定义采集用户行为数据，通过在页面嵌入自定义的 javascript 代码来获取 用户的访问行为（比如鼠标悬停的位置，点击的页面组件等），然后通过 ajax 请 求到后台记录日志，这种方式所能采集的信息会更加全面。在实际操作中，有以下几个方面的数据可以自定义的采集：
+
+1. 系统特征：比如所采用的操作系统、浏览器、域名和访问速度等。 
+2. 访问特征：包括点击的 URL、所点击的“页面标签”及标签的属性等。 
+3. 来源特征：包括来访 URL，来访 IP 等。 
+4. 产品特征：包括所访问的产品编号、产品类别、产品颜色、产品价格、产品 利润、产品数量和特价等级等。
+
+###### 方案1
+
+通过画面刷新采集
+
+index.html
+
+```html
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="UTF-8">
+		<title>welcom to itheima</title>	
+	
+		<script type="text/javascript">
+        // _maq 是全局数组，收集各种配置信息，这里面可能会包括用户自定义的事件跟踪、业务数据（如电子商务网站的商品编号等）等。
+		var _maq = _maq || [];
+		//_maq.push([['_setAccount', 'AllenWoon'],['_setAvalue', '123456']]);
+		_maq.push(['_setAccount', 'AllenWoon'],['_setAvalue', '123456']);
+        // js自调用匿名函数
+        // 格式： (function(){})();
+        // 第一对括号向脚本返回未命名的函数；后一对空括号立即执行返回的未命名函数，括号内为匿名函数的参数。
+        // 自调用匿名函数的好处是，避免重名，自调用匿名函数只会在运行时执行一次，一般用于初始化。
+		(function() {
+            // 这段代码的主要目的就是引入一个外部的js文件（duo.js），方式是通过 document.createElement方法创建一个script并根据协议（http或https）将src指向对应的duo.js，最后将这个元素插入页面的dom树上。
+            // 注意duo.async = true的意思是异步调用外部js文件，即不阻塞浏览器的解析，待外部js下载完成后异步执行。这个属性是HTML5新引入的。
+			var duo = document.createElement('script'); 
+			duo.type = 'text/javascript';
+			duo.async = true;
+			duo.src = 'http://192.168.56.111/duo.js';
+			var s = document.getElementsByTagName('script')[0]; 
+			s.parentNode.insertBefore(duo, s);
+		})();
+		</script>	
+	</head>
+	<body>
+		<h1 align="center">网站流量日志分析</h1>
+	</body>
+</html>
+
+```
+
+添加埋点js，放入nginx静态资源目录nginx/html 下
+
+duo.js
+
+```javascript
+(function () {
+    var params = {};
+    //通过浏览器内置javascript对象收集信息，如页面title（通过document.title）、referrer（上一跳url，通过document.referrer）、用户显示器分辨率（通过windows.screen）、cookie信息（通过document.cookie）等等一些信息。
+    //Document对象数据
+    if(document) {
+        params.domain = document.domain || ''; 
+        params.url = document.URL || ''; 
+        params.title = document.title || ''; 
+        params.referrer = document.referrer || ''; 
+    }   
+    //Window对象数据
+    if(window && window.screen) {
+        params.sh = window.screen.height || 0;
+        params.sw = window.screen.width || 0;
+        params.cd = window.screen.colorDepth || 0;
+    }   
+    //navigator对象数据
+    if(navigator) {
+        params.lang = navigator.language || ''; 
+    }
+    //解析_maq数组，收集配置信息。这里面可能会包括用户自定义的事件跟踪、业务数据（如电子商务网站的商品编号等）等。
+    if(_maq) {
+        for(var i in _maq) {
+            switch(_maq[i][0]) {
+                case '_setAccount':
+                    params.account = _maq[i][1];
+                    break;
+                case '_setAvalue':
+                    params.avalue = _maq[i][1];
+                    break;
+                default:
+                    break;
+            }   
+        }   
+    }   
+    //将上面两步收集的数据按预定义格式解析并拼接（get 请求参数）
+    var args = ''; 
+    for(var i in params) {
+        if(args != '') {
+            args += '&';
+        }   
+        args += i + '=' + encodeURIComponent(params[i]);
+    }   
+
+    //通过Image对象请求后端脚本
+    //javascript请求后端脚本常用的方法是ajax，但是ajax是不能跨域请求的。一种通用的方法是js脚本创建一个Image对象，将Image对象的src属性指向后端脚本并携带参数，此时即实现了跨域请求后端。这也是后端脚本为什么通常伪装成gif文件的原因。
+    var img = new Image(1, 1); 
+    img.src = 'http://192.168.56.111/log.gif?' + args;
+})();
+```
+
+nginx_web.conf
+
+```properties
+worker_processes  2;
+
+events {
+    worker_connections  1024;
+}
+
+http {
+    include       mime.types;
+    default_type  application/octet-stream;
+
+	log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
+                      '$status $body_bytes_sent "$http_referer" '
+                      '"$http_user_agent" "$http_x_forwarded_for"';
+					  
+    log_format user_log_format "$msec||$remote_addr||$status||$body_bytes_sent||$u_domain||$u_url||$u_title||$u_referrer||$u_sh||$u_sw||$u_cd||$u_lang||$http_user_agent||$u_account||$u_avalue";
+    
+    sendfile        on;  #允许sendfile方式传输文件，默认为off
+
+    keepalive_timeout  65; #连接超时时间，默认为75s
+
+    server {
+        listen       80;
+        server_name  localhost;
+		location /log.gif {
+			#伪装成gif文件
+			default_type image/gif;    
+			#nginx本身记录的access_log，日志格式为main
+			access_log  logs/access.log  main;
+		
+			access_by_lua "
+				-- 用户跟踪cookie名为__utrace
+				local uid = ngx.var.cookie___utrace        
+				if not uid then
+					-- 如果没有则生成一个跟踪cookie，算法为md5(时间戳+IP+客户端信息)
+					uid = ngx.md5(ngx.now() .. ngx.var.remote_addr .. ngx.var.http_user_agent)
+				end 
+				ngx.header['Set-Cookie'] = {'__utrace=' .. uid .. '; path=/'}
+				if ngx.var.arg_domain then
+				-- 通过subrequest到/i-log记录日志，将参数和用户跟踪cookie带过去
+					ngx.location.capture('/i-log?' .. ngx.var.args .. '&utrace=' .. uid)
+				end 
+			";  
+		
+			#此请求资源本地不缓存
+			add_header Expires "Fri, 01 Jan 1980 00:00:00 GMT";
+			add_header Pragma "no-cache";
+			add_header Cache-Control "no-cache, max-age=0, must-revalidate";
+		
+			#返回一个1×1的空gif图片
+			empty_gif;
+		}   
+	
+		location /i-log {
+			#内部location，不允许外部直接访问
+			internal;
+		
+			#设置变量，注意需要unescape
+			set_unescape_uri $u_domain $arg_domain;
+			set_unescape_uri $u_url $arg_url;
+			set_unescape_uri $u_title $arg_title;
+			set_unescape_uri $u_referrer $arg_referrer;
+			set_unescape_uri $u_sh $arg_sh;
+			set_unescape_uri $u_sw $arg_sw;
+			set_unescape_uri $u_cd $arg_cd;
+			set_unescape_uri $u_lang $arg_lang;
+			set_unescape_uri $u_account $arg_account;
+			set_unescape_uri $u_avalue $arg_avalue;
+		
+			#打开subrequest（子请求）日志
+			log_subrequest on;
+			#自定义采集的日志，记录数据到user_defined.log
+			access_log logs/user_defined.log user_log_format;
+		
+			#输出空字符串
+			echo '';
+		}	
+	
+    }
+}
+```
+
+###### 方案2
+
+通过点击事件收集
+
+index2.html
+
+```html
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="UTF-8">
+		<title>gentleduo</title>
+    </head>
+	<body>
+		<h1 align="center">网站流量日志分析</h1>
+		
+		<a href="page1.html" target="_blank" clstag="click|index|page1">这是点击1</a><br/>
+		<a href="page2.html" target="_blank" clstag="click|index|page2">这是点击2</a>
+		
+		<script type="text/javascript">
+		
+			var _maq = _maq || [];
+		    _maq.push(['_setAccount', 'AllenWoon']);
+			var aList = document.getElementsByTagName("a");
+			
+			for (var i = 0,mylength = aList.length; i<mylength; i++) {
+				aList[i].addEventListener('click',function(){
+					var clstag = this.attributes["clstag"].nodeValue;
+					var _a_value = this.text;
+					_maq.push(['_a_value',_a_value]);
+					clstag = clstag.split('|');
+					
+					for (i in clstag){ 
+						_maq.push(['type'+i, clstag[i]]);
+						sendRequest();
+					}
+				},false);
+			}
+
+			function sendRequest(){
+				var ma = document.createElement('script'); 
+				ma.type = 'text/javascript';
+				ma.async = true;
+				ma.src = 'http://192.168.56.111/duo2.js';
+				var s = document.getElementsByTagName('script')[0]; 
+				s.parentNode.insertBefore(ma, s);
+			}
+		</script>
+	</body>
+</html>
+```
+
+page1.html
+
+```html
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="UTF-8">
+		<title>page1</title>	
+		<script type="text/javascript">
+		var _maq = _maq || [];
+		//_maq.push(['_setAccount', 'AllenWoon']);
+		_maq.push(['_setAccount', 'AllenWoon'],['_setAvalue', 'testValue1']);
+		(function() {
+			var ma = document.createElement('script'); 
+			ma.type = 'text/javascript';
+			ma.async = true;
+			ma.src = 'http://192.168.56.111/duo2.js';
+			var s = document.getElementsByTagName('script')[0]; 
+			s.parentNode.insertBefore(ma, s);
+		})();
+		</script>		
+	</head>
+	<body>
+		<h1 align="center">网站流量日志分析</h1>
+		<h1 align="center">Page 1</h1>
+	</body>
+</html>
+```
+
+page2.html
+
+```html
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="UTF-8">
+		<title>page2</title>	
+		<script type="text/javascript">
+		var _maq = _maq || [];
+		//_maq.push(['_setAccount', 'AllenWoon']);
+		_maq.push(['_setAccount', 'AllenWoon'],['_setAvalue', 'testValue2']);
+		(function() {
+			var ma = document.createElement('script'); 
+			ma.type = 'text/javascript';
+			ma.async = true;
+			ma.src = 'http://192.168.56.111/duo2.js';
+			var s = document.getElementsByTagName('script')[0]; 
+			s.parentNode.insertBefore(ma, s);
+		})();
+		</script>	
+	</head>
+	<body>
+		<h1 align="center">网站流量日志分析</h1>
+		<h1 align="center">page 2</h1>
+	</body>
+</html>
+```
+
+duo2.js
+
+```javascript
+(function () {
+    var params = {};
+    //Document对象数据
+    if(document) {
+        params.domain = document.domain || ''; 
+        params.url = document.URL || ''; 
+        params.title = document.title || ''; 
+        params.referrer = document.referrer || ''; 
+    }   
+    //Window对象数据
+    if(window && window.screen) {
+        params.sh = window.screen.height || 0;
+        params.sw = window.screen.width || 0;
+        params.cd = window.screen.colorDepth || 0;
+    }   
+    //navigator对象数据
+    if(navigator) {
+        params.lang = navigator.language || ''; 
+    }   
+    //解析_maq配置
+    if(_maq) {
+        for(var i in _maq) {
+            switch(_maq[i][0]) {
+                case '_setAccount':
+                    params.account = _maq[i][1];
+                    break;
+				case '_a_value':
+                    params.avalue = _maq[i][1];
+                    break;
+				case 'type0':
+                    params.type0 = _maq[i][1];
+                    break;
+				case 'type1':
+                    params.type1 = _maq[i][1];
+                    break;
+				case 'type2':
+                    params.type2 = _maq[i][1];
+                    break;
+                default:
+                    break;
+            }   
+        }   
+    }   
+    //拼接参数串
+    var args = ''; 
+    for(var i in params) {
+        if(args != '') {
+            args += '&';
+        }   
+        args += i + '=' + encodeURIComponent(params[i]);
+    }   
+ 
+    //通过Image对象请求后端脚本
+    var img = new Image(1, 1); 
+    img.src = 'http://192.168.56.111/log.gif?' + args;
+})();
+```
+
+nginx_web2.conf
+
+```properties
+worker_processes  2;
+
+events {
+    worker_connections  1024;
+}
+
+
+http {
+    include       mime.types;
+    default_type  application/octet-stream;
+
+	log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
+                      '$status $body_bytes_sent "$http_referer" '
+                      '"$http_user_agent" "$http_x_forwarded_for"';
+  	
+    log_format user_log_format "$msec||$remote_addr||$status||$body_bytes_sent||$u_domain||$u_url||$u_title||$u_referrer||$u_sh||$u_sw||$u_cd||$u_lang||$http_user_agent||$u_account||$u_avalue||$u_type0||$u_type1||$u_type2";
+    
+    sendfile        on;
+
+    keepalive_timeout  65;
+
+    server {
+        listen       80;
+        server_name  localhost;
+		location /log.gif {
+			#伪装成gif文件
+			default_type image/gif;    
+			#nginx本身记录的access_log，日志格式为main
+			access_log  logs/access.log  main;
+		
+			access_by_lua "
+				-- 用户跟踪cookie名为__utrace
+				local uid = ngx.var.cookie___utrace        
+				if not uid then
+					-- 如果没有则生成一个跟踪cookie，算法为md5(时间戳+IP+客户端信息)
+					uid = ngx.md5(ngx.now() .. ngx.var.remote_addr .. ngx.var.http_user_agent)
+				end 
+				ngx.header['Set-Cookie'] = {'__utrace=' .. uid .. '; path=/'}
+				if ngx.var.arg_domain then
+				-- 通过subrequest到/i-log记录日志，将参数和用户跟踪cookie带过去
+					ngx.location.capture('/i-log?' .. ngx.var.args .. '&utrace=' .. uid)
+				end 
+			";  
+		
+			#此请求不缓存
+			add_header Expires "Fri, 01 Jan 1980 00:00:00 GMT";
+			add_header Pragma "no-cache";
+			add_header Cache-Control "no-cache, max-age=0, must-revalidate";
+		
+			#返回一个1×1的空gif图片
+			empty_gif;
+		}   
+	
+		location /i-log {
+			#内部location，不允许外部直接访问
+			internal;
+		
+			#设置变量，注意需要unescape
+			set_unescape_uri $u_domain $arg_domain;
+			set_unescape_uri $u_url $arg_url;
+			set_unescape_uri $u_title $arg_title;
+			set_unescape_uri $u_referrer $arg_referrer;
+			set_unescape_uri $u_sh $arg_sh;
+			set_unescape_uri $u_sw $arg_sw;
+			set_unescape_uri $u_cd $arg_cd;
+			set_unescape_uri $u_lang $arg_lang;
+			set_unescape_uri $u_account $arg_account;
+			set_unescape_uri $u_avalue $arg_avalue;
+			set_unescape_uri $u_type0 $arg_type0;
+			set_unescape_uri $u_type1 $arg_type1;
+			set_unescape_uri $u_type2 $arg_type2;
+		
+			#打开subrequest（子请求）日志
+			log_subrequest on;
+			#自定义采集的日志，记录数据到user_defined.log
+			access_log logs/user_defined.log user_log_format;
+		
+			#输出空字符串
+			echo '';
+		}	
+	
+    }
+}
+```
+
+### 数据预处理
+
+数据预处理（data preprocessing）是指在正式处理以前对数据进行的一些处理，保证后续正式处理的数据是格式统一、干净规则的结构化数据。现实世界中数据大体上都是不完整，不一致的脏数据，无法直接进行数据分析，或者说不利于分析。为了提高数据分析的质量和便捷性产生了数据预处理技术。数据预处理有多种方法：数据清理，数据集成，数据变换等。这些数据处理技术在正式数据分析之前使用，大大提高了后续数据分析的质量与便捷，降低实际分析所需要的时间。技术上原则来说，任何可以接受数据经过处理输出数据的语言技术都可以用来进行数据预处理。比如java、Python、shell等。本项目中通过MapReduce程序对采集到的原始日志数据进行预处理，比如数据清洗，日期格式整理，滤除不合法数据等，并且梳理成点击流模型数据。使用MapReduce的好处在于：一是java语言熟悉度高，有很多开源的工具库便于数据处理，二是MR可以进行分布式的计算，并发处理效率高。
+
+### 数据入库
+
+预处理完的结构化数据通常会导入到Hive数据仓库中，建立相应的库和表与之映射关联。这样后续就可以使用HiveSQL针对数据进行分析。因此这里所说的入库是把数据加进面向分析的数据仓库，而不是数据库。因项目中数据格式比较清晰简明，可以直接load进入数据仓库。实际中，入库过程有个更加专业的叫法—ETL。ETL是将业务系统的数据经过抽取、清洗转换之后加载到数据仓库的过程，目的是将企业中的分散、零乱、标准不统一的数据整合到一起，为企业的决策提供分析依据。
+
+ETL的设计分三部分：数据抽取、数据的清洗转换、数据的加载。在设计ETL的时候我们也是从这三部分出发。数据的抽取是从各个不同的数据源抽取到ODS(Operational Data Store，操作型数据存储)中——这个过程也可以做一些数据的清洗和转换)，在抽取的过程中需要挑选不同的抽取方法，尽可能的提高ETL的运行效率。ETL三个部分中，花费时间最长的是“T”(Transform，清洗、转换)的部分，一般情况下这部分工作量是整个ETL的2/3。数据的加载一般在数据清洗完了之后直接写入DW(Data Warehousing，数据仓库)中去。
+
+### 数据分析
+
+根据需求使用Hive SQL分析语句，得出指标各种统计结果。
+
+### 数据可视化
+
+将分析所得数据结果进行数据可视化，一般通过图表进行展示。数据可视化可以帮你更容易的解释趋势和统计数据。
+

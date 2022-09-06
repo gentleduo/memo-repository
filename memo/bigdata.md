@@ -6844,12 +6844,14 @@ a1.sources.r1.fileHeader = true
 # Describe the sink
 a1.sinks.k1.type = hdfs
 a1.sinks.k1.channel = c1
-a1.sinks.k1.hdfs.path = /flume/events/%y-%m-%d/%H%M/
-a1.sinks.k1.hdfs.filePrefix = events-
 # 控制hdfs中的文件夹以多少时间间隔滚动，以下述为例：就会每10分钟生成一个文件夹
+# 当时间为2015-10-16 17:38:59时候，hdfs.path依然会被解析为：/flume/events/20151016/17:30/00
+# 因为设置的是舍弃10分钟内的时间，因此，该目录每10分钟新生成一个。
+a1.sinks.k1.hdfs.path = /flume/events/%y-%m-%d/%H%M/
 a1.sinks.k1.hdfs.round = true
 a1.sinks.k1.hdfs.roundValue = 10
 a1.sinks.k1.hdfs.roundUnit = minute
+a1.sinks.k1.hdfs.filePrefix = events-
 # roll控制写入hdfs的文件以何种方式进行滚动
 # 如果三个都配置，谁先满足谁触发滚动，如果不想以某种属性滚动，设置为0即可
 # sink间隔多长将临时文件滚动成最终目标文件，单位：秒；如果设置成0，则表示不根据时间来滚动文件；默认值：30。注：滚动（roll）指的是，hdfs sink将临时文件重命名成最终目标文件，并新打开一个临时文件来写入数据；
@@ -6945,6 +6947,71 @@ a1.sinks.k1.channel = c1
 ```bash
 [root@server01 logs]# while true; do date >> /opt/logs/test.log;sleep 1;done
 ```
+
+### Taildir Source
+
+在flume1.7版本之后，提供了一个非常好用的TaildirSource，使用这个source，可以监控一个目录，并且使用正则表达式匹配该目录中的文件名进行实时收集。
+
+配置文件编写：taildir_source_avro_sink.conf
+
+```properties
+# Name the components on this agent
+a1.sources = r1
+a1.sinks = k1
+a1.channels = c1
+
+# Describe/configure the source
+a1.sources.r1.type = TAILDIR
+a1.sources.r1.channels = c1
+a1.sources.r1.positionFile = /opt/logs/taildir_position.json
+a1.sources.r1.filegroups = f1 f2
+a1.sources.r1.filegroups.f1 = /opt/logs/example.log
+a1.sources.r1.filegroups.f2 = /opt/logs/taildir/.*log.*
+
+# Describe the sink
+a1.sinks.k1.type = hdfs
+a1.sinks.k1.channel = c1
+a1.sinks.k1.hdfs.path = /flume/taildir/%y-%m-%d/%H-%M/
+a1.sinks.k1.hdfs.filePrefix = weblog-
+a1.sinks.k1.hdfs.round = true
+a1.sinks.k1.hdfs.roundValue = 10
+a1.sinks.k1.hdfs.roundUnit = minute
+a1.sinks.k1.hdfs.rollInterval = 0
+# 128M
+a1.sinks.k1.hdfs.rollSize = 134217728
+a1.sinks.k1.hdfs.rollCount = 0
+# HDFS sink文件滚动属性：基于文件闲置时间策略
+# 如果文件在hdfs.idleTimeout秒的时间里都是闲置的，即：没有任何数据写入，那么当前文件关闭，滚动到下一个文件
+a1.sinks.k1.hdfs.idleTimeout = 20
+# HDFS sink文件滚动属性：基于hdfs文件副本数
+# 默认值：和hdfs的副本数一致
+# hdfs.minBlockReplicas是为了让flume感知不到hdfs的块复制，这样滚动方式配置（比如时间间隔、文件大小、events数量等）才不会受影响。
+# 假如hdfs的副本为3.那么配置的滚动时间为10秒，那么在第二秒的时候，flume检测到hdfs在复制块，那么这时候flume就会滚动，这样导致flume的滚动方式受到影响。所以通常hdfs.minBlockReplicas配置为1，就检测不到副本的复制了。但是hdfs的副本还是3
+a1.sinks.k1.hdfs.minBlockReplicas = 1
+a1.sinks.k1.hdfs.batchSize = 1
+a1.sinks.k1.hdfs.useLocalTimeStamp = true
+#生成的文件类型，默认是Sequencefile，可用DataStream，则为普通文本
+a1.sinks.k1.hdfs.fileType = DataStream
+
+# Use a channel which buffers events in memory
+a1.channels.c1.type = memory
+a1.channels.c1.capacity = 1000
+a1.channels.c1.transactionCapacity = 100
+
+# Bind the source and sink to the channel
+a1.sources.r1.channels = c1
+a1.sinks.k1.channel = c1
+```
+
+启动命令
+
+1. filegroups:指定filegroups，可以有多个，以空格分隔；（TailSource可以同时监控tail多个目录中的文件）
+2. positionFile:配置检查点文件的路径，检查点文件会以json格式保存tail命令已经执行到的的位置，当程序异常终止并重新启动后，会从positionFile文件中记录的上次采集到的位置之后开始采集，解决了断点不能续传的缺陷。
+3. filegroups.filegroupName：配置每个filegroup的文件绝对路径，文件名可以用正则表达式匹配
+
+````bash
+[root@server01 flume]# flume-ng agent -c /usr/local/flume/conf -f /usr/local/flume/conf/taildir_source_avro_sink.conf -n a1 -Dflume.root.logger=INFO,console
+````
 
 ## load-balance
 
@@ -8770,6 +8837,10 @@ hdfs.sh
 3. 来源特征：包括来访 URL，来访 IP 等。 
 4. 产品特征：包括所访问的产品编号、产品类别、产品颜色、产品价格、产品 利润、产品数量和特价等级等。
 
+###### 原理分析
+
+首先，用户的行为会触发浏览器对被统计页面的一个http请求，比如打开某网页、点击某个按钮或者链接，页面中的埋点javascript代码会被执行。埋点是指：在网页中预先加入小段javascript代码，这个代码片段一般会动态创建一个script标签，并将src属性指向一个单独的js文件，此时这个单独的js文件会被浏览器请求到并执行，这个js往往就是真正的数据收集脚本。数据收集完成后，js会请求一个后端的数据收集脚本，这个脚本一般是一个伪装成图片的动态脚本程序，js会将收集到的数据通过http参数的方式传递给后端脚本，后端脚本解析参数并按固定格式记录到访问日志，同时可能会在http响应中给客户端种植一些用于追踪的cookie。
+
 ###### 方案1
 
 静态页面、js放nginx服务器中
@@ -9212,7 +9283,40 @@ http {
 
 ###### 方案3
 
-动态web工程、js放web项目中，nginx只用于日志采集
+动态web工程、js放web项目中，nginx只用于日志采集。方案3中有如下几个概念：
+
+1. 用户/访客：表示同一浏览器代表的用户。唯一标识用户。注意：由于这个项目没有后台所以无法通过服务器种植的方式设置cookie，而且由于可能每个网站对用户/访客的定义都不一样从而导致对新增用户的计算方式也不一样。方案3中对用户的定义是：是否使用同一个浏览器来访问网站：在用户第一次使用某个浏览器访问网站的时候，会在该浏览器的cookie中生成一个唯一标识用户身份的uuid，并且过期时间设置为10年，所以10年内用户再使用同一浏览器来访问该网站就算老用户了。
+2. 会员：表示网站的一个正常的会员用户。
+3. 会话：一段时间内的连续操作，就是一个会话中的所有操作。
+4. Pv：访问页面的数量
+
+数据参数说明
+
+| 参数名称 | 类型   | 描述                       |
+| -------- | ------ | -------------------------- |
+| en       | string | 事件名称, eg: e_pv         |
+| ver      | string | 版本号, eg: 0.0.1          |
+| pl       | string | 平台, eg: website          |
+| sdk      | string | Sdk类型, eg: js            |
+| b_rst    | string | 浏览器分辨率，eg: 1800*678 |
+| b_iev    | string | 浏览器信息useragent        |
+| u_ud     | string | 用户/访客唯一标识符        |
+| l        | string | 客户端语言                 |
+| u_mid    | string | 会员id，和业务系统一致     |
+| u_sd     | string | 会话id                     |
+| c_time   | string | 客户端时间                 |
+| p_url    | string | 当前页面的url              |
+| p_ref    | string | 上一个页面的url            |
+| tt       | string | 当前页面的标题             |
+| ca       | string | Event事件的Category名称    |
+| ac       | string | Event事件的action名称      |
+| kv_*     | string | Event事件的自定义属性      |
+| du       | string | Event事件的持续时间        |
+| oid      | string | 订单id                     |
+| on       | string | 订单名称                   |
+| cua      | string | 支付金额                   |
+| cut      | string | 支付货币类型               |
+| pt       | string | 支付方式                   |
 
 web/js/analytics.js
 
@@ -9383,6 +9487,7 @@ web/js/analytics.js
 			this.onPageView();
 		},
 
+        // 当用户第一次访问网站的时候触发该事件
 		onLaunch : function() {
 			// 触发launch事件
 			var launch = {};
@@ -9391,6 +9496,7 @@ web/js/analytics.js
 			this.sendDataToServer(this.parseParam(launch)); // 最终发送编码后的数据
 		},
 
+        // 当用户访问页面/刷新页面的时候触发该事件
 		onPageView : function() {
 			// 触发page view事件
 			if (this.preCallApi()) {
@@ -9406,6 +9512,7 @@ web/js/analytics.js
 			}
 		},
 
+        // 当用户下订单的时候触发该事件，该事件需要后台程序主动调用。
 		onChargeRequest : function(orderId, name, currencyAmount, currencyType, paymentType) {
 			// 触发订单产生事件
 			if (this.preCallApi()) {
@@ -9434,6 +9541,7 @@ web/js/analytics.js
 			}
 		},
 
+        // 当访客/用户触发业务定义的事件后，前端程序调用该方法。
 		onEventDuration : function(category, action, map, duration) {
 			// 触发event事件
 			if (this.preCallApi()) {
@@ -9764,6 +9872,291 @@ web/WEB-INF/web.xml
         <welcome-file>default.jsp</welcome-file>
     </welcome-file-list>
 </web-app>
+```
+
+com.duo.client.AnalyticsEngineSDK
+
+```java
+package com.duo.client;
+
+import java.io.UnsupportedEncodingException;
+import java.net.URLEncoder;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+/**
+ * 分析引擎sdk java服务器端数据收集
+ */
+public class AnalyticsEngineSDK {
+	// 日志打印对象
+	private static final Logger log = Logger.getGlobal();
+	// 请求url的主体部分
+	public static final String accessUrl = "http://server02/log.gif";
+	private static final String platformName = "java_server";
+	private static final String sdkName = "jdk";
+	private static final String version = "1";
+
+	/**
+	 * 触发订单支付成功事件，发送事件数据到服务器
+	 * 
+	 * @param orderId
+	 *            订单支付id
+	 * @param memberId
+	 *            订单支付会员id
+	 * @return 如果发送数据成功(加入到发送队列中)，那么返回true；否则返回false(参数异常&添加到发送队列失败).
+	 */
+	public static boolean onChargeSuccess(String orderId, String memberId) {
+		try {
+			if (isEmpty(orderId) || isEmpty(memberId)) {
+				// 订单id或者memberid为空
+				log.log(Level.WARNING, "订单id和会员id不能为空");
+				return false;
+			}
+			// 代码执行到这儿，表示订单id和会员id都不为空。
+			Map<String, String> data = new HashMap<String, String>();
+			data.put("u_mid", memberId);
+			data.put("oid", orderId);
+			data.put("c_time", String.valueOf(System.currentTimeMillis()));
+			data.put("ver", version);
+			data.put("en", "e_cs");
+			data.put("pl", platformName);
+			data.put("sdk", sdkName);
+			// 创建url
+			String url = buildUrl(data);
+			// 发送url&将url加入到队列
+			SendDataMonitor.addSendUrl(url);
+			return true;
+		} catch (Throwable e) {
+			log.log(Level.WARNING, "发送数据异常", e);
+		}
+		return false;
+	}
+
+	/**
+	 * 触发订单退款事件，发送退款数据到服务器
+	 * 
+	 * @param orderId
+	 *            退款订单id
+	 * @param memberId
+	 *            退款会员id
+	 * @return 如果发送数据成功，返回true。否则返回false。
+	 */
+	public static boolean onChargeRefund(String orderId, String memberId) {
+		try {
+			if (isEmpty(orderId) || isEmpty(memberId)) {
+				// 订单id或者memberid为空
+				log.log(Level.WARNING, "订单id和会员id不能为空");
+				return false;
+			}
+			// 代码执行到这儿，表示订单id和会员id都不为空。
+			Map<String, String> data = new HashMap<String, String>();
+			data.put("u_mid", memberId);
+			data.put("oid", orderId);
+			data.put("c_time", String.valueOf(System.currentTimeMillis()));
+			data.put("ver", version);
+			data.put("en", "e_cr");
+			data.put("pl", platformName);
+			data.put("sdk", sdkName);
+			// 构建url
+			String url = buildUrl(data);
+			// 发送url&将url添加到队列中
+			SendDataMonitor.addSendUrl(url);
+			return true;
+		} catch (Throwable e) {
+			log.log(Level.WARNING, "发送数据异常", e);
+		}
+		return false;
+	}
+
+	/**
+	 * 根据传入的参数构建url
+	 * 
+	 * @param data
+	 * @return
+	 * @throws UnsupportedEncodingException
+	 */
+	private static String buildUrl(Map<String, String> data)
+			throws UnsupportedEncodingException {
+		StringBuilder sb = new StringBuilder();
+		sb.append(accessUrl).append("?");
+		for (Map.Entry<String, String> entry : data.entrySet()) {
+			if (isNotEmpty(entry.getKey()) && isNotEmpty(entry.getValue())) {
+				sb.append(entry.getKey().trim())
+						.append("=")
+						.append(URLEncoder.encode(entry.getValue().trim(), "utf-8"))
+						.append("&");
+			}
+		}
+		return sb.substring(0, sb.length() - 1);// 去掉最后&
+	}
+
+	/**
+	 * 判断字符串是否为空，如果为空，返回true。否则返回false。
+	 * 
+	 * @param value
+	 * @return
+	 */
+	private static boolean isEmpty(String value) {
+		return value == null || value.trim().isEmpty();
+	}
+
+	/**
+	 * 判断字符串是否非空，如果不是空，返回true。如果是空，返回false。
+	 * 
+	 * @param value
+	 * @return
+	 */
+	private static boolean isNotEmpty(String value) {
+		return !isEmpty(value);
+	}
+}
+```
+
+com.duo.client.SendDataMonitor
+
+```java
+package com.duo.client;
+
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+/**
+ * 发送url数据的监控者，用于启动一个单独的线程来发送数据
+ */
+public class SendDataMonitor {
+    // 日志记录对象
+    private static final Logger log = Logger.getGlobal();
+    // 队列，用户存储发送url
+    private BlockingQueue<String> queue = new LinkedBlockingQueue<String>();
+    // 用于单列的一个类对象
+    private static SendDataMonitor monitor = null;
+
+    private SendDataMonitor() {
+        // 私有构造方法，进行单列模式的创建
+    }
+
+    /**
+     * 获取单列的monitor对象实例
+     *
+     * @return
+     */
+    public static SendDataMonitor getSendDataMonitor() {
+        if (monitor == null) {
+            synchronized (SendDataMonitor.class) {
+                if (monitor == null) {
+                    monitor = new SendDataMonitor();
+
+                    Thread thread = new Thread(new Runnable() {
+
+                        @Override
+                        public void run() {
+                            // 线程中调用具体的处理方法
+                            SendDataMonitor.monitor.run();
+                        }
+                    });
+                    // 测试的时候，不设置为守护模式
+                    // thread.setDaemon(true);
+                    thread.start();
+                }
+            }
+        }
+        return monitor;
+    }
+
+    /**
+     * 添加一个url到队列中去
+     *
+     * @param url
+     * @throws InterruptedException
+     */
+    public static void addSendUrl(String url) throws InterruptedException {
+        getSendDataMonitor().queue.put(url);
+    }
+
+    /**
+     * 具体执行发送url的方法
+     */
+    private void run() {
+        while (true) {
+            try {
+                String url = this.queue.take();
+                // 正式的发送url
+                HttpRequestUtil.sendData(url);
+            } catch (Throwable e) {
+                log.log(Level.WARNING, "发送url异常", e);
+            }
+        }
+    }
+
+    /**
+     * 内部类，用户发送数据的http工具类
+     *
+     * @author root
+     */
+    public static class HttpRequestUtil {
+        /**
+         * 具体发送url的方法
+         *
+         * @param url
+         * @throws IOException
+         */
+        public static void sendData(String url) throws IOException {
+            HttpURLConnection con = null;
+            BufferedReader in = null;
+
+            try {
+                URL obj = new URL(url); // 创建url对象
+                con = (HttpURLConnection) obj.openConnection(); // 打开url连接
+                // 设置连接参数
+                con.setConnectTimeout(5000); // 连接过期时间
+                con.setReadTimeout(5000); // 读取数据过期时间
+                con.setRequestMethod("GET"); // 设置请求类型为get
+
+                System.out.println("发送url:" + url);
+                // 发送连接请求
+                in = new BufferedReader(new InputStreamReader(
+                        con.getInputStream()));
+                // TODO: 这里考虑是否可以
+            } finally {
+                try {
+                    if (in != null) {
+                        in.close();
+                    }
+                } catch (Throwable e) {
+                    // nothing
+                }
+                try {
+                    con.disconnect();
+                } catch (Throwable e) {
+                    // nothing
+                }
+            }
+        }
+    }
+}
+```
+
+com.duo.test.Test
+
+```java
+package com.duo.test;
+
+import com.duo.client.AnalyticsEngineSDK;
+public class Test {
+	public static void main(String[] args) {
+		AnalyticsEngineSDK.onChargeSuccess("orderid123", "zhangsan");
+		AnalyticsEngineSDK.onChargeRefund("orderid456", "lisi");
+	}
+}
 ```
 
 nginx_web3.conf

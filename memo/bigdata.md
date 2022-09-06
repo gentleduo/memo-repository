@@ -8772,7 +8772,7 @@ hdfs.sh
 
 ###### 方案1
 
-通过画面刷新采集
+静态页面、js放nginx服务器中
 
 index.html
 
@@ -8953,7 +8953,7 @@ http {
 
 ###### 方案2
 
-通过点击事件收集
+静态页面、js放nginx服务器中
 
 index2.html
 
@@ -9206,6 +9206,638 @@ http {
 			echo '';
 		}	
 	
+    }
+}
+```
+
+###### 方案3
+
+动态web工程、js放web项目中，nginx只用于日志采集
+
+web/js/analytics.js
+
+```javascript
+(function() {
+	var CookieUtil = {
+		// get the cookie of the key is name
+		get : function(name) {
+			// 定义三个变量：cookieName、cookieStart以及cookieValue，在定义的同时给其赋值，
+			// 第二个和第三个变量定义时由于使用","跟在第一个变量定义的后面，所以可以省略的关键字var
+			var cookieName = encodeURIComponent(name) + "=", cookieStart = document.cookie
+					.indexOf(cookieName), cookieValue = null;
+			if (cookieStart > -1) {
+				var cookieEnd = document.cookie.indexOf(";", cookieStart);
+				if (cookieEnd == -1) {
+					cookieEnd = document.cookie.length;
+				}
+				cookieValue = decodeURIComponent(document.cookie.substring(
+						cookieStart + cookieName.length, cookieEnd));
+			}
+			return cookieValue;
+		},
+		// set the name/value pair to browser cookie
+		set : function(name, value, expires, path, domain, secure) {
+			var cookieText = encodeURIComponent(name) + "="
+					+ encodeURIComponent(value);
+
+			if (expires) {
+				// set the expires time
+				var expiresTime = new Date();
+				expiresTime.setTime(expires);
+				cookieText += ";expires=" + expiresTime.toGMTString();
+			}
+
+			if (path) {
+				cookieText += ";path=" + path;
+			}
+
+			if (domain) {
+				cookieText += ";domain=" + domain;
+			}
+
+			if (secure) {
+				cookieText += ";secure";
+			}
+
+			document.cookie = cookieText;
+		},
+		setExt : function(name, value) {
+			this.set(name, value, new Date().getTime() + 315360000000, "/");
+		}
+	};
+
+	// 主体，其实就是tracker js
+	var tracker = {
+		// config
+		clientConfig : {
+			serverUrl : "http://server02/log.gif",
+			sessionTimeout : 360, // 360s -> 6min
+			maxWaitTime : 3600, // 3600s -> 60min -> 1h
+			ver : "1"
+		},
+
+		cookieExpiresTime : 315360000000, // cookie过期时间，10年
+
+		columns : {
+			// 发送到服务器的列名称
+			eventName : "en",
+			version : "ver",
+			platform : "pl",
+			sdk : "sdk",
+			uuid : "u_ud",
+			memberId : "u_mid",
+			sessionId : "u_sd",
+			clientTime : "c_time",
+			language : "l",
+			userAgent : "b_iev",
+			resolution : "b_rst",
+			currentUrl : "p_url",
+			referrerUrl : "p_ref",
+			title : "tt",
+			orderId : "oid",
+			orderName : "on",
+			currencyAmount : "cua",
+			currencyType : "cut",
+			paymentType : "pt",
+			category : "ca",
+			action : "ac",
+			kv : "kv_",
+			duration : "du"
+		},
+
+		keys : {
+			pageView : "e_pv",
+			chargeRequestEvent : "e_crt",
+			launch : "e_l",
+			eventDurationEvent : "e_e",
+			sid : "bftrack_sid",
+			uuid : "bftrack_uuid",
+			mid : "bftrack_mid",
+			preVisitTime : "bftrack_previsit",
+
+		},
+
+		/**
+		 * 获取会话id
+		 */
+		getSid : function() {
+			return CookieUtil.get(this.keys.sid);
+		},
+
+		/**
+		 * 保存会话id到cookie
+		 */
+		setSid : function(sid) {
+			if (sid) {
+				CookieUtil.setExt(this.keys.sid, sid);
+			}
+		},
+
+		/**
+		 * 获取uuid，从cookie中
+		 */
+		getUuid : function() {
+			return CookieUtil.get(this.keys.uuid);
+		},
+
+		/**
+		 * 保存uuid到cookie
+		 */
+		setUuid : function(uuid) {
+			if (uuid) {
+				CookieUtil.setExt(this.keys.uuid, uuid);
+			}
+		},
+
+		/**
+		 * 获取memberID
+		 */
+		getMemberId : function() {
+			return CookieUtil.get(this.keys.mid);
+		},
+
+		/**
+		 * 设置mid
+		 */
+		setMemberId : function(mid) {
+			if (mid) {
+				CookieUtil.setExt(this.keys.mid, mid);
+			}
+		},
+
+		startSession : function() {
+			// 加载js就触发的方法
+			if (this.getSid()) {
+				// 会话id存在，表示uuid也存在
+				if (this.isSessionTimeout()) {
+					// 会话过期,产生新的会话
+					this.createNewSession();
+				} else {
+					// 会话没有过期，更新最近访问时间
+					this.updatePreVisitTime(new Date().getTime());
+				}
+			} else {
+				// 会话id不存在，表示uuid也不存在
+				this.createNewSession();
+			}
+			this.onPageView();
+		},
+
+		onLaunch : function() {
+			// 触发launch事件
+			var launch = {};
+			launch[this.columns.eventName] = this.keys.launch; // 设置事件名称
+			this.setCommonColumns(launch); // 设置公用columns
+			this.sendDataToServer(this.parseParam(launch)); // 最终发送编码后的数据
+		},
+
+		onPageView : function() {
+			// 触发page view事件
+			if (this.preCallApi()) {
+				var time = new Date().getTime();
+				var pageviewEvent = {};
+				pageviewEvent[this.columns.eventName] = this.keys.pageView;
+				pageviewEvent[this.columns.currentUrl] = window.location.href; // 设置当前url
+				pageviewEvent[this.columns.referrerUrl] = document.referrer; // 设置前一个页面的url
+				pageviewEvent[this.columns.title] = document.title; // 设置title
+				this.setCommonColumns(pageviewEvent); // 设置公用columns
+				this.sendDataToServer(this.parseParam(pageviewEvent)); // 最终发送编码后的数据
+				this.updatePreVisitTime(time);
+			}
+		},
+
+		onChargeRequest : function(orderId, name, currencyAmount, currencyType, paymentType) {
+			// 触发订单产生事件
+			if (this.preCallApi()) {
+				if (!orderId || !currencyType || !paymentType) {
+					this.log("订单id、货币类型以及支付方式不能为空");
+					return;
+				}
+
+				if (typeof (currencyAmount) == "number") {
+					// 金额必须是数字
+					var time = new Date().getTime();
+					var chargeRequestEvent = {};
+					chargeRequestEvent[this.columns.eventName] = this.keys.chargeRequestEvent;
+					chargeRequestEvent[this.columns.orderId] = orderId;
+					chargeRequestEvent[this.columns.orderName] = name;
+					chargeRequestEvent[this.columns.currencyAmount] = currencyAmount;
+					chargeRequestEvent[this.columns.currencyType] = currencyType;
+					chargeRequestEvent[this.columns.paymentType] = paymentType;
+					this.setCommonColumns(chargeRequestEvent); // 设置公用columns
+					this.sendDataToServer(this.parseParam(chargeRequestEvent)); // 最终发送编码后的数据
+					this.updatePreVisitTime(time);
+				} else {
+					this.log("订单金额必须是数字");
+					return;
+				}
+			}
+		},
+
+		onEventDuration : function(category, action, map, duration) {
+			// 触发event事件
+			if (this.preCallApi()) {
+				if (category && action) {
+					var time = new Date().getTime();
+					var event = {};
+					event[this.columns.eventName] = this.keys.eventDurationEvent;
+					event[this.columns.category] = category;
+					event[this.columns.action] = action;
+					if (map) {
+						for ( var k in map) {
+							if (k && map[k]) {
+								event[this.columns.kv + k] = map[k];
+							}
+						}
+					}
+					if (duration) {
+						event[this.columns.duration] = duration;
+					}
+					this.setCommonColumns(event); // 设置公用columns
+					this.sendDataToServer(this.parseParam(event)); // 最终发送编码后的数据
+					this.updatePreVisitTime(time);
+				} else {
+					this.log("category和action不能为空");
+				}
+			}
+		},
+
+		/**
+		 * 执行对外方法前必须执行的方法
+		 */
+		preCallApi : function() {
+			if (this.isSessionTimeout()) {
+				// 如果为true，表示需要新建
+				this.startSession();
+			} else {
+				this.updatePreVisitTime(new Date().getTime());
+			}
+			return true;
+		},
+
+		sendDataToServer : function(data) {
+			
+			//alert(data);
+			
+			// 发送数据data到服务器，其中data是一个字符串
+			var that = this;
+			var i2 = new Image(1, 1);// <img src="url"></img>
+			i2.onerror = function() {
+				// 这里可以进行重试操作
+			};
+			i2.src = this.clientConfig.serverUrl + "?" + data;
+		},
+
+		/**
+		 * 往data中添加发送到日志收集服务器的公用部分
+		 */
+		setCommonColumns : function(data) {
+			data[this.columns.version] = this.clientConfig.ver;
+			data[this.columns.platform] = "website";
+			data[this.columns.sdk] = "js";
+			data[this.columns.uuid] = this.getUuid(); // 设置用户id
+			data[this.columns.memberId] = this.getMemberId(); // 设置会员id
+			data[this.columns.sessionId] = this.getSid(); // 设置sid
+			data[this.columns.clientTime] = new Date().getTime(); // 设置客户端时间
+			data[this.columns.language] = window.navigator.language; // 设置浏览器语言
+			data[this.columns.userAgent] = window.navigator.userAgent; // 设置浏览器类型
+			data[this.columns.resolution] = screen.width + "*" + screen.height; // 设置浏览器分辨率
+		},
+
+		/**
+		 * 创建新的会员，并判断是否是第一次访问页面，如果是，进行launch事件的发送。
+		 */
+		createNewSession : function() {
+			var time = new Date().getTime(); // 获取当前操作时间
+			// 1. 进行会话更新操作
+			var sid = this.generateId(); // 产生一个session id
+			this.setSid(sid);
+			this.updatePreVisitTime(time); // 更新最近访问时间
+			// 2. 进行uuid查看操作
+			if (!this.getUuid()) {
+				// uuid不存在，先创建uuid，然后保存到cookie，最后触发launch事件
+				var uuid = this.generateId(); // 产品uuid
+				this.setUuid(uuid);
+				this.onLaunch();
+			}
+		},
+
+		/**
+		 * 参数编码返回字符串
+		 */
+		parseParam : function(data) {
+			var params = "";
+			for ( var e in data) {
+				if (e && data[e]) {
+					params += encodeURIComponent(e) + "="
+							+ encodeURIComponent(data[e]) + "&";
+				}
+			}
+			if (params) {
+				return params.substring(0, params.length - 1);
+			} else {
+				return params;
+			}
+		},
+
+		/**
+		 * 产生uuid
+		 */
+		generateId : function() {
+			var chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+			var tmpid = [];
+			var r;
+			tmpid[8] = tmpid[13] = tmpid[18] = tmpid[23] = '-';
+			tmpid[14] = '4';
+
+			for (i = 0; i < 36; i++) {
+				if (!tmpid[i]) {
+					r = 0 | Math.random() * 16;
+					tmpid[i] = chars[(i == 19) ? (r & 0x3) | 0x8 : r];
+				}
+			}
+			return tmpid.join('');
+		},
+
+		/**
+		 * 判断这个会话是否过期，查看当前时间和最近访问时间间隔时间是否小于this.clientConfig.sessionTimeout<br/>
+		 * 如果是小于，返回false;否则返回true。
+		 */
+		isSessionTimeout : function() {
+			var time = new Date().getTime();
+			var preTime = CookieUtil.get(this.keys.preVisitTime);
+			if (preTime) {
+				// 最近访问时间存在,那么进行区间判断
+				return time - preTime > this.clientConfig.sessionTimeout * 1000;
+			}
+			return true;
+		},
+
+		/**
+		 * 更新最近访问时间
+		 */
+		updatePreVisitTime : function(time) {
+			CookieUtil.setExt(this.keys.preVisitTime, time);
+		},
+
+		/**
+		 * 打印日志
+		 */
+		log : function(msg) {
+			console.log(msg);
+		},
+
+	};
+
+	// 对外暴露的方法名称
+	window.__AE__ = {
+		startSession : function() {
+			tracker.startSession();
+		},
+		onPageView : function() {
+			tracker.onPageView();
+		},
+		onChargeRequest : function(orderId, name, currencyAmount, currencyType, paymentType) {
+			tracker.onChargeRequest(orderId, name, currencyAmount, currencyType, paymentType);
+		},
+		onEventDuration : function(category, action, map, duration) {
+			tracker.onEventDuration(category, action, map, duration);
+		},
+		setMemberId : function(mid) {
+			tracker.setMemberId(mid);
+		}
+	};
+
+	// 自动加载方法
+	var autoLoad = function() {
+		// 进行参数设置
+		var _aelog_ = _aelog_ || window._aelog_ || [];
+		var memberId = null;
+		for (i = 0; i < _aelog_.length; i++) {
+			// 如果_aelog_[i][0]等于"memberId"的话执行后面的赋值语句：memberId = _aelog_[i][1]
+			// ==会进行类型的转换之后再判断两者是否相等，而===不会进行数据类型的转换，先判断两边的数据类型是否相等，如果数据类型相等的话才会进行接下来的判断，再进行等式两边值得判断，可以理解为只有等式两边是全等（数据类型相同，值相同）的时候结果才会是true，否则全为false。
+			_aelog_[i][0] === "memberId" && (memberId = _aelog_[i][1]);
+		}
+		// 根据是给定memberid，设置memberid的值
+		// 如果memberId为真(即：memberId不为空)则执行后续的setMemberId
+		memberId && __AE__.setMemberId(memberId);
+		// 启动session
+		__AE__.startSession();
+	};
+
+	autoLoad();
+})();
+```
+
+web/demo.jsp
+
+```jsp
+<%@ page contentType="text/html; charset=utf-8" pageEncoding="utf-8"%>
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<title>测试页面1</title>
+<script type="text/javascript" src="./js/analytics.js"></script>
+</head>
+<body>
+	测试页面1<br/>
+	跳转到:
+	<a href="demo.jsp">demo</a>
+	<a href="demo2.jsp">demo2</a>
+	<a href="demo3.jsp">demo3</a>
+	<a href="demo4.jsp">demo4</a>
+</body>
+</html>
+```
+
+web/demo2.jsp
+
+```jsp
+<%@ page contentType="text/html; charset=utf-8" pageEncoding="utf-8"%>
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<title>测试页面2</title>
+<script type="text/javascript" src="./js/analytics.js"></script>
+</head>
+<body>
+	测试页面2
+	<br/>
+	<label>orderid: 123456</label><br>
+	<label>orderName: 测试订单123456</label><br/>
+	<label>currencyAmount: 524.01</label><br/>
+	<label>currencyType: RMB</label><br/>
+	<label>paymentType: alipay</label><br/>
+	<button onclick="__AE__.onChargeRequest('123456','测试订单123456',524.01,'RMB','alipay')">触发chargeRequest事件</button><br/>
+	跳转到:
+	<a href="demo.jsp">demo</a>
+	<a href="demo2.jsp">demo2</a>
+	<a href="demo3.jsp">demo3</a>
+	<a href="demo4.jsp">demo4</a>
+</body>
+</html>
+```
+
+demo3.jsp
+
+```jsp
+<%@ page contentType="text/html; charset=utf-8" pageEncoding="utf-8"%>
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<title>测试页面3</title>
+<script type="text/javascript" src="./js/analytics.js"></script>
+</head>
+<body>
+	测试页面3<br/>
+	<label>category: event的category名称</label><br/>
+	<label>action: event的action名称</label><br/>
+	<label>map: {"key1":"value1", "key2":"value2"}</label><br/>
+	<label>duration: 1245</label><br/>
+	<button onclick="__AE__.onEventDuration('event的category名称','event的action名称', {'key1':'value1','key2':'value2'}, 1245)">触发带map和duration的事件</button><br/>
+	<button onclick="__AE__.onEventDuration('event的category名称','event的action名称')">触发不带map和duration的事件</button><br/>
+	跳转到:
+	<a href="demo.jsp">demo</a>
+	<a href="demo2.jsp">demo2</a>
+	<a href="demo3.jsp">demo3</a>
+	<a href="demo4.jsp">demo4</a>
+</body>
+</html>
+```
+
+demo4.jsp
+
+```jsp
+<%@ page contentType="text/html; charset=utf-8" pageEncoding="utf-8"%>
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<title>测试页面4</title>
+<script type="text/javascript">
+(function(){
+	var _aelog_ = _aelog_ || window._aelog_ || [];
+	// 设置_aelog_相关属性
+	_aelog_.push(["memberId","zhangsan"]);
+	window._aelog_ = _aelog_;
+	(function(){
+	    var aejs = document.createElement('script');
+	    aejs.type = 'text/javascript';
+	    aejs.async = true;
+	    aejs.src = './js/analytics.js';
+	    var script = document.getElementsByTagName('script')[0];
+	    script.parentNode.insertBefore(aejs, script);
+	})();
+})();
+</script>
+</head>
+<body>
+	测试页面4<br/>
+	在本页面设置memberid为zhangsan<br/>
+	跳转到:
+	<a href="demo.jsp">demo</a>
+	<a href="demo2.jsp">demo2</a>
+	<a href="demo3.jsp">demo3</a>
+	<a href="demo4.jsp">demo4</a>
+</body>
+</html>
+```
+
+web/WEB-INF/web.xml
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<web-app xmlns="http://xmlns.jcp.org/xml/ns/javaee"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://xmlns.jcp.org/xml/ns/javaee http://xmlns.jcp.org/xml/ns/javaee/web-app_4_0.xsd"
+         version="4.0">
+    <display-name>log_analyse</display-name>
+    <welcome-file-list>
+        <welcome-file>index.html</welcome-file>
+        <welcome-file>index.htm</welcome-file>
+        <welcome-file>index.jsp</welcome-file>
+        <welcome-file>default.html</welcome-file>
+        <welcome-file>default.htm</welcome-file>
+        <welcome-file>default.jsp</welcome-file>
+    </welcome-file-list>
+</web-app>
+```
+
+nginx_web3.conf
+
+```properties
+
+#user  nobody;
+worker_processes  1;
+
+#error_log  logs/error.log;
+#error_log  logs/error.log  notice;
+#error_log  logs/error.log  info;
+
+#pid        logs/nginx.pid;
+
+
+events {
+    worker_connections  1024;
+}
+
+# load modules compiled as Dynamic Shared Object (DSO)
+#
+#dso {
+#    load ngx_http_fastcgi_module.so;
+#    load ngx_http_rewrite_module.so;
+#}
+
+http {
+    include       mime.types;
+    default_type  application/octet-stream;
+
+    #log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
+    #                  '$status $body_bytes_sent "$http_referer" '
+    #                  '"$http_user_agent" "$http_x_forwarded_for"';
+
+    log_format my_format '$remote_addr^A$msec^A$http_host^A$request_uri';
+
+    #access_log  logs/access.log  main;
+
+    sendfile        on;
+    #tcp_nopush     on;
+
+    #keepalive_timeout  0;
+    keepalive_timeout  65;
+
+    #gzip  on;
+
+    server {
+        listen       80;
+        server_name  localhost;
+
+        #charset koi8-r;
+
+        #access_log  logs/host.access.log  main;
+
+        location / {
+            root   html;
+            index  index.html index.htm;
+        }
+
+        location = /log.gif {
+            default_type image/gif;
+            access_log logs/custom_access.log my_format;
+        }
+
+
+        #error_page  404              /404.html;
+
+        # redirect server error pages to the static page /50x.html
+        #
+        error_page   500 502 503 504  /50x.html;
+        location = /50x.html {
+            root   html;
+        }
     }
 }
 ```

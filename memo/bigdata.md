@@ -3999,7 +3999,42 @@ col_name data_type [comment '字段描述信息'])
 
 ##### row format
 
-指定表文件字段分隔符
+指定表文件字段分隔符，hive默认的分隔符为：'\001'；
+
+注意：在java中定义字符时，
+
+1. 如果用整型来表示的话表示的是该字符的ascii码值，
+
+2. 如果用字符的话，如果有数字的话只能用0到9的数字，如果有超过9的数值的话必须加转义字符(反斜杠)，表示的是八进制的ascii码，否则会报错，
+
+   ```java
+   package com.duo.test;
+   
+   import com.duo.client.AnalyticsEngineSDK;
+   
+   public class Test {
+       public static void main(String[] args) {
+           // 在ascii码中，110代表的是字符n
+           char a = 110;
+           System.out.println(a);
+           // 由于将字符6赋值给b，所以此时的b代表的就是字符6，而不是ascii码6代表的字符
+           char b = '6';
+           System.out.println(b);
+           // 将数值大于9的数赋值给字符会报错
+           //char c = '64';
+           // 将数值大于9的数赋值转义后赋值给字符，相当于将八进制的ascii码赋值给字符，此时的64表示的是八进制为64的ascii码代表的字符
+           // 由于此时转义符后面只能跟八进制，所以 c = '\18', c = '\91'都是非法的(八进制中不存在8，和9的数字)
+           char c = '\64';
+           System.out.println(c);
+           // 八进制的64等于十进制的52，所以c和d代表的字符是相等的
+           char d = 52;
+           System.out.println(d);
+           // 在字符串中，以转义符为开头后面加数字代表的也是八进制的ascii码代表的字符
+           // 比如"\60"，等于十进制的48，在ascii码中代表的是0；
+           System.out.println("\60");
+       }
+   }
+   ```
 
 ##### storted as
 
@@ -10238,6 +10273,996 @@ http {
 ### 数据预处理
 
 数据预处理（data preprocessing）是指在正式处理以前对数据进行的一些处理，保证后续正式处理的数据是格式统一、干净规则的结构化数据。现实世界中数据大体上都是不完整，不一致的脏数据，无法直接进行数据分析，或者说不利于分析。为了提高数据分析的质量和便捷性产生了数据预处理技术。数据预处理有多种方法：数据清理，数据集成，数据变换等。这些数据处理技术在正式数据分析之前使用，大大提高了后续数据分析的质量与便捷，降低实际分析所需要的时间。技术上原则来说，任何可以接受数据经过处理输出数据的语言技术都可以用来进行数据预处理。比如java、Python、shell等。本项目中通过MapReduce程序对采集到的原始日志数据进行预处理，比如数据清洗，日期格式整理，滤除不合法数据等，并且梳理成点击流模型数据。使用MapReduce的好处在于：一是java语言熟悉度高，有很多开源的工具库便于数据处理，二是MR可以进行分布式的计算，并发处理效率高。
+
+预处理过程中有些编程小技巧需要注意：
+
+1. 如果涉及多属性值数据传递 通常可建立与之对应的javabean携带数据传递注意要实现Hadoop序列化机制---writable接口。
+2. 有意识的把javabean中toString方法重写，以\001进行分割，方便后续数据入hive映射方便。
+3. 如涉及不符合本次分析的脏数据，往往采用逻辑删除，也就是自定义标记位，比如使用1或者0来表示数据是否有效，而不是直接物理删除。
+
+WebLogBean.java
+
+```java
+package org.duo.weblog;
+
+import org.apache.hadoop.io.Writable;
+
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+
+/**
+ * 对接外部数据的层，表结构定义最好跟外部数据源保持一致
+ * 术语： 贴源表
+ * @author
+ *
+ */
+public class WebLogBean implements Writable {
+
+	private boolean valid = true;// 判断数据是否合法
+	private String remote_addr;// 记录客户端的ip地址
+	private String remote_user;// 记录客户端用户名称,忽略属性"-"
+	private String time_local;// 记录访问时间与时区
+	private String request;// 记录请求的url与http协议
+	private String status;// 记录请求状态；成功是200
+	private String body_bytes_sent;// 记录发送给客户端文件主体内容大小
+	private String http_referer;// 用来记录从那个页面链接访问过来的
+	private String http_user_agent;// 记录客户浏览器的相关信息
+
+	
+	public void set(boolean valid,String remote_addr, String remote_user, String time_local, String request, String status, String body_bytes_sent, String http_referer, String http_user_agent) {
+		this.valid = valid;
+		this.remote_addr = remote_addr;
+		this.remote_user = remote_user;
+		this.time_local = time_local;
+		this.request = request;
+		this.status = status;
+		this.body_bytes_sent = body_bytes_sent;
+		this.http_referer = http_referer;
+		this.http_user_agent = http_user_agent;
+	}
+
+	public String getRemote_addr() {
+		return remote_addr;
+	}
+
+	public void setRemote_addr(String remote_addr) {
+		this.remote_addr = remote_addr;
+	}
+
+	public String getRemote_user() {
+		return remote_user;
+	}
+
+	public void setRemote_user(String remote_user) {
+		this.remote_user = remote_user;
+	}
+
+	public String getTime_local() {
+		return this.time_local;
+	}
+
+	public void setTime_local(String time_local) {
+		this.time_local = time_local;
+	}
+
+	public String getRequest() {
+		return request;
+	}
+
+	public void setRequest(String request) {
+		this.request = request;
+	}
+
+	public String getStatus() {
+		return status;
+	}
+
+	public void setStatus(String status) {
+		this.status = status;
+	}
+
+	public String getBody_bytes_sent() {
+		return body_bytes_sent;
+	}
+
+	public void setBody_bytes_sent(String body_bytes_sent) {
+		this.body_bytes_sent = body_bytes_sent;
+	}
+
+	public String getHttp_referer() {
+		return http_referer;
+	}
+
+	public void setHttp_referer(String http_referer) {
+		this.http_referer = http_referer;
+	}
+
+	public String getHttp_user_agent() {
+		return http_user_agent;
+	}
+
+	public void setHttp_user_agent(String http_user_agent) {
+		this.http_user_agent = http_user_agent;
+	}
+
+	public boolean isValid() {
+		return valid;
+	}
+
+	public void setValid(boolean valid) {
+		this.valid = valid;
+	}
+
+	@Override
+	public String toString() {
+		StringBuilder sb = new StringBuilder();
+		sb.append(this.valid);
+		sb.append("\001").append(this.getRemote_addr());
+		sb.append("\001").append(this.getRemote_user());
+		sb.append("\001").append(this.getTime_local());
+		sb.append("\001").append(this.getRequest());
+		sb.append("\001").append(this.getStatus());
+		sb.append("\001").append(this.getBody_bytes_sent());
+		sb.append("\001").append(this.getHttp_referer());
+		sb.append("\001").append(this.getHttp_user_agent());
+		return sb.toString();
+	}
+
+	@Override
+	public void readFields(DataInput in) throws IOException {
+		this.valid = in.readBoolean();
+		this.remote_addr = in.readUTF();
+		this.remote_user = in.readUTF();
+		this.time_local = in.readUTF();
+		this.request = in.readUTF();
+		this.status = in.readUTF();
+		this.body_bytes_sent = in.readUTF();
+		this.http_referer = in.readUTF();
+		this.http_user_agent = in.readUTF();
+
+	}
+
+	@Override
+	public void write(DataOutput out) throws IOException {
+		out.writeBoolean(this.valid);
+		out.writeUTF(null==remote_addr?"":remote_addr);
+		out.writeUTF(null==remote_user?"":remote_user);
+		out.writeUTF(null==time_local?"":time_local);
+		out.writeUTF(null==request?"":request);
+		out.writeUTF(null==status?"":status);
+		out.writeUTF(null==body_bytes_sent?"":body_bytes_sent);
+		out.writeUTF(null==http_referer?"":http_referer);
+		out.writeUTF(null==http_user_agent?"":http_user_agent);
+
+	}
+
+}
+```
+
+WebLogParser.java
+
+```java
+package org.duo.weblog;
+
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.Locale;
+import java.util.Set;
+
+public class WebLogParser {
+
+	public static SimpleDateFormat df1 = new SimpleDateFormat("dd/MMM/yyyy:HH:mm:ss", Locale.US);
+	public static SimpleDateFormat df2 = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US);
+
+	public static WebLogBean parser(String line) {
+		WebLogBean webLogBean = new WebLogBean();
+		String[] arr = line.split(" ");
+		if (arr.length > 11) {
+			webLogBean.setRemote_addr(arr[0]);
+			webLogBean.setRemote_user(arr[1]);
+			String time_local = formatDate(arr[3].substring(1));
+			if(null==time_local || "".equals(time_local)) time_local="-invalid_time-";
+			webLogBean.setTime_local(time_local);
+			webLogBean.setRequest(arr[6]);
+			webLogBean.setStatus(arr[8]);
+			webLogBean.setBody_bytes_sent(arr[9]);
+			webLogBean.setHttp_referer(arr[10]);
+
+			//如果useragent元素较多，拼接useragent
+			if (arr.length > 12) {
+				StringBuilder sb = new StringBuilder();
+				for(int i=11;i<arr.length;i++){
+					sb.append(arr[i]);
+				}
+				webLogBean.setHttp_user_agent(sb.toString());
+			} else {
+				webLogBean.setHttp_user_agent(arr[11]);
+			}
+
+			if (Integer.parseInt(webLogBean.getStatus()) >= 400) {// 大于400，HTTP错误
+				webLogBean.setValid(false);
+			}
+			
+			if("-invalid_time-".equals(webLogBean.getTime_local())){
+				webLogBean.setValid(false);
+			}
+		} else {
+			webLogBean=null;
+		}
+
+		return webLogBean;
+	}
+
+	public static void filtStaticResource(WebLogBean bean, Set<String> pages) {
+		if (!pages.contains(bean.getRequest())) {
+			bean.setValid(false);
+		}
+	}
+        //格式化时间方法
+	public static String formatDate(String time_local) {
+		try {
+			return df2.format(df1.parse(time_local));
+		} catch (ParseException e) {
+			return null;
+		}
+
+	}
+
+}
+```
+
+WeblogPreProcess.java
+
+```java
+package org.duo.weblog;
+
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.LongWritable;
+import org.apache.hadoop.io.NullWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.mapreduce.Mapper;
+import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
+import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
+
+import java.io.IOException;
+import java.util.HashSet;
+import java.util.Set;
+
+/**
+ * 处理原始日志，过滤出真实pv请求 转换时间格式 对缺失字段填充默认值 对记录标记valid和invalid
+ */
+
+public class WeblogPreProcess {
+
+    static class WeblogPreProcessMapper extends Mapper<LongWritable, Text, Text, NullWritable> {
+        // 用来存储网站url分类数据
+        Set<String> pages = new HashSet<String>();
+        Text k = new Text();
+        NullWritable v = NullWritable.get();
+
+        /**
+         * 从外部配置文件中加载网站的有用url分类数据 存储到maptask的内存中，用来对日志数据进行过滤
+         */
+        @Override
+        protected void setup(Context context) throws IOException, InterruptedException {
+            pages.add("/about");
+            pages.add("/black-ip-list/");
+            pages.add("/cassandra-clustor/");
+            pages.add("/finance-rhive-repurchase/");
+            pages.add("/hadoop-family-roadmap/");
+            pages.add("/hadoop-hive-intro/");
+            pages.add("/hadoop-zookeeper-intro/");
+            pages.add("/hadoop-mahout-roadmap/");
+
+        }
+
+        @Override
+        protected void map(LongWritable key, Text value, Context context) throws IOException, InterruptedException {
+
+            String line = value.toString();
+            WebLogBean webLogBean = WebLogParser.parser(line);
+            if (webLogBean != null) {
+                // 过滤js/图片/css等静态资源
+                WebLogParser.filtStaticResource(webLogBean, pages);
+                /* if (!webLogBean.isValid()) return; */
+                k.set(webLogBean.toString());
+                context.write(k, v);
+            }
+        }
+
+    }
+
+    public static void main(String[] args) throws Exception {
+
+        String inPath = args[0];
+        String outpath = args[1];
+
+        Configuration conf = new Configuration();
+        Job job = Job.getInstance(conf);
+
+        job.setJarByClass(WeblogPreProcess.class);
+
+        job.setMapperClass(WeblogPreProcessMapper.class);
+
+        job.setOutputKeyClass(Text.class);
+        job.setOutputValueClass(NullWritable.class);
+
+//		 FileInputFormat.setInputPaths(job, new Path(args[0]));
+//		 FileOutputFormat.setOutputPath(job, new Path(args[1]));
+        FileInputFormat.setInputPaths(job, new Path(inPath));
+        FileOutputFormat.setOutputPath(job, new Path(outpath));
+
+        job.setNumReduceTasks(0);
+
+        boolean res = job.waitForCompletion(true);
+        System.exit(res ? 0 : 1);
+    }
+}
+```
+
+#### 点击流模型数据
+
+点击流（Click Stream）是指用户在网站上持续访问的轨迹。注重用户浏览网站的整个流程。用户对网站的每次访问包含了一系列的点击动作行为，这些点击行为数据就构成了点击流数据（Click Stream Data），它代表了用户浏览网站的整个流程。
+
+点击流和网站日志是两个不同的概念，点击流是从用户的角度出发，注重用户浏览网站的整个流程；而网站日志是面向整个站点，它包含了用户行为数据、服务器响应数据等众多日志信息，我们通过对网站日志的分析可以获得用户的点击流数据。
+
+点击流模型完全是业务模型，相关概念由业务指定而来。由于大量的指标统计从点击流模型中更容易得出，所以在预处理阶段，可以使用MapReduce程序来生成点击流模型的数据。
+在点击流模型中，存在着两种模型数据：PageViews、Visits。
+
+##### pageviews
+
+Pageviews模型数据专注于用户每次会话（session）的识别，以及每次session内访问了几步和每一步的停留时间。在网站分析中，通常把前后两条访问记录时间差在30分钟以内算成一次会话。如果超过30分钟，则把下次访问算成新的会话开始。大致步骤如下：
+
+1. 在所有访问日志中找出该用户的所有访问记录
+2. 把该用户所有访问记录按照时间正序排序
+3. 计算前后两条记录时间差是否为30分钟
+4. 如果小于30分钟，则是同一会话session的延续
+5. 如果大于30分钟，则是下一会话session的开始
+6. 用前后两条记录时间差算出上一步停留时间
+7. 最后一步和只有一步的  业务默认指定页面停留时间60s
+
+PageViewsBean.java
+
+```java
+package org.duo.weblog.pageviews;
+
+import org.apache.hadoop.io.Writable;
+
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+
+public class PageViewsBean implements Writable {
+
+	private String session;
+	private String remote_addr;
+	private String timestr;
+	private String request;
+	private int step;
+	private String staylong;
+	private String referal;
+	private String useragent;
+	private String bytes_send;
+	private String status;
+
+	public void set(String session, String remote_addr, String useragent, String timestr, String request, int step, String staylong, String referal, String bytes_send, String status) {
+		this.session = session;
+		this.remote_addr = remote_addr;
+		this.useragent = useragent;
+		this.timestr = timestr;
+		this.request = request;
+		this.step = step;
+		this.staylong = staylong;
+		this.referal = referal;
+		this.bytes_send = bytes_send;
+		this.status = status;
+	}
+
+	public String getSession() {
+		return session;
+	}
+
+	public void setSession(String session) {
+		this.session = session;
+	}
+
+	public String getRemote_addr() {
+		return remote_addr;
+	}
+
+	public void setRemote_addr(String remote_addr) {
+		this.remote_addr = remote_addr;
+	}
+
+	public String getTimestr() {
+		return timestr;
+	}
+
+	public void setTimestr(String timestr) {
+		this.timestr = timestr;
+	}
+
+	public String getRequest() {
+		return request;
+	}
+
+	public void setRequest(String request) {
+		this.request = request;
+	}
+
+	public int getStep() {
+		return step;
+	}
+
+	public void setStep(int step) {
+		this.step = step;
+	}
+
+	public String getStaylong() {
+		return staylong;
+	}
+
+	public void setStaylong(String staylong) {
+		this.staylong = staylong;
+	}
+
+	public String getReferal() {
+		return referal;
+	}
+
+	public void setReferal(String referal) {
+		this.referal = referal;
+	}
+
+	public String getUseragent() {
+		return useragent;
+	}
+
+	public void setUseragent(String useragent) {
+		this.useragent = useragent;
+	}
+
+	public String getBytes_send() {
+		return bytes_send;
+	}
+
+	public void setBytes_send(String bytes_send) {
+		this.bytes_send = bytes_send;
+	}
+
+	public String getStatus() {
+		return status;
+	}
+
+	public void setStatus(String status) {
+		this.status = status;
+	}
+
+	@Override
+	public void readFields(DataInput in) throws IOException {
+		this.session = in.readUTF();
+		this.remote_addr = in.readUTF();
+		this.timestr = in.readUTF();
+		this.request = in.readUTF();
+		this.step = in.readInt();
+		this.staylong = in.readUTF();
+		this.referal = in.readUTF();
+		this.useragent = in.readUTF();
+		this.bytes_send = in.readUTF();
+		this.status = in.readUTF();
+
+	}
+
+	@Override
+	public void write(DataOutput out) throws IOException {
+		out.writeUTF(session);
+		out.writeUTF(remote_addr);
+		out.writeUTF(timestr);
+		out.writeUTF(request);
+		out.writeInt(step);
+		out.writeUTF(staylong);
+		out.writeUTF(referal);
+		out.writeUTF(useragent);
+		out.writeUTF(bytes_send);
+		out.writeUTF(status);
+
+	}
+
+}
+```
+
+ClickStreamPageView.java
+
+```java
+package org.duo.weblog.pageviews;
+
+import org.apache.commons.beanutils.BeanUtils;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.LongWritable;
+import org.apache.hadoop.io.NullWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.mapreduce.Mapper;
+import org.apache.hadoop.mapreduce.Reducer;
+import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
+import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
+import org.duo.weblog.WebLogBean;
+
+import java.io.IOException;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.*;
+
+
+/**
+ * 将清洗之后的日志梳理出点击流pageviews模型数据
+ * <p>
+ * 输入数据是清洗过后的结果数据
+ * <p>
+ * 区分出每一次会话，给每一次visit（session）增加了session-id（随机uuid）
+ * 梳理出每一次会话中所访问的每个页面（请求时间，url，停留时长，以及该页面在这次session中的序号）
+ * 保留referral_url，body_bytes_send，useragent
+ *
+ * @author
+ */
+public class ClickStreamPageView {
+
+    static class ClickStreamMapper extends Mapper<LongWritable, Text, Text, WebLogBean> {
+
+        Text k = new Text();
+        WebLogBean v = new WebLogBean();
+
+        @Override
+        protected void map(LongWritable key, Text value, Context context) throws IOException, InterruptedException {
+
+            String line = value.toString();
+
+            String[] fields = line.split("\001");
+            if (fields.length < 9) return;
+            //将切分出来的各字段set到weblogbean中
+            //fields[0].equals("true")
+            v.set("true".equals(fields[0]) ? true : false, fields[1], fields[2], fields[3], fields[4], fields[5], fields[6], fields[7], fields[8]);
+            //只有有效记录才进入后续处理
+            if (v.isValid()) {
+                //此处用ip地址来标识用户
+                k.set(v.getRemote_addr());
+                context.write(k, v);
+            }
+        }
+    }
+
+    static class ClickStreamReducer extends Reducer<Text, WebLogBean, NullWritable, Text> {
+
+        Text v = new Text();
+
+        @Override
+        protected void reduce(Text key, Iterable<WebLogBean> values, Context context) throws IOException, InterruptedException {
+            ArrayList<WebLogBean> beans = new ArrayList<WebLogBean>();
+
+//			for (WebLogBean b : values) {
+//				beans.add(b);
+//			}
+
+            // 先将一个用户的所有访问记录中的时间拿出来排序
+            try {
+                for (WebLogBean bean : values) {
+                    WebLogBean webLogBean = new WebLogBean();
+                    try {
+                        BeanUtils.copyProperties(webLogBean, bean);
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                    beans.add(webLogBean);
+                }
+
+
+                //将bean按时间先后顺序排序
+                Collections.sort(beans, new Comparator<WebLogBean>() {
+
+                    @Override
+                    public int compare(WebLogBean o1, WebLogBean o2) {
+                        try {
+                            Date d1 = toDate(o1.getTime_local());
+                            Date d2 = toDate(o2.getTime_local());
+                            if (d1 == null || d2 == null)
+                                return 0;
+                            return d1.compareTo(d2);
+                        } catch (Exception e) {
+                            e.printStackTrace();
+                            return 0;
+                        }
+                    }
+
+                });
+
+                /**
+                 * 以下逻辑为：从有序bean中分辨出各次visit，并对一次visit中所访问的page按顺序标号step
+                 * 核心思想：
+                 * 就是比较相邻两条记录中的时间差，如果时间差<30分钟，则该两条记录属于同一个session
+                 * 否则，就属于不同的session
+                 *
+                 */
+
+                int step = 1;
+                String session = UUID.randomUUID().toString();
+                for (int i = 0; i < beans.size(); i++) {
+                    WebLogBean bean = beans.get(i);
+                    // 如果仅有1条数据，则直接输出
+                    if (1 == beans.size()) {
+
+                        // 设置默认停留时长为60s
+                        v.set(session + "\001" + key.toString() + "\001" + bean.getRemote_user() + "\001" + bean.getTime_local() + "\001" + bean.getRequest() + "\001" + step + "\001" + (60) + "\001" + bean.getHttp_referer() + "\001" + bean.getHttp_user_agent() + "\001" + bean.getBody_bytes_sent() + "\001"
+                                + bean.getStatus());
+                        context.write(NullWritable.get(), v);
+                        session = UUID.randomUUID().toString();
+                        break;
+                    }
+
+                    // 如果不止1条数据，则将第一条跳过不输出，遍历第二条时再输出
+                    if (i == 0) {
+                        continue;
+                    }
+
+                    // 求近两次时间差
+                    long timeDiff = timeDiff(toDate(bean.getTime_local()), toDate(beans.get(i - 1).getTime_local()));
+                    // 如果本次-上次时间差<30分钟，则输出前一次的页面访问信息
+
+                    if (timeDiff < 30 * 60 * 1000) {
+
+                        v.set(session + "\001" + key.toString() + "\001" + beans.get(i - 1).getRemote_user() + "\001" + beans.get(i - 1).getTime_local() + "\001" + beans.get(i - 1).getRequest() + "\001" + step + "\001" + (timeDiff / 1000) + "\001" + beans.get(i - 1).getHttp_referer() + "\001"
+                                + beans.get(i - 1).getHttp_user_agent() + "\001" + beans.get(i - 1).getBody_bytes_sent() + "\001" + beans.get(i - 1).getStatus());
+                        context.write(NullWritable.get(), v);
+                        step++;
+                    } else {
+
+                        // 如果本次-上次时间差>30分钟，则输出前一次的页面访问信息且将step重置，以分隔为新的visit
+                        v.set(session + "\001" + key.toString() + "\001" + beans.get(i - 1).getRemote_user() + "\001" + beans.get(i - 1).getTime_local() + "\001" + beans.get(i - 1).getRequest() + "\001" + (step) + "\001" + (60) + "\001" + beans.get(i - 1).getHttp_referer() + "\001"
+                                + beans.get(i - 1).getHttp_user_agent() + "\001" + beans.get(i - 1).getBody_bytes_sent() + "\001" + beans.get(i - 1).getStatus());
+                        context.write(NullWritable.get(), v);
+                        // 输出完上一条之后，重置step编号
+                        step = 1;
+                        session = UUID.randomUUID().toString();
+                    }
+
+                    // 如果此次遍历的是最后一条，则将本条直接输出
+                    if (i == beans.size() - 1) {
+                        // 设置默认停留市场为60s
+                        v.set(session + "\001" + key.toString() + "\001" + bean.getRemote_user() + "\001" + bean.getTime_local() + "\001" + bean.getRequest() + "\001" + step + "\001" + (60) + "\001" + bean.getHttp_referer() + "\001" + bean.getHttp_user_agent() + "\001" + bean.getBody_bytes_sent() + "\001" + bean.getStatus());
+                        context.write(NullWritable.get(), v);
+                    }
+                }
+
+            } catch (ParseException e) {
+                e.printStackTrace();
+
+            }
+
+        }
+
+        private String toStr(Date date) {
+            SimpleDateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US);
+            return df.format(date);
+        }
+
+        private Date toDate(String timeStr) throws ParseException {
+            SimpleDateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US);
+            return df.parse(timeStr);
+        }
+
+        private long timeDiff(String time1, String time2) throws ParseException {
+            Date d1 = toDate(time1);
+            Date d2 = toDate(time2);
+            return d1.getTime() - d2.getTime();
+
+        }
+
+        private long timeDiff(Date time1, Date time2) throws ParseException {
+
+            return time1.getTime() - time2.getTime();
+
+        }
+
+    }
+
+    public static void main(String[] args) throws Exception {
+
+        Configuration conf = new Configuration();
+        Job job = Job.getInstance(conf);
+
+        job.setJarByClass(ClickStreamPageView.class);
+
+        job.setMapperClass(ClickStreamMapper.class);
+        job.setReducerClass(ClickStreamReducer.class);
+
+        job.setMapOutputKeyClass(Text.class);
+        job.setMapOutputValueClass(WebLogBean.class);
+
+        job.setOutputKeyClass(Text.class);
+        job.setOutputValueClass(Text.class);
+
+        FileInputFormat.setInputPaths(job, new Path("D:\\out\\weblog"));
+        FileOutputFormat.setOutputPath(job, new Path("D:\\out\\pageviews"));
+
+        job.waitForCompletion(true);
+
+    }
+}
+```
+
+##### visit
+
+Visit模型专注于每次会话session内起始、结束的访问情况信息。比如用户在某一个会话session内，进入会话的起始页面和起始时间，会话结束是从哪个页面离开的，离开时间，本次session总共访问了几个页面等信息。大致步骤如下：
+
+1. 在pageviews模型上进行梳理
+2. 在每一次回收session内所有访问记录按照时间正序排序
+3. 第一天的时间页面就是起始时间页面
+4. 业务指定最后一条记录的时间页面作为离开时间和离开页面
+
+VisitBean.java
+
+```java
+package org.duo.weblog.visits;
+
+import org.apache.hadoop.io.Writable;
+
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+
+public class VisitBean implements Writable {
+
+	private String session;
+	private String remote_addr;
+	private String inTime;
+	private String outTime;
+	private String inPage;
+	private String outPage;
+	private String referal;
+	private int pageVisits;
+
+	public void set(String session, String remote_addr, String inTime, String outTime, String inPage, String outPage, String referal, int pageVisits) {
+		this.session = session;
+		this.remote_addr = remote_addr;
+		this.inTime = inTime;
+		this.outTime = outTime;
+		this.inPage = inPage;
+		this.outPage = outPage;
+		this.referal = referal;
+		this.pageVisits = pageVisits;
+	}
+
+	public String getSession() {
+		return session;
+	}
+
+	public void setSession(String session) {
+		this.session = session;
+	}
+
+	public String getRemote_addr() {
+		return remote_addr;
+	}
+
+	public void setRemote_addr(String remote_addr) {
+		this.remote_addr = remote_addr;
+	}
+
+	public String getInTime() {
+		return inTime;
+	}
+
+	public void setInTime(String inTime) {
+		this.inTime = inTime;
+	}
+
+	public String getOutTime() {
+		return outTime;
+	}
+
+	public void setOutTime(String outTime) {
+		this.outTime = outTime;
+	}
+
+	public String getInPage() {
+		return inPage;
+	}
+
+	public void setInPage(String inPage) {
+		this.inPage = inPage;
+	}
+
+	public String getOutPage() {
+		return outPage;
+	}
+
+	public void setOutPage(String outPage) {
+		this.outPage = outPage;
+	}
+
+	public String getReferal() {
+		return referal;
+	}
+
+	public void setReferal(String referal) {
+		this.referal = referal;
+	}
+
+	public int getPageVisits() {
+		return pageVisits;
+	}
+
+	public void setPageVisits(int pageVisits) {
+		this.pageVisits = pageVisits;
+	}
+
+	@Override
+	public void readFields(DataInput in) throws IOException {
+		this.session = in.readUTF();
+		this.remote_addr = in.readUTF();
+		this.inTime = in.readUTF();
+		this.outTime = in.readUTF();
+		this.inPage = in.readUTF();
+		this.outPage = in.readUTF();
+		this.referal = in.readUTF();
+		this.pageVisits = in.readInt();
+
+	}
+
+	@Override
+	public void write(DataOutput out) throws IOException {
+		out.writeUTF(session);
+		out.writeUTF(remote_addr);
+		out.writeUTF(inTime);
+		out.writeUTF(outTime);
+		out.writeUTF(inPage);
+		out.writeUTF(outPage);
+		out.writeUTF(referal);
+		out.writeInt(pageVisits);
+
+	}
+
+	@Override
+	public String toString() {
+		return session + "\001" + remote_addr + "\001" + inTime + "\001" + outTime + "\001" + inPage + "\001" + outPage + "\001" + referal + "\001" + pageVisits;
+	}
+}
+```
+
+ClickStreamVisit.java
+
+```java
+package org.duo.weblog.visits;
+
+import org.apache.commons.beanutils.BeanUtils;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.LongWritable;
+import org.apache.hadoop.io.NullWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.mapreduce.Mapper;
+import org.apache.hadoop.mapreduce.Reducer;
+import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
+import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
+import org.duo.weblog.pageviews.PageViewsBean;
+
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+
+/**
+ * 输入数据：pageviews模型结果数据
+ * 从pageviews模型结果数据中进一步梳理出visit模型
+ * sessionid  start-time   out-time   start-page   out-page   pagecounts  ......
+ * 
+ * @author
+ *
+ */
+public class ClickStreamVisit {
+
+	// 以session作为key，发送数据到reducer
+	static class ClickStreamVisitMapper extends Mapper<LongWritable, Text, Text, PageViewsBean> {
+
+		PageViewsBean pvBean = new PageViewsBean();
+		Text k = new Text();
+
+		@Override
+		protected void map(LongWritable key, Text value, Context context) throws IOException, InterruptedException {
+
+			String line = value.toString();
+			String[] fields = line.split("\001");
+			int step = Integer.parseInt(fields[5]);
+			//(String session, String remote_addr, String timestr, String request, int step, String staylong, String referal, String useragent, String bytes_send, String status)
+			//299d6b78-9571-4fa9-bcc2-f2567c46df3472.46.128.140-2013-09-18 07:58:50/hadoop-zookeeper-intro/160"https://www.google.com/""Mozilla/5.0"14722200
+			pvBean.set(fields[0], fields[1], fields[2], fields[3],fields[4], step, fields[6], fields[7], fields[8], fields[9]);
+			k.set(pvBean.getSession());
+			context.write(k, pvBean);
+
+		}
+
+	}
+
+	static class ClickStreamVisitReducer extends Reducer<Text, PageViewsBean, NullWritable, VisitBean> {
+
+		@Override
+		protected void reduce(Text session, Iterable<PageViewsBean> pvBeans, Context context) throws IOException, InterruptedException {
+
+			// 将pvBeans按照step排序
+			ArrayList<PageViewsBean> pvBeansList = new ArrayList<PageViewsBean>();
+			for (PageViewsBean pvBean : pvBeans) {
+				PageViewsBean bean = new PageViewsBean();
+				try {
+					BeanUtils.copyProperties(bean, pvBean);
+					pvBeansList.add(bean);
+				} catch (Exception e) {
+					e.printStackTrace();
+				}
+			}
+
+			Collections.sort(pvBeansList, new Comparator<PageViewsBean>() {
+
+				@Override
+				public int compare(PageViewsBean o1, PageViewsBean o2) {
+
+					return o1.getStep() > o2.getStep() ? 1 : -1;
+				}
+			});
+
+			// 取这次visit的首尾pageview记录，将数据放入VisitBean中
+			VisitBean visitBean = new VisitBean();
+			// 取visit的首记录
+			visitBean.setInPage(pvBeansList.get(0).getRequest());
+			visitBean.setInTime(pvBeansList.get(0).getTimestr());
+			// 取visit的尾记录
+			visitBean.setOutPage(pvBeansList.get(pvBeansList.size() - 1).getRequest());
+			visitBean.setOutTime(pvBeansList.get(pvBeansList.size() - 1).getTimestr());
+			// visit访问的页面数
+			visitBean.setPageVisits(pvBeansList.size());
+			// 来访者的ip
+			visitBean.setRemote_addr(pvBeansList.get(0).getRemote_addr());
+			// 本次visit的referal
+			visitBean.setReferal(pvBeansList.get(0).getReferal());
+			visitBean.setSession(session.toString());
+
+			context.write(NullWritable.get(), visitBean);
+
+		}
+
+	}
+
+	public static void main(String[] args) throws Exception {
+		Configuration conf = new Configuration();
+		Job job = Job.getInstance(conf);
+
+		job.setJarByClass(ClickStreamVisit.class);
+
+		job.setMapperClass(ClickStreamVisitMapper.class);
+		job.setReducerClass(ClickStreamVisitReducer.class);
+
+		job.setMapOutputKeyClass(Text.class);
+		job.setMapOutputValueClass(PageViewsBean.class);
+
+		job.setOutputKeyClass(NullWritable.class);
+		job.setOutputValueClass(VisitBean.class);
+		
+		
+//		FileInputFormat.setInputPaths(job, new Path(args[0]));
+//		FileOutputFormat.setOutputPath(job, new Path(args[1]));
+		FileInputFormat.setInputPaths(job, new Path("/test/pageviews"));
+		FileOutputFormat.setOutputPath(job, new Path("/test/visitout"));
+		
+		boolean res = job.waitForCompletion(true);
+		System.exit(res?0:1);
+
+	}
+
+}
+```
 
 ### 数据入库
 

@@ -3991,7 +3991,7 @@ col_name data_type [comment '字段描述信息'])
 
 ##### clustered by
 
-对于每一个表分文件， Hive可以进一步组织成桶，也就是说桶是更为细粒 度的数据范围划分。Hive也是 针对某一列进行桶的组织
+对于每一个表分文件， Hive可以进一步组织成桶，也就是说桶是更为细粒度的数据范围划分。Hive也是 针对某一列进行桶的组织
 
 ##### sorted by
 
@@ -5419,6 +5419,10 @@ Hive 自带了一些函数，比如：max/min等，当Hive提供的内置函数�
 
 #### UDF 开发实例
 
+UDF：用户定义（普通）函数，只对单行数值产生作用；
+
+UDF只能实现一进一出的操作。
+
 ##### 创建Maven工程
 
 ```xml
@@ -5488,6 +5492,77 @@ hive> create temporary function my_upper as 'org.duo.udf.CustomUDF';
 ```hive
 hive> select my_upper('abc');
 ```
+
+#### UDTF
+
+User-Defined Table-Generating Functions，用户定义表生成函数，用来解决输入一行输出多行。
+
+继承org.apache.hadoop.hive.ql.udf.generic.GenericUDTF，实现initialize, process, close三个方法：UDTF首先会调用initialize方法，此方法返回UDTF的返回行的信息（返回个数，类型）；初始化完成后，会调用process方法,真正的处理过程在process函数中，在process中，每一次forward()调用产生一行，如果产生多列可以将多个列的值放在一个数组中，然后将该数组传入到forward()函数；最后close()方法调用，对需要清理的方法进行清理
+
+UDTF有两种使用方法，一种直接放到select后面，一种和lateral view一起使用。以explode函数为例来说明(explode函数可以将一个array或者map展开，其中explode(array)使得结果中将array列表里的每个元素生成一行；explode(map)使得结果中将map里的每一对元素作为一行，key为一列，value为一列)
+
+创建表数据：
+
+/opt/weblog/test_message.txt
+
+```markdown
+001,allen,usa|china|japan,1|3|7
+002,kobe,usa|england|japan,2|3|5
+```
+
+创建测试表：
+
+```hive
+create table test_message(id int,name string,location array<string>,city array<int>) row format delimited fields terminated by ","
+collection items terminated by '|';
+```
+
+导入数据：
+
+```hive
+load data local inpath "/opt/weblog/test_message.txt" into table test_message;
+```
+
+当使用UDTF函数的时候,hive只允许对拆分字段进行访问的。(使用UDTF函数相当于新建了一张表)
+
+```hive
+hive> select location[1] from test_message;
+OK
+china
+england
+Time taken: 0.214 seconds, Fetched: 2 row(s)
+hive> select explode(location) from test_message;
+OK
+usa
+china
+japan
+usa
+england
+japan
+Time taken: 0.279 seconds, Fetched: 6 row(s)
+hive> select name,explode(location) from test_message;
+FAILED: SemanticException [Error 10081]: UDTF's are not supported outside the SELECT clause, nor nested in expressions
+```
+
+lateral view为侧视图，意义是为了配合UDTF来使用，把某一行数据拆分成多行数据，不加lateral view的UDTF只能提取单个字段拆分，并不能塞会原来数据表中，加上lateral view就可以将拆分的单个字段数据与原始表数据关联上。lateral view explode 相当于一个拆分location字段的虚表,然后与原表进行关联。(subview为视图别名,lc为指定新列别名)
+
+```hive
+hive> select name,subview.lc from test_message lateral view explode(location) subview as lc;
+OK
+allen   usa
+allen   china
+allen   japan
+kobe    usa
+kobe    england
+kobe    japan
+Time taken: 0.095 seconds, Fetched: 6 row(s)
+```
+
+#### UDAF
+
+User- Defined Aggregation Funcation；用户定义聚合函数，可对多行数据产生作用；等同与SQL中常用的SUM()，AVG()，也是聚合函数；UDAF实现多进一出。
+
+继承org.apache.hadoop.hive.ql.exec.UDAF。
 
 ## 数据压缩
 
@@ -11264,15 +11339,1140 @@ public class ClickStreamVisit {
 }
 ```
 
+### 数据仓库设计
+
+#### 维度建模基本概念
+
+维度模型是数据仓库领域大师Ralph Kimall所倡导，他的《数据仓库工具箱》，是数据仓库工程领域最流行的数仓建模经典。维度建模以分析决策的需求出发构建模型，构建的数据模型为分析需求服务，因此它重点解决用户如何更快速完成分析需求，同时还有较好的大规模复杂查询的响应性能。维度建模是专门应用于分析型数据库、数据仓库、数据集市建模的方法。数据集市可以理解为是一种"小型数据仓库"。
+
+##### 事实表
+
+发生在现实世界中的操作型事件，其所产生的可度量数值，存储在事实表中。从最低的粒度级别来看，事实表行对应一个度量事件，反之亦然。事实表表示对分析主题的度量。比如一次购买行为们就可以理解为是一个事实。
+
+例如：订单表就是一个事实表，你可以理解他就是在现实中发生的一次操作型事件，每完成一个订单，就会在订单中增加一条记录。
+
+事实表的特征：表里没有存放实际的内容，他是一堆主键的集合，这些ID分别能对应到维度表中的一条记录。事实表包含了与各维度表相关联的外键，可与维度表关联。事实表的度量通常是数值类型，且记录数会不断增加，表数据规模迅速增长。
+
+##### 维度表
+
+每个维度表都包含单一的主键列。维度表的主键可以作为与之关联的任何事实表的外键，当然，维度表行的描述环境应与事实表行完全对应。维度表通常比较宽，是扁平型非规范表，包含大量的低粒度的文本属性。
+
+维度表示你要对数据进行分析时所用的一个量,比如你要分析产品销售情况, 你可以选择按类别来进行分析,或按区域来分析。这样的按..分析就构成一个维度。用户表、商家表、时间表这些都属于维度表，这些表都有一个唯一的主键，然后在表中存放了详细的数据信息。
+
+总的说来，在数据仓库中不需要严格遵守规范化设计原则。因为数据仓库的主导功能就是面向分析，以查询为主，不涉及数据更新操作。事实表的设计是以能够正确记录历史信息为准则，维度表的设计是以能够以合适的角度来聚合主题内容为准则。
+
+###### 星型模型
+
+星形模式(Star Schema)是最常用的维度建模方式。星型模式是以事实表为中心，所有的维度表直接连接在事实表上，像星星一样。星形模式的维度建模由一个事实表和一组维表成，且具有以下特点：
+
+1. 维表只和事实表关联，维表之间没有关联；
+2. 每个维表主键为单列，且该主键放置在事实表中，作为两边连接的外键；
+3. 以事实表为核心，维表围绕核心呈星形分布；
+
+###### 雪花模型
+
+雪花模式(Snowflake Schema)是对星形模式的扩展。雪花模式的维度表可以拥有其他维度表的，虽然这种模型相比星型更规范一些，但是由于这种模型不太容易理解，维护成本比较高，而且性能方面需要关联多层维表，性能也比星型模型要低。所以一般不是很常用。（维度表可以继续关联维度表 ，不利于后期维护，尽量避免演化成该种模型）
+
+###### 星座模型
+
+星座模式是星型模式延伸而来，星型模式是基于一张事实表的，而星座模式是基于多张事实表的，而且共享维度信息。前面介绍的两种维度建模方法都是多维表对应单事实表，但在很多时候维度空间内的事实表不止一个，而一个维表也可能被多个事实表用到。在业务发展后期，绝大部分维度建模都采用的是星座模式。（多个事实表多，个维度表，某些维度表可以共用 ，企业数仓发展中后期常见的模型）
+
 ### 数据入库
 
 预处理完的结构化数据通常会导入到Hive数据仓库中，建立相应的库和表与之映射关联。这样后续就可以使用HiveSQL针对数据进行分析。因此这里所说的入库是把数据加进面向分析的数据仓库，而不是数据库。因项目中数据格式比较清晰简明，可以直接load进入数据仓库。实际中，入库过程有个更加专业的叫法—ETL。ETL是将业务系统的数据经过抽取、清洗转换之后加载到数据仓库的过程，目的是将企业中的分散、零乱、标准不统一的数据整合到一起，为企业的决策提供分析依据。
 
 ETL的设计分三部分：数据抽取、数据的清洗转换、数据的加载。在设计ETL的时候我们也是从这三部分出发。数据的抽取是从各个不同的数据源抽取到ODS(Operational Data Store，操作型数据存储)中——这个过程也可以做一些数据的清洗和转换)，在抽取的过程中需要挑选不同的抽取方法，尽可能的提高ETL的运行效率。ETL三个部分中，花费时间最长的是“T”(Transform，清洗、转换)的部分，一般情况下这部分工作量是整个ETL的2/3。数据的加载一般在数据清洗完了之后直接写入DW(Data Warehousing，数据仓库)中去。
 
+ETL工作的实质就是从各个数据源提取数据，对数据进行转换，并最终加载填充数据到数据仓库维度建模后的表中。只有当这些维度/事实表被填充好，ETL工作才算完成。
+
+#### 创建ODS层数据表
+
+```hive
+create database if not exists weblog;
+```
+
+原始数据表：对应mr清洗完之后的数据，而不是原始日志数据
+
+```hive
+drop table if exists ods_weblog_origin;
+create table ods_weblog_origin(
+valid string,
+remote_addr string,
+remote_user string,
+time_local string,
+request string,
+status string,
+body_bytes_sent string,
+http_referer string,
+http_user_agent string)
+partitioned by (datestr string)
+row format delimited
+fields terminated by '\001';
+```
+
+点击流pageview表
+
+```hive
+drop table if exists ods_click_pageviews;
+create table ods_click_pageviews(
+session string,
+remote_addr string,
+remote_user string,
+time_local string,
+request string,
+visit_step string,
+page_staylong string,
+http_referer string,
+http_user_agent string,
+body_bytes_sent string,
+status string)
+partitioned by (datestr string)
+row format delimited
+fields terminated by '\001';
+```
+
+点击流visit表
+
+```hive
+drop table if exists ods_click_stream_visit;
+create table ods_click_stream_visit(
+session     string,
+remote_addr string,
+inTime      string,
+outTime     string,
+inPage      string,
+outPage     string,
+referal     string,
+pageVisits  int)
+partitioned by (datestr string)
+row format delimited
+fields terminated by '\001';
+```
+
+维度表
+
+```hive
+drop table if exists t_dim_time;
+create table t_dim_time(date_key int,year string,month string,day string,hour string) row format delimited fields terminated by ',';
+```
+
+导入清洗结果数据到贴源数据表ods_weblog_origin
+
+```hive
+load data local inpath '/opt/weblog/preprocessed/' overwrite into table ods_weblog_origin partition(datestr='20181101');
+```
+
+导入点击流模型pageviews数据到ods_click_pageviews表
+
+```hive
+load data local inpath '/opt/weblog/pageviews' overwrite into table ods_click_pageviews partition(datestr='20181101');
+```
+
+导入点击流模型visit数据到ods_click_stream_visit表
+
+```hive
+load data local inpath '/opt/weblog/visits' overwrite into table ods_click_stream_visit partition(datestr='20181101');
+```
+
+时间维度表数据导入
+
+```hive
+load data local inpath '/opt/weblog/dim_time' overwrite into table t_dim_time;
+```
+
+#### 明细表、宽表、窄表
+
+事实表的数据中，有些属性共同组成了一个字段（糅合在一起），比如年月日时分秒构成了时间,当需要根据某一属性进行分组统计的时候，需要截取拼接之类的操作，效率极低。为了分析方便，可以事实表中的一个字段切割提取多个属性出来构成新的字段，因为字段变多了，所以称为宽表，原来的成为窄表。又因为宽表的信息更加清晰明细，所以也可以称之为明细表。
+
+#### 明细表（宽表）实现
+
+```hive
+drop table dw_weblog_detail;
+create table dw_weblog_detail(
+valid           string, --有效标识
+remote_addr     string, --来源IP
+remote_user     string, --用户标识
+time_local      string, --访问完整时间
+daystr          string, --访问日期
+timestr         string, --访问时间
+month           string, --访问月
+day             string, --访问日
+hour            string, --访问时
+request         string, --请求的url
+status          string, --响应码
+body_bytes_sent string, --传输字节数
+http_referer    string, --来源url
+ref_host        string, --来源的host
+ref_path        string, --来源的路径
+ref_query       string, --来源参数query
+ref_query_id    string, --来源参数query的值
+http_user_agent string --客户终端标识
+)
+partitioned by(datestr string);
+```
+
+通过查询插入数据到明细宽表：dw_weblog_detail中：至于插入什么样的数据完全取决于查询语句返回的结果，因此在查询的时候就需要使用hive的函数进行字段的扩宽操作。
+
+1. 时间字段的拓宽：substring（time_local）
+2. 来源url字段拓宽：
+   1. parse_url_tuple，是hive内置的udtf函数 ，可以处理标准的url格式数据，提取相关属性：host、path、query等
+   2. regexp_replace，是hive内置的正则替换函数
+
+```hive
+insert into table dw_weblog_detail partition(datestr='20181101')
+select c.valid,c.remote_addr,c.remote_user,c.time_local,
+substring(c.time_local,0,10) as daystr,
+substring(c.time_local,12) as tmstr,
+substring(c.time_local,6,2) as month,
+substring(c.time_local,9,2) as day,
+substring(c.time_local,12,2) as hour,
+c.request,c.status,c.body_bytes_sent,c.http_referer,c.ref_host,c.ref_path,c.ref_query,c.ref_query_id,c.http_user_agent
+from
+(SELECT 
+a.valid,a.remote_addr,a.remote_user,a.time_local,
+a.request,a.status,a.body_bytes_sent,a.http_referer,a.http_user_agent,b.ref_host,b.ref_path,b.ref_query,b.ref_query_id 
+FROM ods_weblog_origin a LATERAL VIEW parse_url_tuple(regexp_replace(http_referer, "\"", ""), 'HOST', 'PATH','QUERY', 'QUERY:id') b as ref_host, ref_path, ref_query, ref_query_id) c;
+```
+
 ### 数据分析
 
 根据需求使用Hive SQL分析语句，得出指标各种统计结果。
+
+#### 基础指标
+
+1. PageView浏览次数（PV）:用户每打开1个网站页面，记录1个PV。用户多次打开同一页面PV累计多次。通俗解释就是页面被加载的总次数。
+
+   ```hive
+   select count(*) as pv from  dw_weblog_detail t where t.datestr="20181101" and t.valid = "true";
+   ```
+
+2. Unique Visitor独立访客（UV）: 1天之内，访问网站的不重复用户数（以浏览器cookie为依据），一天内同一访客多次访问网站只被计算1次。
+
+   ```hive
+   select count(distinct remote_addr) as uv from dw_weblog_detail t where t.datestr="20181101"; 
+   ```
+
+3. 访问次数（VV）：访客从进入网站到离开网站的一系列活动记为一次访问，也称会话(session),1次访问(会话)可能包含多个PV。
+
+   ```hive
+   select count(t.session) as vv from ods_click_stream_visit t where t.datestr="20181101";
+   ```
+
+4. IP：1天之内，访问网站的不重复IP数。
+
+   ```hive
+   select count(distinct remote_addr) as ip from dw_weblog_detail t where t.datestr="20181101"; 
+   ```
+
+例子：张三今天上午来到网站打开3个页面  下午来到网站打开2个页面  晚上又来到网站打开5个页面
+
+pv:页面加载总次数     10
+
+uv:独立访客数             1
+
+vv:会话次数                  3
+
+ip:                                  1
+
+指标入库：
+
+```hive
+drop table dw_webflow_basic_info; 
+create table dw_webflow_basic_info(month string,day string, pv bigint,uv bigint,ip bigint,vv bigint) partitioned by(datestr string);
+```
+
+```hive
+insert into table dw_webflow_basic_info partition(datestr="20181101")
+select '201811','01',a.*,b.* from
+(select count(*) as pv,count(distinct remote_addr) as uv,count(distinct remote_addr) as ips 
+from dw_weblog_detail
+where datestr ='20181101') a join 
+(select count(distinct session) as vvs from ods_click_stream_visit where datestr ="20181101") b;
+```
+
+#### 复合指标
+
+1. 平均访问频度: 一天之内人均会话数, 总的会话次数(vv)/总的独立访客数(uv)
+2. 人均浏览页数（平均访问深度）：一天之内人均浏览页面数，总的页面浏览数(pv)/总的独立访客数(uv)
+3. 平均访问时长：平均每次会话停留的时间。总的会话停留时间/会话次数(vv)
+4. 跳出率: 用户到网站上仅浏览了一个页面就离开的访问次数与所有访问次数的百分比
+
+#### 多维数据分析
+
+1. 维度：指的是看待问题的角度
+2. 本质：基于多个不同的维度的聚集 计算出某种度量值（count  sum  max  mix  topN）
+3. 重点：确定维度 维度就是sql层面分组的字段
+4. 技巧：按xxx  每xxx   各xxx
+
+##### 时间维度
+
+```hive
+--计算每小时的pvs
+drop table dw_pvs_everyhour_oneday;
+create table dw_pvs_everyhour_oneday(month string,day string,hour string,pvs bigint) partitioned by(datestr string);
+insert into table dw_pvs_everyhour_oneday partition(datestr='20181101')
+select a.month as month,a.day as day,a.hour as hour,count(*) as pvs from dw_weblog_detail a
+where  a.datestr='20181101' group by a.month,a.day,a.hour;
+--计算每天的pvs
+drop table dw_pvs_everyday;
+create table dw_pvs_everyday(pvs bigint,month string,day string);
+insert into table dw_pvs_everyday
+select count(*) as pvs,a.month as month,a.day as day from dw_weblog_detail a
+group by a.month,a.day;
+```
+
+##### 来访维度
+
+```hive
+--统计每小时各来访url产生的pv量，查询结果存入：( "dw_pvs_referer_everyhour" )
+drop table dw_pvs_referer_everyhour;
+create table dw_pvs_referer_everyhour(referer_url string,referer_host string,month string,day string,hour string,pv_referer_cnt bigint) partitioned by(datestr string);
+insert into table dw_pvs_referer_everyhour partition(datestr='20181101')
+select http_referer,ref_host,month,day,hour,count(1) as pv_referer_cnt
+from dw_weblog_detail 
+group by http_referer,ref_host,month,day,hour 
+having ref_host is not null
+order by hour asc,day asc,month asc,pv_referer_cnt desc;
+--统计每小时各来访host的产生的pv数并排序
+drop table dw_pvs_refererhost_everyhour;
+create table dw_pvs_refererhost_everyhour(ref_host string,month string,day string,hour string,ref_host_cnts bigint) partitioned by(datestr string);
+insert into table dw_pvs_refererhost_everyhour partition(datestr='20181101')
+select ref_host,month,day,hour,count(1) as ref_host_cnts
+from dw_weblog_detail 
+group by ref_host,month,day,hour 
+having ref_host is not null
+order by hour asc,day asc,month asc,ref_host_cnts desc;
+```
+
+##### 终端维度
+
+数据中能够反映出用户终端信息的字段是http_user_agent。User Agent也简称UA。它是一个特殊字符串头，是一种向访问网站提供所使用的浏览器类型及版本、操作系统及版本、浏览器内核、等信息的标识。例如：
+
+```html
+User-Agent,Mozilla/5.0 (Windows NT 6.3; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.276 Safari/537.36
+```
+
+上述UA信息就可以提取出以下的信息：
+
+```markdown
+chrome 58.0、浏览器	chrome、浏览器版本	58.0、系统平台	windows
+浏览器内核	webkit
+```
+
+想要从网站日志数据中分析一下操作系统、浏览器、版本号使用情况。可是hive中的函数不能直接解析useragent,于是只能写一个UDF来解析。
+
+pom.xml
+
+```xml
+引入依赖
+<dependencies>
+        <dependency>
+            <groupId>org.apache.hive</groupId>
+            <artifactId>hive-exec</artifactId>
+            <version>1.2.1</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-common</artifactId>
+            <version>2.7.4</version>
+        </dependency>
+        <dependency>
+           <groupId>eu.bitwalker</groupId>
+           <artifactId>UserAgentUtils</artifactId>
+           <version>1.21</version>
+        </dependency>
+    </dependencies>
+```
+
+UAParseUDF.java
+
+```java
+package org.duo.hive.udf;
+
+import eu.bitwalker.useragentutils.UserAgent;
+
+public class UAParseUDF extends UDF{
+
+    public String evaluate(final String userAgent){
+        StringBuilder builder = new StringBuilder();
+        UserAgent ua = new UserAgent(userAgent);
+        builder.append(ua.getOperatingSystem()+"\t"+ua.getBrowser()+"\t"+ua.getBrowserVersion());
+        return  (builder.toString());
+    }
+}
+```
+
+#### 分组topN问题
+
+##### 分组函数(row number)
+
+###### row number
+
+用于在分好的组内根据排序的字段依次不重复的打上步骤号，返回构成一个新的字段。（不考虑数据重复性）
+
+语法：row_number() over (partition by xxx order by xxx) rank，rank为分组的别名，相当于新增一个字段为rank。
+
+###### partition by
+
+用于指定根据什么字段分组
+
+###### order by
+
+用于指定分组内根据什么字段进行排序
+
+```hive
+--需求：按照时间维度，统计一天内各小时产生最多pvs的来源topN
+drop table dw_pvs_refhost_topn_everyhour;
+create table dw_pvs_refhost_topn_everyhour(
+hour string,
+toporder string,
+ref_host string,
+ref_host_cnts string
+)partitioned by(datestr string);
+insert into table dw_pvs_refhost_topn_everyhour partition(datestr='20181101')
+select t.hour,t.od,t.ref_host,t.ref_host_cnts from
+ (select ref_host,ref_host_cnts,concat(month,day,hour) as hour,
+row_number() over (partition by concat(month,day,hour) order by ref_host_cnts desc) as od 
+from dw_pvs_refererhost_everyhour) t where od<=3;
+```
+
+###### RANK,DENSE_RANK
+
+```mark
+cookie1,2018-04-10,1
+cookie1,2018-04-11,5
+cookie1,2018-04-12,7
+cookie1,2018-04-13,3
+cookie1,2018-04-14,2
+cookie1,2018-04-15,4
+cookie1,2018-04-16,4
+cookie2,2018-04-10,2
+cookie2,2018-04-11,3
+cookie2,2018-04-12,5
+cookie2,2018-04-13,6
+cookie2,2018-04-14,3
+cookie2,2018-04-15,9
+cookie2,2018-04-16,7
+```
+
+```hive
+CREATE TABLE orgduo_t2 (
+cookieid string,
+createtime string,   --day 
+pv INT
+) ROW FORMAT DELIMITED 
+FIELDS TERMINATED BY ',' 
+stored as textfile;
+```
+
+```hive
+load data local inpath '/opt/orgduo_t2.dat' into table orgduo_t2;
+```
+
+```hive
+SELECT 
+cookieid,
+createtime,
+pv,
+RANK() OVER(PARTITION BY cookieid ORDER BY pv desc) AS rn1,
+DENSE_RANK() OVER(PARTITION BY cookieid ORDER BY pv desc) AS rn2,
+ROW_NUMBER() OVER(PARTITION BY cookieid ORDER BY pv DESC) AS rn3 
+FROM orgduo_t2; 
+```
+
+1. RANK() 考虑数据的重复性，重复的数据会挤占后续的标号；
+2. DENSE_RANK() 考虑数据的重复性，重复的数据不会挤占后续的标号；
+3. ROW_NUMBER() 不考虑数据的重复性。
+
+###### NTILE
+
+ntile可以看成是：把有序的数据集合平均分配到指定的数量（num）个桶中, 将桶号分配给每一行。如果不能平均分配，则优先分配较小编号的桶，并且各个桶中能放的行数最多相差1。语法是：ntile (num)  over ([partition_clause]  order_by_clause)  as xxx 然后可以根据桶号，选取前或后 n分之几的数据。
+
+```hive
+SELECT 
+cookieid,
+createtime,
+pv,
+NTILE(2) OVER(PARTITION BY cookieid ORDER BY createtime) AS rn1,
+NTILE(3) OVER(PARTITION BY cookieid ORDER BY createtime) AS rn2,
+NTILE(4) OVER(ORDER BY createtime) AS rn3
+FROM orgduo_t2 
+ORDER BY cookieid,createtime;
+```
+
+比如，统计一个cookie，pv数最多的前1/3的天
+
+```hive
+SELECT 
+cookieid,
+createtime,
+pv,
+NTILE(3) OVER(PARTITION BY cookieid ORDER BY pv DESC) AS rn 
+FROM orgduo_t2;
+--其中rn = 1 的记录，就是我们想要的结果
+```
+
+##### 分组函数和聚合函数配合使用
+
+```markd
+cookie1,2018-04-10,1
+cookie1,2018-04-11,5
+cookie1,2018-04-12,7
+cookie1,2018-04-13,3
+cookie1,2018-04-14,2
+cookie1,2018-04-15,4
+cookie1,2018-04-16,4
+```
+
+```hive
+create table orgduo_t1(
+cookieid string,
+createtime string,   --day 
+pv int
+) row format delimited 
+fields terminated by ',';
+```
+
+```hive
+load data local inpath '/opt/orgduo_t1.dat' into table orgduo_t1;
+```
+
+###### SUM
+
+```hive
+--分组内从起点到当前行的pv累积，如，11号的pv1=10号的pv+11号的pv, 12号=10号+11号+12号
+select cookieid,createtime,pv,sum(pv) over(partition by cookieid order by createtime) as pv1 from orgduo_t1;
+```
+
+```hive
+--同pv1
+select cookieid,createtime,pv,sum(pv) over(partition by cookieid order by createtime rows between unbounded preceding and current row) as pv2 from orgduo_t1;
+```
+
+```hive
+--分组内(cookie1)所有的pv累加
+select cookieid,createtime,pv,sum(pv) over(partition by cookieid) as pv3 from orgduo_t1;
+```
+
+```hive
+--分组内当前行+往前3行，如，11号=10号+11号， 12号=10号+11号+12号，13号=10号+11号+12号+13号， 14号=11号+12号+13号+14号
+select cookieid,createtime,pv,sum(pv) over(partition by cookieid order by createtime rows between 3 preceding and current row) as pv4 from orgduo_t1;
+```
+
+```hive
+--分组内当前行+往前3行+往后1行，如，14号=11号+12号+13号+14号+15号=5+7+3+2+4=21
+select cookieid,createtime,pv,sum(pv) over(partition by cookieid order by createtime rows between 3 preceding and 1 following) as pv5 from orgduo_t1;
+```
+
+```hive
+--分组内当前行+往后所有行，如，13号=13号+14号+15号+16号=3+2+4+4=13，14号=14号+15号+16号=2+4+4=10
+select cookieid,createtime,pv,sum(pv) over(partition by cookieid order by createtime rows between current row and unbounded following) as pv6 from orgduo_t1;
+```
+
+- 如果不指定rows between,默认为从起点到当前行;
+- 如果不指定order by，则将分组内所有值累加;
+- 关键是理解rows between含义,也叫做window子句：
+  - preceding：往前
+  - following：往后
+  - current row：当前行
+  - unbounded：起点
+  - unbounded preceding 表示从前面的起点
+  - unbounded following：表示到后面的终点
+
+AVG，MIN，MAX，和SUM用法一样
+
+```hive
+select cookieid,createtime,pv,avg(pv) over(partition by cookieid order by createtime rows between unbounded preceding and current row) as pv2 from orgduo_t1;
+```
+
+```hive
+select cookieid,createtime,pv,max(pv) over(partition by cookieid order by createtime rows between unbounded preceding and current row) as pv2 from orgduo_t1;
+```
+
+```hive
+select cookieid,createtime,pv,min(pv) over(partition by cookieid order by createtime rows between unbounded preceding and current row) as pv2 from orgduo_t1;
+```
+
+##### 分组函数(CUME_DIST)
+
+CUME_DIST和PERCENT_RANK属于序列分析函数，注意： 序列函数不支持WINDOW子句
+
+```markdown
+d1,user1,1000
+d1,user2,2000
+d1,user3,3000
+d2,user4,4000
+d2,user5,5000
+```
+
+```hive
+CREATE TABLE orgduo_t3 (
+dept STRING,
+userid string,
+sal INT
+) ROW FORMAT DELIMITED 
+FIELDS TERMINATED BY ',' 
+stored as textfile;
+```
+
+```hive
+load data local inpath '/opt/orgduo_t3.dat' into table orgduo_t3;
+```
+
+CUME_DIST和order by的排序顺序有关系：小于等于当前值的行数/分组内总行数。比如，统计小于等于当前薪水的人数，所占总人数的比例
+
+```hive
+SELECT 
+dept,
+userid,
+sal,
+CUME_DIST() OVER(ORDER BY sal) AS rn1,--没有partition语句 所有的数据位于一组
+CUME_DIST() OVER(PARTITION BY dept ORDER BY sal) AS rn2 
+FROM orgduo_t3;
+```
+
+```markdown
+rn1: 没有partition,所有数据均为1组，总行数为5，
+     第一行：小于等于1000的行数为1，因此，1/5=0.2
+     第三行：小于等于3000的行数为3，因此，3/5=0.6
+rn2: 按照部门分组，dpet=d1的行数为3,
+     第二行：小于等于2000的行数为2，因此，2/3=0.6666666666666666
+```
+
+PERCENT_RANK：分组内当前行的RANK值-1/分组内总行数-1；经调研该函数显示现实意义不明朗，有待于继续考证
+
+```hive
+SELECT 
+dept,
+userid,
+sal,
+PERCENT_RANK() OVER(ORDER BY sal) AS rn1,   --分组内
+RANK() OVER(ORDER BY sal) AS rn11,          --分组内RANK值
+SUM(1) OVER(PARTITION BY NULL) AS rn12,     --分组内总行数
+PERCENT_RANK() OVER(PARTITION BY dept ORDER BY sal) AS rn2 
+FROM orgduo_t3;
+```
+
+```markdown
+rn1: rn1 = (rn11-1) / (rn12-1) 
+	   第一行,(1-1)/(5-1)=0/4=0
+	   第二行,(2-1)/(5-1)=1/4=0.25
+	   第四行,(4-1)/(5-1)=3/4=0.75
+rn2: 按照dept分组，
+     dept=d1的总行数为3
+     第一行，(1-1)/(3-1)=0
+     第三行，(3-1)/(3-1)=1
+```
+
+##### 分组函数(LAG)
+
+```markdown
+cookie1,2018-04-10 10:00:02,url2
+cookie1,2018-04-10 10:00:00,url1
+cookie1,2018-04-10 10:03:04,1url3
+cookie1,2018-04-10 10:50:05,url6
+cookie1,2018-04-10 11:00:00,url7
+cookie1,2018-04-10 10:10:00,url4
+cookie1,2018-04-10 10:50:01,url5
+cookie2,2018-04-10 10:00:02,url22
+cookie2,2018-04-10 10:00:00,url11
+cookie2,2018-04-10 10:03:04,1url33
+cookie2,2018-04-10 10:50:05,url66
+cookie2,2018-04-10 11:00:00,url77
+cookie2,2018-04-10 10:10:00,url44
+cookie2,2018-04-10 10:50:01,url55
+```
+
+```hive
+CREATE TABLE orgduo_t4 (
+cookieid string,
+createtime string,  --页面访问时间
+url STRING       --被访问页面
+) ROW FORMAT DELIMITED 
+FIELDS TERMINATED BY ',' 
+stored as textfile;
+```
+
+```hive
+load data local inpath '/opt/orgduo_t4.dat' into table orgduo_t4;
+```
+
+LAG(col,n,DEFAULT) 用于统计窗口内往上第n行值：第一个参数为列名，第二个参数为往上第n行（可选，默认为1），第三个参数为默认值（当往上第n行为NULL时候，取默认值，如不指定，则为NULL）
+
+```hive
+SELECT cookieid,
+createtime,
+url,
+ROW_NUMBER() OVER(PARTITION BY cookieid ORDER BY createtime) AS rn,
+LAG(createtime,1,'1970-01-01 00:00:00') OVER(PARTITION BY cookieid ORDER BY createtime) AS last_1_time,
+LAG(createtime,2) OVER(PARTITION BY cookieid ORDER BY createtime) AS last_2_time 
+FROM orgduo_t4;
+```
+
+```markdown
+last_1_time: 指定了往上第1行的值，default为'1970-01-01 00:00:00'  
+             			 cookie1第一行，往上1行为NULL,因此取默认值 1970-01-01 00:00:00
+             			 cookie1第三行，往上1行值为第二行值，2015-04-10 10:00:02
+             			 cookie1第六行，往上1行值为第五行值，2015-04-10 10:50:01
+last_2_time: 指定了往上第2行的值，为指定默认值
+						 cookie1第一行，往上2行为NULL
+						 cookie1第二行，往上2行为NULL
+						 cookie1第四行，往上2行为第二行值，2015-04-10 10:00:02
+						 cookie1第七行，往上2行为第五行值，2015-04-10 10:50:01
+```
+
+LEAD(col,n,DEFAULT) 用于统计窗口内往下第n行值：第一个参数为列名，第二个参数为往下第n行（可选，默认为1），第三个参数为默认值（当往下第n行为NULL时候，取默认值，如不指定，则为NULL）
+
+```hive
+SELECT cookieid,
+createtime,
+url,
+ROW_NUMBER() OVER(PARTITION BY cookieid ORDER BY createtime) AS rn,
+LEAD(createtime,1,'1970-01-01 00:00:00') OVER(PARTITION BY cookieid ORDER BY createtime) AS next_1_time,
+LEAD(createtime,2) OVER(PARTITION BY cookieid ORDER BY createtime) AS next_2_time 
+FROM orgduo_t4;
+```
+
+FIRST_VALUE：取分组内排序后，截止到当前行，第一个值
+
+```hive
+SELECT cookieid,
+createtime,
+url,
+ROW_NUMBER() OVER(PARTITION BY cookieid ORDER BY createtime) AS rn,
+FIRST_VALUE(url) OVER(PARTITION BY cookieid ORDER BY createtime) AS first1 
+FROM orgduo_t4;
+```
+
+LAST_VALUE：取分组内排序后，截止到当前行，最后一个值
+
+```hive
+SELECT cookieid,
+createtime,
+url,
+ROW_NUMBER() OVER(PARTITION BY cookieid ORDER BY createtime) AS rn,
+LAST_VALUE(url) OVER(PARTITION BY cookieid ORDER BY createtime) AS last1 
+FROM orgduo_t4;
+```
+
+如果想要取分组内排序后最后一个值，则需要变通一下：
+
+```hive
+SELECT cookieid,
+createtime,
+url,
+ROW_NUMBER() OVER(PARTITION BY cookieid ORDER BY createtime) AS rn,
+LAST_VALUE(url) OVER(PARTITION BY cookieid ORDER BY createtime) AS last1,
+FIRST_VALUE(url) OVER(PARTITION BY cookieid ORDER BY createtime DESC) AS last2 
+FROM orgduo_t4 
+ORDER BY cookieid,createtime;
+```
+
+##### 分组函数(GROUPING SETS)
+
+```mark
+2018-03,2018-03-10,cookie1
+2018-03,2018-03-10,cookie5
+2018-03,2018-03-12,cookie7
+2018-04,2018-04-12,cookie3
+2018-04,2018-04-13,cookie2
+2018-04,2018-04-13,cookie4
+2018-04,2018-04-16,cookie4
+2018-03,2018-03-10,cookie2
+2018-03,2018-03-10,cookie3
+2018-04,2018-04-12,cookie5
+2018-04,2018-04-13,cookie6
+2018-04,2018-04-15,cookie3
+2018-04,2018-04-15,cookie2
+2018-04,2018-04-16,cookie1
+```
+
+```hive
+CREATE TABLE orgduo_t5 (
+month STRING,
+day STRING, 
+cookieid STRING 
+) ROW FORMAT DELIMITED 
+FIELDS TERMINATED BY ',' 
+stored as textfile;
+```
+
+```hive
+load data local inpath '/opt/orgduo_t5.dat' into table orgduo_t5;
+```
+
+GROUPING SETS：grouping sets是一种将多个group by逻辑写在一个sql语句中的便利写法。等价于将不同维度的GROUP BY结果集进行UNION ALL。GROUPING__ID，表示结果属于哪一个分组集合。
+
+```hive
+SELECT 
+month,
+day,
+COUNT(DISTINCT cookieid) AS uv,
+GROUPING__ID 
+FROM orgduo_t5 
+GROUP BY month,day 
+GROUPING SETS (month,day) 
+ORDER BY GROUPING__ID;
+```
+
+grouping_id表示这一组结果属于哪个分组集合，根据grouping sets中的分组条件month，day，1是代表month，2是代表day。等价于：
+
+```hive
+SELECT month,NULL,COUNT(DISTINCT cookieid) AS uv,1 AS GROUPING__ID FROM orgduo_t5 GROUP BY month UNION ALL 
+SELECT NULL as month,day,COUNT(DISTINCT cookieid) AS uv,2 AS GROUPING__ID FROM orgduo_t5 GROUP BY day;
+```
+
+再如：
+
+```hive
+SELECT 
+month,
+day,
+COUNT(DISTINCT cookieid) AS uv,
+GROUPING__ID 
+FROM orgduo_t5 
+GROUP BY month,day 
+GROUPING SETS (month,day,(month,day)) 
+ORDER BY GROUPING__ID;
+```
+
+等价于：
+
+```hive
+SELECT month,NULL,COUNT(DISTINCT cookieid) AS uv,1 AS GROUPING__ID FROM orgduo_t5 GROUP BY month 
+UNION ALL 
+SELECT NULL,day,COUNT(DISTINCT cookieid) AS uv,2 AS GROUPING__ID FROM orgduo_t5 GROUP BY day
+UNION ALL 
+SELECT month,day,COUNT(DISTINCT cookieid) AS uv,3 AS GROUPING__ID FROM orgduo_t5 GROUP BY month,day;
+```
+
+CUBE：立方体数据立方体多维数据分析；举个例子：某个事情有A、B、C三个维度，根据这三个维度进行组合分析，共有多少种情况？这些情况加起来就是所谓多维分析中数据立方体。
+
+```markdown
+没有维度：[]
+一个维度：[A]  [B]  [C]
+两个维度：[AB] [AC] [BC]
+三个维度：[ABC]
+共有8个结果。
+
+规律：假如有n个维度 所有的维度组合情况是2的n次方
+```
+
+根据GROUP BY的维度的所有组合进行聚合。
+
+```hive
+SELECT 
+month,
+day,
+COUNT(DISTINCT cookieid) AS uv,
+GROUPING__ID 
+FROM orgduo_t5 
+GROUP BY month,day 
+WITH CUBE 
+ORDER BY GROUPING__ID;
+```
+
+等价于
+
+```hive
+SELECT NULL,NULL,COUNT(DISTINCT cookieid) AS uv,0 AS GROUPING__ID FROM orgduo_t5
+UNION ALL 
+SELECT month,NULL,COUNT(DISTINCT cookieid) AS uv,1 AS GROUPING__ID FROM orgduo_t5 GROUP BY month 
+UNION ALL 
+SELECT NULL,day,COUNT(DISTINCT cookieid) AS uv,2 AS GROUPING__ID FROM orgduo_t5 GROUP BY day
+UNION ALL 
+SELECT month,day,COUNT(DISTINCT cookieid) AS uv,3 AS GROUPING__ID FROM orgduo_t5 GROUP BY month,day;
+```
+
+ROLLUP：是CUBE的子集，以最左侧的维度为主，从该维度进行层级聚合。
+
+```hive
+SELECT 
+month,
+day,
+COUNT(DISTINCT cookieid) AS uv,
+GROUPING__ID  
+FROM orgduo_t5 
+GROUP BY month,day
+WITH ROLLUP 
+ORDER BY GROUPING__ID;
+```
+
+等价于
+
+```hive
+SELECT NULL,NULL,COUNT(DISTINCT cookieid) AS uv,0 AS GROUPING__ID FROM orgduo_t5
+UNION ALL 
+SELECT month,NULL,COUNT(DISTINCT cookieid) AS uv,1 AS GROUPING__ID FROM orgduo_t5 GROUP BY month 
+UNION ALL 
+SELECT month,day,COUNT(DISTINCT cookieid) AS uv,3 AS GROUPING__ID FROM orgduo_t5 GROUP BY month,day;
+```
+
+#### 热门页面统计
+
+统计每日最热门的页面top10
+
+```hive
+drop table dw_hotpages_everyday;
+create table dw_hotpages_everyday(day string,url string,pvs string);
+insert into table dw_hotpages_everyday
+select '20181101',a.request,a.request_counts from
+(select request as request,count(request) as request_counts from dw_weblog_detail where datestr='20181101' group by request having request is not null) a
+order by a.request_counts desc limit 10;
+```
+
+#### 独立访客
+
+```hive
+drop table dw_user_dstc_ip_h;
+create table dw_user_dstc_ip_h(
+remote_addr string,
+pvs      bigint,
+hour     string);
+insert into table dw_user_dstc_ip_h 
+select remote_addr,count(1) as pvs,concat(month,day,hour) as hour 
+from dw_weblog_detail
+Where datestr='20181101'
+group by concat(month,day,hour),remote_addr
+order by hour asc,pvs desc;
+```
+
+#### 每日新访客
+
+```hive
+--历日去重访客累积表
+drop table dw_user_dsct_history;
+create table dw_user_dsct_history(
+day string,
+ip string
+) 
+partitioned by(datestr string);
+--每日新访客表
+drop table dw_user_new_d;
+create table dw_user_new_d (
+day string,
+ip string
+) 
+partitioned by(datestr string);
+```
+
+```hive
+--每日新用户插入新访客表
+insert into table dw_user_new_d partition(datestr='20181101')
+select tmp.day as day,tmp.today_addr as new_ip from
+(
+select today.day as day,today.remote_addr as today_addr,old.ip as old_addr 
+from 
+(select distinct remote_addr as remote_addr,"20181101" as day from dw_weblog_detail where datestr="20181101") today
+left outer join 
+dw_user_dsct_history old
+on today.remote_addr=old.ip
+) tmp
+where tmp.old_addr is null;
+```
+
+```hive
+--每日新用户追加到累计表
+insert into table dw_user_dsct_history partition(datestr='20181101')
+select day,ip from dw_user_new_d where datestr='20181101';
+```
+
+#### 回头/单次访客统计
+
+```hive
+--  回头/单次访客统计
+drop table dw_user_returning;
+create table dw_user_returning(
+day string,
+remote_addr string,
+acc_cnt string)
+partitioned by (datestr string);
+insert overwrite table dw_user_returning partition(datestr='20181101')
+select tmp.day,tmp.remote_addr,tmp.acc_cnt
+from
+(select '20181101' as day,remote_addr,count(session) as acc_cnt from ods_click_stream_visit group by remote_addr) tmp
+where tmp.acc_cnt>1;
+```
+
+#### 级联求和
+
+第一列表示服务员，第二列表示月份，第三列表示该服务员在这个月获得的小费
+
+```markdown
+A,2015-01,5
+A,2015-01,15
+B,2015-01,5
+A,2015-01,8
+B,2015-01,25
+A,2015-01,5
+A,2015-02,4
+A,2015-02,6
+B,2015-02,10
+B,2015-02,5
+A,2015-03,7
+A,2015-03,9
+B,2015-03,11
+B,2015-03,6
+```
+
+```hive
+create table t_salary_detail(username string,month string,salary int) row format delimited fields terminated by ',';
+```
+
+```hive
+load data local inpath '/opt/t_salary_detail.dat' into table t_salary_detail;
+```
+
+需求：统计每个用户该月累积获得多少小费？
+
+第一步：先求个用户的月总金额
+
+```hive
+select username,month,sum(salary) as salary from t_salary_detail group by username,month;
+```
+
+```markdown
++-----------+----------+---------+-
+| username  |  month   | salary  |   累计金额
++-----------+----------+---------+-
+| A         | 2015-01  | 33      |    33
+| A         | 2015-02  | 10      |    43
+| A         | 2015-03  | 16      |    59
+| B         | 2015-01  | 33      |    33
+| B         | 2015-02  | 15      |    48
+| B         | 2015-03  | 17      |    65
++-----------+----------+---------+--+
+```
+
+第二步：inner join自己，由于内连接会产生笛卡尔积，而只有两个表中username相等并且第一个表的月大于等于第二个表的月的数据对最终的计算结果才是有意义的，所以会加两个过滤条件。
+
+```hive
+select A.*,B.* FROM
+(select username,month,sum(salary) as salary from t_salary_detail group by username,month) A 
+inner join 
+(select username,month,sum(salary) as salary from t_salary_detail group by username,month) B
+on
+A.username=B.username
+where B.month <= A.month
+```
+
+```markd
++-------------+----------+-----------+-------------+----------+-----------+--+
+| a.username  | a.month  | a.salary  | b.username  | b.month  | b.salary  |
++-------------+----------+-----------+-------------+----------+-----------+--+
+| A           | 2015-01  | 33        | A           | 2015-01  | 33        |
+| A           | 2015-02  | 10        | A           | 2015-01  | 33        |
+| A           | 2015-02  | 10        | A           | 2015-02  | 10        |
+| A           | 2015-03  | 16        | A           | 2015-01  | 33        |
+| A           | 2015-03  | 16        | A           | 2015-02  | 10        |
+| A           | 2015-03  | 16        | A           | 2015-03  | 16        |
+| B           | 2015-01  | 30        | B           | 2015-01  | 30        |
+| B           | 2015-02  | 15        | B           | 2015-01  | 30        |
+| B           | 2015-02  | 15        | B           | 2015-02  | 15        |
+| B           | 2015-03  | 17        | B           | 2015-01  | 30        |
+| B           | 2015-03  | 17        | B           | 2015-02  | 15        |
+| B           | 2015-03  | 17        | B           | 2015-03  | 17        |
++-------------+----------+-----------+-------------+----------+-----------+--+
+```
+
+第三步：从上一步的结果中进行分组查询，分组的字段是a.username a.month，求月累计值：将b.month <= a.month的所有b.salary求和即可
+
+```hive
+select A.username,A.month,max(A.salary) as salary,sum(B.salary) as accumulate
+from 
+(select username,month,sum(salary) as salary from t_salary_detail group by username,month) A 
+inner join 
+(select username,month,sum(salary) as salary from t_salary_detail group by username,month) B
+on
+A.username=B.username
+where B.month <= A.month
+group by A.username,A.month
+order by A.username,A.month;
+```
+
+```markdown
++-------------+----------+---------+-------------+--+
+| a.username  | a.month  | salary  | accumulate  |
++-------------+----------+---------+-------------+--+
+| A           | 2015-01  | 33      | 33          |
+| A           | 2015-02  | 10      | 43          |
+| A           | 2015-03  | 16      | 59          |
+| B           | 2015-01  | 30      | 30          |
+| B           | 2015-02  | 15      | 45          |
+| B           | 2015-03  | 17      | 62          |
++-------------+----------+---------+-------------+--+
+```
+
+#### 漏斗模型转化分析
+
+```hive
+create table dw_oute_numbs(step string,numbs int);
+insert into dw_oute_numbs values ("step1",1029); 
+insert into dw_oute_numbs values ("step2",1029); 
+insert into dw_oute_numbs values ("step3",1028); 
+insert into dw_oute_numbs values ("step4",1018); 
+```
+
+查询每一步骤相对于路径起点人数的比例
+
+```hive
+--每一步的人数/第一步的人数==每一步相对起点人数比例
+select tmp.rnstep,tmp.rnnumbs/tmp.rrnumbs as ratio
+from
+(
+select rn.step as rnstep,rn.numbs as rnnumbs,rr.step as rrstep,rr.numbs as rrnumbs  from dw_oute_numbs rn
+inner join 
+dw_oute_numbs rr) tmp
+where tmp.rrstep='step1';
+```
+
+查询每一步骤相对于上一步骤的漏出率
+
+```hive
+--首先通过自join表过滤出每一步跟上一步的记录
+select rn.step as rnstep,rn.numbs as rnnumbs,rr.step as rrstep,rr.numbs as rrnumbs  from dw_oute_numbs rn
+inner join 
+dw_oute_numbs rr
+where cast(substr(rn.step,5,1) as int)=cast(substr(rr.step,5,1) as int)-1;
+```
+
+```hive
+--然后就可以非常简单的计算出每一步相对上一步的漏出率
+select tmp.rrstep as step,tmp.rrnumbs/tmp.rnnumbs as leakage_rate
+from
+(
+select rn.step as rnstep,rn.numbs as rnnumbs,rr.step as rrstep,rr.numbs as rrnumbs  from dw_oute_numbs rn
+inner join 
+dw_oute_numbs rr) tmp
+where cast(substr(tmp.rnstep,5,1) as int)=cast(substr(tmp.rrstep,5,1) as int)-1;
+```
+
+汇总以上两种指标
+
+```hive
+select abs.step,abs.numbs,abs.rate as abs_ratio,rel.rate as leakage_rate
+from 
+(
+select tmp.rnstep as step,tmp.rnnumbs as numbs,tmp.rnnumbs/tmp.rrnumbs as rate
+from
+(
+select rn.step as rnstep,rn.numbs as rnnumbs,rr.step as rrstep,rr.numbs as rrnumbs  from dw_oute_numbs rn
+inner join 
+dw_oute_numbs rr) tmp
+where tmp.rrstep='step1'
+) abs
+left outer join
+(
+select tmp.rrstep as step,tmp.rrnumbs/tmp.rnnumbs as rate
+from
+(
+select rn.step as rnstep,rn.numbs as rnnumbs,rr.step as rrstep,rr.numbs as rrnumbs  from dw_oute_numbs rn
+inner join 
+dw_oute_numbs rr) tmp
+where cast(substr(tmp.rnstep,5,1) as int)=cast(substr(tmp.rrstep,5,1) as int)-1
+) rel
+on abs.step=rel.step;
+```
 
 ### 数据可视化
 

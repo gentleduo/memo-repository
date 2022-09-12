@@ -1,364 +1,3 @@
-# 前言
-
-apache所有软件的下载地址（包含各种历史版本）：
-
-https://archive.apache.org/dist/
-
-# Zookeeper
-
-## 概念
-
-Zookeeper是一个开源的分布式协调服务器，主要用来解决分布式集群中应用系统的一致性问题和数据管理问题
-
-## 特点
-
-Zookeeper本质上是一个分布式文件系统，适合存放小文件，也可以理解为一个数据库，Zookeeper中存储的其实是一个又一个Znode，Znode是Zookeeper中的节点。
-
-1. Znode是有路径的，例如/data/host1，/data/host2，这个路径也可以理解为是Znode的Name
-2. Znode也可以携带数据，例如说某个Znode的路径是/data/host1，其值是一个字符串"192.168.0.1"
-
-正因为Znode的特性，所以Zookeeper可以对外提供出一个类似于文件系统的视图，可以通过操作文件系统的方式操作Zookeeper
-
-1. 使用路径获取Znode
-2. 获取Znode携带的数据
-3. 修改Znode携带的数据
-4. 删除Znode
-5. 添加Znode
-
-## 架构
-
-### Leader
-
-一个Zookeeper集群同一时间只会有一个实际工作的Leader，它会发起并维护与各Follwer及Observer间的心跳。所有的写操作必须要通过Leader完成再由Leader将写操作广播给其他服务器。
-
-1. 集群的核心，集群内部各个服务器的调度者
-2. 负责进行投票选举
-3. 处理事务性（写操作）请求
-4. 参与集群投票
-
-### Follwer
-
-一个Zookeeper集群可能同时存在多个Follwer，它会响应Leader的心跳。Follwer可直接处理并返回客户端的读请求，同时会将写请求转发给Leader处理，并且负责在Leader处理写请求时对请求进行投票。
-
-1. 接受客户端请求，并向客户端返回结果
-2. 处理客户端非事物性（读操作）请求
-3. 转发事务性请求给Leader
-4. 参与投票选举
-
-### Observer
-
-观察者角色与Follwer类似，但无投票权。
-
-1. 接受客户端请求，并向客户端返回结果
-2. 处理客户端非事物性（读操作）请求
-3. 转发事务性请求给Leader
-4. 不参与投票选举
-
-## 应用场景
-
-### 数据发布/订阅
-
-发布/订阅一般有两种设计模式：推模式和拉模式，服务端主动将数据更新发送给所有订阅的客户端称为推模式；客户端主动请求获取最新数据称为拉模式。
-
-Zookeeper采用了推拉结合的模式，客户端向服务器注册自己需要关注的节点，一旦该节点数据发生变更，那么服务器就会向相应的客户端推送Watcher事件通知，客户端接收到此通知后，主动到服务端获取最新的数据。
-
-### 命名服务
-
-命名服务是分布式系统中较为常见的一类场景，分布式系统中，被命名的实体通常可以是集群中的机器、提供的服务地址或远程服务对象等，通过命名服务，客户端可以根据指定名字来获取资源的实体，在分布式环境中，上层应用仅仅需要一个全局唯一名字。Zookeeper可以实现一套分布式全局唯一ID的分配机制。
-
-### 分布式协调/通知
-
-ZooKeeper中特有Watcher注册与异步通知机制，能够很好的实现分布式环境下不同系统之间的通知与协调，实现对数据变更的实时处理。使用方法通常是不同系统都对ZooKeeper上同一个Znode进行Watcher注册，监听Znode的变化（包括Znode本身内容及子节点的），若数据节点发生了变化，那么所有订阅该节点的客户端都能够接收到相应的Watcher通知，并作出相应处理。
-
-在大多数分布式系统中，系统间的通信主要包括：心跳检测、工作进度汇报和系统调度。
-
-### 分布式锁
-
-分布式锁用于控制分布式系统之间同步访问共享资源的一种方式，可以保证不同系统访问一个或一组资源时的一致性，主要分为排它锁和共享锁。
-
-#### 排它锁
-
-又称写锁或者独占锁，若事物T1对数据对象O1加上了排它锁，那么在整个加锁期间，只允许事物T1对O1进行读取和更新操作，其他任何事物都不能再对这个数据对象进行任何类型的操作，直到T1释放了排它锁。
-
-##### 定义锁
-
-```
-/exclusive_lock/lock
-```
-
-##### 实现方式
-
-利用zookeeper的同级节点的唯一性特性，在需要获取排他锁时，所有的客户端试图通过调用create()接口，在/exclusive_lock节点下创建临时子节点/exclusive_lock/lock，最终只有一个客户端能创建成功，那么此客户端就获得了分布式锁。同时，所有没有获取到锁的客户端可以在/exclusive_lock节点上注册一个子节点变更的watcher监听事件，以便重新争取获得锁。
-
-#### 共享锁
-
-又称读锁。如果事务T1对数据对象O1加上了共享锁，那么当前事务只能对O1进行读取操作，其他事务也只能对这个数据对象加共享锁，直到该数据对象上的所有共享锁都释放。
-
-##### 定义锁
-
-```
-/shared_lock/[hostname]-请求类型W/R-序号
-```
-
-##### 实现方式
-
-1. 客户端调用create方法创建类似定义锁方式的临时顺序节点。
-2. 客户端调用getChildren接口来获取所有已创建的子节点列表。
-3. 判断是否获得锁，对于读请求如果所有比自己小的子节点都是读请求或者没有比自己序号小的子节点，表明已经成功获取共享锁，同时开始执行度逻辑。对于写请求，如果自己不是序号最小的子节点，那么就进入等待。
-4. 如果没有获取到共享锁，读请求向比自己序号小的最后一个写请求节点注册watcher监听，写请求向比自己序号小的最后一个节点注册watcher监听。
-
-#### 释放锁
-
-在获取锁的客户端宕机或者正常完成业务逻辑都会导致临时节点的删除，此时，所有在/exclusive_lock节点上注册监听的客户端都会收到通知，可以重新发起分布式锁获取。
-
-### 分布式队列
-
-## 选举机制
-
-### Serverid
-
-编号越大在选择算法中的权重越大。比如有三台服务器，编号分别是1,2,3；则myid为3的服务器权重最大。
-
-### Zxid
-
-服务器中存放的最大数据ID。值越大说明数据越新，在选举算法中数据越新权重越大。
-
-### Epoch
-
-逻辑时钟。或者叫投票的次数，同一轮投票过程中的逻辑时钟值是相同的。每投完一次票这个数据就会增加，然后与接收到的其它服务器返回的投票信息中的数值相比，根据不同的值做出不同的判断。
-
-### Server状态
-
-选举状态：
-
-1. LOOKING，竞选状态。
-2. FOLLOWING，随从状态，同步leader状态，参与投票。
-3. OBSERVING，观察状态,同步leader状态，不参与投票。
-4. LEADING，领导者状态。
-
-### 选举流程
-
-#### 流程
-
-##### 发出投票
-
-节点启动时，都会将自己作为leader服务器来进行投票。
-
-##### 接受各个服务器的投票
-
-集群的每个服务器收到投票后，首先判断该投票的有效性，如检查是否是本轮投票，是否来自LOOKING状态的服务器。
-
-##### 处理投票
-
-针对每个投票，服务器都需要将别人的投票和自己的投票进行PK，PK规则如下：
-
-优先检查ZXID：ZXID比较大的服务器优先作为leader。
-
-如果ZXID相同：比较Serverid，Serverid较大的服务器作为leader服务器。
-
-##### 统计投票
-
-每次投票后，服务器都会统计投票信息，判断是否有机器得到的票数已经超过半数，如果有的话该机器当选leader。
-
-##### 改变服务器状态
-
-一旦确定了leader，每个服务器就会更新自己的状态，如果是follower，那么就变更为FOLLOWING，如果是leader，就变更为LEADING。
-
-
-
-#### 集群刚启动
-
-1. 服务器1启动：发起一次选举，服务器1投自己一票，此时服务器1票数一票，不够半数以上（3票），选举无法完成。投票结果：服务器1为1票。服务器1状态保持为LOOKING。
-
-2. 服务器2启动：发起一次选举，服务器1和2分别投自己一票，此时服务器1发现服务器2的id比自己大，更改选票投给服务器2。投票结果：服务器1为0票，服务器2为2票。服务器1，2状态保持LOOKING
-
-3. 服务器3启动：发起一次选举，服务器1、2、3先投自己一票，然后因为服务器3的id最大，两者更改选票投给为服务器3；投票结果：服务器1为0票，服务器2为0票，服务器3为3票。此时服务器3的票数已经超过半数（3票），服务器3当选Leader。服务器1，2更改状态为FOLLOWING，服务器3更改状态为LEADING。
-
-4. 服务器4启动：发起一次选举，此时服务器1，2，3已经不是LOOKING 状态，不会更改选票信息。交换选票信息结果：服务器3为3票，服务器4为1票。此时服务器4服从多数，更改选票信息为服务器3。服务器4并更改状态为FOLLOWING。
-
-5. 服务器5启动：与服务器4一样投票给3，此时服务器3一共5票，服务器5为0票。服务器5并更改状态为FOLLOWING。
-
-6. 最终的结果：服务器3是 Leader，状态为 LEADING；其余服务器是 Follower，状态为 FOLLOWING。
-
-#### 运行时期
-
-在Zookeeper运行期间Leader和非Leader各司其职，当有非Leader服务器宕机或加入不会影响Leader，但是一旦Leader服务器挂了，那么整个Zookeeper集群将暂停对外服务，会触发新一轮的选举。初始状态下服务器3当选为Leader，假设现在服务器3故障宕机了，此时每个服务器上zxid可能都不一样，server1为99，server2为102，server4为100，server5为101。
-
-集群 Leader 节点故障运行期选举与初始状态投票过程基本类似，大致可以分为以下几个步骤：
-
-1. 状态变更。Leader 故障后，余下的非 Observer 服务器都会将自己的服务器状态变更为LOOKING，然后开始进入Leader选举过程。
-
-2. 每个Server会发出投票。
-
-3. 接收来自各个服务器的投票，如果其他服务器的数据比自己的新会改投票。
-
-4. 处理和统计投票，每一轮投票结束后都会统计投票，超过半数即可当选。
-
-5. 改变服务器的状态，宣布当选。
-
-运行器Leader故障后选举流程
-
-1. 第一次投票，每台机器都会将票投给自己。
-
-2. 接着每台机器都会将自己的投票发给其他机器，如果发现其他机器的zxid比自己大，那么就需要改投票重新投一次。比如server1 收到了三张票，发现server2的xzid为102，pk一下发现自己输了，后面果断改投票选server2为老大。
-
-##  安装
-
-Zookeeper官网：https://zookeeper.apache.org/
-下载地址：https://archive.apache.org/dist/zookeeper/
-
-### 修改配置文件
-
-```bash
-[root@server01 conf]# cp zoo_sample.cfg zoo.cfg
-[root@server01 conf]# vim zoo.cfg
-
-# 修改如下内容
-# 保留多少个快照
-autopurge.snapRetainCount=3
-# 日志多少个小时清理一次
-autopurge.purgeInterval=1
-dataDir=/opt/zookeeper/data
-dataLogDir=/opt/zookeeper/log
-# 集群中服务器地址
-# 其中id为一个数字，表示zk进程的id，这个id也是dataDir目录下myid文件的内容
-# host是该zk进程所在的IP地址，port1表示follower和leader交换消息所使用的端口，port2表示选举leader所使用的端口。
-server.1=server01:2888:3888
-server.2=server02:2888:3888
-server.3=server03:2888:3888
-```
-
-### 添加myid配置
-
-```bash
-[root@server01 conf]# mkdir -p -m 755 /opt/zookeeper/data
-[root@server01 conf]# mkdir -p -m 755 /opt/zookeeper/log
-[root@server01 conf]# cd /opt/zookeeper/data
-[root@server01 conf]# vim myid
-
-# 添加如下内容
-1
-# 修改其他机器的配置文件：在server02上：修改myid为：2；在server03上：修改myid为：3
-```
-
-### 启动集群
-
-```bash
-# 启动
-[root@server01 conf]# zkServer.sh start
-# 查看集群状态，主从信息
-[root@server01 conf]# zkServer.sh status
-```
-
-## 数据模型
-
-Zookeeper的数据模型，在结构上和标准文件系统非常相似，拥有一个层次的命名空间，都是采用树形层次结构。Zookeeper树中的每个节点被称为一个Znode。和文件系统的目录树一样，Zookeeper树中的每个节点可以拥有子节点。
-
-1. Znode 兼具文件和目录两种特点。既像文件一样维护着数据、元信息、ACL、时间戳等数据结构，又像目录一样可以作为路径标识的一部分，并可以具有子Znode。用户对Znode具有增、删、查、改等操作。
-
-2. Znode存储数据大小的限制。Zookeeper虽然可以关联一些数据，但并没有被设计为常规的数据库或者大数据存储，相反的是，它用来管理调度数据，比如分布式应用中的配置文件信息、状态信息、汇集位置等等。这些数据的共同特征是它们都是很小的数据，通常以KB为大小单位，Zookeeper的服务器和客户端都被设计为严格检查并限制每个Znode的数据大小最多1M，常规使用中应该远小于此值。
-
-3. Znode通过路径引用。如同Unix中的文件路径，路径必须是绝对的。因此他们必须由斜杠符开头。除此之外，他么必须是唯一的，也就是说每一个路径只有一个表示，因此这些路径不能改变。/zookeeper节点是默认节点，用来保存关键配置信息。
-
-4. 每个Znode由3部分组成：
-
-   stat：此为状态信息，描述为该Znode的版本，权限等信息；
-
-   data：与该Znode关联的数据；
-
-   children：该Znode下的子节点。
-
-## 节点类型
-
-### 临时节点
-
-该节点的生命周期依赖于创建它们的会话。一旦会话结束，临时节点就将被自动删除，当然也可以手动删除。临时节点不允许拥有子节点。（ephemeral）
-
-### 永久节点
-
-该节点的生命周期不依赖于会话，并且只有在客户端显示执行删除操作的时候，他们才能被删除。（persistent）
-
-### 序列化
-
-Znode还有一个序列化特性，如果创建的时候指定的话，该Znode的名字后面会自动追加一个不断增加的序列号。序列号对于此节点的父节点来说是唯一的，这样便会记录每个子节点创建的先后顺序。它的格式为"%10d"(10位数字，没有数值的数位用0补充，例如“0000000001”)。
-
-### 目录节点形式
-
-1. PERSISTENT
-
-   永久节点
-
-2. PERSISTENT_SEQUENTIAL
-
-   永久节点、序列化
-
-3. EPHEMERAL
-
-   临时节点
-
-4. EPHEMERAL_SEQUENTIAL
-
-   临时节点、序列化
-
-## 命令操作
-
-1. 创建永久节点：create /hello world
-2. 创建临时节点：create -e /abc 123
-3. 创建永久序列化节点：create -s /zhangsan boy
-4. 创建临时序列化节点：create -e -s /lisi boy
-5. 修改节点数据：set /hello zookeeper
-6. 获取节点信息：get /hello
-   - dataVersion：数据版本号，每次对节点进行set操作，dataVersion都会增加1。
-   - cversion：子节点的版本号。当Znode的子节点有变化时，cversion的值就会增加1。
-   - aclVersion：ACL的版本号。
-   - cZxid：Znode创建时的事物id。
-   - mZxid：Znode被修改的事物id，即每次对Znode的修改都会更新mZxid。对于Zookeeper来说，每次的变化都会产生一个唯一的事物id，zxid(Zookeeper Transaction Id)。通过zxid可以确定更新操作的先后顺序。例如，如果zxid1小于zxid2说明zxid1操作先于zxid2发生，zxid对于整个zk都是唯一的。
-   - ctime：节点创建时的时间戳
-   - mtime：节点最新一次更新发生时的时间戳
-   - ephemeralOwner：如果该节点为临时节点，ephemeralOwner的值表示与该节点绑定的session id，如果不是ephemeralOwner的值为0。
-7. 删除节点(如果要删除的节点有子Znode则无法删除)：delete /hello
-8. 删除节点(如果有子Znode则递归删除)：rmr /abc
-9. 列出历史记录：histroy
-
-## Watch机制
-
-类似于数据库的触发器，对某个Znode设置Watcher，当Znode发生变化的时候，WatchManager会调用对应的Watcher。
-
-当Znode发生删除、修改、创建、子节点修改的时候，对应的Watcher会得到通知。
-
-Watcher的特点：
-
-1. 一个Watcher只会被触发一次，如果需要继续监听，则需要再次添加Watcher
-2. Watcher得到的事件是被封装过的，包括三个内容：keeperState，eventType，path
-
-### keeperState
-
-| 属性          | 说明                     |
-| ------------- | ------------------------ |
-| SyncConnected | 客户端与服务器正常连接时 |
-| Disconnected  | 客户端与服务器断开连接时 |
-| Expired       | 会话session失效时        |
-| AuthFailed    | 身份认证失败时           |
-
-### eventType
-
-| 枚举类型                       | 说明                             |
-| ------------------------------ | -------------------------------- |
-| None                           | 无                               |
-| NodeCreated	Watcher         | 监听的数据节点被创建时           |
-| NodeDeleted	Watcher         | 监听的数据节点被删除时           |
-| NodeDataChanged	Watcher     | 监听的数据节点内容发生变更时     |
-| NodeChildrenChanged	Watcher | 监听的数据节点的子节点发生变化时 |
-
-## JavaAPI操作
-
-可以使用一套Zookeeper客户端框架Curator，可以解决很多Zookeeper客户端非常底层的细节开发问题。
-
-Curator包含几个包：
-
-1. curator-framework：对zookeeper的底层api的一些封装；
-2. curator-recipes：封装了一些高级特性，如：Cache事件监听、选举、分布式锁、分布式计数器等。
-
 # Hadoop
 
 ## 环境安装
@@ -459,6 +98,76 @@ disable          #关闭
 [root@server03 .ssh]# crontab -e
 # 在输入界面输入以下定时任务：它表示每一分钟都会执行/usr/sbin/ntpdate命令，跟ntp4.aliyun.com服务器做一次时间同步
 */1 * * * * /usr/sbin/ntpdate ntp4.aliyun.com;
+```
+
+#### crontab
+
+linux中crontab命令用于设置周期性被执行的指令，该命令从标准输入设备读取指令，并将其存放于“crontab”文件中，以供之后读取和执行。cron  系统调度进程。可以使用它在每天的非高峰负荷时间段运行作业，或在一周或一月中的不同时段运行。cron是系统主要的调度进程，可以在无需人工干预的情况下运行作业。
+
+##### 参数
+
+crontab [-u username] [-l|-e|-r]
+
+-u: 只有root才能进行这个任务，也即帮其他用户新建/删除crontab工作调度;
+
+-e: 编辑crontab 的工作内容;
+
+-l: 查阅crontab的工作内容;
+
+-r: 删除所有的crontab的工作内容，若仅要删除一项，请用-e去编辑。 
+
+##### 定时任务设置 
+
+直接输入命令crontab -e 或者编辑文件/etc/crontab 就可以直接设置定时任务。
+
+##### 定时任务格式
+
+格式：*   *   *   *   *  command
+
+​           分  时 日 月 周 命令 
+
+1. 第1列表示分钟1～59 每分钟用*或者 */1表示
+
+2. 第2列表示小时1～23（0表示0点）
+
+3. 第3列表示日期1～31
+
+4. 第4列表示月份1～12
+
+5. 第5列标识号星期0～6（0表示星期天）
+
+6. 第6列要运行的命令 
+
+星号（*）：代表所有可能的值，例如month字段如果是星号，则表示在满足其它字段的制约条件后每月都执行该命令操作。
+
+逗号（,）：可以用逗号隔开的值指定一个列表范围，例如，“1,2,5,7,8,9”。
+
+中杠（-）：可以用整数之间的中杠表示一个整数范围，例如“2-6”表示“2,3,4,5,6”。
+
+正斜线（/）：可以用正斜线指定时间的间隔频率，例如“0-23/2”表示每两小时执行一次。同时正斜线可以和星号一起使用，例如*/10，如果用在minute字段，表示每十分钟执行一次。
+
+##### 实例
+
+```shell
+30 21 * * * /usr/local/etc/rc.d/lighttpd restart //每晚的21:30重启apache。
+
+45 4 1,10,22 * * /usr/local/etc/rc.d/lighttpd restart //每月1、10、22日的4:45重启apache。
+
+10 1 * * 6,0 /usr/local/etc/rc.d/lighttpd restart //每周六、周日的1:10重启apache。
+
+0,30 18-23 * * * /usr/local/etc/rc.d/lighttpd restart //每天18:00至23:00之间每隔30分钟重启apache
+
+0 23 * * 6 /usr/local/etc/rc.d/lighttpd restart //每星期六的11:00 pm重启apache。
+
+* */1 * * * /usr/local/etc/rc.d/lighttpd restart //每一小时重启apache
+
+* 23-7/1 * * * /usr/local/etc/rc.d/lighttpd restart //晚上11点到早上7点之间，每隔一小时重启apache
+
+0 11 4 * mon-wed /usr/local/etc/rc.d/lighttpd restart //每月的4号与每周一到周三的11点重启apache
+
+0 4 1 jan * /usr/local/etc/rc.d/lighttpd restart //一月一号的4点重启apache
+
+*/30 * * * * /usr/sbin/ntpdate 210.72.145.44 //每半小时同步一下时间
 ```
 
 ### lrzsz
@@ -12474,7 +12183,304 @@ where cast(substr(tmp.rnstep,5,1) as int)=cast(substr(tmp.rrstep,5,1) as int)-1
 on abs.step=rel.step;
 ```
 
+### 数据导出
+
+Sqoop支持直接从Hive表到RDBMS表的导出操作，也支持HDFS到RDBMS表的操作，鉴于此，有如下两种方案：
+
+1. 从Hive表到RDBMS表的直接导出：效率较高，相当于直接在Hive表与RDBMS表的进行数据更新，但无法做精细的控制。
+2. 从Hive到HDFS再到RDBMS表的导出：需要先将数据从Hive表导出到HDFS，再从HDFS将数据导入到RDBMS。虽然比直接导出多了一步操作，但是可以实现对数据的更精准的操作，特别是在从Hive表导出到HDFS时，可以进一步对数据进行字段筛选、字段加工、数据过滤操作，从而使得HDFS上的数据更“接近”或等于将来实际要导入RDBMS表的数据，提高导出速度。
+
+#### 全量导出数据到mysql
+
+Hive------->HDFS
+
+```hive
+insert overwrite directory '/weblog/export/dw_pvs_referer_everyhour' row format
+delimited fields terminated by '\001' STORED AS textfile select referer_url,hour,pv_referer_cnt from dw_pvs_referer_everyhour where datestr = "20181101";
+```
+
+mysql中手动创建目标表
+
+```mysql
+create database weblog;
+use weblog;
+create table dw_pvs_referer_everyhour(
+   hour varchar(10), 
+   referer_url text, 
+   pv_referer_cnt bigint);
+```
+
+HDFS-------->Mysql
+
+```bash
+sqoop export \
+--connect jdbc:mysql://server01:3306/weblog \
+--username root --password 123456 \
+--table dw_pvs_referer_everyhour \
+--fields-terminated-by '\001' \
+--columns referer_url,hour,pv_referer_cnt \
+--export-dir /weblog/export/dw_pvs_referer_everyhour;
+```
+
+注意：columns选项当且仅当数据文件中的数据与表结构一致时（包括字段顺序）可以不指定；否则应按照数据文件中各个字段与目标的字段的映射关系来指定该参数
+
+#### 增量导出数据到mysql
+
+mysql中手动创建目标表
+
+```mysql
+create table dw_webflow_basic_info(
+monthstr varchar(20),
+daystr varchar(10),
+pv bigint,
+uv bigint,
+ip bigint,
+vv bigint
+);
+```
+
+先进行全量导出 把hive中该表的数据全部导出至mysql中
+
+```bash
+sqoop export \
+--connect jdbc:mysql://server01:3306/weblog \
+--username root --password 123456 \
+--table dw_webflow_basic_info \
+--fields-terminated-by '\001' \
+--export-dir /user/hive/warehouse/weblog.db/dw_webflow_basic_info/datestr=20181101/
+```
+
+手动模拟在hive新增数据  表示增量数据
+
+```hive
+insert into table dw_webflow_basic_info partition(datestr="20181103") values("201811","03",14250,1341,1341,96);
+```
+
+利用sqoop进行增量导出
+
+```bash
+sqoop export \
+--connect jdbc:mysql://server01:3306/weblog \
+--username root \
+--password 123456 \
+--table dw_webflow_basic_info \
+--fields-terminated-by '\001' \
+--update-key monthstr,daystr \
+--update-mode allowinsert \
+--export-dir /user/hive/warehouse/weblog.db/dw_webflow_basic_info/datestr=20181103/
+```
+
+在sql中update-key用于指定更新时检查判断依据，可以多个字段，中间用,分割，如果检查的字段在hive中有更新 mysql目标表中没有，那么sqoop就会执行更新操作
+
+#### 定时增量数据的导出操作
+
+手动导入增量数据
+
+```hive
+insert into table dw_webflow_basic_info partition(datestr="20181104") values("201811","04",10137,1129,1129,103);
+```
+
+编写增量导出的shell脚本
+
+```shell
+#!/bin/bash
+export SQOOP_HOME=/usr/local/sqoop
+
+#判断是否传入了参数，如果传入了日期则按照传入的日期导出，如果没有传入的话则导入当前日期的前一天的数据
+if [ $# -eq 1 ]
+then
+    execute_date=`date --date="${1}" +%Y%m%d`
+else
+    execute_date=`date -d'-1 day' +%Y%m%d`
+fi
+
+echo "execute_date:"${execute_date}
+
+table_name="dw_webflow_basic_info"
+hdfs_dir=/user/hive/warehouse/weblog.db/dw_webflow_basic_info/datestr=${execute_date}
+mysql_db_pwd=123456
+mysql_db_name=root
+
+echo 'sqoop start'
+$SQOOP_HOME/bin/sqoop export \
+--connect "jdbc:mysql://server01:3306/weblog" \
+--username $mysql_db_name \
+--password $mysql_db_pwd \
+--table $table_name \
+--fields-terminated-by '\001' \
+--update-key monthstr,daystr \
+--update-mode allowinsert \
+--export-dir $hdfs_dir
+
+echo 'sqoop end'
+```
+
+执行脚本导出
+
+```bash
+[root@server01 weblog]# ./sqoop_export.sh 20181104
+```
+
+配合定时调度工具完成周期性定时调度
+
+- linux crontab
+- 开源azkaban  oozie
+
+### 工作流调度
+
+业务目标完成会包含各个不同的步骤 步骤之间或者步骤内部往往存在着依赖关系，甚至需要周期性重复性执行，这时候就需要设定工作流，指导工作按照设定的流程进行。
+
+1. ​	简单工作流  使用linux crontab
+
+2. ​	复杂工作流  自己开发软件 或者使用开源免费的调度软件 azkaban
+
+#### 数据预处理定时调度
+
+数据预处理模块按照数据处理过程和业务需求，可以分成3个步骤执行：数据预处理清洗、点击流模型之pageviews、点击流模型之visit。并且3个步骤之间存在着明显的依赖关系，使用azkaban定时周期性执行将会非常方便。
+
+预处理的MapReduce打成3个jar：
+
+1. weblog_preprocess.jar
+2. weblog_click_pageviews.jar
+3. weblog_click_visits.jar
+
+编写azkaban调度job设置dependence依赖
+
+weblog_preprocess.job
+
+```bash
+# weblog_preprocess.job
+type=command
+command=/usr/local/hadoop-2.7.5/bin/hadoop jar weblog_preprocess.jar /input /preprocess
+```
+
+weblog_click_pageviews.job
+
+```bash
+# weblog_click_pageviews.job
+type=command
+dependencies=weblog_preprocess
+command=/usr/local/hadoop-2.7.5/bin/hadoop jar weblog_click_pageviews.jar /preprocess /pageviews
+```
+
+weblog_click_visits.job
+
+```bash
+# weblog_click_visits.job
+type=command
+dependencies=weblog_click_pageviews
+command=/usr/local/hadoop-2.7.5/bin/hadoop jar weblog_click_visits.jar /pageviews /visit
+```
+
+#### 数据入库定时调度
+
+load-weblog.sh
+
+```shell
+#!/bin/bash
+
+export HIVE_HOME=/usr/local/hive
+
+if [ $# -eq 1 ]
+then
+    datestr=`date --date="${1}" +%Y%m%d`
+else
+    datestr=`date -d'-1 day' +%Y%m%d`
+fi
+
+HQL="load data inpath '/preprocess/' into table weblog.ods_weblog_origin partition(datestr='${datestr}')"
+
+echo "开始执行load......"
+$HIVE_HOME/bin/hive -e "$HQL"
+echo "执行完毕......"
+
+```
+
+load-weblog.job
+
+```bash
+# load-weblog.job
+type=command
+command=sh load-weblog.sh
+```
+
+#### 数据统计计算定时调度
+
+1execute_hive_sql_detail.sh
+
+```shell
+#!/bin/bash
+HQL="
+drop table itheima.dw_user_dstc_ip_h1;
+create table itheima.dw_user_dstc_ip_h1(
+remote_addr string,
+pvs      bigint,
+hour     string);
+
+insert into table itheima.dw_user_dstc_ip_h1 
+select remote_addr,count(1) as pvs,concat(month,day,hour) as hour 
+from weblog.dw_weblog_detail
+Where datestr='20181101'
+group by concat(month,day,hour),remote_addr;
+"
+echo $HQL
+/usr/local/hive/bin/hive -e "$HQL"
+```
+
+1execute_hive_sql_detail.job
+
+```bash
+# 1execute_hive_sql_detail.job
+type=command
+command=sh 1execute_hive_sql_detail.sh
+```
+
+
+
 ### 数据可视化
 
 将分析所得数据结果进行数据可视化，一般通过图表进行展示。数据可视化可以帮你更容易的解释趋势和统计数据。
+
+echars示例：
+
+```html
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="utf-8" />
+		<title></title>
+		<!-- 在页面上引入echarts.js -->
+		<script type="text/javascript" src="js/echarts.js"></script>
+	</head>
+	<body>
+		<!-- 在页面创建一个dom容器 有高有宽的范围 -->
+		<div id="main" style="width: 600px;height:400px;"></div>
+		<script type="text/javascript">
+			/* 选择容器使用echarts api创建echarts 实例 */
+			var myChart = echarts.init(document.getElementById('main'));
+			/* 根据业务需求去echarts官网寻找对应的图形样式  复制其option */
+			var option = {
+				title: {
+					text: 'ECharts 入门示例'
+				},
+				tooltip: {},
+				legend: {
+					data: ['销量']
+				},
+				xAxis: {
+					data: ["衬衫", "羊毛衫", "雪纺衫", "裤子", "高跟鞋", "袜子"]
+				},
+				yAxis: {},
+				series: [{
+					name: '销量',
+					type: 'bar',
+					data: [5, 20, 36, 10, 10, 20]
+				}]
+			};
+			/* 把option设置到创建的echarts 实例中 */
+			myChart.setOption(option);
+		</script>
+	</body>
+</html>
+```
 

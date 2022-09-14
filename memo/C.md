@@ -6203,6 +6203,237 @@ int main (int argc,char **argv){
 }
 ```
 
+## 写数据安全
+
+写数据做到什么程度才叫安全了？就是：用户发过来一个写 IO 请求，只要你给他回复了 “写成功了”，那么无论机器发生掉电，还是重启等等之类的，数据都还能读出来。所以，在不考虑数据静默错误的前提下，数据安全的最本质要求是什么？那就是数据一定要在非易失性的存储介质里，才能给用户回复“写成功”。易失性介质：寄存器，内存 等； 非易失性介质：磁盘，固态硬盘等。
+
+### Linux IO
+
+前面提到一个文件的读写方式，无论是标准库的方式还是文件的I/O方式，本质上都是基于文件的一种形式，下面承接了一层文件系统，主要层次：系统调用 -> vfs -> 文件系统 -> 块设备 -> 硬件驱动 。
+
+open了这个文件，然后write数据进去。好，现在思考一个问题，当write返回成功之后，数据到磁盘了吗？答案是：不确定。因为有文件系统的cache，默认是write back的模式，数据写到内存就返回成功了，然后内核根据实际情况（比如定期或者脏数据达到某个阈值），异步刷盘。这样的好处是保证了写的性能，貌似写的性能非常好（可不好嘛，数据写内存的速度），坏处是存在数据风险。因为用户收到成功的时候，数据可能还在内存，这个时候整机掉电，由于内存是易失性介质，数据就丢了。丢数据是存储最不能接受的事情，相当于丢失了存储的生命线。
+
+如果要确保数据落盘之后才向用户返回成功，则有以下三种方式：
+
+#### O_DIRECT模式
+
+open文件的时候，用O_DIRECT模式打开，这样write/read的时候，文件系统的IO会绕过cache，直接跟磁盘IO；DIRECT IO模式能够保证每次IO都直接访问磁盘数据，而不是数据写到内存就向用户返回成功的结果，这样才能确保数据安全。读的时候也是直接读磁盘，而不会缓存到内存中，从而也能节省整机内存的使用。缺点也同样明显，由于每次IO都要落盘，那么性能肯定看起来差(但是其实这才是真实的磁盘性能)
+
+使用了O_DIRECT模式之后，必须要用户自己保证对齐规则，否则IO会报错，有3个需要对齐的规则：
+
+1. 磁盘IO的大小必须扇区大小（512字节）对齐
+2. 磁盘IO偏移按照扇区大小对齐；
+3. 内存buffer的地址也必须是扇区对齐；
+
+c语言示例：
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <assert.h>
+#include <fcntl.h>
+#include <errno.h>
+#include <string.h>
+#include <stdint.h>
+
+extern int errno;
+#define align_ptr(p, a) \
+    (u_char *)(((uintptr_t)(p) + ((uintptr_t)a - 1)) & ~((uintptr_t)a - 1))
+int main(int argc, char **argv)
+{
+    char timestamp[8192] = {0,};
+    char *timestamp_buf = NULL;
+    int timestamp_len = 0;
+    ssize_t n = 0;
+    int fd = -1;
+
+    fd = open("./test_directio.txt", O_CREAT | O_RDWR | O_DIRECT, 0644);
+    assert(fd >= 0);
+
+    // 对齐内存地址
+    timestamp_buf = (char *)(align_ptr(timestamp, 512));
+    timestamp_len = 512;
+
+    n = pwrite(fd, timestamp_buf, timestamp_len, 0);
+    printf("ret (%ld) errno (%s)\n", n, strerror(errno));
+
+    return 0;
+}
+```
+
+编译后执行二进制文件，
+
+```bash
+[root@server01 opt]# gcc -ggdb3 -O0 direct_w.c -D_GNU_SOURCE
+[root@server01 opt]# ./a.out
+ret (512) errno (Success)
+```
+
+如果为了验证对齐导致的错误，可以故意让io的偏移或者大小，或者内存buffer地址不按照512对齐（比如故意让timestamp_buf对齐之后的地址减1，再试下运行）。
+
+保证malloc的地址是512对齐的方法：
+
+1. 分配大一点的内存，然后在这个大块内存里找到对齐的地址，只需要确保IO大小不会超过最后的边界即可；上面的demo例子就是如此，分配了8192的内存块，然后从里面找到512对齐的地址。从这个地址开始往后512个字节是绝对到不了这个大内存块的边界的。对齐的目的安全达成。这种方式实现简单且通用，但是比较浪费内存
+
+2. 使用posix标准封装的接口posix_memalign来分配内存，这个接口分配的内存能保证对齐；
+
+   如下，分配1KiB的内存buffer，内存地址按照512字节对齐。
+
+   ```c
+   ret = posix_memalign (&buf, 512, 1024);
+   if (ret) {
+       return -1;
+   }
+   ```
+
+O_DIRECT模式的IO一般的应用场景：
+
+1. 最常见的是数据库系统，数据库有自己的缓存体系和 IO 优化，无需内核消耗内存再去完成相同的事情，并且可能好心办坏事；
+2. 不格式化文件系统，而是直接管理块设备的场景；
+
+#### 标准IO + sync
+
+sync 功能：强制刷新内核缓冲区到输出磁盘。
+
+在 Linux 的缓存 I/O 机制中，用户和磁盘之间有一层易失性的介质——内核空间的 buffer cache；读的时候会 cache 一份到内存中以便提高后续的读性能；写的时候用户数据写到内存 cache 就向用户返回成功，然后异步刷盘，从而提高用户的写性能。
+
+读操作：
+
+1. 操作系统先看内核的 buffer cache 有缓存不？有，那么就直接从缓存中返回；
+
+2. 否则从磁盘中读取，然后缓存在操作系统的缓存中；
+
+写操作：
+
+1. 将数据从用户空间复制到内核的内存 cache 中，这时就向用户返回成功，对用户来说写操作就已经完成；
+2. 至于内存的数据什么时候才真正写到磁盘由操作系统策略决定（如果此时机器掉电，那么就会丢失用户数据）；
+3. 所以，如果你要保证落盘，必须显式调用了 sync 命令，显式把数据刷到磁盘（只有刷到磁盘，机器掉电才不会导致丢数据）；
+
+sync 机制能保证当前时间点之前的数据全部刷到磁盘。。而关于 sync 的方式大概有两种：
+
+1. open 的使用使用 O_SYNC 标识；
+2. 显式调用 fsync 之类的系统调用；
+
+方法一：open使用O_SYNC标识
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <assert.h>
+#include <fcntl.h>
+#include <errno.h>
+#include <string.h>
+#include <stdint.h>
+
+extern int errno;
+
+int main(int argc, char **argv)
+{
+    char buffer[512] = {0,};
+    ssize_t n = 0;
+    int fd = -1;
+
+    fd = open("./test_sync.txt", O_CREAT | O_RDWR | O_SYNC, 0644);
+    assert(fd >= 0);
+
+    n = pwrite(fd, buffer, 512, 0);
+    printf("ret (%ld) errno (%s)\n", n, strerror(errno));
+
+    return 0;
+}
+```
+
+这种方式能保证每一笔 IO 都是同步 IO，一定是刷到磁盘才返回，但是这种使用姿势一般少见，因为这个性能会很差，并且不利于批量优化。
+
+方法二：单独调用函数 fsync
+
+这个则是在write之后fsync一把数据到磁盘，这种方式用的多些，因为方便业务优化。这种方式对程序员提出了更高的要求，要求必须自己掌握好fsync的时机，达到既保证安全又保证性能的目的，这里通常是个权衡点。比如，可以write10次之后，最后才调用一般fsync，这样既能保证刷盘，又达成了批量IO的优化目的。关于这种使用姿势，有几个类似函数，其中有些差异，各自体会下：
+
+```markdown
+// 文件数据和元数据部分都刷盘
+int fsync(int fildes);
+// 文件数据部分都刷盘
+int fdatasync(int fildes);
+// 整个内存 cache 都刷磁盘
+void sync(void);
+```
+
+#### mmap +  msync
+
+这是一个非常有趣的IO模式，通过mmap函数将硬盘上文件与进程地址空间大小相同的区域映射起来，之后当要访问这段内存中一段数据时，内核会转换为访问该文件的对应位置的数据。从使用姿势上，就跟操作内存一样，但从结果上来看，本质上是文件IO。mmap这种方式可以减少数据在用户空间和内核空间之间的拷贝操作，当数据大的时候，采用内存映射方式去访问文件会获得比较好的效率（因为可以减少内存拷贝量，并且聚合IO，数据批量下盘，有效的减少IO次数）。当然，write数据也还是异步落盘的，并没有实时落盘，如果要保证落盘，那么必须要调用msync，调用成功，才算持久化落盘。
+
+mmap 的优点：
+
+1. 减少系统调用的次数。只需要 mmap 一次的系统调用，后续的操作都是内存拷贝操作姿势，而不是 write/read 的系统调用；
+2. 减少数据拷贝次数；
+
+c 语言示例：
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/mman.h>
+#include <sys/types.h>
+#include <unistd.h>
+#include <sys/stat.h>
+#include <assert.h>
+#include <fcntl.h>
+#include <string.h>
+
+int main()
+{
+    int ret = -1;
+    int fd = -1;
+
+    fd = open("test_mmap.txt", O_CREAT | O_RDWR, 0644);
+    assert(fd >= 0);
+
+    ret = ftruncate(fd, 512);
+    assert(ret >= 0);
+
+    char *const address = (char *)mmap(NULL, 512, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    assert(address != MAP_FAILED);
+
+    // 神奇在这里（看起来是内存拷贝，其实是文件 IO）
+    strcpy(address, "hallo, world");
+    ret = close(fd);
+    assert(ret >= 0);
+
+    // 落盘确保
+    ret = msync(address, 512, MS_SYNC);
+    assert(ret >= 0);
+
+    ret = munmap(address, 512);
+    assert(ret >= 0);
+
+    return 0;
+}
+```
+
+```bash
+[root@server01 opt]# gcc -ggdb3 test_mmap.c -D_GNU_SOURCE -o test_mmap
+[root@server01 opt]# ./test_mmap
+# 生成了一个test_mmap.txt 文件，里面有一句 “hello，world”。
+[root@server01 opt]# vim test_mmap.txt
+```
+
+#### 硬件缓存
+
+以上方式保证了文件系统那一层的落盘，但是磁盘硬件其实本身也有缓存，这个属于硬件缓存，这层缓存也是易失的。所以最后一点是，为了保证数据的落盘，硬盘缓存也要关掉。
+
+```bash
+[root@server01 opt]# yum install hdparm
+# 查看写缓存状态；
+[root@server01 opt]# hdparm -W /dev/sda
+
+/dev/sda:
+ write-caching =  1 (on)
+ # 关闭 HDD Cache,保证数据强一致性；避免断电时数据未落盘；
+[root@server01 opt]# hdparm -W  0 /dev/sda
+# 打开 HDD Cache（断电时可能导致丢数据）
+[root@server01 opt]# hdparm -W  1 /dev/sda
+```
+
 # 进程、线程和进程间通信
 
 ## 进程

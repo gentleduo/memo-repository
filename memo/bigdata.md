@@ -13574,3 +13574,1216 @@ master启动进行以下步骤：
 ### split机制
 
 当Region达到阈值，会把过大的Region一分为二。默认一个HFile达到10Gb的时候就会进行切分。
+
+## HBase与MapReduce的集成
+
+HBase当中的数据最终都是存储在HDFS上面的，HBase天生的支持MR的操作，可以通过MR直接处理HBase当中的数据，并且MR可以将处理后的结果直接存储到HBase当中去：
+
+http://hbase.apache.org/2.0/book.html#mapreduce
+
+### HBase Table ==> HBase Table
+
+读取HBase当中一张表的数据，然后将数据写入到HBase当中的另外一张表当中去。注意：我们可以使用TableMapper与TableReducer来实现从HBase当中读取与写入数据
+
+HBaseSourceMapper.java
+
+```java
+package org.duo.hbase.tableOperate;
+
+import org.apache.hadoop.hbase.Cell;
+import org.apache.hadoop.hbase.CellUtil;
+import org.apache.hadoop.hbase.client.Put;
+import org.apache.hadoop.hbase.client.Result;
+import org.apache.hadoop.hbase.io.ImmutableBytesWritable;
+import org.apache.hadoop.hbase.mapreduce.TableMapper;
+import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.hadoop.io.Text;
+
+import java.io.IOException;
+import java.util.List;
+
+/**
+ * 负责读取myuser表当中的数据
+ * 如果mapper类需要读取hbase表数据，那么我们mapper类需要继承TableMapper这样的一个类
+ * 将key2   value2定义成 text  和put类型
+ * text里面装rowkey
+ * put装我们需要插入的数据
+ */
+
+public class HBaseSourceMapper extends TableMapper<Text, Put> {
+
+    /**
+     * @param key     rowkey
+     * @param value   result对象，封装了我们一条条的数据
+     * @param context 上下文对象
+     * @throws IOException
+     * @throws InterruptedException 需求：读取myuser表当中f1列族下面的name和age列
+     */
+    @Override
+    protected void map(ImmutableBytesWritable key, Result value, Context context) throws IOException, InterruptedException {
+        //获取到rowkey的字节数组
+        byte[] bytes = key.get();
+        String rowkey = Bytes.toString(bytes);
+
+        Put put = new Put(bytes);
+
+        //获取到所有的cell
+        List<Cell> cells = value.listCells();
+        for (Cell cell : cells) {
+            //获取cell对应的列族
+            byte[] familyBytes = CellUtil.cloneFamily(cell);
+            //获取对应的列
+            byte[] qualifierBytes = CellUtil.cloneQualifier(cell);
+            //这里判断我们只需要f1列族，下面的name和age列
+            if (Bytes.toString(familyBytes).equals("f1") && Bytes.toString(qualifierBytes).equals("name") || Bytes.toString(qualifierBytes).equals("age")) {
+                put.add(cell);
+            }
+
+        }
+        //将数据写出去
+        if (!put.isEmpty()) {
+            context.write(new Text(rowkey), put);
+        }
+
+    }
+}
+```
+
+HBaseSinkReducer.java
+
+```java
+package org.duo.hbase.tableOperate;
+
+import org.apache.hadoop.hbase.client.Put;
+import org.apache.hadoop.hbase.io.ImmutableBytesWritable;
+import org.apache.hadoop.hbase.mapreduce.TableReducer;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Reducer;
+
+import java.io.IOException;
+
+/**
+ * 负责将数据写入到myuser2
+ */
+public class HBaseSinkReducer extends TableReducer<Text, Put, ImmutableBytesWritable> {
+    @Override
+    protected void reduce(Text key, Iterable<Put> values, Context context) throws IOException, InterruptedException {
+        for (Put put : values) {
+            context.write(new ImmutableBytesWritable(key.toString().getBytes()), put);
+        }
+    }
+}
+```
+
+HBaseMain.java
+
+```java
+package org.duo.hbase.tableOperate;
+
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.conf.Configured;
+import org.apache.hadoop.hbase.HBaseConfiguration;
+import org.apache.hadoop.hbase.client.Put;
+import org.apache.hadoop.hbase.client.Scan;
+import org.apache.hadoop.hbase.mapreduce.TableMapReduceUtil;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.util.Tool;
+import org.apache.hadoop.util.ToolRunner;
+
+import javax.swing.plaf.nimbus.AbstractRegionPainter;
+
+public class HBaseMain extends Configured implements Tool {
+
+    @Override
+    public int run(String[] args) throws Exception {
+
+        Job job = Job.getInstance(super.getConf(), "hbaseMR");
+        //打包运行，必须设置main方法所在的主类
+        job.setJarByClass(HBaseMain.class);
+
+        Scan scan = new Scan();
+        //定义我们的mapper类和reducer类
+        /**
+         * String table, Scan scan,
+         Class<? extends TableMapper> mapper,
+         Class<?> outputKeyClass,
+         Class<?> outputValueClass, Job job,
+         boolean addDependencyJars
+         */
+        TableMapReduceUtil.initTableMapperJob("myuser", scan, HBaseSourceMapper.class, Text.class, Put.class, job, false);
+        //使用工具类初始化reducer类
+        TableMapReduceUtil.initTableReducerJob("myuser2", HBaseSinkReducer.class, job);
+        boolean b = job.waitForCompletion(true);
+        return b ? 0 : 1;
+    }
+
+    //程序入口类
+    public static void main(String[] args) throws Exception {
+        //Configuration conf, Tool tool, String[] args
+        Configuration configuration = HBaseConfiguration.create();
+        configuration.set("hbase.zookeeper.quorum", "server01:2181,server02:2181,server03:2181");
+        int run = ToolRunner.run(configuration, new HBaseMain(), args);
+        System.exit(run);
+    }
+}
+```
+
+### HDFS ==> HBase Table
+
+读取HDFS文件，写入到HBase表当中去
+
+准备数据文件，并将数据文件上传到HDFS上面去
+
+user.txt
+
+```markdown
+0007    zhangsan        18
+0008    lisi    25
+0009    wangwu  20
+```
+
+```bash
+[root@server01 opt]# hdfs dfs -mkdir -p /hbase/input
+[root@server01 opt]# hdfs dfs -put user.txt /hbase/input
+# mr运行时可能会有权限问题，所以这里需要修改文件夹的访问权限
+[root@server01 opt]# hdfs dfs -chmod -R 777 /hbase
+
+```
+
+
+
+HDFSMapper.java
+
+```java
+package org.duo.hbase.hdfsOperate;
+
+import org.apache.hadoop.io.LongWritable;
+import org.apache.hadoop.io.NullWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Mapper;
+
+import java.io.IOException;
+
+/**
+ * 通过这个mapper读取hdfs上面的文件，然后进行处理
+ */
+public class HDFSMapper extends Mapper<LongWritable, Text, Text, NullWritable> {
+
+    @Override
+    protected void map(LongWritable key, Text value, Context context) throws IOException, InterruptedException {
+
+        //读取到数据之后不做任何处理，直接将数据写入到reduce里面去进行处理
+        context.write(value, NullWritable.get());
+
+    }
+}
+```
+
+HBaseWriteReducer.java
+
+```java
+package org.duo.hbase.hdfsOperate;
+
+import org.apache.hadoop.hbase.client.Put;
+import org.apache.hadoop.hbase.io.ImmutableBytesWritable;
+import org.apache.hadoop.hbase.mapreduce.TableReducer;
+import org.apache.hadoop.io.NullWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Reducer;
+
+import java.io.IOException;
+
+public class HBaseWriteReducer extends TableReducer<Text, NullWritable, ImmutableBytesWritable> {
+
+    /**
+     * 0007    zhangsan        18
+     * 0008    lisi    25
+     * 0009    wangwu  20
+     *
+     * @param key
+     * @param values
+     * @param context
+     * @throws IOException
+     * @throws InterruptedException
+     */
+    @Override
+    protected void reduce(Text key, Iterable<NullWritable> values, Context context) throws IOException, InterruptedException {
+
+        String[] split = key.toString().split("\t");
+        Put put = new Put(split[0].getBytes());
+        put.addColumn("f1".getBytes(), "name".getBytes(), split[1].getBytes());
+        put.addColumn("f1".getBytes(), "age".getBytes(), split[2].getBytes());
+        //将我们的数据写出去，key3是ImmutableBytesWritable，这个里面装的是rowkey
+        //然后将写出去的数据封装到put对象里面去了
+        context.write(new ImmutableBytesWritable(split[0].getBytes()), put);
+    }
+}
+```
+
+HdfsHBaseMain.java
+
+```java
+package org.duo.hbase.hdfsOperate;
+
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.conf.Configured;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.hbase.HBaseConfiguration;
+import org.apache.hadoop.hbase.mapreduce.TableMapReduceUtil;
+import org.apache.hadoop.io.NullWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.mapreduce.lib.input.TextInputFormat;
+import org.apache.hadoop.util.Tool;
+import org.apache.hadoop.util.ToolRunner;
+
+import javax.swing.plaf.nimbus.AbstractRegionPainter;
+
+public class HdfsHBaseMain extends Configured implements Tool {
+
+    @Override
+    public int run(String[] args) throws Exception {
+        //获取job对象
+        Job job = Job.getInstance(super.getConf(), "hdfs2Hbase");
+
+        //第一步：读取文件，解析成key，value对
+        job.setInputFormatClass(TextInputFormat.class);
+        TextInputFormat.addInputPath(job, new Path("hdfs://server01:8020/hbase/input"));
+
+        //第二步：自定义map逻辑，接受k1,v1，转换成为k2  v2进行输出
+        job.setMapperClass(HDFSMapper.class);
+        job.setMapOutputKeyClass(Text.class);
+        job.setMapOutputValueClass(NullWritable.class);
+
+        //分区，排序，规约，分组
+
+        //第七步：设置reduce类
+        TableMapReduceUtil.initTableReducerJob("myuser2", HBaseWriteReducer.class, job);
+
+        boolean b = job.waitForCompletion(true);
+
+        return b ? 0 : 1;
+    }
+
+    public static void main(String[] args) throws Exception {
+        Configuration configuration = HBaseConfiguration.create();
+        configuration.set("hbase.zookeeper.quorum", "server01:2181,server02:2181,server03:2181");
+        int run = ToolRunner.run(configuration, new HdfsHBaseMain(), args);
+        System.exit(run);
+    }
+}
+```
+
+总结：如果读取hbase里面的数据  mapper类需要继承TableMapper；如果需要读取hdfs上面的文本文件数据，mapper类需要继承Mapper；如果要将reduce程序处理完的数据，保存到hbase里面去，reduce类，一定要继承TableReducer
+
+### bulkload ==> HBase
+
+通过bulkload的方式批量加载数据到HBase当中去。加载数据到HBase当中去的方式多种多样，可以使用HBase的javaAPI或者使用sqoop将我们的数据写入或者导入到HBase当中去，但是这些方式不是慢就是在导入的过程的占用Region资源导致效率低下，也可以通过MR的程序，将我们的数据直接转换成HBase的最终存储格式HFile，然后直接load数据到HBase当中去即可；HBase中每张Table在根目录（/HBase）下用一个文件夹存储，Table名为文件夹名，在Table文件夹下每个Region同样用一个文件夹存储，每个Region文件夹下的每个列族也用文件夹存储，而每个列族下存储的就是一些HFile文件，HFile就是HBase数据在HFDS下存储格式，所以HBase存储文件最终在hdfs上面的表现形式就是HFile，如果可以直接将数据转换为HFile的格式，那么HBase就可以直接读取加载HFile格式的文件，就可以直接读取了。优点：
+
+1. 导入过程不占用Region资源
+
+2. 能快速导入海量的数据
+
+3. 节省内存
+
+将hdfs上面的这个路径/hbase/input/user.txt的数据文件，转换成HFile格式，然后load到myuser2这张表里面去：
+
+HDFSReadMapper.java
+
+```java
+package org.duo.hbase.bulkOperate;
+
+import org.apache.hadoop.hbase.client.Put;
+import org.apache.hadoop.hbase.io.ImmutableBytesWritable;
+import org.apache.hadoop.io.LongWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Mapper;
+
+import java.io.IOException;
+
+public class HDFSReadMapper extends Mapper<LongWritable, Text, ImmutableBytesWritable, Put> {
+
+    /**
+     * 0007    zhangsan        18
+     * 0008    lisi    25
+     * 0009    wangwu  20
+     *
+     * @param key
+     * @param value
+     * @param context
+     * @throws IOException
+     * @throws InterruptedException
+     */
+    @Override
+    protected void map(LongWritable key, Text value, Context context) throws IOException, InterruptedException {
+
+        String[] split = value.toString().split("\t");
+        Put put = new Put(split[0].getBytes());
+        put.addColumn("f1".getBytes(), "name".getBytes(), split[1].getBytes());
+        put.addColumn("f1".getBytes(), "age".getBytes(), split[2].getBytes());
+        context.write(new ImmutableBytesWritable(split[0].getBytes()), put);
+    }
+}
+```
+
+BulkLoadMain.java
+
+```java
+package org.duo.hbase.bulkOperate;
+
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.conf.Configured;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.hbase.HBaseConfiguration;
+import org.apache.hadoop.hbase.TableName;
+import org.apache.hadoop.hbase.client.Connection;
+import org.apache.hadoop.hbase.client.ConnectionFactory;
+import org.apache.hadoop.hbase.client.Put;
+import org.apache.hadoop.hbase.client.Table;
+import org.apache.hadoop.hbase.io.ImmutableBytesWritable;
+import org.apache.hadoop.hbase.mapreduce.HFileOutputFormat2;
+import org.apache.hadoop.hdfs.DFSUtil;
+import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.mapreduce.lib.input.TextInputFormat;
+import org.apache.hadoop.util.Tool;
+import org.apache.hadoop.util.ToolRunner;
+
+public class BulkLoadMain extends Configured implements Tool {
+
+    @Override
+    public int run(String[] args) throws Exception {
+
+        Configuration conf = super.getConf();
+
+        //获取job对象
+        Job job = Job.getInstance(conf, "bulkLoad");
+
+        Connection connection = ConnectionFactory.createConnection(conf);
+
+        Table table = connection.getTable(TableName.valueOf("myuser2"));
+
+        //读取文件
+        job.setInputFormatClass(TextInputFormat.class);
+        TextInputFormat.addInputPath(job, new Path("hdfs://server01:8020/hbase/input"));
+
+        job.setMapperClass(HDFSReadMapper.class);
+        job.setMapOutputKeyClass(ImmutableBytesWritable.class);
+        job.setMapOutputValueClass(Put.class);
+
+        //将数据输出成为HFile格式
+
+        //Job job, Table table, RegionLocator regionLocator
+        //配置增量的添加数据
+        HFileOutputFormat2.configureIncrementalLoad(job, table, connection.getRegionLocator(TableName.valueOf("myuser2")));
+        //设置输出classs类，决定了我们输出数据格式
+        job.setOutputFormatClass(HFileOutputFormat2.class);
+        //设置输出路径
+        HFileOutputFormat2.setOutputPath(job, new Path("hdfs://server01:8020/hbase/hfile_out"));
+
+        boolean b = job.waitForCompletion(true);
+
+        return b ? 0 : 1;
+    }
+
+    public static void main(String[] args) throws Exception {
+
+        Configuration configuration = HBaseConfiguration.create();
+        configuration.set("hbase.zookeeper.quorum", "server01:2181,server02:2181,server03:2181");
+        int run = ToolRunner.run(configuration, new BulkLoadMain(), args);
+        System.exit(run);
+    }
+}
+```
+
+LoadData.java
+
+```java
+package org.duo.hbase.bulkOperate;
+
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.hbase.HBaseConfiguration;
+import org.apache.hadoop.hbase.TableName;
+import org.apache.hadoop.hbase.client.Admin;
+import org.apache.hadoop.hbase.client.Connection;
+import org.apache.hadoop.hbase.client.ConnectionFactory;
+import org.apache.hadoop.hbase.client.Table;
+import org.apache.hadoop.hbase.mapreduce.LoadIncrementalHFiles;
+
+public class LoadData {
+
+    public static void main(String[] args) throws Exception {
+
+        Configuration configuration = HBaseConfiguration.create();
+        configuration.set("hbase.zookeeper.property.clientPort", "2181");
+        configuration.set("hbase.zookeeper.quorum", "server01,server02,server03");
+        Connection connection = ConnectionFactory.createConnection(configuration);
+        Admin admin = connection.getAdmin();
+        Table table = connection.getTable(TableName.valueOf("myuser2"));
+        LoadIncrementalHFiles load = new LoadIncrementalHFiles(configuration);
+        load.doBulkLoad(new Path("hdfs://server01:8020/hbase/hfile_out"), admin, table, connection.getRegionLocator(TableName.valueOf("myuser2")));
+    }
+}
+```
+
+## HBase与Hive的对比
+
+### Hive
+
+Hive的本质其实就相当于将HDFS中已经存储的文件在Mysql中做了一个双射关系，以方便使用HQL去管理查询。用于数据分析、清洗，Hive适用于离线的数据分析和清洗，延迟较高。基于HDFS、MapReduce，Hive存储的数据依旧在DataNode上，编写的HQL语句终将是转换为MapReduce代码执行。
+
+### HBase
+
+nosql数据库，是一种面向列存储的非关系型数据库。用于存储结构化和非结构话的数据，适用于单表非关系型数据的存储，不适合做关联查询，类似JOIN等操作。基于HDFS，数据持久化存储的体现形式是Hfile，存放于DataNode中，被ResionServer以region的形式进行管理。延迟较低，接入在线业务使用，面对大量的企业数据，HBase可以直线单表大量数据的存储，同时提供了高效的数据访问速度。
+
+### 总结
+
+Hive和Hbase是两种基于Hadoop的不同技术，Hive是一种类SQL的引擎，并且运行MapReduce任务，Hbase是一种在Hadoop之上的NoSQL的Key/vale数据库。这两种工具是可以同时使用的。就像用Google来搜索，用FaceBook进行社交一样，Hive可以用来进行统计查询，HBase可以用来进行实时查询，数据也可以从Hive写到HBase，或者从HBase写回Hive。
+
+## Hive与HBase的整合
+
+Hive与HBase各有千秋，各自有着不同的功能，但是归根接地，hive与hbase的数据最终都是存储在hdfs上面的，一般为了存储磁盘的空间，不会将一份数据存储到多个地方，导致磁盘空间的浪费，可以直接将数据存入hbase，然后通过hive整合hbase直接使用sql语句分析hbase里面的数据即可，非常方便。
+
+### 环境配置
+
+1. 拷贝hbase的五个依赖jar包到hive的lib目录下(也可以创建软链接吗)
+
+   ```bash
+   [root@server01 opt]# ln -s /usr/local/hbase-2.0.0/lib/hbase-client-2.0.0.jar /usr/local/hive/lib/hbase-client-2.0.0.jar
+   [root@server01 opt]# ln -s /usr/local/hbase-2.0.0/lib/hbase-hadoop2-compat-2.0.0.jar /usr/local/hive/lib/hbase-hadoop2-compat-2.0.0.jar
+   [root@server01 opt]# ln -s /usr/local/hbase-2.0.0/lib/hbase-hadoop-compat-2.0.0.jar /usr/local/hive/lib/hbase-hadoop-compat-2.0.0.jar
+   [root@server01 opt]# ln -s /usr/local/hbase-2.0.0/lib/hbase-it-2.0.0.jar /usr/local/hive/lib/hbase-it-2.0.0.jar
+   [root@server01 opt]# ln -s /usr/local/hbase-2.0.0/lib/hbase-server-2.0.0.jar /usr/local/hive/lib/hbase-server-2.0.0.jar
+   ```
+
+2. 修改hive-site.xml配置文件添加以下配置
+
+   ```xml
+     <property>
+       <name>hive.zookeeper.quorum</name>
+       <value>server01,server02,server03</value>
+     </property>
+     <property>
+       <name>hbase.zookeeper.quorum</name>
+       <value>server01,server02,server03</value>
+     </property>
+   ```
+
+3. 修改hive-env.sh配置文件添加以下配置
+
+   ```sh
+   export HBASE_HOME=/usr/local/hbase-2.0.0
+   ```
+
+### Hive ==> HBase
+
+创建hive数据库与hive对应的数据库表
+
+```hive
+create database course;
+use course;
+create external table if not exists course.score(id int,cname string,score int) row format delimited fields terminated by '\t' stored as textfile ;
+```
+
+准备数据内容如下：vim hive-hbase.txt
+
+```markdown
+1       zhangsan        80
+2       lisi    60
+3       wangwu  30
+4       zhaoliu 70
+```
+
+进入hive客户端进行加载数据
+
+```hive
+load data local inpath '/opt/hive-hbase.txt' into table score;
+```
+
+创建一个hive的管理表与hbase当中的表进行映射，hive管理表当中的数据，都会存储到hbase上面去
+
+```hive
+create table course.hbase_score(id int,cname string,score int)  stored by 'org.apache.hadoop.hive.hbase.HBaseStorageHandler'  with serdeproperties("hbase.columns.mapping" = "cf:name,cf:score") tblproperties("hbase.table.name" = "hbase_score");
+```
+
+通过insert  overwrite select插入数据
+
+```hive
+insert overwrite table course.hbase_score select id,cname,score from course.score;
+```
+
+hbase当中查看表hbase_score
+
+```sql
+scan 'hbase_score'
+```
+
+### HBase ==> Hive
+
+HBase当中创建表并手动插入加载一些数据
+
+```sql
+create 'hbase_hive_score',{ NAME =>'cf'}
+put 'hbase_hive_score','1','cf:name','zhangsan'
+put 'hbase_hive_score','1','cf:score', '95'
+put 'hbase_hive_score','2','cf:name','lisi'
+put 'hbase_hive_score','2','cf:score', '96'
+put 'hbase_hive_score','3','cf:name','wangwu'
+put 'hbase_hive_score','3','cf:score', '97'
+```
+
+建立hive的外部表，映射HBase当中的表以及字段
+
+```hive
+CREATE external TABLE course.hbase2hive(id int, name string, score int) STORED BY 'org.apache.hadoop.hive.hbase.HBaseStorageHandler' WITH SERDEPROPERTIES ("hbase.columns.mapping" = ":key,cf:name,cf:score") TBLPROPERTIES("hbase.table.name" ="hbase_hive_score");
+```
+
+hive当中查看表hbase2hive
+
+```hive
+select * from hbase2hive;
+```
+
+## 预分区
+
+HBase在创建表的时候默认不进行分区的，即：所有的region都会放在一台RegionServer上；
+
+可通过访问：http://server01:16010/master-status ==> Table Details ==> myuser ==> 勾选：Ascending和ShowDetailName&Start/End Key然后按Reorder按钮，查看分区情况
+
+### 优点
+
+1. 增加数据读写效率
+2. 负载均衡，防止数据倾斜
+3. 方便集群容灾调度region
+4. 优化Map数量
+
+### 如何预分区
+
+每一个region维护着startRow与endRowKey，如果加入的数据符合某个region维护的rowKey范围，则该数据交给这个region维护
+
+#### 手动指定预分区
+
+```sql
+create 'staff','info','partition1',SPLITS => ['1000','2000','3000','4000']
+```
+
+#### 使用16进制算法生成预分区
+
+```sql
+create 'staff2','info','partition2',{NUMREGIONS => 15, SPLITALGO => 'HexStringSplit'}
+```
+
+### 使用JavaAPI创建预分区
+
+```java
+/**
+ * 通过javaAPI进行HBase的表的创建以及预分区操作
+ */
+public void hbaseSplit() throws IOException {
+    //获取连接
+    Configuration configuration = HBaseConfiguration.create();
+    configuration.set("hbase.zookeeper.quorum", "server01:2181,server02:2181,server03:2181");
+    Connection connection = ConnectionFactory.createConnection(configuration);
+    Admin admin = connection.getAdmin();
+    //自定义算法，产生一系列Hash散列值存储在二维数组中
+    byte[][] splitKeys = {{1,2,3,4,5},{'a','b','c','d','e'}};
+
+
+    //通过HTableDescriptor来实现我们表的参数设置，包括表名，列族等等
+    HTableDescriptor hTableDescriptor = new HTableDescriptor(TableName.valueOf("staff3"));
+    //添加列族
+    hTableDescriptor.addFamily(new HColumnDescriptor("f1"));
+    //添加列族
+    hTableDescriptor.addFamily(new HColumnDescriptor("f2"));
+    admin.createTable(hTableDescriptor,splitKeys);
+    admin.close();
+
+}
+```
+
+## rowKey设计原则
+
+HBase是三维有序存储的，通过rowkey（行键），column key（column family和qualifier）和TimeStamp（时间戳）这个三个维度可以对HBase中的数据进行快速定位。HBase中rowkey可以唯一标识一行记录，在HBase查询的时候，有以下几种方式：
+
+1. 通过get方式，指定rowkey获取唯一一条记录
+2. 通过scan方式，设置startRow和stopRow参数进行范围匹配
+3. 全表扫描，即直接扫描整张表中所有行记录
+
+### 长度原则
+
+rowkey是一个二进制码流，可以是任意字符串，最大长度64kb，实际应用中一般为10-100bytes，以byte[]形式保存，一般设计成定长。建议越短越好，不要超过16个字节，原因如下：
+
+1. 数据的持久化文件HFile中是按照KeyValue存储的，如果rowkey过长，比如超过100字节，1000w行数据，光rowkey就要占用100*1000w=10亿个字节，将近1G数据，这样会极大影响HFile的存储效率；
+2. MemStore将缓存部分数据到内存，如果rowkey字段过长，内存的有效利用率就会降低，系统不能缓存更多的数据，这样会降低检索效率。
+
+### 散列原则
+
+如果rowkey按照时间戳的方式递增，不要将时间放在二进制码的前面，建议将rowkey的高位作为散列字段，由程序随机生成，低位放时间字段，这样将提高数据均衡分布在每个RegionServer，以实现负载均衡的几率。如果没有散列字段，首字段直接是时间信息，所有的数据都会集中在一个RegionServer上，这样在数据检索的时候负载会集中在个别的RegionServer上，造成热点问题，会降低查询效率。
+
+### 唯一原则
+
+必须在设计上保证其唯一性，rowkey是按照字典顺序排序存储的，因此，设计rowkey的时候，要充分利用这个排序的特点，将经常读取的数据存储到一块，将最近可能会被访问的数据放到一块。
+
+### 什么是热点
+
+HBase中的行是按照rowkey的字典顺序排序的，这种设计优化了scan操作，可以将相关的行以及会被一起读取的行存取在临近位置，便于scan。然而糟糕的rowkey设计是热点的源头。 热点发生在大量的client直接访问集群的一个或极少数个节点（访问可能是读，写或者其他操作）。大量访问会使热点region所在的单个机器超出自身承受能力，引起性能下降甚至region不可用，这也会影响同一个RegionServer上的其他region，由于主机无法服务其他region的请求。 设计良好的数据访问模式以使集群被充分，均衡的利用。为了避免写热点，设计rowkey使得不同行在同一个region，但是在更多数据情况下，数据应该被写入集群的多个region，而不是一个。下面是一些常见的避免热点的方法以及它们的优缺点：
+
+#### 加盐
+
+这里所说的加盐不是密码学中的加盐，而是在rowkey的前面增加随机数，具体就是给rowkey分配一个随机前缀以使得它和之前的rowkey的开头不同。分配的前缀种类数量应该和你想使用数据分散到不同的region的数量一致。加盐之后的rowkey就会根据随机生成的前缀分散到各个region上，以避免热点。
+
+#### 哈希
+
+哈希会使同一行永远用一个前缀加盐。哈希也可以使负载分散到整个集群，但是读却是可以预测的。使用确定的哈希可以让客户端重构完整的rowkey，可以使用get操作准确获取某一个行数据。
+
+#### 反转
+
+第三种防止热点的方法时反转固定长度或者数字格式的rowkey。这样可以使得rowkey中经常改变的部分（最没有意义的部分）放在前面。这样可以有效的随机rowkey，但是牺牲了rowkey的有序性。反转rowkey的例子以手机号为rowkey，可以将手机号反转后的字符串作为rowkey，这样的就避免了以手机号那样比较固定开头导致热点问题。
+
+#### 时间戳反转
+
+一个常见的数据处理问题是快速获取数据的最近版本，使用反转的时间戳作为rowkey的一部分对这个问题十分有用，可以用 Long.Max_Value - timestamp 追加到key的末尾，例如key、reverse_timestamp, key的最新值可以通过scan key获得key的第一条记录，因为HBase中rowkey是有序的，第一条记录是最后录入的数据。
+
+#### 其他
+
+尽量减少行键和列族的大小在HBase中，value永远和它的key一起传输的。当具体的值在系统间传输时，它的rowkey，列名，时间戳也会一起传输。如果你的rowkey和列名很大，这个时候它们将会占用大量的存储空间。列族尽可能越短越好，最好是一个字符。冗长的属性名虽然可读性好，但是更短的属性名存储在HBase中会更好。
+
+## 协处理器
+
+### observer
+
+Observer 类似于传统数据库中的触发器，当发生某些事件的时候这类协处理器会被 Server 端调用。Observer Coprocessor 就是一些散布在 HBase Server 端代码中的 hook 钩子， 在固定的事件发生时被调用。比如： put 操作之前有钩子函数 prePut，该函数在 put 操作执行前会被 Region Server 调用；在 put 操作之后则有 postPut 钩子函数。以Hbase2.0.0版本为例，它提供了三种观察者接口：
+
+1. RegionObserver：提供客户端的数据操纵事件钩子： Get、 Put、 Delete、 Scan 等。
+2. WALObserver：提供 WAL 相关操作钩子。
+3. MasterObserver：提供 DDL-类型的操作钩子。如创建、删除、修改数据表等。
+
+### Endpoint
+
+Endpoint协处理器类似传统数据库中的存储过程，客户端可以调用这些Endpoint协处理器执行一段Server端代码，并将Server端代码的结果返回给客户端进一步处理，最常见的用法就是进行聚集操作。如果没有协处理器，当用户需要找出一张表中的最大数据，即max聚合操作，就必须进行全表扫描，在客户端代码内遍历扫描结果，并执行求最大值的操作。这样的方法无法利用底层集群的并发能力，而将所有计算都集中到Client端统一执行，势必效率低下。利用Coprocessor，用户可以将求最大值的代码部署到HBaseServer端，HBase将利用底层cluster的多个节点并发执行求最大值的操作。即在每个Region范围内执行求最大值的代码，将每个Region的最大值在RegionServer端计算出，仅仅将该max值返回给客户端。在客户端进一步将多个Region的最大值进一步处理而找到其中的最大值。这样整体的执行效率就会提高很多
+
+### 总结
+
+1. Observer 允许集群在正常的客户端操作过程中可以有不同的行为表现
+2. Endpoint 允许扩展集群的能力，对客户端应用开放新的运算命令
+3. observer 类似于 RDBMS 中的触发器，主要在服务端工作
+4. endpoint 类似于 RDBMS 中的存储过程，主要在 client 端工作
+5. observer 可以实现权限管理、优先级设置、监控、 ddl 控制、 二级索引等功能
+6. endpoint 可以实现 min、 max、 avg、 sum、 distinct、 group by 等功能
+
+### 协处理器加载方式 
+
+协处理器的加载方式有两种，静态加载方式（ Static Load） 和动态加载方式（ Dynamic Load）。 静态加载的协处理器称之为 ystem Coprocessor，动态加载的协处理器称 之为Table Coprocessor
+
+#### 静态加载 
+
+通过修改hbase-site.xml这个文件来实现， 启动全局aggregation，能过操纵所有的表上的数据。只需要添加如下代码：
+
+```xml
+<property>
+	<name>hbase.coprocessor.user.region.classes</name>
+	<value>org.apache.hadoop.hbase.coprocessor.AggregateImplementation</value>
+</property>
+```
+
+为所有table 加载了一个 cp class，可以用” ,”分割加载多个 class
+
+#### 动态加载
+
+启用表 aggregation，只对特定的表生效。通过 HBase Shell 来实现。
+
+```hive
+--disable 指定表
+disable 'mytable'
+--添加 aggregation
+alter 'mytable', METHOD => 'table_att','coprocessor'=>
+'|org.apache.Hadoop.hbase.coprocessor.AggregateImplementation|1001|'
+--重启指定表
+enable 'mytable'
+```
+
+协处理器卸载
+
+```hive
+--disable 指定表
+disable 'mytable'
+--添加 aggregation
+alter 'mytable', METHOD => 'table_att',NAME=>'coprocessor$1'
+--重启指定表
+enable 'mytable'
+```
+
+### Observer应用
+
+通过协处理器Observer实现hbase当中一张表插入数据，然后通过协处理器，将数据复制一份保存到另外一张表当中去，但是只取当第一张表当中的部分列数据保存到第二张表当中去
+
+HBase当中创建第一张表proc1，表名proc1，并只有一个列族info
+
+```sql
+create 'proc1','info'
+```
+
+Hbase当中创建第二张表proc2，作为目标表，将第一张表当中插入数据的部分列，使用协处理器，复制到'proc2表当中来
+
+```sql
+create 'proc2','info'
+```
+
+开发HBase的协处理器
+
+```java
+package org.duo.hbase.ObserverOperate;
+
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hbase.*;
+import org.apache.hadoop.hbase.client.*;
+import org.apache.hadoop.hbase.coprocessor.ObserverContext;
+import org.apache.hadoop.hbase.coprocessor.RegionCoprocessor;
+import org.apache.hadoop.hbase.coprocessor.RegionCoprocessorEnvironment;
+import org.apache.hadoop.hbase.coprocessor.RegionObserver;
+import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.hadoop.hbase.wal.WALEdit;
+
+import java.io.IOException;
+import java.util.List;
+import java.util.Optional;
+
+public class MyProcessor implements RegionObserver, RegionCoprocessor {
+
+    static Connection connection = null;
+    static Table table = null;
+
+    //使用静态代码块来创建连接对象，避免频繁的创建连接对象
+    static {
+        Configuration conf = HBaseConfiguration.create();
+        conf.set("hbase.zookeeper.quorum", "server01:2181");
+        try {
+            connection = ConnectionFactory.createConnection(conf);
+            table = connection.getTable(TableName.valueOf("proc2"));
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private RegionCoprocessorEnvironment env = null;
+    //定义列族名
+    private static final String FAMAILLY_NAME = "info";
+    //定义列名
+    private static final String QUALIFIER_NAME = "name";
+
+    //2.0加入该方法，否则无法生效
+    @Override
+    public Optional<RegionObserver> getRegionObserver() {
+        // Extremely important to be sure that the coprocessor is invoked as a RegionObserver
+        return Optional.of(this);
+    }
+
+    /**
+     * 初始化协处理器环境
+     *
+     * @param e
+     * @throws IOException
+     */
+    @Override
+    public void start(CoprocessorEnvironment e) throws IOException {
+        env = (RegionCoprocessorEnvironment) e;
+    }
+
+    @Override
+    public void stop(CoprocessorEnvironment e) throws IOException {
+        // nothing to do here
+    }
+
+    /**
+     * 覆写prePut方法，在我们数据插入之前进行拦截，
+     *
+     * @param e
+     * @param put        put对象里面封装了我们需要插入到目标表的数据
+     * @param edit
+     * @param durability
+     * @throws IOException
+     */
+    @Override
+    public void prePut(final ObserverContext<RegionCoprocessorEnvironment> e,
+                       final Put put, final WALEdit edit, final Durability durability)
+            throws IOException {
+        try {
+            //通过put对象获取插入数据的rowkey
+            byte[] rowBytes = put.getRow();
+            String rowkey = Bytes.toString(rowBytes);
+            //获取我们插入数据的name字段的值
+
+            List<Cell> list = put.get(Bytes.toBytes(FAMAILLY_NAME), Bytes.toBytes(QUALIFIER_NAME));
+            //判断如果没有获取到info列族，和name列，直接返回即可
+            if (list == null || list.size() == 0) {
+                return;
+            }
+            //获取到info列族，name列对应的cell
+            Cell cell2 = list.get(0);
+
+            //通过cell获取数据值
+            String nameValue = Bytes.toString(CellUtil.cloneValue(cell2));
+            //创建put对象，将数据插入到proc2表里面去
+            Put put2 = new Put(rowkey.getBytes());
+            put2.addColumn(Bytes.toBytes(FAMAILLY_NAME), Bytes.toBytes(QUALIFIER_NAME), nameValue.getBytes());
+            table.put(put2);
+            table.close();
+        } catch (Exception e1) {
+            return;
+        }
+    }
+}
+```
+
+将项目打成jar包，并上传到HDFS上面
+
+```bash
+[root@server01 ~]# hdfs dfs -mkdir /processor
+[root@server01 ~]# hdfs dfs -put /opt/processor.jar /processor
+```
+
+将打好的jar包挂载到proc1表当中去
+
+```sql
+describe 'proc1'
+alter 'proc1',METHOD => 'table_att','Coprocessor'=>'hdfs://server01:8020/processor/processor.jar|org.duo.hbase.ObserverOperate.MyProcessor|1001|'
+describe 'proc1'
+```
+
+proc1表当中添加数据
+
+```sql
+put 'proc1','0001','info:name','zhangsan'
+put 'proc1','0001','info:age','28'
+put 'proc1','0002','info:name','lisi'
+put 'proc1','0002','info:age','25'
+```
+
+查看proc2表的插入结果
+
+```sql
+scan  'proc2'
+```
+
+## 二级索引
+
+由于HBase的查询比较弱，如果需要实现类似于  select  name,salary,count(1),max(salary) from user  group  by name,salary order  by  salary 等这样的复杂性的统计需求，基本上不可能，或者说比较困难，所以在使用HBase的时候，一般都会借助二级索引的方案来进行实现；HBase的一级索引就是rowkey，只能通过rowkey进行检索。如果相对hbase里面列族的列列进行一些组合查询，就需要采用HBase的二级索引方案来进行多条件的查询。 （二级索引，即：将经常要查询的数据冗余存储一份到mysql、es等查询性能较高的数据库中，实现空间换时间）
+
+1. MapReduce方案 
+2. ITHBASE（Indexed-Transanctional HBase）方案 
+3. IHBASE（Index HBase）方案 
+4. Hbase Coprocessor(协处理器)方案 
+5. Solr+hbase方案
+6. CCIndex（complementalclustering index）方案
+
+常见的二级索引我们一般可以借助各种其他的方式来实现，例如Phoenix或者solr或者ES等
+
+## 调优
+
+### 通用优化
+
+1. NameNode的元数据备份使用SSD
+2. 定时备份NameNode上的元数据，每小时或者每天备份，如果数据极其重要，可以5~10分钟备份一次。备份可以通过定时任务复制元数据目录即可。
+3. 为NameNode指定多个元数据目录，使用dfs.name.dir或者dfs.namenode.name.dir指定。一个指定本地磁盘，一个指定网络磁盘。这样可以提供元数据的冗余和健壮性，以免发生故障。
+4. 设置dfs.namenode.name.dir.restore为true，允许尝试恢复之前失败的dfs.namenode.name.dir目录，在创建checkpoint时做此尝试，如果设置了多个磁盘，建议允许。
+5. NameNode节点必须配置为RAID1（镜像盘）结构。
+   1. Standalone：最普遍的单磁盘储存方式。
+   2. Cluster：集群储存是通过将数据分布到集群中各节点的存储方式,提供单一的使用接口与界面,使用户可以方便地对所有数据进行统一使用与管理。
+   3. Hot swap：用户可以再不关闭系统,不切断电源的情况下取出和更换硬盘,提高系统的恢复能力、拓展性和灵活性。
+   4. Raid0：Raid0是所有raid中存储性能最强的阵列形式。其工作原理就是在多个磁盘上分散存取连续的数据,这样,当需要存取数据是多个磁盘可以并排执行,每个磁盘执行属于它自己的那部分数据请求,显著提高磁盘整体存取性能。但是不具备容错能力,适用于低成本、低可靠性的台式系统。
+   5. Raid1：又称镜像盘,把一个磁盘的数据镜像到另一个磁盘上,采用镜像容错来提高可靠性,具有raid中最高的数据冗余能力。存数据时会将数据同时写入镜像盘内,读取数据则只从工作盘读出。发生故障时,系统将从镜像盘读取数据,然后再恢复工作盘正确数据。这种阵列方式可靠性极高,但是其容量会减去一半。广泛用于数据要求极严的应用场合,如商业金融、档案管理等领域。只允许一颗硬盘出故障。
+   6. Raid0+1：将Raid0和Raid1技术结合在一起,兼顾两者的优势。在数据得到保障的同时,还能提供较强的存储性能。不过至少要求4个或以上的硬盘，但也只允许一个磁盘出错。是一种三高技术。
+   7. Raid5：Raid5可以看成是Raid0+1的低成本方案。采用循环偶校验独立存取的阵列方式。将数据和相对应的奇偶校验信息分布存储到组成RAID5的各个磁盘上。当其中一个磁盘数据发生损坏后,利用剩下的磁盘和相应的奇偶校验信息 重新恢复/生成丢失的数据而不影响数据的可用性。至少需要3个或以上的硬盘。适用于大数据量的操作。成本稍高、储存性强、可靠性强的阵列方式。
+   8. RAID还有其他方式。
+6. 保持NameNode日志目录有足够的空间，这些日志有助于帮助你发现问题。
+7. 因为Hadoop是IO密集型框架，所以尽量提升存储的速度和吞吐量（类似位宽）。
+
+### Linux优化
+
+1. 开启文件系统的预读缓存可以提高读取速度
+
+   blockdev --setra 32768 /dev/sda
+
+2. 关闭进程睡眠池
+
+   sysctl -w vm.swappiness=0
+
+3. 调整ulimit上限，默认值为比较小的数字
+
+### HDFS优化（hdfs-site.xml）
+
+1. 保证RPC调用会有较多的线程数
+
+   属性：dfs.namenode.handler.count
+   解释：该属性是NameNode服务默认线程数，的默认值是10，根据机器的可用内存可以调整为50~100
+   属性：dfs.datanode.handler.count
+   解释：该属性默认值为10，是DataNode的处理线程数，如果HDFS客户端程序读写请求比较多，可以调高到15~20，设置的值越大，内存消耗越多，不要调整的过高，一般业务中，5~10即可。
+
+2. 副本数的调整
+
+   属性：dfs.replication
+   解释：如果数据量巨大，且不是非常之重要，可以调整为2~3，如果数据非常之重要，可以调整为3~5。
+
+3. 文件块大小的调整
+
+   属性：dfs.blocksize
+   解释：块大小定义，该属性应该根据存储的大量的单个文件大小来设置，如果大量的单个文件都小于100M，建议设置成64M块大小，对于大于100M或者达到GB的这种情况，建议设置成256M，一般设置范围波动在64M~256M之间。
+
+### MapReduce优化（mapred-site.xml）
+
+1. Job任务服务线程数调整
+
+   mapreduce.jobtracker.handler.count
+   该属性是Job任务线程数，默认值是10，根据机器的可用内存可以调整为50~100
+
+2. Http服务器工作线程数
+
+   属性：mapreduce.tasktracker.http.threads
+   解释：定义HTTP服务器工作线程数，默认值为40，对于大集群可以调整到80~100
+
+3. 文件排序合并优化
+
+   属性：mapreduce.task.io.sort.factor
+   解释：文件排序时同时合并的数据流的数量，这也定义了同时打开文件的个数，默认值为10，如果调高该参数，可以明显减少磁盘IO，即减少文件读取的次数。
+
+4. 设置任务并发
+
+   属性：mapreduce.map.speculative
+   解释：该属性可以设置任务是否可以并发执行，如果任务多而小，该属性设置为true可以明显加快任务执行效率，但是对于延迟非常高的任务，建议改为false，这就类似于迅雷下载。
+
+5. MR输出数据的压缩
+
+   属性：mapreduce.map.output.compress、mapreduce.output.fileoutputformat.compress
+   解释：对于大集群而言，建议设置Map-Reduce的输出为压缩的数据，而对于小集群，则不需要。
+
+6. 优化Mapper和Reducer的个数
+
+   属性：
+   mapreduce.tasktracker.map.tasks.maximum
+   mapreduce.tasktracker.reduce.tasks.maximum
+   解释：以上两个属性分别为一个单独的Job任务可以同时运行的Map和Reduce的数量。
+   设置上面两个参数时，需要考虑CPU核数、磁盘和内存容量。假设一个8核的CPU，业务内容非常消耗CPU，那么可以设置map数量为4，如果该业务不是特别消耗CPU类型的，那么可以设置map数量为40，reduce数量为20。这些参数的值修改完成之后，一定要观察是否有较长等待的任务，如果有的话，可以减少数量以加快任务执行，如果设置一个很大的值，会引起大量的上下文切换，以及内存与磁盘之间的数据交换，这里没有标准的配置数值，需要根据业务和硬件配置以及经验来做出选择。在同一时刻，不要同时运行太多的MapReduce，这样会消耗过多的内存，任务会执行的非常缓慢，我们需要根据CPU核数，内存容量设置一个MR任务并发的最大值，使固定数据量的任务完全加载到内存中，避免频繁的内存和磁盘数据交换，从而降低磁盘IO，提高性能。
+
+### HBase优化
+
+1. 在HDFS的文件中追加内容
+
+   属性：dfs.support.append
+   文件：hdfs-site.xml、hbase-site.xml
+   解释：开启HDFS追加同步，可以优秀的配合HBase的数据同步和持久化。默认值为true。
+
+2. 优化DataNode允许的最大文件打开数
+
+   属性：dfs.datanode.max.transfer.threads
+   文件：hdfs-site.xml
+   解释：HBase一般都会同一时间操作大量的文件，根据集群的数量和规模以及数据动作，设置为4096或者更高。默认值：4096
+
+3. 优化延迟高的数据操作的等待时间
+
+   属性：dfs.image.transfer.timeout
+   文件：hdfs-site.xml
+   解释：如果对于某一次数据操作来讲，延迟非常高，socket需要等待更长的时间，建议把该值设置为更大的值（默认60000毫秒），以确保socket不会被timeout掉。
+
+4. 优化数据的写入效率
+
+   属性：
+   mapreduce.map.output.compress
+   mapreduce.map.output.compress.codec
+   文件：mapred-site.xml
+   解释：开启这两个数据可以大大提高文件的写入效率，减少写入时间。第一个属性值修改为true，第二个属性值修改为：org.apache.hadoop.io.compress.GzipCodec
+
+5. 优化DataNode存储
+
+   属性：dfs.datanode.failed.volumes.tolerated
+   文件：hdfs-site.xml
+   解释：默认为0，意思是当DataNode中有一个磁盘出现故障，则会认为该DataNode shutdown了。如果修改为1，则一个磁盘出现故障时，数据会被复制到其他正常的DataNode上，当前的DataNode继续工作。
+
+6. 设置RPC监听数量
+
+   属性：hbase.regionserver.handler.count
+   文件：hbase-site.xml
+   解释：默认值为30，用于指定RPC监听的数量，可以根据客户端的请求数进行调整，读写请求较多时，增加此值。
+
+7. 优化HStore文件大小
+
+   属性：hbase.hregion.max.filesize
+   文件：hbase-site.xml
+   解释：默认值10737418240（10GB），如果需要运行HBase的MR任务，可以减小此值，因为一个region对应一个map任务，如果单个region过大，会导致map任务执行时间过长。该值的意思就是，如果HFile的大小达到这个数值，则这个region会被切分为两个Hfile。
+
+8. 优化hbase客户端缓存
+
+   属性：hbase.client.write.buffer
+   文件：hbase-site.xml
+   解释：用于指定HBase客户端缓存，增大该值可以减少RPC调用次数，但是会消耗更多内存，反之则反之。一般我们需要设定一定的缓存大小，以达到减少RPC次数的目的。
+
+9. 指定scan.next扫描HBase所获取的行数
+
+   属性：hbase.client.scanner.caching
+   文件：hbase-site.xml
+   解释：用于指定scan.next方法获取的默认行数，值越大，消耗内存越大。
+
+## namespace
+
+### 基本介绍
+
+在HBase中，namespace命名空间指对一组表的逻辑分组，类似RDBMS中的database，方便对表在业务上划分。Apache HBase从0.98.0, 0.95.2两个版本号開始支持namespace级别的授权操作，HBase全局管理员能够创建、改动和回收namespace的授权。
+
+### 作用
+
+1. 配额管理：限制一个namespace可以使用的资源，包括region和table
+2. 命名空间安全管理：提供了另一个层面的多租户安全管理
+3. Region服务器组：一个命名或一张表，可以被固定到一组RegionServers上，从而保证了数据隔离性
+
+### 基本操作
+
+创建namespace
+
+```sql
+create_namespace 'nametest'  
+```
+
+查看namespace
+
+```sql
+describe_namespace 'nametest'
+```
+
+列出所有namespace
+
+```sql
+list_namespace
+```
+
+在namespace下创建表
+
+```sql
+create 'nametest:testtable', 'fm1'
+```
+
+查看namespace下的表
+
+```sql
+list_namespace_tables 'nametest'
+```
+
+删除namespace
+
+```sql
+drop_namespace 'nametest'
+```
+
+## 数据版本的确界
+
+### 数据的确界
+
+在Hbase当中，可以为数据设置上界和下界，其实就是定义数据的历史版本保留多少个，通过自定义历史版本保存的数量，我们可以实现历史多个版本的数据的查询
+
+版本的下界：默认的版本下界是0，即禁用。row版本使用的最小数目是与生存时间（TTL Time To Live）相结合的，并且根据实际需求可以有0或更多的版本，使用0，即只有1个版本的值写入cell。
+
+版本的上界：之前默认的版本上界是3，也就是一个row保留3个副本（基于时间戳的插入）。该值不要设计的过大，一般的业务不会超过100。如果cell中存储的数据版本号超过了3个，再次插入数据时，最新的值会将最老的值覆盖。（现版本已默认为1）
+
+### 数据的TTL
+
+在实际工作当中经常会遇到有些数据过了一段时间我们可能就不需要了，那么这时候我们可以使用定时任务去定时的删除这些数据，或者我们也可以使用Hbase的TTL（Time  To  Live）功能，让我们的数据定期的会进行清除
+
+在scan的时候，显示的都是最新的一个版本，使用JavaAPI可以查询到较早的版本；过期时间TTL可以针对列族进行设置，也可以针对某一条put对象进行设置；最大版本以及最小版本，也就是上界与下界，只能够针对列族进行设置。
+
+确界是和TTL配合使用的，比如下界为3，TTL为30秒，针对于某个值更新5次，在一分钟之后再查，其实它还是会保留最后的三个版本，所以说TTL只针对于超过下界的那些值会在TTL时间之后会被清理掉
+
+HBaseVersionAndTTL.java
+
+```java
+package org.duo.hbase;
+
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hbase.*;
+import org.apache.hadoop.hbase.client.*;
+import org.apache.hadoop.hbase.util.Bytes;
+
+import java.io.IOException;
+
+public class HBaseVersionAndTTL {
+
+    public static void main(String[] args) throws IOException, InterruptedException {
+
+        //操作hbase，向hbase表当中添加一条数据，并且设置数据的上界以及下界，以及设置数据的TTL过期时间
+        Configuration configuration = HBaseConfiguration.create();
+        configuration.set("hbase.zookeeper.quorum", "server01:2181,server02:2181,server03:2181");
+        //获取连接
+        Connection connection = ConnectionFactory.createConnection(configuration);
+
+        //创建hbase表
+        Admin admin = connection.getAdmin();
+        //判断如果hbase表不存在，那么就创建
+        if (!admin.tableExists(TableName.valueOf("version_hbase"))) {
+            //指定表名
+            HTableDescriptor hTableDescriptor = new HTableDescriptor(TableName.valueOf("version_hbase"));
+            //为表指定列族名
+            HColumnDescriptor f1 = new HColumnDescriptor("f1");
+            //针对列族设置版本的上界以及版本下界
+            f1.setMinVersions(3);
+            f1.setMaxVersions(5);  //设置我们版本的上界
+            f1.setTimeToLive(30);  //设置我们f1列族下面所有的列，最大的存活时间是30s
+            //为我们表添加列族
+            hTableDescriptor.addFamily(f1);
+            admin.createTable(hTableDescriptor);
+        }
+
+        Table version_hbase = connection.getTable(TableName.valueOf("version_hbase"));
+
+       /* Put put = new Put("1".getBytes());
+        //如果需要往里面保存多个版本，一定要带上时间戳
+        put.addColumn("f1".getBytes(), "name".getBytes(), System.currentTimeMillis(), "zhangsan".getBytes());
+
+        Thread.sleep(1000);
+        Put put2 = new Put("1".getBytes());
+        //如果需要往里面保存多个版本，一定要带上时间戳
+        put2.addColumn("f1".getBytes(), "name".getBytes(), System.currentTimeMillis(), "zhangsan2".getBytes());
+
+        Thread.sleep(1000);
+        Put put3 = new Put("1".getBytes());
+        //如果需要往里面保存多个版本，一定要带上时间戳
+        put3.addColumn("f1".getBytes(), "name".getBytes(), System.currentTimeMillis(), "zhangsan3".getBytes());
+
+        Thread.sleep(1000);
+        Put put4 = new Put("1".getBytes());
+        //如果需要往里面保存多个版本，一定要带上时间戳
+        put4.addColumn("f1".getBytes(), "name".getBytes(), System.currentTimeMillis(), "zhangsan4".getBytes());
+
+
+        Thread.sleep(1000);
+        Put put5 = new Put("1".getBytes());
+        //如果需要往里面保存多个版本，一定要带上时间戳
+        put5.addColumn("f1".getBytes(), "name".getBytes(), System.currentTimeMillis(), "zhangsan5".getBytes());
+
+        Thread.sleep(1000);
+        Put put6 = new Put("1".getBytes());
+        //可以针对某一条数据设置过期时间
+        //put6.setTTL(3000);
+        //如果需要往里面保存多个版本，一定要带上时间戳
+        put6.addColumn("f1".getBytes(), "name".getBytes(), System.currentTimeMillis(), "zhangsan6".getBytes());
+
+        //将所有的数据都put到version_hbase这个表里面去
+        version_hbase.put(put);
+        version_hbase.put(put2);
+        version_hbase.put(put3);
+        version_hbase.put(put4);
+        version_hbase.put(put5);
+        version_hbase.put(put6);*/
+
+        Get get = new Get("1".getBytes());
+        get.setMaxVersions();//如果不带任何参数，表示将数据的所有的版本全部都获取到,如果带上参数，表示我们获取指定个版本的数据
+        Result result = version_hbase.get(get);
+        //获取所有的cell
+        Cell[] cells = result.rawCells();
+        for (Cell cell : cells) {
+            System.out.println(Bytes.toString(CellUtil.cloneValue(cell)));
+        }
+
+        version_hbase.close();
+        connection.close();
+    }
+}
+```
+

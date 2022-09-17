@@ -14787,3 +14787,439 @@ public class HBaseVersionAndTTL {
 }
 ```
 
+# Flink
+
+## 介绍
+
+Stateful Computations over Data Streams，即数据流上的有状态的计算。
+
+Data Streams 
+
+Flink认为有界数据集是无界数据流的一种特例，所以说有界数据集也是一种数据流，事件流也是一种数据流。Everything is streams，即Flink可以用来处理任何的数据，可以支持批处理、流处理、AI、MachineLearning等等。
+
+Stateful Computations
+
+即有状态计算。有状态计算是最近几年来越来越被用户需求的一个功能。比如说一个网站一天内访问UV数，那么这个UV数便为状态。Flink提供了内置的对状态的一致性的处理，即如果任务发生了Failover，其状态不会丢失、不会被多算少算，同时提供了非常高的性能。
+
+无界流
+
+意思很明显，只有开始没有结束。必须连续的处理无界流数据，也即是在事件注入之后立即要对其进行处理。不能等待数据到达了再去全部处理，因为数据是无界的并且永远不会结束数据注入。处理无界流数据往往要求事件注入的时候有一定的顺序性，例如可以以事件产生的顺序注入，这样会使得处理结果完整。
+
+有界流
+
+也即是有明确的开始和结束的定义。有界流可以等待数据全部注入完成了再开始处理。注入的顺序不是必须的了，因为对于一个静态的数据集，我们是可以对其进行排序的。有界流的处理也可以称为批处理。
+
+其它特点:
+
+1. 性能优秀(尤其在流计算领域)
+2. 高可扩展性
+3. 支持容错
+4. 纯内存式的计算引擎，做了内存管理方面的大量优化
+5. 支持eventime的处理
+6. 支持超大状态的Job(在阿里巴巴中作业的state大小超过TB的是非常常见的)
+7. 支持exactly-once的处理。
+
+## 环境安装
+
+https://archive.apache.org/dist/flink/
+
+### 伪分布环境部署
+
+```bash
+[root@server01 local]# tar -zxvf flink-1.6.1-bin-hadoop27-scala_2.11.tgz
+[root@server01 local]# cd /usr/local/flink-1.6.1/bin
+[root@server01 bin]# ./start-cluster.sh
+# 运行测试任务
+[root@server01 bin]# /usr/local/flink-1.6.1/bin/flink run /usr/local/flink-1.6.1/examples/batch/WordCount.jar --input /usr/local/zookeeper/zookeeper.out --output /opt/flink_data
+```
+
+### Standalone模式
+
+flink-conf.yaml
+
+```yaml
+# jobManager 的IP地址
+jobmanager.rpc.address: server01
+
+# JobManager 的端口号
+jobmanager.rpc.port: 6123
+
+# JobManager JVM heap 内存大小
+jobmanager.heap.size: 1024m
+
+# TaskManager JVM heap 内存大小
+taskmanager.heap.size: 1024m
+
+# 每个TaskManager提供的任务slots数量大小,如果有3个taskmanager一共有6个TaskSlot；是静态资源，即cpu的核数；
+taskmanager.numberOfTaskSlots: 2
+
+#是否进行预分配内存，默认不进行预分配，这样在我们不使用flink集群时候不会占用集群资源
+taskmanager.memory.preallocate: false
+
+# 程序默认并行计算的个数，默认的并行度为1，6个TaskSlot只用了1个，有5个空闲；是动态的概念，指程序运行时实际使用的并发能力，所以parallelism的值不能大于numberOfTaskSlots X taskmanager个数
+parallelism.default: 6
+
+#JobManager的Web界面的端口（默认：8081）
+jobmanager.web.port: 8081
+
+#配置每个taskmanager生成的临时文件目录（选配）
+taskmanager.tmp.dirs: /usr/local/flink-1.6.1/tmp
+```
+
+slaves
+
+```properties
+server01
+server02
+server03
+```
+
+修改/etc/profile系统环境变量配置文件，添加HADOOP_CONF_DIR目录
+
+```properties
+export HADOOP_CONF_DIR=/usr/local/hadoop-2.7.5/etc/hadoop/
+export FLINK_HOME=/usr/local/flink-1.6.1
+export PATH=$PATH:$FLINK_HOME/bin
+```
+
+将修改好的配置文件复制到flink其他节点
+
+```bash
+[root@server01 conf]# cd /usr/local/flink-1.6.1/conf
+[root@server01 conf]# scp flink-conf.yaml server02:$PWD
+[root@server01 conf]# scp flink-conf.yaml server02:$PWD
+[root@server01 conf]# scp slaves server02:$PWD
+[root@server01 conf]# scp slaves server03:$PWD
+[root@server01 conf]# cd /etc/
+[root@server01 conf]# scp profile server02:$PWD
+[root@server01 conf]# scp profile server03:$PWD
+```
+
+启动hadoop的yarn和hdfs以及flink集群
+
+```bash
+[root@server01 etc]# start-all.sh
+[root@server01 etc]# start-cluster.sh
+```
+
+测试：
+
+```bash
+[root@server01 etc]# hdfs dfs -mkdir -p /test/input
+[root@server01 etc]# hdfs dfs -put /usr/local/flink-1.6.1/README.txt /test/input
+[root@server01 etc]# flink run /usr/local/flink-1.6.1/examples/batch/WordCount.jar --input hdfs://server01:8020/test/input/README.txt --output hdfs://server01:8020/test/output2/result.txt
+```
+
+### Standalone高可用HA模式
+
+在flink-conf.yaml中添加zookeeper配置
+
+```yaml
+#开启HA，使用文件系统作为快照存储
+state.backend: filesystem
+#启用检查点，可以将快照保存到HDFS
+state.backend.fs.checkpointdir: hdfs://server01:8020/flink-checkpoints
+#使用zookeeper搭建高可用
+high-availability: zookeeper
+# 存储JobManager的元数据到HDFS
+high-availability.storageDir: hdfs://server01:8020/flink/ha/
+high-availability.zookeeper.quorum: server01:2181,server02:2181,server03:2181
+```
+
+将配置过的HA的`flink-conf.yaml`分发到另外两个节点
+
+```bash
+[root@server01 conf]# cd /usr/local/flink-1.6.1/conf
+[root@server01 conf]# scp flink-conf.yaml server02:$PWD
+[root@server01 conf]# scp flink-conf.yaml server03:$PWD
+```
+
+到server02中修改flink-conf.yaml中的配置，将JobManager设置为自己节点的名称
+
+```yaml
+jobmanager.rpc.address: server02
+```
+
+在server01的`masters`配置文件中添加多个节点
+
+```properties
+server01:8081
+server02:8081
+```
+
+分发masters配置文件到另外两个节点
+
+```bash
+[root@server01 conf]# cd /usr/local/flink-1.6.1/conf
+[root@server01 conf]# scp masters server02:$PWD
+[root@server01 conf]# scp masters server03:$PWD
+```
+
+启动zookeeper集群
+
+启动HDFS集群
+
+启动flink集群
+
+### Yarn集群环境
+
+修改Hadoop的yarn-site.xml，添加该配置表示内存超过分配值，是否将任务杀掉。默认为true。运行Flink程序，很容易超过分配的内存。
+
+```xml
+<property>
+	<name>yarn.nodemanager.vmem-check-enabled</name>
+    <value>false</value>
+</property>
+```
+
+分发yarn-site.xml到其它服务器节点
+
+```bash
+[root@server01 conf]# cd /usr/local/hadoop-2.7.5/etc/hadoop/
+[root@server01 hadoop]# scp yarn-site.xml server02:$PWD
+[root@server01 hadoop]# scp yarn-site.xml server03:$PWD
+```
+
+启动zookeeper集群
+
+启动HDFS集群
+
+启动flink集群
+
+#### yarn-session
+
+Flink运行在YARN上，可以使用yarn-session来快速提交作业到YARN集群，交互过程如下：
+
+1. 上传jar包和配置文件到HDFS集群上
+
+2. 申请资源和请求AppMaster容器
+
+3. Yarn分配资源AppMaster容器，并启动JobManager
+
+   JobManager和ApplicationMaster运行在同一个container上。一旦他们被成功启动，AppMaster就知道JobManager的地址（AM它自己所在的机器）。它就会为TaskManager生成一个新的Flink配置文件（他们就可以连接到JobManager）。这个配置文件也被上传到HDFS上。此外，AppMaster容器也提供了Flink的web服务接口。YARN所分配的所有端口都是临时端口，这允许用户并行执行多个Flink
+
+4. 申请worker资源，启动TaskManager
+
+yarn-session提供两种模式: 会话模式和分离模式
+
+##### 会话模式
+
+1. 使用Flink中的yarn-session（yarn客户端），会启动两个必要服务JobManager和TaskManager
+2. 客户端通过yarn-session提交作业
+3. yarn-session会一直启动，不停地接收客户端提交的作用
+4. 有大量的小作业，适合使用这种方式
+
+启动yarn-session
+
+```bash
+# -n 表示申请2个容器，
+# -s 表示每个容器启动多少个slot
+# -tm 表示每个TaskManager申请800M内存
+# -d 表示以后台程序方式运行
+[root@server01 hadoop]# yarn-session.sh -n 2 -tm 800 -s 1 -d
+```
+
+yarn-session.sh脚本可以携带的参数:
+
+```shell
+yarn-session.sh脚本可以携带的参数:
+   Required
+     -n,--container <arg>               分配多少个yarn容器 (=taskmanager的数量)  
+   Optional
+     -D <arg>                        动态属性
+     -d,--detached                    独立运行 （以分离模式运行作业）
+     -id,--applicationId <arg>            YARN集群上的任务id，附着到一个后台运行的yarn session中
+     -j,--jar <arg>                      Path to Flink jar file
+     -jm,--jobManagerMemory <arg>     JobManager的内存 [in MB] 
+     -m,--jobmanager <host:port>        指定需要连接的jobmanager(主节点)地址  
+                                    使用这个参数可以指定一个不同于配置文件中的jobmanager  
+     -n,--container <arg>               分配多少个yarn容器 (=taskmanager的数量) 
+     -nm,--name <arg>                 在YARN上为一个自定义的应用设置一个名字
+     -q,--query                        显示yarn中可用的资源 (内存, cpu核数) 
+     -qu,--queue <arg>                 指定YARN队列
+     -s,--slots <arg>                   每个TaskManager使用的slots数量
+     -st,--streaming                   在流模式下启动Flink
+     -tm,--taskManagerMemory <arg>    每个TaskManager的内存 [in MB] 
+     -z,--zookeeperNamespace <arg>     针对HA模式在zookeeper上创建NameSpace
+```
+
+使用flink提交任务
+
+```bash
+[root@server01 hadoop]# cd /usr/local/flink-1.6.1
+[root@server01 hadoop]# flink run examples/batch/WordCount.jar
+```
+
+如果程序运行完了，可以使用yarn application -kill application_id杀掉任务
+
+```bash
+[root@server01 flink-1.6.1]# yarn application -kill application_1663404082372_0001
+```
+
+##### 分离模式
+
+1. 直接提交任务给YARN
+2. 大作业，适合使用这种方式
+
+使用flink直接提交任务
+
+```bash
+[root@server01 flink-1.6.1]# flink run -m yarn-cluster -yn 2 ./examples/batch/WordCount.jar
+```
+
+## 架构
+
+### 基石
+
+#### checkpoint
+
+首先是Checkpoint机制，这是Flink最重要的一个特性。Flink基于Chandy-Lamport算法实现了一个分布式的一致性的快照，从而提供了一致性的语义。Chandy-Lamport算法实际上在1985年的时候已经被提出来，但并没有被很广泛的应用，而Flink则把这个算法发扬光大了。Spark最近在实现Continuestreaming，Continuestreaming的目的是为了降低它处理的延时，其也需要提供这种一致性的语义，最终采用Chandy-Lamport这个算法，说明Chandy-Lamport算法在业界得到了一定的肯定。
+
+#### State
+
+提供了一致性的语义之后，Flink为了让用户在编程时能够更轻松、更容易地去管理状态，还提供了一套非常简单明了的StateAPI，包括里面的有ValueState、ListState、MapState，近期添加了BroadcastState，使用StateAPI能够自动享受到这种一致性的语义。
+
+#### Time
+
+除此之外，Flink还实现了Watermark的机制，能够支持基于事件的时间的处理，或者说基于系统时间的处理，能够容忍数据的迟到、容忍乱序的数据。
+
+#### Window
+
+另外流计算中一般在对流数据进行操作之前都会先进行开窗，即基于一个什么样的窗口上做这个计算。Flink提供了开箱即用的各种窗口，比如滑动窗口、滚动窗口、会话窗口以及非常灵活的自定义的窗口。
+
+### 组件栈
+
+Flink是一个分层架构的系统，每一层所包含的组件都提供了特定的抽象，用来服务于上层组件：
+
+从下至上：
+
+- 部署层：Flink 支持本地运行、能在独立集群或者在被 YARN 管理的集群上运行， 也能部署在云上。
+- 运行时：Runtime层提供了支持Flink计算的全部核心实现，为上层API层提供基础服务。
+- API：DataStream、DataSet、Table、SQL API。
+- 扩展库：Flink 还包括用于复杂事件处理，机器学习，图形处理和 Apache Storm 兼容性的专用代码库。
+
+### 数据流编程模型
+
+Flink 提供了不同的抽象级别以开发流式或批处理应用：
+
+- 最底层提供了有状态流。它将通过 过程函数（Process Function）嵌入到 DataStream API 中。它允许用户可以自由地处理来自一个或多个流数据的事件，并使用一致、容错的状态。除此之外，用户可以注册事件时间和处理事件回调，从而使程序可以实现复杂的计算。
+
+- DataStream / DataSet API 是 Flink 提供的核心 API ，DataSet 处理有界的数据集，DataStream 处理有界或者无界的数据流。用户可以通过各种方法（map / flatmap / window / keyby / sum / max / min / avg / join 等）将数据进行转换 / 计算。
+
+
+- Table API 是以 表 为中心的声明式 DSL，其中表可能会动态变化（在表达流数据时）。Table API 提供了例如 select、project、join、group-by、aggregate 等操作，使用起来却更加简洁（代码量更少）。你可以在表与 DataStream/DataSet 之间无缝切换，也允许程序将 Table API 与 DataStream 以及 DataSet 混合使用。
+
+
+- Flink 提供的最高层级的抽象是 SQL 。这一层抽象在语法与表达能力上与 Table API 类似，但是是以 SQL查询表达式的形式表现程序。SQL 抽象与 Table API 交互密切，同时 SQL 查询可以直接在 Table API 定义的表上执行。
+
+### 程序结构
+
+Flink程序的基本构建块是流和转换（请注意，Flink的DataSet API中使用的DataSet也是内部流 ）。从概念上讲，流是（可能永无止境的）数据记录流，而转换是将一个或多个流作为一个或多个流的操作。输入，并产生一个或多个输出流。Flink 应用程序结构：
+
+- Source: 数据源，Flink 在流处理和批处理上的 source 大概有 4 类：基于本地集合的 source、基于文件的 source、基于网络套接字的 source、自定义的 source。自定义的 source 常见的有 Apache kafka、RabbitMQ 等，当然你也可以定义自己的 source。
+
+- Transformation：数据转换的各种操作，有 Map / FlatMap / Filter / KeyBy / Reduce / Fold / Aggregations / Window / WindowAll / Union / Window join / Split / Select等，操作很多，可以将数据转换计算成你想要的数据。
+
+- Sink：接收器，Flink 将转换计算后的数据发送的地点 ，你可能需要存储下来，Flink 常见的 Sink 大概有如下几类：写入文件、打印出来、写入 socket 、自定义的 sink 。自定义的 sink 常见的有 Apache kafka、RabbitMQ、MySQL、ElasticSearch、Apache Cassandra、Hadoop FileSystem 等，同理你也可以定义自己的 sink。
+
+### 并行数据流
+
+Flink程序在执行的时候，会被映射成一个Streaming Dataflow，一个Streaming Dataflow是由一组Stream和Transformation Operator组成的。在启动时从一个或多个Source Operator开始，结束于一个或多个Sink Operator。
+
+Flink程序本质上是并行的和分布式的，在执行过程中，一个流(stream)包含一个或多个流分区，而每一个operator包含一个或多个operator子任务。操作子任务间彼此独立，在不同的线程中执行，甚至是在不同的机器或不同的容器上。operator子任务的数量是这一特定operator的并行度。相同程序中的不同operator有不同级别的并行度。
+
+一个Stream可以被分成多个Stream的分区，也就是Stream Partition。一个Operator也可以被分为多个Operator Subtask。每一个Operator Subtask都是在不同的线程当中独立执行的。一个Operator的并行度，就等于Operator Subtask的个数。而一个Stream的并行度就等于它生成的Operator的并行度。
+
+数据在两个operator之间传递的时候有两种模式：
+
+One to One模式：两个operator用此模式传递的时候，会保持数据的分区数和数据的排序；如上图中的Source1到Map1，它就保留的Source的分区特性，以及分区元素处理的有序性。
+
+Redistributing （重新分配）模式：这种模式会改变数据的分区数；每个一个operator subtask会根据选择transformation把数据发送到不同的目标subtasks,比如keyBy()会通过hashcode重新分区,broadcast()和rebalance()方法会随机重新分区； 
+
+### Task和Operator chain
+
+Flink的所有操作都称之为Operator，客户端在提交任务的时候会对Operator进行优化操作，能进行合并的Operator会被合并为一个Operator，合并后的Operator称为Operator chain，实际上就是一个执行链，每个执行链会在TaskManager上一个独立的线程中执行。
+
+### 任务调度与执行
+
+1. 当Flink执行executor会自动根据程序代码生成DAG数据流图
+2. ActorSystem创建Actor将数据流图发送给JobManager中的Actor
+3. JobManager会不断接收TaskManager的心跳消息，从而可以获取到有效的TaskManager
+4. JobManager通过调度器在TaskManager中调度执行Task（在Flink中，最小的调度单元就是task，对应就是一个线程）
+5. 在程序运行过程中，task与task之间是可以进行数据传输的
+
+- Job Client
+
+  - 主要职责是提交任务, 提交后可以结束进程, 也可以等待结果返回
+  - Job Client 不是 Flink 程序执行的内部部分，但它是任务执行的起点。 
+  - Job Client 负责接受用户的程序代码，然后创建数据流，将数据流提交给 Job Manager 以便进一步执行。 执行完成后，Job Client 将结果返回给用户
+
+- JobManager`	
+
+  - 主要职责是调度工作并协调任务做检查点
+  - 集群中至少要有一个 master，master 负责调度 task，协调checkpoints 和容错，
+  - 高可用设置的话可以有多个 master，但要保证一个是 leader, 其他是standby; 
+  - Job Manager 包含 Actor System、Scheduler、CheckPoint 三个重要的组件
+  - JobManager从客户端接收到任务以后, 首先生成优化过的执行计划, 再调度到TaskManager中执行
+
+- TaskManager
+  - 主要职责是从JobManager处接收任务, 并部署和启动任务, 接收上游的数据并处理
+
+  - Task Manager 是在 JVM 中的一个或多个线程中执行任务的工作节点。
+
+  - TaskManager在创建之初就设置好了Slot, 每个Slot可以执行一个任务
+
+###  任务槽（task-slot）
+
+每个TaskManager是一个JVM的进程, 可以在不同的线程中执行一个或多个子任务。 
+
+为了控制一个worker能接收多少个task。worker通过task slot来进行控制（一个worker至少有一个task slot）。
+
+每个task slot表示TaskManager拥有资源的一个固定大小的子集。 
+
+flink将进程的内存进行了划分到多个slot中。
+
+例如：有2个TaskManager，每个TaskManager有3个slot的，则每个slot占有1/3的内存。
+
+内存被划分到不同的slot之后可以获得如下好处: 
+
+- TaskManager最多能同时并发执行的任务是可以控制的，那就是3个，因为不能超过slot的数量。
+
+- slot有独占的内存空间，这样在一个TaskManager中可以运行多个不同的作业，作业之间不受影响。
+
+### 槽共享（Slot Sharing）
+
+默认情况下，Flink允许子任务共享插槽，即使它们是不同任务的子任务，只要它们来自同一个作业。结果是一个槽可以保存作业的整个管道。允许插槽共享有两个主要好处：
+
+- 只需计算Job中最高并行度（parallelism）的task slot,只要这个满足，其他的job也都能满足。
+- 资源分配更加公平，如果有比较空闲的slot可以将更多的任务分配给它。图中若没有任务槽共享，负载不高的Source/Map等subtask将会占据许多资源，而负载较高的窗口subtask则会缺乏资源。
+- 有了任务槽共享，可以将基本并行度（base parallelism）从2提升到6.提高了分槽资源的利用率。同时它还可以保障TaskManager给subtask的分配的slot方案更加公平。
+
+### 统一的流处理与批处理
+
+在大数据处理领域，批处理任务与流处理任务一般被认为是两种不同的任务，一个大数据框架一般会被设计为只能处理其中一种任务：
+
+- Storm只支持流处理任务
+- MapReduce、Spark只支持批处理任务
+- Spark Streaming是Apache Spark之上支持流处理任务的子系统，看似是一个特例，其实并不是——Spark Streaming采用了一种micro-batch的架构，即把输入的数据流切分成细粒度的batch，并为每一个batch数据提交一个批处理的Spark任务，所以Spark Streaming本质上还是基于Spark批处理系统对流式数据进行处理，和Storm等完全流式的数据处理方式完全不同。
+- Flink通过灵活的执行引擎，能够同时支持批处理任务与流处理任务
+
+在执行引擎这一层，流处理系统与批处理系统最大不同在于节点间的数据传输方式：
+
+- 对于一个流处理系统，其节点间数据传输的标准模型是：
+  - 当一条数据被处理完成后，序列化到缓存中，然后立刻通过网络传输到下一个节点，由下一个节点继续处理
+
+- 对于一个批处理系统，其节点间数据传输的标准模型是：
+  - 当一条数据被处理完成后，序列化到缓存中，并不会立刻通过网络传输到下一个节点，当缓存写满，就持久化到本地硬盘上，当所有数据都被处理完成后，才开始将处理后的数据通过网络传输到下一个节点
+
+这两种数据传输模式是两个极端，对应的是流处理系统对低延迟的要求和批处理系统对高吞吐量的要求
+
+Flink的执行引擎采用了一种十分灵活的方式，同时支持了这两种数据传输模型
+
+- Flink以固定的缓存块为单位进行网络数据传输，用户可以通过设置缓存块超时值指定缓存块的传输时机。如果缓存块的超时值为0，则Flink的数据传输方式类似上文所提到流处理系统的标准模型，此时系统可以获得最低的处理延迟
+
+
+- 如果缓存块的超时值为无限大，则Flink的数据传输方式类似上文所提到批处理系统的标准模型，此时系统可以获得最高的吞吐量
+
+
+- 同时缓存块的超时值也可以设置为0到无限大之间的任意值。缓存块的超时阈值越小，则Flink流处理执行引擎的数据处理延迟越低，但吞吐量也会降低，反之亦然。通过调整缓存块的超时阈值，用户可根据需求灵活地权衡系统延迟和吞吐量

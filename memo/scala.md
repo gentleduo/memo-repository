@@ -806,7 +806,1276 @@ scala中的数组封装了一些常用的计算操作，将来在对数据处理
   res56: Array[Int] = Array(10, 4, 4, 2, 1)
   ```
 
-  
+
+# 元组
+
+元组可以用来包含一组不同类型的值。例如：姓名，年龄，性别，出生年月。元组的元素是不可变的。
+
+使用括号来定义元组
+
+```scala
+val/var 元组 = (元素1, 元素2, 元素3....)
+```
+
+使用箭头来定义元组（元组只有两个元素）
+
+```scala
+val/var 元组 = 元素1->元素2
+```
+
+示例：
+
+* 定义一个元组，包含学生的姓名和年龄（zhangsan、20）
+* 分别使用括号、和箭头来定义元组
+
+```scala
+scala> val a = ("zhangsan", 20)
+a: (String, Int) = (zhangsan,20)
+
+scala> val a = "zhangsan" -> 20
+a: (String, Int) = (zhangsan,20)
+```
+
+访问元组：
+
+使用\_1、\_2、\_3....来访问元组中的元素，_1表示访问第一个元素，依次类推
+
+```scala
+scala> val a = "zhangsan" -> "male"
+a: (String, String) = (zhangsan,male)
+
+// 获取第一个元素
+scala> a._1
+res41: String = zhangsan
+
+// 获取第二个元素
+scala> a._2
+res42: String = male
+```
+
+# 列表
+
+列表是scala中最重要的、也是最常用的数据结构。List具备以下性质：
+
+- 可以保存重复的值
+- 有先后顺序
+
+在scala中，也有两种列表，一种是不可变列表、另一种是可变列表
+
+## 不可变列表
+
+不可变列表就是列表的元素、长度都是不可变的。
+
+使用List(元素1, 元素2, 元素3, ...)来创建一个不可变列表，语法格式：
+
+```scala
+val/var 变量名 = List(元素1, 元素2, 元素3...)
+```
+
+```scala
+scala> val a = List(1,2,3,4)
+a: List[Int] = List(1, 2, 3, 4)
+```
+
+使用Nil创建一个不可变的空列表
+
+```scala
+val/var 变量名 = Nil
+```
+
+```scala
+scala> val a = Nil
+a: scala.collection.immutable.Nil.type = List()
+```
+
+使用::方法创建一个不可变列表
+
+```scala
+val/var 变量名 = 元素1 :: 元素2 :: Nil
+```
+
+```scala
+scala> val a = -2 :: -1 :: Nil
+a: List[Int] = List(-2, -1)
+```
+
+使用**::**拼接方式来创建列表，必须在最后添加一个Nil
+
+## 可变列表
+
+可变列表就是列表的元素、长度都是可变的。
+
+要使用可变列表，先要导入import scala.collection.mutable.ListBuffer
+
+- 可变集合都在mutable包中
+- 不可变集合都在immutable包中（默认导入）
+
+使用ListBuffer\[元素类型\]()创建空的可变列表，语法结构：
+
+```scala
+val/var 变量名 = ListBuffer[Int]()
+```
+
+```scala
+  scala> val a = ListBuffer[Int]()
+  a: scala.collection.mutable.ListBuffer[Int] = ListBuffer()
+```
+
+使用ListBuffer(元素1, 元素2, 元素3...)创建可变列表，语法结构：
+
+```scala
+val/var 变量名 = ListBuffer(元素1，元素2，元素3...)
+```
+
+```scala
+scala> val a = ListBuffer(1,2,3,4)
+a: scala.collection.mutable.ListBuffer[Int] = ListBuffer(1, 2, 3, 4)
+```
+
+### 可变列表操作
+
+#### 基本操作
+
+```scala
+// 导入不可变列表
+scala> import scala.collection.mutable.ListBuffer
+import scala.collection.mutable.ListBuffer
+
+// 创建不可变列表
+scala> val a = ListBuffer(1,2,3)
+a: scala.collection.mutable.ListBuffer[Int] = ListBuffer(1, 2, 3)
+
+// 获取第一个元素
+scala> a(0)
+res19: Int = 1
+
+// 追加一个元素
+scala> a += 4
+res20: a.type = ListBuffer(1, 2, 3, 4)
+
+// 追加一个列表
+scala> a ++= List(5,6,7)
+res21: a.type = ListBuffer(1, 2, 3, 4, 5, 6, 7)
+
+// 删除元素
+scala> a -= 7
+res22: a.type = ListBuffer(1, 2, 3, 4, 5, 6)
+
+// 转换为不可变列表
+scala> a.toList
+res23: List[Int] = List(1, 2, 3, 4, 5, 6)
+
+// 转换为数组
+scala> a.toArray
+res24: Array[Int] = Array(1, 2, 3, 4, 5, 6)
+```
+
+#### 判断列表是否为空
+
+```scala
+scala> val a = List(1,2,3,4)
+a: List[Int] = List(1, 2, 3, 4)
+
+scala> a.isEmpty
+res51: Boolean = false
+```
+
+#### 拼接两个列表
+
+```scala
+scala> val a = List(1,2,3)
+a: List[Int] = List(1, 2, 3)
+
+scala> val b = List(4,5,6)
+b: List[Int] = List(4, 5, 6)
+
+scala> a ++ b
+res52: List[Int] = List(1, 2, 3, 4, 5, 6)
+```
+
+#### 获取列表的首个元素和剩余部分
+
+
+
+```scala
+scala> val a = List(1,2,3)
+a: List[Int] = List(1, 2, 3)
+
+// head方法，获取列表的首个元素
+scala> a.head
+res4: Int = 1
+
+// tail方法，获取除第一个元素以外的元素，它也是一个列表
+scala> a.tail
+res5: List[Int] = List(2, 3)
+```
+
+#### 反转列表
+
+```scala
+scala> val a = List(1,2,3)
+a: List[Int] = List(1, 2, 3)
+
+scala> a.reverse
+res6: List[Int] = List(3, 2, 1)
+```
+
+#### 获取列表前缀和后缀
+
+```scala
+scala> val a = List(1,2,3,4,5)
+a: List[Int] = List(1, 2, 3, 4, 5)
+
+// 使用take方法获取前缀（前三个元素）
+scala> a.take(3)
+res56: List[Int] = List(1, 2, 3)
+
+// 使用drop方法获取后缀（除前三个以外的元素）
+scala> a.drop(3)
+res60: List[Int] = List(4, 5)
+```
+
+#### 扁平化
+
+扁平化(压平)表示将列表中的列表中的所有元素放到一个列表中。
+
+* 有一个列表，列表中又包含三个列表，分别为：List(1,2)、List(3)、List(4,5)
+* 使用flatten将这个列表转换为List(1,2,3,4,5)
+
+```scala
+scala> val a = List(List(1,2), List(3), List(4,5))
+a: List[List[Int]] = List(List(1, 2), List(3), List(4, 5))
+
+scala> a.flatten
+res0: List[Int] = List(1, 2, 3, 4, 5)
+```
+
+#### 拉链与拉开
+
+* 拉链：使用zip将两个列表，组合成一个元素为元组的列表
+* 拉开：将一个包含元组的列表，解开成包含两个列表的元组
+
+示例：
+
+* 有两个列表
+  * 第一个列表保存三个学生的姓名，分别为：zhangsan、lisi、wangwu
+  * 第二个列表保存三个学生的年龄，分别为：19, 20, 21
+* 使用zip操作将两个列表的数据"拉"在一起，形成 zhangsan->19, lisi ->20, wangwu->21
+
+```scala
+scala> val a = List("zhangsan", "lisi", "wangwu")
+a: List[String] = List(zhangsan, lisi, wangwu)
+
+scala> val b = List(19, 20, 21)
+b: List[Int] = List(19, 20, 21)
+
+scala> a.zip(b)
+res1: List[(String, Int)] = List((zhangsan,19), (lisi,20), (wangwu,21))
+
+scala> res1.unzip
+res2: (List[String], List[Int]) = (List(zhangsan, lisi, wangwu),List(19, 20, 21))
+```
+
+#### 转换字符串
+
+toString方法可以返回List中的所有元素
+
+```scala
+scala> val a = List(1,2,3,4)
+a: List[Int] = List(1, 2, 3, 4)
+
+scala> println(a.toString)
+List(1, 2, 3, 4)
+```
+
+#### 生成字符串
+
+mkString方法，可以将元素以分隔符拼接起来。默认没有分隔符
+
+```scala
+scala> val a = List(1,2,3,4)
+a: List[Int] = List(1, 2, 3, 4)
+
+scala> a.mkString
+res7: String = 1234
+
+scala> a.mkString(":")
+res8: String = 1:2:3:4
+```
+
+#### 并集
+
+union表示对两个列表取并集，不去重
+
+示例：
+
+* 定义第一个列表，包含以下元素：1,2,3,4
+* 定义第二个列表，包含以下元素：3,4,5,6
+* 使用union操作，获取这两个列表的并集
+* 使用distinct操作，去除重复的元素
+
+```scala
+scala> val a1 = List(1,2,3,4)
+a1: List[Int] = List(1, 2, 3, 4)
+
+scala> val a2 = List(3,4,5,6)
+a2: List[Int] = List(3, 4, 5, 6)
+
+// 并集操作
+scala> a1.union(a2)
+res17: List[Int] = List(1, 2, 3, 4, 3, 4, 5, 6)
+
+// 可以调用distinct去重
+scala> a1.union(a2).distinct
+res18: List[Int] = List(1, 2, 3, 4, 5, 6)
+```
+
+#### 交集
+
+intersect表示对两个列表取交集
+
+示例：
+
+- 定义第一个列表，包含以下元素：1,2,3,4
+- 定义第二个列表，包含以下元素：3,4,5,6
+- 使用intersect操作，获取这两个列表的交集
+
+#### 差集
+
+diff表示对两个列表取差集，例如： a1.diff(a2)，表示获取a1在a2中不存在的元素
+
+- 定义第一个列表，包含以下元素：1,2,3,4
+- 定义第二个列表，包含以下元素：3,4,5,6
+- 使用diff获取这两个列表的差集
+
+```scala
+scala> val a1 = List(1,2,3,4)
+a1: List[Int] = List(1, 2, 3, 4)
+
+scala> val a2 = List(3,4,5,6)
+a2: List[Int] = List(3, 4, 5, 6)
+
+scala> a1.diff(a2)
+res24: List[Int] = List(1, 2)
+```
+
+# Set
+
+Set(集)是代表没有重复元素的集合。Set具备以下性质：
+
+1. 元素不重复
+2. 不保证插入顺序
+
+scala中的集也分为两种，一种是不可变集，另一种是可变集。
+
+## 不可变集
+
+创建一个空的不可变集，语法格式：
+
+```scala
+val/var 变量名 = Set[类型]()
+```
+
+```scala
+scala> val a = Set[Int]()
+a: scala.collection.immutable.Set[Int] = Set()
+```
+
+给定元素来创建一个不可变集，语法格式：
+
+```scala
+val/var 变量名 = Set(元素1, 元素2, 元素3...)
+```
+
+```scala
+scala> val a = Set(1,1,3,2,4,8)
+a: scala.collection.immutable.Set[Int] = Set(1, 2, 3, 8, 4)
+```
+
+### 基本操作
+
+```scala
+// 创建集
+scala> val a = Set(1,1,2,3,4,5)
+a: scala.collection.immutable.Set[Int] = Set(5, 1, 2, 3, 4)
+
+// 获取集的大小
+scala> a.size
+res0: Int = 5
+
+// 遍历集
+scala> for(i <- a) println(i)
+
+// 删除一个元素
+scala> a - 1
+res5: scala.collection.immutable.Set[Int] = Set(5, 2, 3, 4)
+
+// 拼接两个集
+scala> a ++ Set(6,7,8)
+res2: scala.collection.immutable.Set[Int] = Set(5, 1, 6, 2, 7, 3, 8, 4)
+
+// 拼接集和列表
+scala> a ++ List(6,7,8,9)
+res6: scala.collection.immutable.Set[Int] = Set(5, 1, 6, 9, 2, 7, 3, 8, 4)
+```
+
+## 可变集
+
+可变集合不可变集的创建方式一致，只不过需要提前导入一个可变集类。
+
+手动导入：import scala.collection.mutable.Set
+
+```scala
+scala> val a = Set(1,2,3,4)
+a: scala.collection.mutable.Set[Int] = Set(1, 2, 3, 4)                          
+
+// 添加元素
+scala> a += 5
+res25: a.type = Set(1, 5, 2, 3, 4)
+
+// 删除元素
+scala> a -= 1
+res26: a.type = Set(5, 2, 3, 4)
+```
+
+# Map
+
+Map可以称之为映射。它是由键值对组成的集合。在scala中，Map也分为不可变Map和可变Map。
+
+## 不可变Map
+
+```scala
+val/var map = Map(键->值, 键->值, 键->值...)	// 推荐，可读性更好
+val/var map = Map((键, 值), (键, 值), (键, 值), (键, 值)...)
+```
+
+```scala
+scala> val map = Map("zhangsan"->30, "lisi"->40)
+map: scala.collection.immutable.Map[String,Int] = Map(zhangsan -> 30, lisi -> 40)
+
+scala> val map = Map(("zhangsan", 30), ("lisi", 30))
+map: scala.collection.immutable.Map[String,Int] = Map(zhangsan -> 30, lisi -> 30)
+
+// 根据key获取value
+scala> map("zhangsan")
+res10: Int = 30
+```
+
+## 可变Map
+
+定义语法与不可变Map一致。但定义可变Map需要手动导入import scala.collection.mutable.Map
+
+```scala
+scala> val map = Map("zhangsan"->30, "lisi"->40)
+map: scala.collection.mutable.Map[String,Int] = Map(lisi -> 40, zhangsan -> 30)
+
+// 修改value
+scala> map("zhangsan") = 20
+```
+
+## 基本操作
+
+```scala
+scala> val map = Map("zhangsan"->30, "lisi"->40)
+map: scala.collection.mutable.Map[String,Int] = Map(lisi -> 40, zhangsan -> 30)
+
+// 获取zhagnsan的年龄
+scala> map("zhangsan")
+res10: Int = 30
+
+// 获取所有的学生姓名
+scala> map.keys
+res13: Iterable[String] = Set(lisi, zhangsan)
+
+// 获取所有的学生年龄
+scala> map.values
+res14: Iterable[Int] = HashMap(40, 30)
+
+// 打印所有的学生姓名和年龄
+scala> for((x,y) <- map) println(s"$x $y")
+lisi 40
+zhangsan 30
+
+// 获取wangwu的年龄，如果wangwu不存在，则返回-1
+scala> map.getOrElse("wangwu", -1)
+res17: Int = -1
+
+// 新增一个学生：wangwu, 35
+scala> map + "wangwu"->35
+res22: scala.collection.mutable.Map[String,Int] = Map(lisi -> 40, zhangsan -> 30, wangwu -> 35)
+
+// 将lisi从可变映射中移除
+scala> map - "lisi"
+res23: scala.collection.mutable.Map[String,Int] = Map(zhangsan -> 30)
+```
+
+# iterator
+
+scala针对每一类集合都提供了一个迭代器（iterator）用来迭代访问集合：
+
+- 使用iterator方法可以从集合获取一个迭代器
+- 迭代器的两个基本操作
+  - hasNext——查询容器中是否有下一个元素
+  - next——返回迭代器的下一个元素，如果没有，抛出NoSuchElementException
+- 每一个迭代器都是有状态的
+  - 迭代完后保留在最后一个元素的位置
+  - 再次使用则抛出NoSuchElementException
+- 可以使用while或者for来逐个返回元素
+
+```scala
+scala> val ite = a.iterator
+ite: Iterator[Int] = non-empty iterator
+
+scala> while(ite.hasNext) {
+     | println(ite.next)
+     | }
+```
+
+```scala
+scala> val a = List(1,2,3,4,5)
+a: List[Int] = List(1, 2, 3, 4, 5)
+
+scala> val ite = a.iterator
+ite: Iterator[Int] = non-empty iterator
+
+scala> for (i <- ite) println(i)
+1
+2
+3
+4
+5
+```
+
+# 函数式编程
+
+## foreach
+
+之前，学习过了使用for表达式来遍历集合。接下来将学习scala的函数式编程，使用foreach方法来进行遍历、迭代。它可以让代码更加简洁。
+
+方法签名
+
+```scala
+foreach(f: (A) ⇒ Unit): Unit
+```
+
+说明
+
+| foreach | API           | 说明                                                         |
+| ------- | ------------- | ------------------------------------------------------------ |
+| 参数    | f: (A) ⇒ Unit | 接收一个函数对象<br />函数的输入参数为集合的元素，返回值为空 |
+| 返回值  | Unit          | 空                                                           |
+
+```scala
+// 定义一个列表
+scala> val a = List(1,2,3,4)
+a: List[Int] = List(1, 2, 3, 4)
+
+// 迭代打印
+scala> a.foreach((x:Int)=>println(x))
+```
+
+### 使用类型推断简化函数定义
+
+上述案例有更简洁的写法。因为使用foreach去迭代列表，而列表中的每个元素类型是确定的
+
+* scala可以自动来推断出来集合中每个元素参数的类型
+* 创建函数时，可以省略其参数列表的类型
+
+```scala
+scala> val a = List(1,2,3,4)
+a: List[Int] = List(1, 2, 3, 4)
+
+// 省略参数类型
+scala> a.foreach(x=>println(x))
+```
+
+### 使用下划线来简化函数定义
+
+当函数参数，只在函数体中出现一次，而且函数体没有嵌套调用时，可以使用下划线来简化函数定义
+
+```scala
+scala> val a = List(1,2,3,4)
+a: List[Int] = List(1, 2, 3, 4)
+
+a.foreach(println(_))
+```
+
+* 如果方法参数是函数，如果出现了下划线，scala编译器会自动将代码封装到一个函数中
+* 参数列表也是由scala编译器自动处理
+
+## map
+
+集合的映射操作是将来在编写Spark/Flink用得最多的操作，是我们必须要掌握的。因为进行数据计算的时候，就是一个将一种数据类型转换为另外一种数据类型的过程。
+
+方法签名
+
+```scala
+def map[B](f: (A) ⇒ B): TraversableOnce[B]
+```
+
+说明
+
+| map方法 | API                | 说明                                                         |
+| ------- | ------------------ | ------------------------------------------------------------ |
+| 泛型    | [B]                | 指定map方法最终返回的集合泛型                                |
+| 参数    | f: (A) ⇒ B         | 传入一个函数对象<br />该函数接收一个类型A（要转换的列表元素），返回值为类型B |
+| 返回值  | TraversableOnce[B] | B类型的集合                                                  |
+
+### 案例一
+
+1. 创建一个列表，包含元素1,2,3,4
+
+2. 对List中的每一个元素加1
+
+```scala
+scala> a.map(x=>x+1)
+res4: List[Int] = List(2, 3, 4, 5)
+```
+
+### 案例二
+
+1. 创建一个列表，包含元素1,2,3,4
+
+2. 使用下划线来定义函数，对List中的每一个元素加1
+
+```scala
+scala> val a = List(1,2,3,4)
+a: List[Int] = List(1, 2, 3, 4)
+
+scala> a.map(_ + 1)
+```
+
+## flatMap
+
+扁平化映射也是将来用得非常多的操作，也是必须要掌握的。可以把flatMap，理解为先map，然后再flatten。
+
+- map是将列表中的元素转换为一个List
+- flatten再将整个列表进行扁平化
+
+方法签名
+
+```scala
+def flatMap[B](f: (A) ⇒ GenTraversableOnce[B]): TraversableOnce[B]
+```
+
+方法解析
+
+| flatmap方法 | API                            | 说明                                                         |
+| ----------- | ------------------------------ | ------------------------------------------------------------ |
+| 泛型        | [B]                            | 最终要转换的集合元素类型                                     |
+| 参数        | f: (A) ⇒ GenTraversableOnce[B] | 传入一个函数对象<br />函数的参数是集合的元素<br />函数的返回值是一个集合 |
+| 返回值      | TraversableOnce[B]             | B类型的集合                                                  |
+
+### 案例
+
+1. 有一个包含了若干个文本行的列表："hadoop hive spark flink flume", "kudu hbase sqoop storm"
+2. 获取到文本行中的每一个单词，并将每一个单词都放到列表中
+
+```scala
+// 定义文本行列表
+scala> val a = List("hadoop hive spark flink flume", "kudu hbase sqoop storm")
+a: List[String] = List(hadoop hive spark flink flume, kudu hbase sqoop storm)
+
+// 使用map将文本行转换为单词数组
+scala> a.map(x=>x.split(" "))
+res5: List[Array[String]] = List(Array(hadoop, hive, spark, flink, flume), Array(kudu, hbase, sqoop, storm))
+
+// 扁平化，将数组中的
+scala> a.map(x=>x.split(" ")).flatten
+res6: List[String] = List(hadoop, hive, spark, flink, flume, kudu, hbase, sqoop, storm)
+```
+
+使用flatMap简化操作
+
+```scala
+scala>  val a = List("hadoop hive spark flink flume", "kudu hbase sqoop storm")
+a: List[String] = List(hadoop hive spark flink flume, kudu hbase sqoop storm)
+
+scala> a.flatMap(_.split(" "))
+res7: List[String] = List(hadoop, hive, spark, flink, flume, kudu, hbase, sqoop, storm)
+```
+
+## filter
+
+过滤符合一定条件的元素
+
+方法签名
+
+```scala
+def filter(p: (A) ⇒ Boolean): TraversableOnce[A]
+```
+
+方法解析
+
+| filter方法 | API                | 说明                                                         |
+| ---------- | ------------------ | ------------------------------------------------------------ |
+| 参数       | p: (A) ⇒ Boolean   | 传入一个函数对象<br />接收一个集合类型的参数<br />返回布尔类型，满足条件返回true, 不满足返回false |
+| 返回值     | TraversableOnce[A] | 列表                                                         |
+
+案例
+
+1. 有一个数字列表，元素为：1,2,3,4,5,6,7,8,9
+
+2. 请过滤出所有的偶数
+
+```scala
+scala> List(1,2,3,4,5,6,7,8,9).filter(_ % 2 == 0)
+res8: List[Int] = List(2, 4, 6, 8)
+```
+
+## sort
+
+### sorted
+
+默认排序
+
+```scala
+scala> List(3,1,2,9,7).sorted
+res16: List[Int] = List(1, 2, 3, 7, 9)
+```
+
+### sortBy
+
+指定字段排序
+
+方法签名
+
+```scala
+def sortBy[B](f: (A) ⇒ B): List[A]
+```
+
+方法解析
+
+| sortBy方法 | API        | 说明                                                         |
+| ---------- | ---------- | ------------------------------------------------------------ |
+| 泛型       | [B]        | 按照什么类型来进行排序                                       |
+| 参数       | f: (A) ⇒ B | 传入函数对象<br />接收一个集合类型的元素参数<br />返回B类型的元素进行排序 |
+| 返回值     | List[A]    | 返回排序后的列表                                             |
+
+示例
+
+1. 有一个列表，分别包含几下文本行："01 hadoop", "02 flume", "03 hive", "04 spark"
+2. 请按照单词字母进行排序
+
+```scala
+scala> val a = List("01 hadoop", "02 flume", "03 hive", "04 spark")
+a: List[String] = List(01 hadoop, 02 flume, 03 hive, 04 spark)
+
+// 获取单词字段
+scala> a.sortBy(_.split(" ")(1))
+res8: List[String] = List(02 flume, 01 hadoop, 03 hive, 04 spark)
+```
+
+### sortWith
+
+自定义排序，根据一个函数来进行自定义排序
+
+方法签名
+
+```scala
+def sortWith(lt: (A, A) ⇒ Boolean): List[A]
+```
+
+方法解析
+
+| sortWith方法 | API                  | 说明                                                         |
+| ------------ | -------------------- | ------------------------------------------------------------ |
+| 参数         | lt: (A, A) ⇒ Boolean | 传入一个比较大小的函数对象<br />接收两个集合类型的元素参数<br />返回两个元素大小，小于返回true，大于返回false，升序<br />返回两个元素大小，小于返回false，大于返回true，降序 |
+| 返回值       | List[A]              | 返回排序后的列表                                             |
+
+示例
+
+1. 有一个列表，包含以下元素：2,3,1,6,4,5
+2. 使用sortWith对列表进行降序排序
+
+```scala
+scala> val a = List(2,3,1,6,4,5)
+a: List[Int] = List(2, 3, 1, 6, 4, 5)
+
+scala> a.sortWith((x,y) => if(x<y)false else true)
+res20: List[Int] = List(6, 5, 4, 3, 2, 1)
+```
+
+使用下划线简写上述案例
+
+```scala
+scala> val a = List(2,3,1,6,4,5)
+a: List[Int] = List(2, 3, 1, 6, 4, 5)
+
+// 函数参数只在函数体中出现一次，可以使用下划线代替
+scala> a.sortWith(_ > _)
+res21: List[Int] = List(6, 5, 4, 3, 2, 1)
+```
+
+## groupBy
+
+将数据按照分组来进行统计分析
+
+方法签名
+
+```scala
+def groupBy[K](f: (A) ⇒ K): Map[K, List[A]]
+```
+
+方法解析
+
+| groupBy方法 | API             | 说明                                                         |
+| ----------- | --------------- | ------------------------------------------------------------ |
+| 泛型        | [K]             | 分组字段的类型                                               |
+| 参数        | f: (A) ⇒ K      | 传入一个函数对象<br />接收集合元素类型的参数<br />返回一个K类型的key，这个key会用来进行分组，相同的key放在一组中 |
+| 返回值      | Map[K, List[A]] | 返回一个映射，K为分组字段，List为这个分组字段对应的一组数据  |
+
+示例
+
+1. 有一个列表，包含了学生的姓名和性别: 
+
+   ```scala
+   "张三", "男"
+   "李四", "女"
+   "王五", "男"
+   ```
+
+2. 请按照性别进行分组，统计不同性别的学生人数
+
+步骤
+
+1. 定义一个元组列表来保存学生姓名和性别
+2. 按照性别进行分组
+3. 将分组后的Map转换为列表：List(("男" -> 2), ("女" -> 1))
+
+```scala
+scala> val a = List("张三"->"男", "李四"->"女", "王五"->"男")
+a: List[(String, String)] = List((张三,男), (李四,女), (王五,男))
+
+// 按照性别分组
+scala> a.groupBy(_._2)
+res0: scala.collection.immutable.Map[String,List[(String, String)]] = Map(男 -> List((张三,男), (王五,男)),
+女 -> List((李四,女)))
+
+// 将分组后的映射转换为性别/人数元组列表
+scala> res0.map(x => x._1 -> x._2.size)
+res3: scala.collection.immutable.Map[String,Int] = Map(男 -> 2, 女 -> 1)
+```
+
+## reduce
+
+聚合操作，可以将一个列表中的数据合并为一个。reduce表示将列表，传入一个函数进行聚合计算
+
+方法签名
+
+```scala
+def reduce[A1 >: A](op: (A1, A1) ⇒ A1): A1
+```
+
+方法解析
+
+| reduce方法 | API               | 说明                                                         |
+| ---------- | ----------------- | ------------------------------------------------------------ |
+| 泛型       | [A1 >: A]         | （下界）A1必须是集合元素类型的子类                           |
+| 参数       | op: (A1, A1) ⇒ A1 | 传入函数对象，用来不断进行聚合操作<br />第一个A1类型参数为：当前聚合后的变量<br />第二个A1类型参数为：当前要进行聚合的元素 |
+| 返回值     | A1                | 列表最终聚合为一个元素                                       |
+
+* reduce和reduceLeft效果一致，表示从左到右计算
+
+* reduceRight表示从右到左计算
+
+案例
+
+1. 定义一个列表，包含以下元素：1,2,3,4,5,6,7,8,9,10
+2. 使用reduce计算所有元素的和
+
+```scala
+scala> val a = List(1,2,3,4,5,6,7,8,9,10)
+a: List[Int] = List(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+
+scala> a.reduce((x,y) => x + y)
+res5: Int = 55
+
+// 第一个下划线表示第一个参数，就是历史的聚合数据结果
+// 第二个下划线表示第二个参数，就是当前要聚合的数据元素
+scala> a.reduce(_ + _)
+res53: Int = 55
+
+// 与reduce一样，从左往右计算
+scala> a.reduceLeft(_ + _)
+res0: Int = 55
+
+// 从右往左聚合计算
+scala> a.reduceRight(_ + _)
+res1: Int = 55
+```
+
+## fold
+
+fold与reduce很像，但是多了一个指定初始值参数
+
+方法签名
+
+```scala
+def fold[A1 >: A](z: A1)(op: (A1, A1) ⇒ A1): A1
+```
+
+方法解析
+
+| reduce方法 | API               | 说明                                                         |
+| ---------- | ----------------- | ------------------------------------------------------------ |
+| 泛型       | [A1 >: A]         | （下界）A1必须是集合元素类型的子类                           |
+| 参数1      | z: A1             | 初始值                                                       |
+| 参数2      | op: (A1, A1) ⇒ A1 | 传入函数对象，用来不断进行折叠操作<br />第一个A1类型参数为：当前折叠后的变量<br />第二个A1类型参数为：当前要进行折叠的元素 |
+| 返回值     | A1                | 列表最终折叠为一个元素                                       |
+
+* fold和foldLet效果一致，表示从左往右计算
+
+* foldRight表示从右往左计算
+
+案例
+
+1. 定义一个列表，包含以下元素：1,2,3,4,5,6,7,8,9,10
+2. 使用fold方法计算所有元素的和
+
+```scala
+scala> val a = List(1,2,3,4,5,6,7,8,9,10)
+a: List[Int] = List(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+
+scala> a.fold(0)(_ + _)
+res4: Int = 155
+```
+
+# 类和对象
+
+scala是支持面向对象的，也有类和对象的概念。依然可以基于scala语言来开发面向对象的应用程序。
+
+## 创建类和对象
+
+* 使用class来定义一个类
+* 使用new来创建对象
+
+示例
+
+创建一个Person类，并创建它的对象
+
+步骤
+
+1. 创建一个scala项目，并创建一个Object
+2. 添加main方法
+3. 创建类和对象
+
+实现
+
+1. 在IDEA中创建项目，并创建一个Object（main方法必须放在Object中）
+2. 添加main方法
+3. 创建一个Person类
+4. 在main方法中创建Person类对象
+
+```scala
+package org.duo.oop
+
+object _01ClassDemo {
+
+  // 创建类
+  class Person {}
+
+  def main(args: Array[String]): Unit = {
+    // 创建对象
+    val p = new Person()
+    println(p)
+  }
+}
+
+```
+
+简写方法
+
+用法
+
+* 如果类是空的，没有任何成员，可以省略{}
+
+* 如果构造器的参数为空，可以省略()
+
+示例
+
+使用简写方法重新创建Person类和对象
+
+```scala
+package org.duo.oop
+
+object _02ClassDemo {
+
+  // 创建类，省略花括号
+  class Person
+
+  def main(args: Array[String]): Unit = {
+    // 创建对象，省略括号
+    val person = new Person
+  }
+}
+```
+
+## 定义和访问成员变量
+
+一个类会有自己的属性，例如：人这样一个类，有自己的姓名和年龄。
+
+- 在类中使用var/val定义成员变量
+- 对象直接使用成员变量名称来访问成员变量
+
+示例
+
+1. 定义一个Person类，包含一个姓名和年龄字段
+2. 创建一个名为"张三"、年龄为20岁的对象
+3. 打印对象的名字和年龄
+
+步骤
+
+1. 创建一个Object，添加main方法
+2. 创建Person类，添加姓名字段和年龄字段，并对字段进行初始化，让scala自动进行类型推断
+3. 在main方法中创建Person类对象，设置成员变量为"张三"、20
+4. 打印对象的名字和年龄
+
+```scala
+package org.duo.oop
+
+object _03ClassDemo {
+
+  class Person {
+    // 定义成员变量
+    var name = ""
+    var age = 0
+  }
+
+  def main(args: Array[String]): Unit = {
+    // 创建Person对象
+    val person = new Person
+    person.name = "zhangsan"
+    person.age = 20
+
+    // 获取变量值
+    println(person.name)
+    println(person.age)
+  }
+}
+
+```
+
+## 使用下划线初始化成员变量
+
+scala中有一个更简洁的初始化成员变量的方式，可以让代码看起来更加简洁
+
+用法
+
+- 在定义var类型的成员变量时，可以使用_来初始化成员变量
+  - String => null
+  - Int => 0
+  - Boolean => false
+  - Double => 0.0
+  - ...
+- val类型的成员变量，必须要自己手动初始化
+
+示例
+
+1. 定义一个Person类，包含一个姓名和年龄字段
+2. 创建一个名为"张三"、年龄为20岁的对象
+3. 打印对象的名字和年龄
+
+步骤
+
+1. 创建一个Object，添加main方法
+2. 创建Person类，添加姓名字段和年龄字段，指定数据类型，使用下划线初始化
+3. 在main方法中创建Person类对象，设置成员变量为"张三"、20
+4. 打印对象的名字和年龄
+
+```scala
+package org.duo.oop
+
+object _04ClassDemo {
+
+  class Person{
+    // 使用下划线进行初始化
+    var name:String = _
+    var age:Int = _
+  }
+
+  def main(args: Array[String]): Unit = {
+    val person = new Person
+
+    println(person.name)
+    println(person.age)
+  }
+}
+```
+
+## 定义成员方法
+
+类可以有自己的行为，scala中也可以通过定义成员方法来定义类的行为。在scala的类中，也是使用def来定义成员方法。
+
+```scala
+package org.duo.oop
+
+object _05ClassDemo {
+
+  class Customer {
+    var name: String = _
+    var sex: String = _
+
+    // 定义成员方法
+    def sayHi(msg: String) = {
+      println(msg)
+    }
+  }
+
+  def main(args: Array[String]): Unit = {
+    val customer = new Customer
+    customer.name = "张三"
+    customer.sex = "男"
+    customer.sayHi("你好")
+  }
+}
+```
+
+## 访问修饰符
+
+和Java一样，scala也可以通过访问修饰符，来控制成员变量和成员方法是否可以被访问。Java中的访问控制，同样适用于scala，可以在成员前面添加private/protected关键字来控制成员的可见性。但在scala中，没有public关键字，任何没有被标为private或protected的成员都是公共的
+
+## 类的构造器
+
+当创建类对象的时候，会自动调用类的构造器。之前使用的都是默认构造器，接下来要学习如何自定义构造器。
+
+### 主构造器
+
+Java的构造器，有构造列表和构造代码块
+
+```java
+class Person {
+    // 成员变量
+    private String name;
+    private Integer age;
+
+    // Java构造器
+    public Person(String name, Integer age) {
+        // 初始化成员变量
+        this.name = name;
+        this.age = age;
+    }
+}
+```
+
+在scala中，可以使用更简洁的语法来实现。
+
+语法
+
+```scala
+class 类名(var/val 参数名:类型 = 默认值, var/val 参数名:类型 = 默认值){
+    // 构造代码块
+}
+```
+
+* 主构造器的参数列表是直接定义在类名后面，添加了val/var表示直接通过主构造器定义成员变量
+* 构造器参数列表可以指定默认值
+* 创建实例，调用构造器可以指定字段进行初始化
+* 整个class中除了字段定义和方法定义的代码都是构造代码
+
+示例
+
+1. 定义一个Person类，通过主构造器参数列表定义姓名和年龄字段，并且设置它们的默认值
+2. 在主构造器中输出"调用主构造器"
+3. 创建"张三"对象（姓名为张三，年龄为20），打印对象的姓名和年龄
+4. 创建"空"对象，不给构造器传入任何的参数，打印对象的姓名和年龄
+5. 创建"man40"对象，不传入姓名参数，指定年龄为40，打印对象的姓名和年龄
+
+```scala
+package org.duo.oop
+
+object _06ConstructorDemo {
+
+  // 定义类的主构造器
+  // 指定默认值
+  class Person(var name: String = "", var age: Int = 0) {
+    println("调用主构造器")
+  }
+
+  def main(args: Array[String]): Unit = {
+
+    // 给构造器传入参数
+    val zhangsan = new Person("张三", 20)
+    println(zhangsan.name)
+    println(zhangsan.age)
+    println("---")
+
+    // 不传入任何参数
+    val empty = new Person
+    println(empty.name)
+    println(empty.age)
+    println("---")
+
+    // 指定字段进行初始化
+    val man40 = new Person(age = 40)
+    println(man40.name)
+    println(man40.age)
+  }
+}
+```
+
+### 辅助构造器
+
+在scala中，除了定义主构造器外，还可以根据需要来定义辅助构造器。例如：允许通过多种方式，来创建对象，这时候就可以定义其他更多的构造器。把除了主构造器之外的构造器称为辅助构造器。
+
+语法
+
+- 定义辅助构造器与定义方法一样，也使用def关键字来定义
+- 这个方法的名字为this
+- 辅助构造器的第一行代码，必须要调用主构造器或者其他辅助构造器
+
+```scala
+def this(参数名:类型, 参数名:类型) {
+    // 第一行需要调用主构造器或者其他构造器
+    // 构造器代码
+}
+```
+
+示例
+
+* 定义一个Customer类，包含一个姓名和地址字段
+* 定义Customer类的主构造器（初始化姓名和地址）
+* 定义Customer类的辅助构造器，该辅助构造器接收一个数组参数，使用数组参数来初始化成员变量
+* 使用Person类的辅助构造器来创建一个"zhangsan"对象
+  - 姓名为张三
+  - 地址为北京
+* 打印对象的姓名、地址
+
+```scala
+package org.duo.oop
+
+object _07ConstructorDemo {
+
+  class Customer(var name: String = "", var address: String = "") {
+    // 定义辅助构造器
+    def this(arr: Array[String]) = {
+      // 辅助构造器必须要调用主构造器或者其他辅助构造器
+      this(arr(0), arr(1))
+    }
+  }
+
+  def main(args: Array[String]): Unit = {
+    val zhangsan = new Customer(Array("张三", "北京"))
+
+    println(zhangsan.name)
+    println(zhangsan.address)
+  }
+}
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

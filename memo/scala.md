@@ -2063,21 +2063,1007 @@ object _07ConstructorDemo {
 }
 ```
 
+## 单例对象
 
+scala中没有Java中的静态成员，如果想要定义类似于Java的static变量、static方法，就要使用到scala中的单例对象——object.
 
+单例对象表示全局仅有一个对象（类似于Java static概念）
 
+* 定义单例对象和定义类很像，就是把class换成object
+* 在object中定义的成员变量类似于Java的静态变量
+* 可以使用object直接引用成员变量
 
+示例
 
+* 定义一个Dog单例对象，保存狗有几条腿
+* 在main方法中打印狗腿的数量
 
+```scala
+package org.duo.oop
 
+object _08ObjectDemo {
 
+  // 定义一个单例对象
+  object Dog {
+    // 定义腿的数量
+    val LEG_NUM = 4
+  }
 
+  def main(args: Array[String]): Unit = {
+    println(Dog.LEG_NUM)
+  }
+}
+```
 
+### 工具类案例
 
+- 编写一个DateUtil工具类专门用来格式化日期时间
+- 定义一个方法，用于将日期（Date）转换为年月日字符串，例如：2030-10-05
 
+```scala
+package org.duo.oop
 
+import java.text.SimpleDateFormat
+import java.util.Date
 
+object _10ObjectDemo {
 
+  object DateUtils {
+    // 在object中定义的成员变量，相当于Java中定义一个静态变量
+    // 定义一个SimpleDateFormat日期时间格式化对象
+    val simpleDateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm")
+
+    // 相当于Java中定义一个静态方法
+    def format(date: Date) = simpleDateFormat.format(date)
+  }
+
+  // main是一个静态方法，所以必须要写在object中
+  def main(args: Array[String]): Unit = {
+    println(DateUtils.format(new Date()))
+  }
+}
+```
+
+### main方法
+
+scala和Java一样，如果要运行一个程序，必须有一个main方法。而在Java中main方法是静态的，而在scala中没有静态方法。在scala中，这个main方法必须放在一个单例对象中。
+
+示例
+
+```scala
+package org.duo.oop
+
+object Main5 {
+  def main(args:Array[String]) = {
+    println("hello, scala")
+  }
+}
+```
+
+实现App Trait来定义入口
+
+示例
+
+```scala
+package org.duo.oop
+
+object Main5 extends App {
+  println("hello, scala")
+}
+```
+
+## 伴生对象
+
+一个class和object具有同样的名字。这个object称为伴生对象，这个class称为伴生类
+
+* 伴生对象必须要和伴生类一样的名字
+* 伴生对象和伴生类在同一个scala源文件中
+* 伴生对象和伴生类可以互相访问private属性
+
+```scala
+package org.duo.oop
+
+object _11ObjectDemo {
+
+  class CustomerService {
+    def save() = {
+      println(s"${CustomerService.SERVICE_NAME}:保存客户")
+    }
+  }
+
+  // CustomerService的伴生对象
+  object CustomerService {
+    private val SERVICE_NAME = "CustomerService"
+  }
+
+  def main(args: Array[String]): Unit = {
+    val customerService = new CustomerService()
+    customerService.save()
+  }
+}
+```
+
+### private[this]访问权限
+
+如果某个成员的权限设置为private[this]，表示只能在当前类中访问。伴生对象也不可以访问
+
+示例
+
+* 定义一个Person类，包含一个name字段
+* 定义Person类的伴生对象，定义printPerson方法
+* 测试伴生对象是否能访问private[this]权限的成员
+
+```scala
+package org.duo.oop
+
+object _12ObjectDemo {
+
+  class Person(private[this] var name: String)
+
+  object Person {
+    def printPerson(person: Person): Unit = {
+      // 这里编译报错。但移除掉[this]就可以访问了
+      println(person.name)
+    }
+  }
+
+  def main(args: Array[String]): Unit = {
+    val person = new Person("张三")
+    Person.printPerson(person)
+  }
+}
+```
+
+### apply方法
+
+之前使用过这种方式来创建一个Array对象。
+
+```scala
+// 创建一个Array对象
+val a = Array(1,2,3,4)
+```
+
+这种写法非常简便，不需要再写一个new，然后敲一个空格，再写类名。可以通过伴生对象的apply方法来实现。
+
+定义apply方法
+
+```scala
+object 伴生对象名 {
+	def apply(参数名:参数类型, 参数名:参数类型...) = new 类(...)
+}
+```
+
+创建对象
+
+伴生对象名(参数1, 参数2...)
+
+示例
+
+- 定义一个Person类，它包含两个字段：姓名和年龄
+- 重写apply方法，使用Person类名就可以创建对象
+- 在main方法中创建该类的对象，并打印姓名和年龄
+
+```scala
+package org.duo.oop
+
+object _13ApplyDemo {
+
+  class Person(var name: String = "", var age: Int = 0)
+
+  object Person {
+    // 定义apply方法，接收两个参数
+    def apply(name: String, age: Int) = new Person(name, age)
+  }
+
+  def main(args: Array[String]): Unit = {
+    // 使用伴生对象名称来创建对象
+    val zhangsan = Person("张三", 20)
+    println(zhangsan.name)
+    println(zhangsan.age)
+  }
+
+```
+
+# 继承
+
+scala语言是支持面向对象编程的，可以使用scala来实现继承，通过继承来减少重复代码。
+
+* scala和Java一样，使用extends关键字来实现继承
+* 可以在子类中定义父类中没有的字段和方法，或者重写父类的方法
+* 类和单例对象都可以从某个父类继承
+
+语法
+
+```scala
+class/object 子类 extends 父类 {
+    ..
+}
+```
+
+## 类继承
+
+```scala
+package org.duo.oop
+
+object _14ExtendsDemo {
+
+  class Person {
+
+    var name = "super"
+    def getName = this.name
+  }
+
+  class Student extends Person
+
+  def main(args: Array[String]): Unit = {
+
+    val p2 = new Student()
+    p2.name = "张三"
+    println(p2.getName)
+  }
+}
+```
+
+## 单例对象继承
+
+```scala
+package org.duo.oop
+
+object _14ExtendsDemo {
+
+  class Person {
+
+    var name = "super"
+    def getName = this.name
+  }
+
+  object Student extends Person
+
+  def main(args: Array[String]): Unit = {
+
+    println(Student.getName)
+  }
+}
+```
+
+## override和super
+
+类似于Java语言，在子类中使用override需要来重写父类的成员，可以使用super来引用父类
+
+- 子类要覆盖父类中的一个方法，必须要使用override关键字
+- 使用override来重写一个val字段
+- 使用super关键字来访问父类的成员方法
+
+示例
+
+- 定义一个Person类，包含
+  - 姓名字段（不可重新赋值）
+  - 获取姓名方法
+- 定义一个Student类
+  - 重写姓名字段
+  - 重写获取姓名方法，返回"hello, "  + 姓名
+- 创建Student对象示例，调用它的getName方法
+
+```scala
+package org.duo.oop
+
+object _15OverrideDemo {
+
+  class Person {
+
+    val name = "super"
+
+    def getName = name
+  }
+
+  class Student extends Person {
+
+    // 重写val字段
+    override val name: String = "child"
+
+    // 重写getName方法，调用父类的getName方法，注意这里虽然用的是父类的方法，但是由于name变量被子类重写了，所以答应的仍然是被子类重写过的值
+    override def getName: String = "hello, " + super.getName
+  }
+
+  def main(args: Array[String]): Unit = {
+    println(new Student().getName)
+  }
+}
+```
+
+# 类型判断
+
+在scala中，有两种方式来进行类型判断
+
+* isInstanceOf
+
+  判断对象是否为指定类的对象
+
+* getClass/classOf
+
+  asInstanceOf将对象转换为指定类型
+
+用法
+
+```scala
+// 判断对象是否为指定类型
+val trueOrFalse:Boolean = 对象.isInstanceOf[类型]
+// 将对象转换为指定类型
+val 变量 = 对象.asInstanceOf[类型]
+```
+
+```scala
+package org.duo.oop
+
+object _16InstanceDemo {
+
+  class Person3
+
+  class Student3 extends Person3
+
+  def main(args: Array[String]): Unit = {
+    val s1: Person3 = new Student3
+
+    // 判断s1是否为Student3类型
+    if (s1.isInstanceOf[Student3]) {
+      // 将s1转换为Student3类型
+      val s2 = s1.asInstanceOf[Student3]
+      println(s2)
+    }
+
+  }
+}
+```
+
+isInstanceOf 只能判断对象是否为指定类以及其子类的对象，而不能精确的判断出，对象就是指定类的对象。如果要求精确地判断出对象就是指定类的对象，那么就只能使用 getClass 和 classOf 。
+
+用法
+
+- p.getClass可以精确获取对象的类型
+- classOf[x]可以精确获取类型
+- 使用==操作符可以直接比较类型
+
+```scala
+package org.duo.oop
+
+object _17InstanceDemo {
+
+  class Person4
+
+  class Student4 extends Person4
+
+  def main(args: Array[String]) {
+
+    val p: Person4 = new Student4
+    //判断p是否为Person4类的实例
+    println(p.isInstanceOf[Person4]) //true
+    //判断p的类型是否为Person4类
+    println(p.getClass == classOf[Person4]) //false
+    //判断p的类型是否为Student4类
+    println(p.getClass == classOf[Student4]) //true
+  }
+}
+```
+
+# 抽象类&抽象字段
+
+## 抽象类
+
+如果类的某个成员在当前类中的定义是不包含完整的，它就是一个抽象类
+
+不完整定义有两种情况：
+
+1. 方法没有方法体（抽象方法）
+2. 变量没有初始化（抽象字段）
+
+定义抽象类和Java一样，在类前面加上abstract关键字
+
+```scala
+// 定义抽象类
+abstract class 抽象类名 {
+  // 定义抽象字段
+  val 抽象字段名:类型
+  // 定义抽象方法
+  def 方法名(参数:参数类型,参数:参数类型...):返回类型
+}
+```
+
+```scala
+package org.duo.oop
+
+object _18AbstractDemo {
+
+  // 创建形状抽象类
+  abstract class Shape {
+    def area: Double
+  }
+
+  // 创建正方形类
+  class Square(var edge: Double /*边长*/) extends Shape {
+    // 实现父类计算面积的方法
+    override def area: Double = edge * edge
+  }
+
+  // 创建长方形类
+  class Rectangle(var length: Double /*长*/ , var width: Double /*宽*/) extends Shape {
+    override def area: Double = length * width
+  }
+
+  // 创建圆形类
+  class Cirle(var radius: Double /*半径*/) extends Shape {
+    override def area: Double = Math.PI * radius * radius
+  }
+
+  def main(args: Array[String]): Unit = {
+
+    val s1: Shape = new Square(2)
+    val s2: Shape = new Rectangle(2, 3)
+    val s3: Shape = new Cirle(2)
+
+    println(s1.area)
+    println(s2.area)
+    println(s3.area)
+  }
+}
+```
+
+## 抽象字段
+
+语法
+
+```scala
+abstract class 抽象类 {
+    val/var 抽象字段:类型
+}
+```
+
+```scala
+package org.duo.oop
+
+object _19AbstractDemo {
+
+  // 定义一个人的抽象类
+  abstract class Person6 {
+    // 没有初始化的val字段就是抽象字段
+    val WHO_AM_I: String
+  }
+
+  class Student6 extends Person6 {
+    override val WHO_AM_I: String = "学生"
+  }
+
+  class Policeman6 extends Person6 {
+    override val WHO_AM_I: String = "警察"
+  }
+
+  def main(args: Array[String]): Unit = {
+
+    val p1 = new Student6
+    val p2 = new Policeman6
+
+    println(p1.WHO_AM_I)
+    println(p2.WHO_AM_I)
+  }
+}
+```
+
+# 匿名内部类
+
+匿名内部类是没有名称的子类，直接用来创建实例对象。Spark的源代码中有大量使用到匿名内部类。scala中的匿名内部类使用与Java一致。
+
+语法
+
+```scala
+val/var 变量名 = new 类/抽象类 {
+    // 重写方法
+}
+```
+
+示例说明
+
+1. 创建一个Person抽象类，并添加一个sayHello抽象方法
+2. 添加main方法，通过创建匿名内部类的方式来实现Person
+3. 调用匿名内部类对象的sayHello方法
+
+```scala
+package org.duo.oop
+
+object _20AnonymousDemo {
+
+  abstract class Person7 {
+    def sayHello:Unit
+  }
+
+  def main(args: Array[String]): Unit = {
+    // 直接用new来创建一个匿名内部类对象
+    val p1 = new Person7 {
+      override def sayHello: Unit = println("我是一个匿名内部类")
+    }
+    p1.sayHello
+  }
+}
+```
+
+# 特质
+
+scala中没有Java中的接口（interface），替代的概念是——特质
+
+## 定义
+
+- 特质是scala中代码复用的基础单元
+- 它可以将方法和字段定义封装起来，然后添加到类中
+- 与类继承不一样的是，类继承要求每个类都只能继承一个超类，而一个类可以添加任意数量的特质。
+- 特质的定义和抽象类的定义很像，但它是使用trait关键字
+
+语法
+
+```scala
+trait 名称 {
+    // 抽象字段
+    // 抽象方法
+}
+```
+
+继承特质
+
+```scala
+class 类 extends 特质1 with 特质2 {
+    // 字段实现
+    // 方法实现
+}
+```
+
+- 使用extends来继承trait（scala不论是类还是特质，都是使用extends关键字）
+
+- 如果要继承多个trait，则使用with关键字
+
+## trait作为接口使用
+
+trait作为接口使用，与java的接口使用方法一样。
+
+### 继承单个trait
+
+1. 创建一个Logger特质，添加一个接受一个String类型参数的log抽象方法
+2. 创建一个ConsoleLogger类，继承Logger特质，实现log方法，打印消息
+3. 添加main方法，创建ConsoleLogger对象，调用log方法
+
+```scala
+package org.duo.oop
+
+object _21TraitDemo {
+
+  trait Logger {
+    // 抽象方法
+    def log(message: String)
+  }
+
+  class ConsoleLogger extends Logger {
+    override def log(message: String): Unit = println("控制台日志:" + message)
+  }
+
+  def main(args: Array[String]): Unit = {
+    val logger = new ConsoleLogger
+    logger.log("这是一条日志")
+  }
+}
+```
+
+### 继承多个trait
+
+```scala
+package org.duo.oop
+
+object _22TraitDemo {
+
+  trait MessageSender {
+    def send(msg: String)
+  }
+
+  trait MessageReceive {
+    def receive(): String
+  }
+
+  class MessageWorker extends MessageSender with MessageReceive {
+    override def send(msg: String): Unit = println(s"发送消息:${msg}")
+
+    override def receive(): String = "你好！我叫一个好人！"
+  }
+
+  def main(args: Array[String]): Unit = {
+    val worker = new MessageWorker
+    worker.send("hello")
+    println(worker.receive())
+  }
+}
+```
+
+### object继承trait
+
+```scala
+package org.duo.oop
+
+object _23TraitDemo {
+
+  trait Logger {
+    def log(message: String)
+  }
+
+  object ConsoleLogger extends Logger {
+    override def log(message: String): Unit = println("控制台消息:" + message)
+  }
+
+  def main(args: Array[String]): Unit = {
+    ConsoleLogger.log("程序退出!")
+  }
+}
+```
+
+## 定义具体的方法
+
+和类一样，trait中还可以定义具体的方法
+
+```scala
+package org.duo.oop
+
+object _24TraitDemo {
+
+  trait LoggerDetail {
+    // 在trait中定义具体方法
+    def log(msg: String) = println(msg)
+  }
+
+  class UserService extends LoggerDetail {
+    def add() = log("添加用户")
+  }
+
+  def main(args: Array[String]): Unit = {
+    val userService = new UserService
+    userService.add()
+  }
+}
+```
+
+## 定义抽象字段
+
+* 在trait中可以定义具体字段和抽象字段
+
+* 继承trait的子类自动拥有trait中定义的字段
+* 字段直接被添加到子类中
+
+```scala
+package org.duo.oop
+
+import java.text.SimpleDateFormat
+import java.util.Date
+
+object _25TraitDemo {
+
+  trait Logger {
+    val sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm")
+
+    def log(msg: String)
+  }
+
+  class ConsoleLogger extends Logger {
+    override def log(msg: String): Unit = {
+      val info = s"${sdf.format(new Date())}:控制台消息:${msg}"
+      println(info)
+    }
+  }
+
+  def main(args: Array[String]): Unit = {
+    val logger = new ConsoleLogger()
+    logger.log("NullPointerException")
+  }
+}
+```
+
+## 实现模板模式
+
+```scala
+package org.duo.oop
+
+object _26TraitDemo {
+
+  trait Logger {
+
+    def log(msg: String)
+
+    def info(msg: String) = log("INFO:" + msg)
+
+    def warn(msg: String) = log("WARN:" + msg)
+
+    def error(msg: String) = log("ERROR:" + msg)
+  }
+
+  class ConsoleLogger extends Logger {
+
+    override def log(msg: String): Unit = {
+      println(msg)
+    }
+  }
+
+  def main(args: Array[String]): Unit = {
+
+    val logger = new ConsoleLogger
+    logger.info("信息日志")
+    logger.warn("警告日志")
+    logger.error("错误日志")
+  }
+}
+```
+
+## 对象混入trait
+
+scala中可以将trait混入到对象中，就是将trait中定义的方法、字段添加到一个对象中
+
+语法
+
+```scala
+val/var 对象名 = new 类 with 特质
+```
+
+示例
+
+```scala
+package org.duo.oop
+
+object _27TraitDemo {
+
+  trait Logger {
+    def log(msg: String) = println(msg)
+  }
+
+  class UserService
+
+  def main(args: Array[String]): Unit = {
+    val service = new UserService with Logger
+    service.log("混入的方法")
+  }
+}
+```
+
+## 实现调用链模式
+
+类继承了多个trait后，可以依次调用多个trait中的同一个方法，只要让多个trait中的同一个方法在最后都依次执行super关键字即可。类中调用多个tait中都有这个方法时，首先会从最右边的trait方法开始执行，然后依次往左执行，形成一个调用链条。
+
+```scala
+package org.duo.oop
+
+object _28TraitDemo {
+
+  trait HandlerTrait {
+    def handle(data: String) = println("处理数据...")
+  }
+
+  trait DataValidHanlderTrait extends HandlerTrait {
+    override def handle(data: String): Unit = {
+      println("验证数据...")
+      super.handle(data)
+    }
+  }
+
+  trait SignatureValidHandlerTrait extends HandlerTrait {
+    override def handle(data: String): Unit = {
+      println("校验签名...")
+      super.handle(data)
+    }
+  }
+
+  class PayService extends DataValidHanlderTrait with SignatureValidHandlerTrait {
+    override def handle(data: String): Unit = {
+      println("准备支付...")
+      super.handle(data)
+    }
+  }
+
+  def main(args: Array[String]): Unit = {
+    val service = new PayService
+    service.handle("支付参数")
+  }
+}
+```
+
+# 样例类&样例对象
+
+## 样例类
+
+样例类是一种特殊类，它可以用来快速定义一个用于保存数据的类（类似于Java POJO类），在后续要学习并发编程和spark、flink这些框架也都会经常使用它。
+
+语法格式
+
+```scala
+case class 样例类名([var/val] 成员变量名1:类型1, 成员变量名2:类型2, 成员变量名3:类型3)
+```
+
+* 如果要实现某个成员变量可以被修改，可以添加var
+* 默认为val，可以省略
+
+示例一
+
+* 定义一个Person样例类，包含姓名和年龄成员变量
+* 创建样例类的对象实例（"张三"、20），并打印它
+
+```scala
+package org.duo.oop
+
+object _01CaseClassDemo {
+
+  case class Person(name: String, age: Int)
+
+  def main(args: Array[String]): Unit = {
+    val zhangsan = Person("张三", 20)
+
+    println(zhangsan)
+  }
+}
+```
+
+示例二
+
+* 定义一个Person样例类，包含姓名和年龄成员变量
+* 创建样例类的对象实例（"张三"、20）
+* 修改张三的年龄为23岁，并打印
+
+```scala
+package org.duo.oop
+
+object _02CaseClassDemo {
+
+  case class Person(var name: String, var age: Int)
+
+  def main(args: Array[String]): Unit = {
+
+    val zhangsan = Person("张三", 20)
+    zhangsan.age = 23
+    println(zhangsan)
+  }
+}
+```
+
+当定义一个样例类，编译器自动帮助实现了以下几个有用的方法：
+
+* apply方法
+
+  apply方法可以让我们快速地使用类名来创建对象。参考以下代码：
+
+  ```scala
+  package org.duo.oop
+  
+  object _03CaseClassDemo {
+  
+    case class CasePerson(name: String, age: Int)
+  
+    def main(args: Array[String]): Unit = {
+      val lisi = CasePerson("李四", 21)
+      println(lisi.toString)
+    }
+  }
+  ```
+
+* toString方法
+
+  toString返回样例类名称(成员变量1, 成员变量2, 成员变量3....)，我们可以更方面查看样例类的成员
+
+  ```scala
+  package org.duo.oop
+  
+  object _03CaseClassDemo {
+  
+    case class CasePerson(name: String, age: Int)
+  
+    def main(args: Array[String]): Unit = {
+      val lisi = CasePerson("李四", 21)
+      println(lisi.toString)
+      // 输出：CasePerson(李四,21)
+    }
+  }
+  ```
+
+* equals方法
+
+  样例类自动实现了equals方法，可以直接使用==比较两个样例类是否相等，即所有的成员变量是否相等
+
+  ```scala
+  package org.duo.oop
+  
+  object _04CaseClassDemo {
+  
+    case class CasePerson(name: String, age: Int)
+  
+    def main(args: Array[String]): Unit = {
+  
+      val lisi1 = CasePerson("李四", 21)
+      val lisi2 = CasePerson("李四", 21)
+      println(lisi1 == lisi2)
+      // 输出：true
+    }
+  }
+  ```
+
+* hashCode方法
+
+  样例类自动实现了hashCode方法，如果所有成员变量的值相同，则hash值相同，只要有一个不一样，则hash值不一样。
+
+  ```scala
+  package org.duo.oop
+  
+  object _04CaseClassDemo {
+  
+    case class CasePerson(name: String, age: Int)
+  
+    def main(args: Array[String]): Unit = {
+  
+      val lisi1 = CasePerson("李四", 21)
+      val lisi2 = CasePerson("李四", 21)
+      println(lisi1.hashCode())
+      println(lisi2.hashCode())
+    }
+  }
+  ```
+
+* copy方法
+
+  样例类实现了copy方法，可以快速创建一个相同的实例对象，可以使用带名参数指定给成员进行重新赋值
+
+  ```scala
+  package org.duo.oop
+  
+  object _04CaseClassDemo {
+  
+    case class CasePerson(name: String, age: Int)
+  
+    def main(args: Array[String]): Unit = {
+  
+      val lisi1 = CasePerson("李四", 21)
+      val wangwu = lisi1.copy(name="王五")
+      println(wangwu)
+      // 输出：CasePerson(王五,21)
+    }
+  }
+  ```
+
+## 样例对象
+
+它主要用在两个地方：
+
+1. 定义枚举
+2. 作为没有任何参数的消息传递（Akka编程）
+
+使用case object可以创建样例对象。样例对象是单例的，而且它没有主构造器
+
+定义
+
+```scala
+case object 样例对象名
+```
+
+定义枚举
+
+* 定义一个性别Sex枚举，它只有两个实例（男性——Male、女性——Female）
+* 创建一个Person类，它有两个成员（姓名、性别）
+* 创建两个Person对象（"张三"、男性）、（"李四"、"女"）
+
+```scala
+package org.duo.oop
+
+object _01CaseObjectDemo {
+
+  /*定义一个性别特质*/
+  trait Sex
+  case object Male extends Sex // 定义一个样例对象并实现了Sex特质
+  case object Female extends Sex
+
+  case class Person(name: String, sex: Sex)
+
+  def main(args: Array[String]): Unit = {
+    val zhangsan = Person("张三", Male)
+    val lisi = Person("李四", Female)
+    println(zhangsan)
+    println(lisi)
+  }
+}
+```
 
 
 

@@ -3065,6 +3065,1369 @@ object _01CaseObjectDemo {
 }
 ```
 
+# 模式匹配
+
+scala中有一个非常强大的模式匹配机制，可以应用在很多场景：
+
+- switch语句
+- 类型查询
+- 使用模式匹配快速获取数据
+
+## 简单模式匹配
+
+在Java中，有switch关键字，可以简化if条件判断语句。在scala中，可以使用match表达式替代。
+
+语法格式
+
+```scala
+变量 match {
+    case "常量1" => 表达式1
+    case "常量2" => 表达式2
+    case "常量3" => 表达式3
+    case _ => 表达式4		// 默认匹配
+}
+```
+
+示例
+
+```scala
+package org.duo.oop
+
+import scala.io.StdIn
+
+object _01PatternMatchingDemo {
+
+  def main(args: Array[String]): Unit = {
+
+    println("请输出一个词：")
+    // StdIn.readLine表示从控制台读取一行文本
+    val name = StdIn.readLine()
+
+    val result = name match {
+      case "hadoop" => "大数据分布式存储和计算框架"
+      case "zookeeper" => "大数据分布式协调服务框架"
+      case "spark" => "大数据分布式内存计算框架"
+      case _ => "未匹配"
+    }
+
+    println(result)
+  }
+}
+```
+
+## 匹配类型
+
+除了像Java中的switch匹配数据之外，match表达式还可以进行类型匹配。如果要根据不同的数据类型，来执行不同的逻辑，也可以使用match表达式来实现。
+
+语法格式
+
+```scala
+变量 match {
+    case 类型1变量名: 类型1 => 表达式1
+    case 类型2变量名: 类型2 => 表达式2
+    case 类型3变量名: 类型3 => 表达式3
+    ...
+    case _ => 表达式4
+}
+```
+
+示例
+
+```scala
+package org.duo.oop
+
+object _02PatternMatchingDemo {
+
+  def main(args: Array[String]): Unit = {
+
+    val a: Any = "hadoop"
+
+    val result = a match {
+      case _: String => "String"
+      case _: Int => "Int"
+      case _: Double => "Double"
+    }
+
+    println(result)
+  }
+}
+```
+
+## 守卫
+
+在Java中，只能简单地添加多个case标签，例如：要匹配0-7，就需要写出来8个case语句。例如：
+
+```java
+int a = 0;
+switch(a) {
+    case 0: a += 1;
+    case 1: a += 1;
+    case 2: a += 1;
+    case 3: a += 1;
+    case 4: a += 2;
+    case 5: a += 2;
+    case 6: a += 2;
+    case 7: a += 2;
+    default: a = 0;
+}
+```
+
+在scala中，可以使用守卫来简化上述代码——也就是在case语句中添加if条件判断。
+
+示例
+
+需求说明
+
+* 从控制台读入一个数字a（使用StdIn.readInt）
+* 如果 a >= 0 而且 a <= 3，打印[0-3]
+* 如果 a >= 4 而且 a <= 8，打印[3,8]
+* 否则，打印未匹配
+
+```scala
+package org.duo.oop
+
+import scala.io.StdIn
+
+object _03PatternMatchingDemo {
+
+  def main(args: Array[String]): Unit = {
+
+    val a = StdIn.readInt()
+
+    a match {
+      case _ if a >= 0 && a <= 3 => println("[0-3]")
+      case _ if a >= 4 && a <= 8 => println("[3-8]")
+      case _ => println("未匹配")
+    }
+  }
+}
+```
+
+## 匹配样例类
+
+scala可以使用模式匹配来匹配样例类，从而可以快速获取样例类中的成员数据。
+
+示例
+
+需求说明
+
+* 创建两个样例类Customer、Order
+  * Customer包含姓名、年龄字段
+  * Order包含id字段
+* 分别定义两个案例类的对象，并指定为Any类型
+* 使用模式匹配这两个对象，并分别打印它们的成员变量值
+
+```scala
+package org.duo.oop
+
+object _04PatternMatchingDemo {
+
+  // 1. 创建两个样例类
+  case class Person(name: String, age: Int)
+
+  case class Order(id: String)
+
+  def main(args: Array[String]): Unit = {
+
+    // 2. 创建样例类对象，并赋值为Any类型
+    val zhangsan: Any = Person("张三", 20)
+    val order1: Any = Order("001")
+
+    // 3. 使用match...case表达式来进行模式匹配
+    // 获取样例类中成员变量
+    order1 match {
+      case Person(name, age) => println(s"姓名：${name} 年龄：${age}")
+      case Order(id1) => println(s"ID为：${id1}")
+      case _ => println("未匹配")
+    }
+  }
+}
+```
+
+## 匹配集合
+
+scala中的模式匹配，还能用来匹配集合。
+
+### 匹配数组
+
+示例说明
+
+* 依次修改代码定义以下三个数组
+
+  ```scala
+  Array(1,x,y)   // 以1开头，后续的两个元素不固定
+  Array(0)	   // 只匹配一个0元素的元素
+  Array(0, ...)  // 可以任意数量，但是以0开头
+  ```
+
+* 使用模式匹配上述数组
+
+  ```scala
+  package org.duo.oop
+  
+  object _05PatternMatchingDemo {
+  
+    def main(args: Array[String]): Unit = {
+  
+      val arr = Array(1, 3, 5)
+      arr match {
+        case Array(1, x, y) => println(x + " " + y)
+        case Array(0) => println("only 0")
+        case Array(0, _*) => println("0 ...")
+        case _ => println("something else")
+      }
+    }
+  }
+  ```
+
+### 匹配列表
+
+示例说明
+
+* 依次修改代码定义以下三个列表
+
+  ```scala
+  List(0)				// 只保存0一个元素的列表
+  List(0,...)   		// 以0开头的列表，数量不固定
+  List(x,y)	   		// 只包含两个元素的列表  
+  ```
+
+* 使用模式匹配上述列表
+
+  ```scala
+  package org.duo.oop
+  
+  object _06PatternMatchingDemo {
+  
+    def main(args: Array[String]): Unit = {
+  
+      val list = List(0, 1, 2)
+  
+      list match {
+        case 0 :: Nil => println("只有0的列表")
+        case 0 :: tail => println("0开头的列表")
+        case x :: y :: Nil => println(s"只有另两个元素${x}, ${y}的列表")
+        case _ => println("未匹配")
+      }
+    }
+  }
+  ```
+
+### 匹配元组
+
+示例说明
+
+* 依次修改代码定义以下两个元组
+
+  ```scala
+  (1, x, y)		// 以1开头的、一共三个元素的元组
+  (x, y, 5)   // 一共有三个元素，最后一个元素为5的元组
+  ```
+
+* 使用模式匹配上述元素
+
+  ```scala
+  package org.duo.oop
+  
+  object _07PatternMatchingDemo {
+  
+    def main(args: Array[String]): Unit = {
+  
+      val tuple = (2, 2, 5)
+  
+      tuple match {
+        case (1, x, y) => println(s"三个元素，1开头的元组：1, ${x}, ${y}")
+        case (x, y, 5) => println(s"三个元素，5结尾的元组：${x}, ${y}, 5")
+        case _ => println("未匹配")
+      }
+    }
+  }
+  ```
+
+### 变量声明中的模式匹配
+
+在定义变量的时候，可以使用模式匹配快速获取数据
+
+### 获取数组中的元素
+
+需求说明
+
+* 生成包含0-10数字的数组，使用模式匹配分别获取第二个、第三个、第四个元素
+
+参考代码
+
+```scala
+val array = (1 to 10).toArray
+val Array(_, x, y, z, _*) = array
+
+println(x, y, z)
+```
+
+### 获取List中的数据
+
+需求说明
+
+- 生成包含0-10数字的列表，使用模式匹配分别获取第一个、第二个元素
+
+参考代码
+
+```scala
+val list = (1 to 10).toList
+val x :: y :: tail = list
+
+println(x, y)
+```
+
+# Option类型
+
+使用Option类型，可以用来有效避免空引用(null)异常。也就是说，将来返回某些数据时，可以返回一个Option类型来替代。
+
+定义
+
+scala中，Option类型来表示可选值。这种类型的数据有两种形式：
+
+- Some(x)：表示实际的值
+- None：表示没有值
+- 使用getOrElse方法，当值为None是可以指定一个默认值
+
+示例一
+
+示例说明
+
+* 定义一个两个数相除的方法，使用Option类型来封装结果
+* 然后使用模式匹配来打印结果
+  * 不是除零，打印结果
+  * 除零打印异常错误
+
+```scala
+package org.duo.oop
+
+object _01OptionDemo {
+
+  /**
+   * 定义除法操作
+   *
+   * @param a 参数1
+   * @param b 参数2
+   * @return Option包装Double类型
+   */
+  def dvi(a: Double, b: Double): Option[Double] = {
+    if (b != 0) {
+      Some(a / b)
+    }
+    else {
+      None
+    }
+  }
+
+  def main(args: Array[String]): Unit = {
+    val result1 = dvi(1.0, 5)
+
+    result1 match {
+      case Some(x) => println(x)
+      case None => println("除零异常")
+    }
+  }
+}
+```
+
+示例二
+
+示例说明
+
+* 重写上述案例，使用getOrElse方法，当除零时，或者默认值为0
+
+```scala
+package org.duo.oop
+
+object _02OptionDemo {
+
+  def dvi(a: Double, b: Double) = {
+    if (b != 0) {
+      Some(a / b)
+    }
+    else {
+      None
+    }
+  }
+
+  def main(args: Array[String]): Unit = {
+    val result = dvi(1, 0).getOrElse(0)
+
+    println(result)
+  }
+}
+```
+
+# 偏函数
+
+偏函数可以提供了简洁的语法，可以简化函数的定义。配合集合的函数式编程，可以让代码更加优雅。
+
+定义
+
+* 偏函数被包在花括号内没有match的一组case语句是一个偏函数
+
+* 偏函数是PartialFunction[A, B]的一个实例
+  * A代表输入参数类型
+  * B代表返回结果类型
+
+示例一
+
+示例说明
+
+定义一个偏函数，根据以下方式返回
+
+| 输入 | 返回值 |
+| ---- | ------ |
+| 1    | 一     |
+| 2    | 二     |
+| 3    | 三     |
+| 其他 | 其他   |
+
+```scala
+package org.duo.oop
+
+object _01PartialFunctionDemo {
+
+  // func1是一个输入参数为Int类型，返回值为String类型的偏函数
+  val func1: PartialFunction[Int, String] = {
+    case 1 => "一"
+    case 2 => "二"
+    case 3 => "三"
+    case _ => "其他"
+  }
+
+  def main(args: Array[String]): Unit = {
+    func1(2)
+  }
+}
+```
+
+示例二
+
+示例说明
+
+* 定义一个列表，包含1-10的数字
+
+* 请将1-3的数字都转换为[1-3]
+* 请将4-8的数字都转换为[4-8]
+* 将其他的数字转换为(8-*]
+
+```scala
+package org.duo.oop
+
+object _02PartialFunctionDemo {
+
+  val list = (1 to 10).toList
+
+  val list2 = list.map {
+    case x if x >= 1 && x <= 3 => "[1-3]"
+    case x if x >= 4 && x <= 8 => "[4-8]"
+    case x if x > 8 => "(8-*]"
+  }
+
+  def main(args: Array[String]): Unit = {
+
+    println(list2)
+  }
+}
+```
+
+# 正则表达式
+
+在scala中，可以很方便地使用正则表达式来匹配数据。
+
+Regex类
+
+* scala中提供了Regex类来定义正则表达式
+
+* 要构造一个RegEx对象，直接使用String类的r方法即可
+
+* 建议使用三个双引号来表示正则表达式，不然就得对正则中的反斜杠来进行转义
+
+```scala
+val regEx = """正则表达式""".r
+```
+
+findAllMatchIn方法
+
+* 使用findAllMatchIn方法可以获取到所有正则匹配到的字符串
+
+示例一
+
+示例说明
+
+* 定义一个正则表达式，来匹配邮箱是否合法
+* 合法邮箱测试：qq12344@163.com
+* 不合法邮箱测试：qq12344@.com
+
+```scala
+package org.duo.oop
+
+object _01RegExDemo {
+
+  val r = """.+@.+\..+""".r
+  val eml1 = "qq12344@163.com"
+  val eml2 = "qq12344@.com"
+
+  def main(args: Array[String]): Unit = {
+
+    if (r.findAllMatchIn(eml1).size > 0) {
+      println(eml1 + "邮箱合法")
+    }
+    else {
+      println(eml1 + "邮箱不合法")
+    }
+
+    if (r.findAllMatchIn(eml2).size > 0) {
+      println(eml2 + "邮箱合法")
+    }
+    else {
+      println(eml2 + "邮箱不合法")
+    }
+  }
+}
+```
+
+示例二
+
+示例说明
+
+找出以下列表中的所有不合法的邮箱
+
+```markdown
+"38123845@qq.com", "a1da88123f@gmail.com", "zhansan@163.com", "123afadff.com"
+```
+
+```scala
+package org.duo.oop
+
+object _02RegExDemo {
+
+  val emlList =
+    List("38123845@qq.com", "a1da88123f@gmail.com", "zhansan@163.com", "123afadff.com")
+
+  val regex = """.+@.+\..+""".r
+
+  val invalidEmlList = emlList.filter {
+    x =>
+      if (regex.findAllMatchIn(x).size < 1) true else false
+  }
+
+  def main(args: Array[String]): Unit = {
+
+    println(invalidEmlList)
+  }
+}
+```
+
+示例三
+
+示例说明
+
+* 有以下邮箱列表
+
+  ```scala
+  "38123845@qq.com", "a1da88123f@gmail.com", "zhansan@163.com", "123afadff.com"
+  ```
+
+* 使用正则表达式进行模式匹配，匹配出来邮箱运营商的名字。例如：邮箱zhansan@163.com，需要将163匹配出来
+
+  * 使用括号来匹配分组
+
+* 打印匹配到的邮箱以及运营商
+
+```scala
+package org.duo.oop
+
+object _03RegExDemo {
+
+  // 使用括号表示一个分组
+  val regex = """.+@(.+)\..+""".r
+
+  val emlList =
+    List("38123845@qq.com", "a1da88123f@gmail.com", "zhansan@163.com", "123afadff.com")
+
+  val emlCmpList = emlList.map {
+    case x @ regex(company) => s"${x} => ${company}"
+    case x => x + "=>未知"
+  }
+
+  def main(args: Array[String]): Unit = {
+    println(emlCmpList)
+  }
+}
+```
+
+# 异常处理
+
+语法格式
+
+```scala
+try {
+    // 代码
+}
+catch {
+    case ex:异常类型1 => // 代码
+    case ex:异常类型2 => // 代码
+}
+finally {
+    // 代码
+}
+```
+
+- try中的代码是我们编写的业务处理代码
+- 在catch中表示当出现某个异常时，需要执行的代码
+- 在finally中，是不管是否出现异常都会执行的代码
+
+抛出异常
+
+```scala
+def main(args: Array[String]): Unit = {
+  throw new Exception("这是一个异常")
+}
+```
+
+- scala不需要在方法上声明要抛出的异常，它已经解决了在Java中被认为是设计失败的检查型异常。
+
+# 提取器
+
+通过模式匹配，可以快速匹配样例类中的成员变量，但不是所有的类都可以进行这样的模式匹配，要支持模式匹配，必须要实现一个提取：样例类自动实现了apply、unapply方法。
+
+实现一个类的伴生对象中的apply方法，可以用类名来快速构建一个对象。伴生对象中，还有一个unapply方法。与apply相反，unapply是将该类的对象，拆解为一个个的元素。
+
+要实现一个类的提取器，只需要在该类的伴生对象中实现一个unapply方法即可。
+
+语法格式
+
+```scala
+def unapply(stu:Student):Option[(类型1, 类型2, 类型3...)] = {
+    if(stu != null) {
+        Some((变量1, 变量2, 变量3...))
+    }
+    else {
+        None
+    }
+}
+```
+
+示例
+
+示例说明
+
+* 创建一个Student类，包含姓名年龄两个字段
+* 实现一个类的解构器，并使用match表达式进行模式匹配，提取类中的字段。
+
+```scala
+package org.duo.oop
+
+object _01UnapplyDemo {
+
+  class Student(var name: String, var age: Int)
+
+  object Student {
+
+    def apply(name: String, age: Int) = {
+
+      new Student(name, age)
+    }
+
+    def unapply(student: Student) = {
+
+      val tuple = (student.name, student.age)
+      Some(tuple)
+    }
+  }
+
+  def main(args: Array[String]): Unit = {
+
+    val zhangsan = Student("张三", 20)
+    zhangsan match {
+      case Student(name, age) => println(s"${name} => ${age}")
+    }
+  }
+}
+```
+
+# 泛型
+
+## 泛型方法
+
+scala和Java一样，类和特质、方法都可以支持泛型。
+
+```scala
+// 定义泛型变量
+val list1:List[String] = List("1", "2", "3")
+```
+
+定义一个泛型方法
+
+语法格式
+
+```scala
+def 方法名[泛型名称](..) = {
+    //...
+}
+```
+
+示例
+
+示例说明
+
+* 用一个方法来获取任意类型数组的中间的元素
+  * 不考虑泛型直接实现（基于Array[Int]实现）
+  * 加入泛型支持
+
+不考虑泛型的实现
+
+```scala
+package org.duo.oop
+
+object _01GenericDemo {
+
+  def getMiddle(arr: Array[Int]) = arr(arr.length / 2)
+
+  def main(args: Array[String]): Unit = {
+    val arr1 = Array(1, 2, 3, 4, 5)
+    println(getMiddle(arr1))
+  }
+}
+```
+
+加入泛型支持
+
+```scala
+package org.duo.oop
+
+object _02GenericDemo {
+
+  def getMiddleElement[T](array: Array[T]) =
+    array(array.length / 2)
+
+  def main(args: Array[String]): Unit = {
+    println(getMiddleElement(Array(1, 2, 3, 4, 5)))
+    println(getMiddleElement(Array("a", "b", "c", "d", "e")))
+  }
+}
+```
+
+## 泛型类
+
+scala的类也可以定义泛型。
+
+语法格式
+
+```scala
+class 类[T](val 变量名: T)
+```
+
+* 定义一个泛型类，直接在类名后面加上方括号，指定要使用的泛型参数
+* 指定类对应的泛型参数后，就使用这些类型参数来定义变量了
+
+示例
+
+* 实现一个Pair泛型类
+* Pair类包含两个字段，而且两个字段的类型不固定
+* 创建不同类型泛型类对象，并打印
+
+```scala
+package org.duo.oop
+
+object _03GenericDemo {
+
+  case class Pair[T, W](var a: T, var b: W)
+
+  def main(args: Array[String]): Unit = {
+    val pairList = List(
+      Pair("Hadoop", "Storm"),
+      Pair("Hadoop", 2008),
+      Pair(1.0, 2.0),
+      Pair("Hadoop", Some(1.9))
+    )
+    println(pairList)
+  }
+}
+```
+
+## 上下界
+
+在定义方法/类的泛型时，限定必须从哪个类继承、或者必须是哪个类的父类。此时，就需要使用到上下界。
+
+### 上界定义
+
+使用<: 类型名表示给类型添加一个上界，表示泛型参数必须要从该类（或本身）继承
+
+语法格式
+
+```scala
+[T <: 类型]
+```
+
+示例
+
+* 定义一个Person类
+* 定义一个Student类，继承Person类
+* 定义一个demo泛型方法，该方法接收一个Array参数，
+* 限定demo方法的Array元素类型只能是Person或者Person的子类
+* 测试调用demo，传入不同元素类型的Array
+
+```scala
+package org.duo.oop
+
+object _04GenericDemo {
+
+  class Person
+
+  class Student extends Person
+
+  def demo[T <: Person](a: Array[T]) = println(a)
+
+  def main(args: Array[String]): Unit = {
+    demo(Array(new Person))
+    demo(Array(new Student))
+    // 编译出错，必须是Person的子类
+    // demo(Array("hadoop"))
+  }
+}
+```
+
+### 下界定义
+
+上界是要求必须是某个类的子类，或者必须从某个类继承，而下界是必须是某个类的父类（或本身）
+
+语法格式
+
+```scala
+[T >: 类型]
+```
+
+如果类既有上界、又有下界。下界写在前面，上界写在后面
+
+示例
+
+* 定义一个Person类
+* 定义一个Policeman类，继承Person类
+* 定义一个Superman类，继承Policeman类
+* 定义一个demo泛型方法，该方法接收一个Array参数，
+* 限定demo方法的Array元素类型只能是Person、Policeman
+* 测试调用demo，传入不同元素类型的Array
+
+```scala
+package org.duo.oop
+
+object _05GenericDemo {
+
+  class Person
+
+  class Policeman extends Person
+
+  class Superman extends Policeman
+
+  def demo[T >: Policeman](array: Array[T]) = println(array)
+
+  def main(args: Array[String]): Unit = {
+    demo(Array(new Person))
+    demo(Array(new Policeman))
+    // 编译出错：Superman是Policeman的子类
+    // demo(Array(new Superman))
+  }
+}
+```
+
+## 协变、逆变、非变
+
+### 非变
+
+默认泛型类是非变的，即：类型B是A的子类型，Pair[A]和Pair[B]没有任何从属关系，这跟Java是一样的。
+
+```scala
+package org.duo.oop
+
+object _06GenericDemo {
+
+  class Pair[T]
+
+  def main(args: Array[String]): Unit = {
+    val p1 = Pair("hello")
+    // 编译报错，无法将p1转换为p2
+    val p2: Pair[AnyRef] = p1
+
+    println(p2)
+  }
+}
+```
+
+### 协变
+
+语法格式
+
+```scala
+class Pair[+T]
+```
+
+* 类型B是A的子类型，Pair[B]可以认为是Pair[A]的子类型
+* 参数化类型的方向和类型的方向是一致的。
+
+### 逆变
+
+语法格式
+
+```scala
+class Pair[-T]
+```
+
+* 类型B是A的子类型，Pair[A]反过来可以认为是Pair[B]的子类型
+* 参数化类型的方向和类型的方向是相反的
+
+示例
+
+* 定义一个Super类、以及一个Sub类继承自Super类
+* 使用协变、逆变、非变分别定义三个泛型类
+* 分别创建泛型类来演示协变、逆变、非变
+
+```scala
+package org.duo.oop
+
+object _07GenericDemo {
+  
+  class Super
+
+  class Sub extends Super
+
+  class Temp1[T]
+
+  class Temp2[+T]
+
+  class Temp3[-T]
+
+  def main(args: Array[String]): Unit = {
+      
+    val a: Temp1[Sub] = new Temp1[Sub]
+    // 编译报错
+    // 非变
+    //val b:Temp1[Super] = a
+
+    // 协变
+    val c: Temp2[Sub] = new Temp2[Sub]
+    val d: Temp2[Super] = c
+
+    // 逆变
+    val e: Temp3[Super] = new Temp3[Super]
+    val f: Temp3[Sub] = e
+  }
+}
+```
+
+# Actor
+
+scala的Actor并发编程模型可以用来开发比Java线程效率更高的并发程序。scala在2.11.x版本中加入了Akka并发编程框架，老版本已经废弃。Actor的编程模型和Akka很像，这里学习Actor的目的是为学习Akka做准备。
+
+## Java并发编程的问题
+
+在Java并发编程中，每个对象都有一个逻辑监视器（monitor），可以用来控制对象的多线程访问。我们添加sychronized关键字来标记，需要进行同步加锁访问。这样，通过加锁的机制来确保同一时间只有一个线程访问共享数据。但这种方式存在资源争夺、以及死锁问题，程序越大问题越麻烦。
+
+## Actor并发编程模型
+
+Actor并发编程模型，是scala提供给程序员的一种与Java并发编程完全不一样的并发编程模型，是一种基于事件模型的并发机制。Actor并发编程模型是一种不共享数据，依赖消息传递的一种并发编程模式，有效避免资源争夺、死锁等情况。
+
+## 创建Actor
+
+创建Actor的方式和Java中创建线程很类似，也是通过继承来创建。
+
+使用方式
+
+1. 定义class或object继承Actor特质
+2. 重写act方法
+3. 调用Actor的start方法执行Actor
+
+类似于Java线程，这里的每个Actor是并行执行的
+
+示例
+
+创建两个Actor，一个Actor打印1-10，另一个Actor打印11-20
+
+* 使用class继承Actor创建（如果需要在程序中创建多个相同的Actor）
+* 使用object继承Actor创建（如果在程序中只创建一个Actor）
+
+使用class继承Actor创建
+
+```scala
+package org.duo.oop
+
+import scala.actors.Actor
+
+object _01ActorDemo {
+
+  class Actor1 extends Actor {
+    override def act(): Unit = (1 to 10).foreach(println(_))
+  }
+
+  class Actor2 extends Actor {
+    override def act(): Unit = (11 to 20).foreach(println(_))
+  }
+
+  def main(args: Array[String]): Unit = {
+    new Actor1().start()
+    new Actor2().start()
+  }
+}
+```
+
+使用object继承Actor创建
+
+```scala
+package org.duo.oop
+
+import scala.actors.Actor
+
+object _02ActorDemo {
+
+  object Actor1 extends Actor {
+    override def act(): Unit =
+      for (i <- 1 to 10) {
+        println(i)
+      }
+  }
+
+  object Actor2 extends Actor {
+    override def act(): Unit =
+      for (i <- 11 to 20) {
+        println(i)
+      }
+  }
+
+  def main(args: Array[String]): Unit = {
+    Actor1.start()
+    Actor2.start()
+  }
+}
+```
+
+## 发送消息/接收消息
+
+Actor是基于事件（消息）的并发编程模型，那么Actor是如何发送消息和接收消息的呢？
+
+### 发送消息
+
+可以使用三种方式来发送消息：
+
+| 标识 | 含义                              |
+| ---- | --------------------------------- |
+| ！   | 发送异步消息，没有返回值          |
+| !?   | 发送同步消息，等待返回值          |
+| !!   | 发送异步消息，返回值是Future[Any] |
+
+### 接收消息
+
+Actor中使用receive方法来接收消息，需要给receive方法传入一个偏函数
+
+```scala
+{
+    case 变量名1:消息类型1 => 业务处理1,
+    case 变量名2:消息类型2 => 业务处理2,
+    ...
+}
+```
+
+receive方法只接收一次消息，接收完后继续执行act方法
+
+示例
+
+* 创建两个Actor（ActorSender、ActorReceiver）
+* ActorSender发送一个异步字符串消息给ActorReceiver
+* ActorReceive接收到该消息后，打印出来
+
+```scala
+package org.duo.oop
+
+import scala.actors.Actor
+
+//创建两个Actor（ActorSender、ActorReceiver）
+//ActorSender发送一个异步字符串消息给ActorReceiver
+//ActorReceive接收到该消息后，打印出来
+object _03ActorDemo {
+  // 1. 创建两个Actor（ActorSender、ActorReceiver）
+  object ActorSender extends Actor {
+    override def act(): Unit = {
+      // 发送一个字符串消息给ActorReceiver
+      // 使用!以异步的方式发送字符串消息
+      ActorReceiver ! "你好!"
+    }
+  }
+
+  object ActorReceiver extends Actor {
+    override def act(): Unit = {
+      // 3. 接收消息
+      receive {
+        case msg:String => println(msg)
+      }
+    }
+  }
+
+  // 2. 启动Actor,发送异步消息
+  def main(args: Array[String]): Unit = {
+    ActorSender.start()
+    ActorReceiver.start()
+  }
+}
+```
+
+## 持续接收消息
+
+```scala
+package org.duo.oop
+
+import java.util.concurrent.TimeUnit
+
+import scala.actors.Actor
+
+object _04ActorDemo {
+  // 1. 创建两个Actor
+  // ActorSender--每隔一秒发送一个消息
+  // ActorReceiver--不停地接收消息
+  object ActorSender extends Actor {
+    override def act(): Unit = {
+      while(true) {
+        // 发送异步消息
+        ActorReceiver ! "你好"
+        TimeUnit.SECONDS.sleep(1)
+      }
+    }
+  }
+
+  object ActorReceiver extends Actor {
+    override def act(): Unit = {
+      while(true) {
+        receive{
+          case msg:String => println(msg)
+        }
+      }
+    }
+  }
+
+  // 2. 启动Actor测试
+  def main(args: Array[String]): Unit = {
+    ActorSender.start()
+    ActorReceiver.start()
+  }
+}
+```
+
+上述代码，使用while循环来不断接收消息。
+
+* 如果当前Actor没有接收到消息，线程就会处于阻塞状态
+* 如果有很多的Actor，就有可能会导致很多线程都是处于阻塞状态
+* 每次有新的消息来时，重新创建线程来处理
+* 频繁的线程创建、销毁和切换，会影响运行效率
+
+在scala中，可以使用loop + react来复用线程。比while + receive更高效
+
+```scala
+package org.duo.oop
+
+import java.util.concurrent.TimeUnit
+
+import scala.actors.Actor
+
+object _05ActorDemo {
+  // 1. 创建两个Actor
+  // ActorSender--每隔一秒发送一个消息
+  // ActorReceiver--不停地接收消息
+  object ActorSender extends Actor {
+    override def act(): Unit = {
+      while(true) {
+        // 发送异步消息
+        ActorReceiver ! "你好"
+        TimeUnit.SECONDS.sleep(1)
+      }
+    }
+  }
+
+  object ActorReceiver extends Actor {
+    override def act(): Unit = {
+      // 使用loop+react来复用线程，提高执行效率
+      loop{
+        react {
+          case msg:String => println(msg)
+        }
+      }
+    }
+  }
+
+  // 2. 启动Actor测试
+  def main(args: Array[String]): Unit = {
+    ActorSender.start()
+    ActorReceiver.start()
+  }
+}
+```
+
+## 自定义消息
+
+示例一
+
+示例说明
+
+* 创建一个MsgActor，并向它发送一个同步消息，该消息包含两个字段（id、message）
+* MsgActor回复一个消息，该消息包含两个字段（message、name）
+* 打印回复消息
+
+* 使用!?来发送同步消息
+* 在Actor的act方法中，可以使用sender获取发送者的Actor引用
+
+```scala
+package org.duo.oop
+
+import scala.actors.Actor
+
+object _06ActorDemo {
+
+  // 定义样例类封装消息
+  case class ReplyMessage(message: String, name: String)
+
+  // 1. 创建Actor，接收消息，回复消息
+  object MsgActor extends Actor {
+    override def act(): Unit = {
+      loop {
+        react {
+          case Message(id, message) =>
+            println(s"MsgActor接收到消息：${id}, ${message}")
+            // 回复消息
+            sender ! ReplyMessage("我不好", "张三")
+        }
+      }
+    }
+  }
+
+  // 定义一个自定义消息
+  case class Message(id: Int, message: String)
+
+  // 2. 启动Actor，发送消息
+  def main(args: Array[String]): Unit = {
+
+    MsgActor.start()
+
+    // 发送同步自定义消息
+    val reply: Any = MsgActor !? Message(1, "你好")
+
+    // 3. 打印回复消息
+    if (reply.isInstanceOf[ReplyMessage]) {
+      println(reply.asInstanceOf[ReplyMessage])
+    }
+  }
+}
+```
+
+示例二
+
+示例说明
+
+* 创建一个MsgActor，并向它发送一个异步无返回消息，该消息包含两个字段（message, company）
+* 使用!发送异步无返回消息
+
+```scala
+package org.duo.oop
+
+import scala.actors.Actor
+
+object _07ActorDemo {
+
+  // 1. 创建一个Actor，打印接收消息
+  object MsgActor extends Actor {
+
+    override def act(): Unit = {
+      loop {
+        react {
+          case Message(message, company) => println(s"MsgActor接收到消息：${message}, ${company}")
+        }
+      }
+    }
+  }
+
+  // 创建样例类封装消息
+  case class Message(message: String, company: String)
+
+  // 2. 启动Actor，给Actor发送异步无返回消息
+  def main(args: Array[String]): Unit = {
+
+    MsgActor.start()
+    // 发送异步无返回消息
+    MsgActor ! Message("您好，大爷，快交话费！", "中国联通")
+  }
+}
+```
+
+示例三
+
+示例说明
+
+* 创建一个MsgActor，并向它发送一个异步有返回消息，该消息包含两个字段（id、message）
+* MsgActor回复一个消息，该消息包含两个字段（message、name）
+* 打印回复消息
+* 使用!!发送异步有返回消息
+* 发送后，返回类型为Future[Any]的对象
+* Future表示异步返回数据的封装，虽获取到Future的返回值，但不一定有值，可能在将来某一时刻才会返回消息
+* Future的isSet()可检查是否已经收到返回消息，apply()方法可获取返回数据
+
+```scala
+package org.duo.oop
+
+import scala.actors.{Actor, Future}
+
+object _08ActorDemo {
+
+  // 定义样例类封装数据
+  case class Message(id: Int, message: String)
+
+  case class ReplyMessage(message: String, name: String)
+
+  // 1. 创建Actor，接收消息，回复消息
+  object MsgActor extends Actor {
+
+    override def act(): Unit = {
+      loop {
+        react {
+          case Message(id, message) =>
+            println(s"MsgActor接收到消息：${id}, ${message}")
+            // 回复一个Reply消息
+            sender ! ReplyMessage("我不好", "韩梅梅")
+        }
+      }
+    }
+  }
+
+  // 2. 启动Actor，发送异步有返回消息
+  def main(args: Array[String]): Unit = {
+
+    MsgActor.start()
+
+    // future表示将来会返回一个数据
+    val future: Future[Any] = MsgActor !! Message(1, "你好")
+
+    // 3. 获取打印返回消息
+    // 3.1 提前通过一个循环等到future中有数据，再执行
+    // 3.2 调用future.isSet方法就可以判断，数据是否已经被接收到
+    while (!future.isSet) {}
+
+    // 3.3 使用future的apply方法获取数据
+    val replyMessagse = future.apply().asInstanceOf[ReplyMessage]
+    println(s"接收到回复消息：${replyMessagse.message}, ${replyMessagse.name}")
+  }
+}
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

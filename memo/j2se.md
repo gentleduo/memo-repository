@@ -246,7 +246,7 @@ public class Season {
 
     // 利用构造器对属性进行赋值操作：
     // 构造器私有化，外界不能调用这个构造器，只能Season内部自己调用
-    public Season(String seasonName, String seasonDesc) {
+    private Season(String seasonName, String seasonDesc) {
         this.seasonName = seasonName;
         this.seasonDesc = seasonDesc;
     }
@@ -927,7 +927,7 @@ public class GenericLimit {
         List<Person> pList = new ArrayList<>();
         List<Student> sList = new ArrayList<>();
         /**
-         * 泛型的下限： List<? extends Person>: 就相当于： List<? extends
+         * 泛型的上界： List<? extends Person>: 就相当于： List<? extends
          * Person>是List<Person>的父类，是List<Student>的父类
          */
         List<? extends Person> list1 = null;
@@ -936,7 +936,7 @@ public class GenericLimit {
         list1 = sList;
 
         /**
-         * 泛型的上限： List<? super Person>: 就相当于： List<? super
+         * 泛型的下界： List<? super Person>: 就相当于： List<? super
          * Person>是List<Person>的父类，是List<Object>的父类
          */
         List<? super Person> list2 = null;

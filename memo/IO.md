@@ -1425,15 +1425,19 @@ java进程在执行accept之后，可以拿到内核分配的文件描述符，�
 
 ### 在LISTEN状态
 
+在LISTEN状态：即服务器启动的ServerSocket；
+
 1. 当client通过connect向server发出SYN包时，client会维护一个socket等待队列，而server会维护一个SYN队列；
 2. 此时进入半链接的状态，如果socket等待队列满了，server则会丢弃，而client也会由此返回connection timeout；只要是client没有收到SYN+ACK，3s之后，client会再次发送，如果依然没有收到，9s之后会继续发送；
 3. 半连接syn队列的长度由max(64,/proc/sys/net/ipv4/tcp_max_syn_backlog)决定；
 4. 当server收到client的SYN包后，会返回SYN,ACK的包加以确认，client的TCP协议栈会唤醒socket等待队列，发出connect调用；
-5. client返回ACK的包后，表示三次握手完成连接已经建立；server会进入一个新的叫accept的队列(即：Recv-Q)，该队列的长度为min(backlog,/proc/sys/net/core/somaxconn)，默认情况下，somaxconn的值为128，表示最多会有129个(即：队列中的128个+已经出于等待状态的1个)ESTAB状态的连接等待accept()，而backlog的值在java中可以通过ServerSocket的构造函数指定ServerSocket(int port, int backlog)；
-6. 当accept队列(即：Recv-Q)满了之后，即使client继续向server发送ACK的包，也会不被相应，此时，server通过/proc/sys/net/ipv4/tcp_abort_on_overflow来决定如何返回，0表示直接丢丢弃该ACK，1表示发送RST通知client；相应的，client则会分别返回read timeout或者connection reset by peer；
+5. client返回ACK的包后，表示三次握手完成连接已经建立；server会进入一个新的叫accept的队列(即：Recv-Q)，该队列的长度为min(backlog,/proc/sys/net/core/somaxconn)，默认情况下，somaxconn的值为128，表示最多会有129个(即：队列中的128个+已经处于等待状态的1个)ESTAB状态的连接等待accept()，而backlog的值在java中可以通过ServerSocket的构造函数指定ServerSocket(int port, int backlog)；
+6. 当accept队列(即：Recv-Q)满了之后，即使client继续向server发送ACK的包，也会不被响应，此时，server通过/proc/sys/net/ipv4/tcp_abort_on_overflow来决定如何返回，0表示直接丢丢弃该ACK，1表示发送RST通知client；相应的，client则会分别返回read timeout或者connection reset by peer；
 7. Recv-Q表示的是进入accept队列的连接的个数；而Send-Q表示的是accept的队列的长度。
 
 ### 非LISTEN状态
+
+非LISTEN状态：即ServerSocket在accpet之后得到的socket；
 
 1. Recv-Q表示receive queue中的bytes数量；大小由/proc/sys/net/ipv4/tcp_rmem 决定
    - 该文件包含3个整数值，分别是：min，default，max 

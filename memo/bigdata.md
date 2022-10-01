@@ -23490,3 +23490,1372 @@ object App {
 }
 ```
 
+## 离线分析系统
+
+![image](assets\bigdata-30.png)
+
+### pom.xml
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <parent>
+        <artifactId>rtas</artifactId>
+        <groupId>org.duo</groupId>
+        <version>1.0</version>
+    </parent>
+    <modelVersion>4.0.0</modelVersion>
+
+    <artifactId>batch_process</artifactId>
+
+    <properties>
+        <maven.compiler.source>8</maven.compiler.source>
+        <maven.compiler.target>8</maven.compiler.target>
+        <scala.version>2.11</scala.version>
+        <flink.version>1.6.1</flink.version>
+        <hadoop.version>2.7.5</hadoop.version>
+        <hbase.version>2.0.0</hbase.version>
+    </properties>
+
+    <dependencies>
+        <!--kafka 客户端-->
+        <dependency>
+            <groupId>org.apache.kafka</groupId>
+            <artifactId>kafka_${scala.version}</artifactId>
+            <version>0.11.0.0</version>
+        </dependency>
+
+        <!--flink对接kafka：导入flink使用kafka的依赖-->
+        <dependency>
+            <groupId>org.apache.flink</groupId>
+            <artifactId>flink-connector-kafka-0.11_${scala.version}</artifactId>
+            <version>${flink.version}</version>
+        </dependency>
+
+        <!--批处理-->
+        <dependency>
+            <groupId>org.apache.flink</groupId>
+            <artifactId>flink-table_${scala.version}</artifactId>
+            <version>${flink.version}</version>
+        </dependency>
+        <!--导入scala的依赖-->
+        <dependency>
+            <groupId>org.apache.flink</groupId>
+            <artifactId>flink-scala_${scala.version}</artifactId>
+            <version>${flink.version}</version>
+        </dependency>
+
+        <!--模块二 流处理-->
+        <dependency>
+            <groupId>org.apache.flink</groupId>
+            <artifactId>flink-streaming-scala_${scala.version}</artifactId>
+            <version>${flink.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.flink</groupId>
+            <artifactId>flink-streaming-java_${scala.version}</artifactId>
+            <version>${flink.version}</version>
+        </dependency>
+
+        <!--数据落地flink和hbase的集成依赖-->
+        <dependency>
+            <groupId>org.apache.flink</groupId>
+            <artifactId>flink-hbase_${scala.version}</artifactId>
+            <version>${flink.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.hbase</groupId>
+            <artifactId>hbase-client</artifactId>
+            <version>${hbase.version}</version>
+        </dependency>
+
+
+        <!--hbase依赖于hadoop-->
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-common</artifactId>
+            <version>${hadoop.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-hdfs</artifactId>
+            <version>${hadoop.version}</version>
+            <!--xml.parser冲突 flink hdfs-->
+            <exclusions>
+                <exclusion>
+                    <groupId>xml-apis</groupId>
+                    <artifactId>xml-apis</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-client</artifactId>
+            <version>${hadoop.version}</version>
+            <!--数据同步：canal 和 hadoop protobuf-->
+            <exclusions>
+                <exclusion>
+                    <groupId>com.google.protobuf</groupId>
+                    <artifactId>protobuf-java</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <!--对象和json 互相转换的-->
+        <dependency>
+            <groupId>com.alibaba</groupId>
+            <artifactId>fastjson</artifactId>
+            <version>1.2.44</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <sourceDirectory>src/main/scala</sourceDirectory>
+        <testSourceDirectory>src/test/scala</testSourceDirectory>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>3.0.0</version>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                        <configuration>
+                            <artifactSet>
+                                <excludes>
+                                    <exclude>com.google.code.findbugs:jsr305</exclude>
+                                    <exclude>org.slf4j:*</exclude>
+                                    <exclude>log4j:*</exclude>
+                                </excludes>
+                            </artifactSet>
+                            <filters>
+                                <filter>
+                                    <!-- Do not copy the signatures in the META-INF folder.
+                                    Otherwise, this might cause SecurityExceptions when using the JAR. -->
+                                    <artifact>*:*</artifact>
+                                    <excludes>
+                                        <exclude>META-INF/*.SF</exclude>
+                                        <exclude>META-INF/*.DSA</exclude>
+                                        <exclude>META-INF/*.RSA</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
+                            <transformers>
+                                <transformer
+                                        implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                                    <mainClass>org.duo.batch_process.App</mainClass>
+                                </transformer>
+                            </transformers>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>
+```
+
+### hbase-site.xml
+
+```xml
+<?xml version="1.0"?>
+<?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+<!--
+/**
+ *
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+-->
+<configuration>
+    <property>
+        <name>hbase.rootdir</name>
+        <value>hdfs://server01:8020/hbase</value>
+    </property>
+
+    <property>
+        <name>hbase.cluster.distributed</name>
+        <value>true</value>
+    </property>
+
+    <!-- 0.98后的新变动，之前版本没有.port,默认端口为60000 -->
+    <property>
+        <name>hbase.master.port</name>
+        <value>16000</value>
+    </property>
+
+    <property>
+        <name>hbase.zookeeper.property.clientPort</name>
+        <value>2181</value>
+    </property>
+
+    <property>
+        <name>hbase.zookeeper.quorum</name>
+        <value>server01:2181,server02:2181,server03:2181</value>
+    </property>
+
+    <property>
+        <name>hbase.zookeeper.property.dataDir</name>
+        <value>/opt/zookeeper/data</value>
+    </property>
+
+</configuration>
+```
+
+### log4j.properties
+
+```properties
+log4j.rootLogger=warn,stdout
+log4j.appender.stdout=org.apache.log4j.ConsoleAppender 
+log4j.appender.stdout.layout=org.apache.log4j.PatternLayout 
+log4j.appender.stdout.layout.ConversionPattern=%5p - %m%n
+```
+
+### 项目包结构
+
+| 包名                       | 说明                 |
+| -------------------------- | -------------------- |
+| org.duo.batch_process.task | 存放离线分析业务任务 |
+| org.duo.batch_process.bean | 存在样例类           |
+| org.duo.batch_process.util | 存放工具类           |
+
+OrderRecord.scala
+
+```scala
+package org.duo.batch_process.bean
+
+import com.alibaba.fastjson.JSON
+
+case class OrderRecord(
+                        var benefitAmount: String, // 红包金额
+                        var orderAmount: String, //订单金额
+                        var payAmount: String, //支付金额
+                        var activityNum: String, //活动ID
+                        var createTime: String, //创建时间
+                        var merchantId: String, //商家ID
+                        var orderId: String, //订单ID
+                        var payTime: String, //支付时间
+                        var payMethod: String, //支付方式
+                        var voucherAmount: String, //优惠券的金额
+                        var commodityId: String, //产品ID
+                        var userId: String //用户ID
+                      )
+
+object OrderRecord {
+
+  def apply(json: String): OrderRecord = {
+    JSON.parseObject[OrderRecord](json, classOf[OrderRecord])
+  }
+
+  def main(args: Array[String]): Unit = {
+    val json = "{\"benefitAmount\":\"20.0\",\"orderAmount\":\"300.0\",\"payAmount\":\"457.0\",\"activityNum\":\"0\",\"createTime\":\"2018-08-13 00:00:06\",\"merchantId\":\"1\",\"orderId\":\"99\",\"payTime\":\"2018-08-13 00:00:06\",\"payMethod\":\"1\",\"voucherAmount\":\"20.0\",\"commodityId\":\"1101\",\"userId\":\"4\"}"
+
+    val record = OrderRecord(json)
+
+    println(record.commodityId)
+  }
+}
+```
+
+OrderRecordWide.scala
+
+```scala
+package org.duo.batch_process.bean
+
+case class OrderRecordWide(
+                            var benefitAmount: String, // 红包金额
+                            var orderAmount: String, //订单金额
+                            var payAmount: String, //支付金额
+                            var activityNum: String, //活动ID
+                            var createTime: String, //创建时间
+                            var merchantId: String, //商家ID
+                            var orderId: String, //订单ID
+                            var payTime: String, //支付时间
+                            var payMethod: String, //支付方式
+                            var voucherAmount: String, //优惠券的金额
+                            var commodityId: String, //产品ID
+                            var userId: String, //用户ID
+                            var yearMonthDay: String,
+                            var yearMonth: String,
+                            var year: String
+                          )
+```
+
+CustomAbstractTableInputFormat.scala
+
+```scala
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package org.duo.batch_process.util;
+
+import org.apache.flink.addons.hbase.AbstractTableInputFormat;
+import org.apache.flink.api.common.io.InputFormat;
+import org.apache.flink.api.common.io.LocatableInputSplitAssigner;
+import org.apache.flink.api.common.io.RichInputFormat;
+import org.apache.flink.api.common.io.statistics.BaseStatistics;
+import org.apache.flink.configuration.Configuration;
+import org.apache.flink.core.io.InputSplitAssigner;
+
+import org.apache.hadoop.hbase.client.HTable;
+import org.apache.hadoop.hbase.client.Result;
+import org.apache.hadoop.hbase.client.ResultScanner;
+import org.apache.hadoop.hbase.client.Scan;
+import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.hadoop.hbase.util.Pair;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * 由于flink-hbase_2.11_1.6.1 jar包引用的是hbase1.4.3版本，我们现在用的是hbase2.0，版本不匹配
+ * 故需要重写flink-hbase_2.11_1.6.1里面的TableInputFormat
+ * <p>
+ * Abstract {@link InputFormat} to read data from HBase tables.
+ */
+public abstract class CustomAbstractTableInputFormat<T> extends RichInputFormat<T, CustomTableInputSplit> {
+
+    protected static final Logger LOG = LoggerFactory.getLogger(AbstractTableInputFormat.class);
+
+    // helper variable to decide whether the input is exhausted or not
+    protected boolean endReached = false;
+
+    protected transient HTable table = null;
+    protected transient Scan scan = null;
+
+    /**
+     * HBase iterator wrapper.
+     */
+    protected ResultScanner resultScanner = null;
+
+    protected byte[] currentRow;
+    protected long scannedRows;
+
+    /**
+     * Returns an instance of Scan that retrieves the required subset of records from the HBase table.
+     *
+     * @return The appropriate instance of Scan for this use case.
+     */
+    protected abstract Scan getScanner();
+
+    /**
+     * What table is to be read.
+     *
+     * <p>Per instance of a TableInputFormat derivative only a single table name is possible.
+     *
+     * @return The name of the table
+     */
+    protected abstract String getTableName();
+
+    /**
+     * HBase returns an instance of {@link Result}.
+     *
+     * <p>This method maps the returned {@link Result} instance into the output type {@link T}.
+     *
+     * @param r The Result instance from HBase that needs to be converted
+     * @return The appropriate instance of {@link T} that contains the data of Result.
+     */
+    protected abstract T mapResultToOutType(Result r);
+
+    /**
+     * Creates a {@link Scan} object and opens the {@link HTable} connection.
+     *
+     * <p>These are opened here because they are needed in the createInputSplits
+     * which is called before the openInputFormat method.
+     *
+     * <p>The connection is opened in this method and closed in {@link #closeInputFormat()}.
+     *
+     * @param parameters The configuration that is to be used
+     * @see Configuration
+     */
+    public abstract void configure(Configuration parameters);
+
+    @Override
+    public void open(CustomTableInputSplit split) throws IOException {
+        if (table == null) {
+            throw new IOException("The HBase table has not been opened! " +
+                    "This needs to be done in configure().");
+        }
+        if (scan == null) {
+            throw new IOException("Scan has not been initialized! " +
+                    "This needs to be done in configure().");
+        }
+        if (split == null) {
+            throw new IOException("Input split is null!");
+        }
+
+        logSplitInfo("opening", split);
+
+        // set scan range
+        currentRow = split.getStartRow();
+        scan.setStartRow(currentRow);
+        scan.setStopRow(split.getEndRow());
+
+        resultScanner = table.getScanner(scan);
+        endReached = false;
+        scannedRows = 0;
+    }
+
+    public T nextRecord(T reuse) throws IOException {
+        if (resultScanner == null) {
+            throw new IOException("No table result scanner provided!");
+        }
+        try {
+            Result res = resultScanner.next();
+            if (res != null) {
+                scannedRows++;
+                currentRow = res.getRow();
+                return mapResultToOutType(res);
+            }
+        } catch (Exception e) {
+            resultScanner.close();
+            //workaround for timeout on scan
+            LOG.warn("Error after scan of " + scannedRows + " rows. Retry with a new scanner...", e);
+            scan.setStartRow(currentRow);
+            resultScanner = table.getScanner(scan);
+            Result res = resultScanner.next();
+            if (res != null) {
+                scannedRows++;
+                currentRow = res.getRow();
+                return mapResultToOutType(res);
+            }
+        }
+
+        endReached = true;
+        return null;
+    }
+
+    private void logSplitInfo(String action, CustomTableInputSplit split) {
+        int splitId = split.getSplitNumber();
+        String splitStart = Bytes.toString(split.getStartRow());
+        String splitEnd = Bytes.toString(split.getEndRow());
+        String splitStartKey = splitStart.isEmpty() ? "-" : splitStart;
+        String splitStopKey = splitEnd.isEmpty() ? "-" : splitEnd;
+        String[] hostnames = split.getHostnames();
+        LOG.info("{} split (this={})[{}|{}|{}|{}]", action, this, splitId, hostnames, splitStartKey, splitStopKey);
+    }
+
+    @Override
+    public boolean reachedEnd() throws IOException {
+        return endReached;
+    }
+
+    @Override
+    public void close() throws IOException {
+        LOG.info("Closing split (scanned {} rows)", scannedRows);
+        currentRow = null;
+        try {
+            if (resultScanner != null) {
+                resultScanner.close();
+            }
+        } finally {
+            resultScanner = null;
+        }
+    }
+
+    @Override
+    public void closeInputFormat() throws IOException {
+        try {
+            if (table != null) {
+                table.close();
+            }
+        } finally {
+            table = null;
+        }
+    }
+
+    @Override
+    public CustomTableInputSplit[] createInputSplits(final int minNumSplits) throws IOException {
+        if (table == null) {
+            throw new IOException("The HBase table has not been opened! " +
+                    "This needs to be done in configure().");
+        }
+        if (scan == null) {
+            throw new IOException("Scan has not been initialized! " +
+                    "This needs to be done in configure().");
+        }
+
+        // Get the starting and ending row keys for every region in the currently open table
+        final Pair<byte[][], byte[][]> keys = table.getRegionLocator().getStartEndKeys();
+        if (keys == null || keys.getFirst() == null || keys.getFirst().length == 0) {
+            throw new IOException("Expecting at least one region.");
+        }
+        final byte[] startRow = scan.getStartRow();
+        final byte[] stopRow = scan.getStopRow();
+        final boolean scanWithNoLowerBound = startRow.length == 0;
+        final boolean scanWithNoUpperBound = stopRow.length == 0;
+
+        final List<CustomTableInputSplit> splits = new ArrayList<CustomTableInputSplit>(minNumSplits);
+        for (int i = 0; i < keys.getFirst().length; i++) {
+            final byte[] startKey = keys.getFirst()[i];
+            final byte[] endKey = keys.getSecond()[i];
+            final String regionLocation = table.getRegionLocator().getRegionLocation(startKey, false).getHostnamePort();
+            // Test if the given region is to be included in the InputSplit while splitting the regions of a table
+            if (!includeRegionInScan(startKey, endKey)) {
+                continue;
+            }
+            // Find the region on which the given row is being served
+            final String[] hosts = new String[]{regionLocation};
+
+            // Determine if regions contains keys used by the scan
+            boolean isLastRegion = endKey.length == 0;
+            if ((scanWithNoLowerBound || isLastRegion || Bytes.compareTo(startRow, endKey) < 0) &&
+                    (scanWithNoUpperBound || Bytes.compareTo(stopRow, startKey) > 0)) {
+
+                final byte[] splitStart = scanWithNoLowerBound || Bytes.compareTo(startKey, startRow) >= 0 ? startKey : startRow;
+                final byte[] splitStop = (scanWithNoUpperBound || Bytes.compareTo(endKey, stopRow) <= 0)
+                        && !isLastRegion ? endKey : stopRow;
+                int id = splits.size();
+                final CustomTableInputSplit split = new CustomTableInputSplit(id, hosts, table.getName().getName(), splitStart, splitStop);
+                splits.add(split);
+            }
+        }
+        LOG.info("Created " + splits.size() + " splits");
+        for (CustomTableInputSplit split : splits) {
+            logSplitInfo("created", split);
+        }
+        return splits.toArray(new CustomTableInputSplit[splits.size()]);
+    }
+
+    /**
+     * Test if the given region is to be included in the scan while splitting the regions of a table.
+     *
+     * @param startKey Start key of the region
+     * @param endKey   End key of the region
+     * @return true, if this region needs to be included as part of the input (default).
+     */
+    protected boolean includeRegionInScan(final byte[] startKey, final byte[] endKey) {
+        return true;
+    }
+
+    @Override
+    public InputSplitAssigner getInputSplitAssigner(CustomTableInputSplit[] inputSplits) {
+        return new LocatableInputSplitAssigner(inputSplits);
+    }
+
+    @Override
+    public BaseStatistics getStatistics(BaseStatistics cachedStatistics) {
+        return null;
+    }
+
+}
+```
+
+CustomTableInputFormat.scala
+
+```scala
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package org.duo.batch_process.util;
+
+import org.apache.flink.api.common.io.InputFormat;
+import org.apache.flink.api.java.tuple.Tuple;
+import org.apache.flink.configuration.Configuration;
+
+import org.apache.hadoop.hbase.HBaseConfiguration;
+import org.apache.hadoop.hbase.TableName;
+import org.apache.hadoop.hbase.client.*;
+
+/**
+ * {@link InputFormat} subclass that wraps the access for HTables.
+ */
+public abstract class CustomTableInputFormat<T extends Tuple> extends CustomAbstractTableInputFormat<T> {
+
+    private static final long serialVersionUID = 1L;
+
+    /**
+     * Returns an instance of Scan that retrieves the required subset of records from the HBase table.
+     *
+     * @return The appropriate instance of Scan for this usecase.
+     */
+    protected abstract Scan getScanner();
+
+    /**
+     * What table is to be read.
+     * Per instance of a TableInputFormat derivative only a single tablename is possible.
+     *
+     * @return The name of the table
+     */
+    protected abstract String getTableName();
+
+    /**
+     * The output from HBase is always an instance of {@link Result}.
+     * This method is to copy the data in the Result instance into the required {@link Tuple}
+     *
+     * @param r The Result instance from HBase that needs to be converted
+     * @return The appropriate instance of {@link Tuple} that contains the needed information.
+     */
+    protected abstract T mapResultToTuple(Result r);
+
+    /**
+     * Creates a {@link Scan} object and opens the {@link HTable} connection.
+     * These are opened here because they are needed in the createInputSplits
+     * which is called before the openInputFormat method.
+     * So the connection is opened in {@link #configure(Configuration)} and closed in {@link #closeInputFormat()}.
+     *
+     * @param parameters The configuration that is to be used
+     * @see Configuration
+     */
+    @Override
+    public void configure(Configuration parameters) {
+        table = createTable();
+        if (table != null) {
+            scan = getScanner();
+        }
+    }
+
+    /**
+     * Create an {@link HTable} instance and set it into this format.
+     */
+    private HTable createTable() {
+        LOG.info("Initializing HBaseConfiguration");
+        //use files found in the classpath
+        org.apache.hadoop.conf.Configuration hConf = HBaseConfiguration.create();
+
+        try {
+            Connection conn = ConnectionFactory.createConnection(hConf);
+            return (HTable) conn.getTable(TableName.valueOf(getTableName()));
+        } catch (Exception e) {
+            LOG.error("Error instantiating a new HTable instance", e);
+        }
+        return null;
+    }
+
+    protected T mapResultToOutType(Result r) {
+        return mapResultToTuple(r);
+    }
+}
+```
+
+CustomTableInputSplit.scala
+
+```scala
+package org.duo.batch_process.util;/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+
+import org.apache.flink.core.io.LocatableInputSplit;
+
+/**
+ * 由于flink-hbase_2.11_1.6.1 jar包引用的是hbase1.4.3版本，我们现在用的是hbase2.0，版本不匹配
+ * 故需要重写flink-hbase_2.11_1.6.1里面的TableInputSplit
+ * <p>
+ * This class implements a input splits for HBase. Each table input split corresponds to a key range (low, high). All
+ * references to row below refer to the key of the row.
+ */
+public class CustomTableInputSplit extends LocatableInputSplit {
+
+    private static final long serialVersionUID = 1L;
+
+    /**
+     * The name of the table to retrieve data from.
+     */
+    private final byte[] tableName;
+
+    /**
+     * The start row of the split.
+     */
+    private final byte[] startRow;
+
+    /**
+     * The end row of the split.
+     */
+    private final byte[] endRow;
+
+    /**
+     * Creates a new table input split.
+     *
+     * @param splitNumber the number of the input split
+     * @param hostnames   the names of the hosts storing the data the input split refers to
+     * @param tableName   the name of the table to retrieve data from
+     * @param startRow    the start row of the split
+     * @param endRow      the end row of the split
+     */
+    CustomTableInputSplit(final int splitNumber, final String[] hostnames, final byte[] tableName, final byte[] startRow,
+                          final byte[] endRow) {
+        super(splitNumber, hostnames);
+
+        this.tableName = tableName;
+        this.startRow = startRow;
+        this.endRow = endRow;
+    }
+
+    /**
+     * Returns the table name.
+     *
+     * @return The table name.
+     */
+    public byte[] getTableName() {
+        return this.tableName;
+    }
+
+    /**
+     * Returns the start row.
+     *
+     * @return The start row.
+     */
+    public byte[] getStartRow() {
+        return this.startRow;
+    }
+
+    /**
+     * Returns the end row.
+     *
+     * @return The end row.
+     */
+    public byte[] getEndRow() {
+        return this.endRow;
+    }
+}
+```
+
+HBaseTableInputFormat.scala
+
+```scala
+package org.duo.batch_process.util
+
+import com.alibaba.fastjson.JSONObject
+import org.apache.flink.addons.hbase.TableInputFormat
+import org.apache.flink.api.java.tuple.Tuple2
+import org.apache.hadoop.hbase.{Cell, CellUtil}
+import org.apache.hadoop.hbase.client.{Result, Scan}
+import org.apache.hadoop.hbase.util.Bytes
+
+/**
+ * 这是Flink整合HBase的工具类,去读取HBase的表的数据
+ *
+ * 1. 继承TableInputFormat<T extends Tuple>, 需要指定泛型
+ * 2. 泛型是Java的Tuple : org.apache.flink.api.java.tuple
+ * 3. Tuple2 中第一个元素装载rowkey 第二个元素装 列名列值的JSON字符串
+ * 4. 实现抽象方法
+ * getScanner: 返回Scan对象, 父类中已经定义了scan ,我们在本方法中需要为父类的scan赋值
+ * getTableName : 返回表名,我们可以在类的构造方法中传递表名
+ * mapResultToTuple : 转换HBase中取到的Result进行转换为Tuple
+ *
+ *  a. 取rowkey
+ * b. 取cell数组
+ * c. 遍历数组,取列名和列值
+ * d. 构造JSONObject
+ * e. 构造Tuple2
+ */
+class HBaseTableInputFormat(var tableName: String) extends CustomTableInputFormat[Tuple2[String, String]] {
+
+  //  返回Scan对象
+  override def getScanner: Scan = {
+    scan = new Scan()
+    scan
+  }
+
+  //返回表名
+  override def getTableName: String = {
+    tableName
+  }
+
+  //转换HBase中取到的Result进行转换为Tuple
+  override def mapResultToTuple(result: Result): Tuple2[String, String] = {
+
+    // 取rowkey
+    val rowkey: String = Bytes.toString(result.getRow)
+    // 取cells
+    val cells: Array[Cell] = result.rawCells()
+    // 定义JSONOBject
+    val jsonObject = new JSONObject()
+    //遍历cells
+    for (i <- 0 until cells.length) {
+      val colName: String = Bytes.toString(CellUtil.cloneQualifier(cells(i)))
+      val colValue: String = Bytes.toString(CellUtil.cloneValue(cells(i)))
+
+      jsonObject.put(colName, colValue)
+    }
+
+    new Tuple2[String, String](rowkey, jsonObject.toString)
+
+  }
+}
+```
+
+HBaseUtil.scala
+
+```scala
+package org.duo.batch_process.util
+
+import org.apache.hadoop.conf.Configuration
+import org.apache.hadoop.hbase.{HBaseConfiguration, TableName}
+import org.apache.hadoop.hbase.client.{ColumnFamilyDescriptor, _}
+import org.apache.hadoop.hbase.util.Bytes
+
+/**
+ * HBase的工具类
+ *
+ * 获取Table
+ * 保存单列数据
+ * 查询单列数据
+ * 保存多列数据
+ * 查询多列数据
+ * 删除数据
+ */
+object HBaseUtil {
+
+  // HBase的配置类, 不需要指定配置文件名,文件名要求是hbase-site.xml
+  val conf: Configuration = HBaseConfiguration.create()
+
+  // HBase的连接
+  val conn: Connection = ConnectionFactory.createConnection(conf)
+
+  // HBase的操作API
+  val admin: Admin = conn.getAdmin
+
+
+  /**
+   * 返回table,如果不存在,则创建表
+   *
+   * @param tableNameStr
+   * @param columnFamilyName
+   * @return
+   */
+  def getTable(tableNameStr: String, columnFamilyName: String): Table = {
+
+    // 获取TableName
+    val tableName: TableName = TableName.valueOf(tableNameStr)
+
+    // 如果表不存在,则创建表
+    if (!admin.tableExists(tableName)) {
+
+      // 构建出 表的描述的建造者
+      val descBuilder: TableDescriptorBuilder = TableDescriptorBuilder.newBuilder(tableName)
+
+      val familyDescriptor: ColumnFamilyDescriptor = ColumnFamilyDescriptorBuilder.newBuilder(columnFamilyName.getBytes).build()
+      // 给表去添加列族
+      descBuilder.setColumnFamily(familyDescriptor)
+
+      // 创建表
+      admin.createTable(descBuilder.build())
+    }
+
+    conn.getTable(tableName)
+  }
+
+  /**
+   * 存储单列数据
+   *
+   * @param tableNameStr     表名
+   * @param rowkey           rowkey
+   * @param columnFamilyName 列族名
+   * @param columnName       列名
+   * @param columnValue      列值
+   */
+  def putData(tableNameStr: String, rowkey: String, columnFamilyName: String, columnName: String, columnValue: String) = {
+
+    // 获取表
+    val table: Table = getTable(tableNameStr, columnFamilyName)
+
+    try {
+      // Put
+      val put: Put = new Put(rowkey.getBytes)
+      put.addColumn(columnFamilyName.getBytes, columnName.getBytes, columnValue.getBytes)
+
+      // 保存数据
+      table.put(put)
+    } catch {
+      case ex: Exception => {
+        ex.printStackTrace()
+      }
+    } finally {
+      table.close()
+    }
+  }
+
+  /**
+   * 通过单列名获取列值
+   *
+   * @param tableNameStr     表名
+   * @param rowkey           rowkey
+   * @param columnFamilyName 列族名
+   * @param columnName       列名
+   * @return 列值
+   */
+  def getData(tableNameStr: String, rowkey: String, columnFamilyName: String, columnName: String): String = {
+
+    // 1.获取Table对象
+    val table = getTable(tableNameStr, columnFamilyName)
+
+    try {
+
+      // 2. 构建Get对象
+      val get = new Get(rowkey.getBytes)
+
+      // 3. 进行查询
+      val result: Result = table.get(get)
+
+      // 4. 判断查询结果是否为空,并且包含我们要查询的列
+
+      if (result != null && result.containsColumn(columnFamilyName.getBytes, columnName.getBytes)) {
+        val bytes: Array[Byte] = result.getValue(columnFamilyName.getBytes(), columnName.getBytes)
+
+        Bytes.toString(bytes)
+      } else {
+        ""
+      }
+
+    } catch {
+      case ex: Exception => {
+        ex.printStackTrace()
+        ""
+      }
+    } finally {
+      // 5. 关闭表
+      table.close()
+    }
+
+  }
+
+  /**
+   * 存储多列数据
+   *
+   * @param tableNameStr     表名
+   * @param rowkey           rowkey
+   * @param columnFamilyName 列族名
+   * @param map              多个列名和列值集合
+   */
+  def putMapData(tableNameStr: String, rowkey: String, columnFamilyName: String, map: Map[String, Any]) = {
+
+    // 1. 获取Table
+    val table = getTable(tableNameStr, columnFamilyName)
+
+    try {
+
+      // 2. 创建Put
+      val put = new Put(rowkey.getBytes)
+
+      // 3. 在Put中添加多个列名和列值
+      for ((colName, colValue) <- map) {
+        put.addColumn(columnFamilyName.getBytes, colName.getBytes, colValue.toString.getBytes)
+      }
+
+      // 4. 保存Put
+      table.put(put)
+
+    } catch {
+      case ex: Exception => {
+        ex.printStackTrace()
+      }
+    } finally {
+      // 5. 关闭表
+      table.close()
+    }
+
+  }
+
+
+  /**
+   * 获取多列数据的值
+   *
+   * @param tableNameStr     表名
+   * @param rowkey           rowkey
+   * @param columnFamilyName 列族名
+   * @param columnNameList   多个列名
+   * @return 多个列名和多个列值的Map集合
+   */
+  def getMapData(tableNameStr: String, rowkey: String, columnFamilyName: String, columnNameList: List[String]): Map[String, String] = {
+
+    // 1. 获取Table
+    val table = getTable(tableNameStr, columnFamilyName)
+
+    try {
+      // 2. 构建Get
+      val get = new Get(rowkey.getBytes)
+
+      // 3. 执行查询
+      val result: Result = table.get(get)
+
+      // 4. 遍历列名集合,取出列值,构建成Map返回
+      columnNameList.map {
+        col =>
+          val bytes: Array[Byte] = result.getValue(columnFamilyName.getBytes(), col.getBytes)
+
+          if (bytes != null && bytes.size > 0) {
+            col -> Bytes.toString(bytes)
+          } else {
+            "" -> ""
+          }
+      }.filter(_._1 != "").toMap
+
+    } catch {
+      case ex: Exception => {
+        ex.printStackTrace()
+        Map[String, String]()
+      }
+    } finally {
+      // 5. 关闭Table
+      table.close()
+    }
+  }
+
+  /**
+   * 删除数据
+   *
+   * @param tableNameStr
+   * @param rowkey
+   * @param columnFamilyName
+   */
+  def deleteData(tableNameStr: String, rowkey: String, columnFamilyName: String) = {
+
+    // 1. 获取Table
+    val table: Table = getTable(tableNameStr, columnFamilyName)
+
+    try {
+      // 2. 构建Delete对象
+      val delete: Delete = new Delete(rowkey.getBytes)
+
+      // 3. 执行删除
+      table.delete(delete)
+    } catch {
+      case ex: Exception =>
+        ex.printStackTrace()
+    } finally {
+      // 4. 关闭table
+      table.close()
+    }
+  }
+
+
+  def main(args: Array[String]): Unit = {
+
+    println(getTable("test", "info"))
+
+    putData("test", "1", "info", "t1", "hello world")
+
+    //    println(getData("test", "1", "info", "t1"))
+    //
+    //
+    //    val map = Map(
+    //      "t2" -> "scala",
+    //      "t3" -> "hive",
+    //      "t4" -> "flink"
+    //    )
+    //
+    //    putMapData("test", "1", "info", map)
+    //    deleteData("test","1","info")
+
+    println(getMapData("test", "1", "info", List("t1", "t2")))
+
+    val stringToString: Map[String, String] = getMapData("channel_freshness", "8:2019052118", "info", List("newCount", "oldCount"))
+
+    println(stringToString)
+
+  }
+}
+```
+
+PreprocessTask.scala
+
+```scala
+package org.duo.batch_process.task
+
+import org.duo.batch_process.bean.{OrderRecord, OrderRecordWide}
+import org.apache.commons.lang3.time.FastDateFormat
+import org.apache.flink.api.scala.DataSet
+import org.apache.flink.api.scala._
+
+object PreprocessTask {
+
+  def process(orderRecordDataSet: DataSet[OrderRecord]) = {
+
+    orderRecordDataSet.map {
+      orderRecord =>
+        OrderRecordWide(
+          orderRecord.benefitAmount,
+          orderRecord.orderAmount,
+          orderRecord.payAmount,
+          orderRecord.activityNum,
+          orderRecord.createTime,
+          orderRecord.merchantId,
+          orderRecord.orderId,
+          orderRecord.payTime,
+          orderRecord.payMethod,
+          orderRecord.voucherAmount,
+          orderRecord.commodityId,
+          orderRecord.userId,
+          formatTime(orderRecord.createTime, "yyyyMMdd"),
+          formatTime(orderRecord.createTime, "yyyyMM"),
+          formatTime(orderRecord.createTime, "yyyy")
+
+        )
+    }
+
+  }
+
+  // 2018-08-13 00:00:06 => 时间戳 => 年月日 或者 年月 或者 年
+  def formatTime(date: String, format: String) = {
+
+    val dateFormat: FastDateFormat = FastDateFormat.getInstance("yyyy-MM-dd HH:mm:ss")
+    val timeStamp: Long = dateFormat.parse(date).getTime
+
+    FastDateFormat.getInstance(format).format(timeStamp)
+  }
+}
+```
+
+MerchantCountMoney.scala
+
+```scala
+package org.duo.batch_process.task
+
+import org.duo.batch_process.bean.OrderRecordWide
+import org.duo.batch_process.util.HBaseUtil
+import org.apache.flink.api.scala.DataSet
+import org.apache.flink.api.scala._
+
+/**
+ * 1. 创建样例类 MerchantCountMoney
+ * 商家ID, 时间,支付金额,订单数量,
+ *
+ * 2. 编写process方法
+ *
+ * 转换  flatmap
+ *
+ * 分组 groupby
+ *
+ * 聚合 reduce
+ *
+ * 落地保存到HBase
+ *
+ *
+ */
+
+case class MerchantCountMoney(
+                               var merchantId: String,
+                               var date: String,
+                               var amount: Double,
+                               var count: Long
+                             )
+
+object MerchantCountMoneyTask {
+
+  def process(wideDataSet: DataSet[OrderRecordWide]) = {
+
+    //转换  flatmap
+    val mapDataSet: DataSet[MerchantCountMoney] = wideDataSet.flatMap {
+      orderRecordWide => {
+        List(
+          MerchantCountMoney(orderRecordWide.merchantId, orderRecordWide.yearMonthDay, orderRecordWide.payAmount.toDouble, 1),
+          MerchantCountMoney(orderRecordWide.merchantId, orderRecordWide.yearMonth, orderRecordWide.payAmount.toDouble, 1),
+          MerchantCountMoney(orderRecordWide.merchantId, orderRecordWide.year, orderRecordWide.payAmount.toDouble, 1)
+        )
+      }
+    }
+
+    //分组 groupby
+    val groupDataSet: GroupedDataSet[MerchantCountMoney] = mapDataSet.groupBy {
+      merchant => (merchant.merchantId + merchant.date)
+    }
+
+    // 聚合
+    val reduceDataSet: DataSet[MerchantCountMoney] = groupDataSet.reduce {
+      (p1, p2) => {
+        MerchantCountMoney(p1.merchantId, p1.date, p1.amount + p2.amount, p1.count + p2.count)
+      }
+    }
+
+    // 保存到HBase中
+    reduceDataSet.collect().foreach {
+      merchant => {
+        // HBase相关字段
+
+        val tableName = "analysis_merchant"
+        val rowkey = merchant.merchantId + ":" + merchant.date
+        val clfName = "info"
+
+        val merchantIdColumn = "merchantId"
+        val dateColumn = "date"
+        val amountColumn = "amount"
+        val countColumn = "count"
+
+        HBaseUtil.putMapData(tableName, rowkey, clfName, Map(
+          merchantIdColumn -> merchant.merchantId,
+          dateColumn -> merchant.date,
+          amountColumn -> merchant.amount,
+          countColumn -> merchant.count
+        ))
+      }
+    }
+  }
+}
+```
+
+PaymethodMoneyCount.scala
+
+```scala
+package org.duo.batch_process.task
+
+import org.apache.flink.api.scala.DataSet
+import org.apache.flink.api.scala._
+import org.duo.batch_process.bean.OrderRecordWide
+import org.duo.batch_process.util.HBaseUtil
+
+case class PaymethodMoneyCount(
+                                var payMethod: String, // 支付方式
+                                var date: String, //日期
+                                var moneyCount: Double, //订单金额
+                                var count: Long //订单总数
+                              )
+
+object PaymethodMoneyCountTask {
+
+  def process(orderRecordWideDataSet: DataSet[OrderRecordWide]) = {
+
+    // 1. 转换
+    val payMethodDataSet: DataSet[PaymethodMoneyCount] = orderRecordWideDataSet.flatMap {
+      orderRecordWide =>
+        List(
+          PaymethodMoneyCount(orderRecordWide.payMethod, orderRecordWide.yearMonthDay, orderRecordWide.payAmount.toDouble, 1),
+          PaymethodMoneyCount(orderRecordWide.payMethod, orderRecordWide.yearMonth, orderRecordWide.payAmount.toDouble, 1),
+          PaymethodMoneyCount(orderRecordWide.payMethod, orderRecordWide.year, orderRecordWide.payAmount.toDouble, 1)
+        )
+    }
+
+    // 2. 分组
+    val groupDataSet: GroupedDataSet[PaymethodMoneyCount] = payMethodDataSet.groupBy {
+      paymethodMoneyCount => paymethodMoneyCount.payMethod + paymethodMoneyCount.date
+    }
+
+    // 3. 聚合
+    val reduceDataSet: DataSet[PaymethodMoneyCount] = groupDataSet.reduce {
+      (p1, p2) =>
+        PaymethodMoneyCount(p1.payMethod, p1.date, p1.moneyCount + p2.moneyCount, p1.count + p2.count)
+    }
+
+    // 4. 落地
+    reduceDataSet.collect().foreach {
+      paymethodMoneyCount =>
+        // 构造HBase相关列
+        val tableName = "analysis_payment"
+        val clfName = "info"
+        val rowkey = paymethodMoneyCount.payMethod + ":" + paymethodMoneyCount.date
+
+        var payMethodColumn = "payMethod"
+        var dateColumn = "date"
+        var moneyCountColumn = "moneyCount"
+        var countColumn = "count"
+
+        HBaseUtil.putMapData(
+          tableName, rowkey, clfName, Map(
+            payMethodColumn -> paymethodMoneyCount.payMethod,
+            dateColumn -> paymethodMoneyCount.date,
+            moneyCountColumn -> paymethodMoneyCount.moneyCount,
+            countColumn -> paymethodMoneyCount.count
+          )
+        )
+    }
+  }
+}
+```
+
+App.scala
+
+```scala
+package org.duo.batch_process
+
+import org.duo.batch_process.bean.{OrderRecord, OrderRecordWide}
+import org.duo.batch_process.task.{MerchantCountMoneyTask, PaymethodMoneyCountTask, PreprocessTask}
+import org.duo.batch_process.util.HBaseTableInputFormat
+import org.apache.flink.api.java.tuple
+import org.apache.flink.api.scala.ExecutionEnvironment
+import org.apache.flink.api.scala._
+
+object App {
+
+  def main(args: Array[String]): Unit = {
+
+    // 初始化批处理环境
+    val env: ExecutionEnvironment = ExecutionEnvironment.getExecutionEnvironment
+    // 并行度设置
+    env.setParallelism(1)
+    // 测试输出
+    val textDataSet: DataSet[String] = env.fromCollection(List("1", "2", "3"))
+
+    val tupleDataSet: DataSet[tuple.Tuple2[String, String]] = env.createInput(new HBaseTableInputFormat("mysql.pyg.orderRecord"))
+    val orderRecordDataSet: DataSet[OrderRecord] = tupleDataSet.map {
+      tuple2 => OrderRecord(tuple2.f1)
+    }
+
+    // 数据预处理,拓宽
+    val wideDataSet: DataSet[OrderRecordWide] = PreprocessTask.process(orderRecordDataSet)
+    //wideDataSet.print();
+    //PaymethodMoneyCountTask.process(wideDataSet)
+    MerchantCountMoneyTask.process(wideDataSet)
+  }
+}
+```
+

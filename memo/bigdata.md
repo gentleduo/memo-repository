@@ -384,7 +384,12 @@ export JAVA_HOME=/usr/local/java/jdk1.8.0_144
 
 ```xml
 <configuration>
-    
+
+    <!-- mapreduce.framework.name默认值为local,设置为yarn,让MapReduce程序运行在YARN框架上 -->
+    <property>
+		<name>mapreduce.framework.name</name>
+		<value>yarn</value>
+	</property>
 	<!-- 开启MapReduce小任务模式 -->
 	<property>
 		<name>mapreduce.job.ubertask.enable</name>
@@ -3363,6 +3368,74 @@ yarn.nodemanager.resource.memory-mb 8192
 定义交换区空间可以使用的大小，交换区空间就是讲一块硬盘拿出来做内存使用,这里指定的是nodemanager的2.1倍
 
 yarn.nodemanager.vmem-pmem-ratio 2.1 
+
+### hadoop1.X
+
+#### Client
+
+1. 计算split的清单，包括：该split对应的file、该split在file中的起始offset、该split的length以及该split执行的计算节点等。*注意：split是逻辑的概念，block是物理概念，一个文件会按照hdfs-site.xml中的dfs.blocksize大小被切分成多个分片存储在hdfs中。默认情况下split和block是一对一关系；但是实际情况中用户可能通过TextInputFormat.setMinInputSplitSize或TextInputFormat.setMaxInputSplitSize的方式设置split的最小或者最大值使得split的大小跟默认block的大小不一致，这样一个split所需要的数据就可能来不同的block了，计算前就会有网络IO产生了。具体的计算节点计算节点确认过程请参照：TextInputFormat ==> FileInputFormat ==> getSplits*
+
+   比如：一个文件在hdfs中被分成了blockA、blockB、blockC三个分片，假设dfs.blocksize为8Byte，那么blockA为0~7，blockB为8~15，blockC为16~23；根据getSplits中的计算逻辑如果通过setMinInputSplitSize设置minSize为12的话，那么在client端会将该文件分成2个split，split1的offset为0，length为12，hosts(计算节点)为blockA所在的节点，而split2的offset为12，length为12，hosts(计算节点)为blockB所在的节点，同时blockB的一部分数据(第8字节到第11字节)会通过网络传输到split1所在的计算节点，同时blockC的所有数据会通过网络传输到split2所在的计算节点
+
+2. 生成计算程序未来运行性的配置文件
+
+3. 将jar，split清单，配置xml上传到hdfs目录上
+
+4. client调用JobTracker，通知要启动一个计算任务了，并且告知文件都放在了hdfs的那个地方
+
+#### JobTracker
+
+资源管理、任务调度
+
+1. 从hdfs中拉取split清单
+2. 根据收到的TaskTracker汇报的资源，最终确定每一个split对应的map去哪一个节点【确定清单】
+3. 在TaskTracker和自己心跳的时候分配任务信息
+
+#### TaskTracker
+
+任务管理、资源汇报
+
+1. 在心跳时取回任务
+2. 从hdfs中下载jar，xml到本机
+3. 启动任务中的MapTask/ReduceTask（最终代码在数据所在的分片被启动，实现了计算向数据移动）
+
+#### 问题
+
+JobTracker3个问题：
+
+1. 单点故障
+2. 压力过大
+3. 集成了资源管理和任务调度，两者耦合，未来新的计算框架不能复用资源管理，并且因为各自实现资源管理并且部署在同一批硬件上，因为隔离所以不能感知对方的资源使用情况出现资源正争抢的情况
+
+### hadoop2.X
+
+![image](assets\bigdata-41.png)
+
+#### 模型
+
+##### Container
+
+一般一个contaier就是一个jvm进程，NodeManager会有线程监控container资源情况，超额的话NM会直接kill掉，也可以通过cgroup内核级技术在启动jvm进程时由kernel进行资源的约束
+
+#### 实现
+
+##### ResourceManager
+
+负责资源的管理
+
+##### NodeManager
+
+跟ResourceManager保持心跳，提交自己的资源情况
+
+#### MapReduce on yarn
+
+1. Client：切片清单、配置、jar包上传到hdfs
+2. Client：访问ResourceManager申请一个ApplicationMaster资源，ResourceManager会选择一台节点通知NodeManager启动一个Container，在里面反射运行ApplicationMaster
+3. ApplicationMaster会从hdfs上下载切片清单，并向ResourceManager申请资源
+4. ResourceManager根据自己掌握的资源情况得到一个确定清单，通知NodeManager启动Container
+5. Container启动后会反向注册到已经启动的ApplicationMaster进程
+6. ApplicationMaster最终将任务task发送给Container（消息）
+7. Container会反射相应的Task类为对象，调用方法执行，其结果就是业务逻辑代码的执行
 
 # Hive
 
@@ -15600,6 +15673,226 @@ aggregateByKey
 | saveAsSequenceFile(path)           | 将结果存入 path 对应的 Sequence 文件中                       |
 | countByKey()                       | 求得整个数据集中 Key 以及对应 Key 出现的次数                 |
 | foreach( T ⇒ … )                   | 遍历每一个元素                                               |
+
+#### RDD的Shuffle和分区
+
+分区的作用
+
+RDD使用分区来分布式并行处理数据,并且要做到尽量少的在不同的Executor之间使用网络交换数据,所以当使用RDD读取数据的时候,会尽量的在物理上靠近数据源,比如说在读取Cassandra或者HDFS中数据的时候,会尽量的保持RDD的分区和数据源的分区数,分区模式等一一对应
+
+分区和 Shuffle 的关系
+
+分区的主要作用是用来实现并行计算,本质上和Shuffle没什么关系,但是往往在进行数据处理的时候,例如`reduceByKey`,`groupByKey`等聚合操作,需要把Key相同的Value拉取到一起进行计算,这个时候因为这些Key相同的Value可能会坐落于不同的分区,于是理解分区才能理解Shuffle的根本原理
+
+Spark中的Shuffle操作的特点
+
+- 只有Key-Value型的RDD才会有Shuffle操作, 例如RDD[(K, V)], 但是有一个特例, 就是 repartition 算子可以对任何数据类型Shuffle
+- 早期版本Spark的Shuffle算法是Hash base shuffle, 后来改为Sort base shuffle, 更适合大吞吐量的场景
+
+##### 分区操作
+
+可以通过 `rdd.partitions.size` 来查看分区数量，在本地模式中默认的分区数量是和Cores的数量有关的
+
+##### 修改分区数
+
+1. 创建 RDD 时指定分区数
+2. 通过`coalesce` 算子指定
+3. 通过 `repartition` 算子指定
+
+##### Shuffle
+
+reduceByKey这个算子本质上就是先按照Key分组,后对每一组数据进行reduce,所面临的挑战就是Key相同的所有数据可能分布在不同的Partition分区中,甚至可能在不同的节点中,但是它们必须被共同计算.为了让来自相同Key的所有数据都在reduceByKey的同一个reduce中处理,需要执行一个all-to-all的操作,需要在不同的节点(不同的分区)之间拷贝数据,必须跨分区聚集相同Key的所有数据,这个过程叫做Shuffle.
+
+![image](D:\gentleduo\memo-repository\memo\assets\bigdata-38.png)
+
+Spark 的 Shuffle 发展大致有两个阶段: `Hash base shuffle` 和 `Sort base shuffle`
+
+###### Hash base shuffle
+
+![image](assets\bigdata-39.png)
+
+大致的原理是分桶,假设Reducer的个数为R,那么每个Mapper有R个桶,按照Key的Hash将数据映射到不同的桶中,Reduce找到每一个Mapper中对应自己的桶拉取数据.假设Mapper的个数为M,整个集群的文件数量是M*R,如果有1,000个Mapper和Reducer,则会生成1,000,000个文件,这个量非常大了.过多的文件会导致文件系统打开过多的文件描述符,占用系统资源.所以这种方式并不适合大规模数据的处理,只适合中等规模和小规模的数据处理,在Spark1.2版本中废弃了这种方式.
+
+###### Sort base shuffle
+
+![image](D:\gentleduo\memo-repository\memo\assets\bigdata-40.png)
+
+对于Sort base shuffle 来说, 每个Map侧的分区只有一个输出文件, Reduce 侧的Task来拉取, 大致流程如下
+
+1. Map侧将数据全部放入一个叫做AppendOnlyMap的组件中, 同时可以在这个特殊的数据结构中做聚合操作
+
+2. 然后通过一个类似于MergeSort的排序算法TimSort对AppendOnlyMap底层的Array排序：先按照Partition ID排序, 后按照Key的HashCode排序
+
+3. 最终每个Map Task生成一个输出文件, Reduce Task来拉取自己对应的数据
+
+从上面可以得到结论, Sort base shuffle确实可以大幅度减少所产生的中间文件, 从而能够更好的应对大吞吐量的场景, 在 Spark 1.2 以后, 已经默认采用这种方式.
+
+但是需要大家知道的是, Spark 的 Shuffle算法并不只是这一种, 即使是在最新版本, 也有三种Shuffle算法, 这三种算法对每个Map都只产生一个临时文件, 但是产生文件的方式不同, 一种是类似Hash的方式, 一种是刚才所说的Sort, 一种是对Sort的一种优化(使用 Unsafe API 直接申请堆外内存)
+
+### 缓存
+
+#### 缓存的意义
+
+- 多次使用RDD
+
+需求: 在日志文件中找到访问次数最少的 IP 和访问次数最多的 IP
+
+```scala
+  def prepare(): Unit = {
+
+    // 1. 创建 SC
+    val conf = new SparkConf().setAppName("cache_prepare").setMaster("local[6]")
+    val sc = new SparkContext(conf)
+    // 2. 读取文件
+    val source = sc.textFile("D:\\intellij-workspace\\bigdata\\spark\\data\\access_log_sample.txt")
+    // 3. 取出IP, 赋予初始频率
+    val countRDD = source.map(item => (item.split(" ")(0), 1))
+    // 4. 数据清洗
+    val cleanRDD = countRDD.filter(item => StringUtils.isNotEmpty(item._1))
+    // 5. 统计IP出现的次数(聚合)：这是一个Shuffle操作,Shuffle操作会在集群内进行数据拷贝
+    val aggRDD = cleanRDD.reduceByKey((curr, agg) => curr + agg)
+    // 6. 统计出现次数最少的IP(得出结论)
+    val lessIp = aggRDD.sortBy(item => item._2, ascending = true).first()
+    // 7. 统计出现次数最多的IP(得出结论)
+    val moreIp = aggRDD.sortBy(item => item._2, ascending = false).first()
+    println((lessIp, moreIp))
+  }
+```
+
+在上述代码中, 多次使用到了 `interimRDD`, 导致文件读取两次, Shuffle两次、计算两次, 
+
+- 容错
+
+```mermaid
+graph LR;
+    A[RDD1]-->B[RDD2]
+    B[RDD2]-->C[RDD3]
+```
+
+当在计算 RDD3 的时候如果出错了，会再次计算 RDD1 和 RDD2 的整个链条。
+
+上述两个问题的解决方案其实都是 `缓存`
+
+#### 缓存实现
+
+cache 方法其实是 `persist` 方法的一个别名
+
+```scala
+  def cache(): Unit = {
+
+    val conf = new SparkConf().setAppName("cache_prepare").setMaster("local[6]")
+    val sc = new SparkContext(conf)
+
+    // RDD 的处理部分
+    val source = sc.textFile("D:\\intellij-workspace\\bigdata\\spark\\data\\access_log_sample.txt")
+    val countRDD = source.map(item => (item.split(" ")(0), 1))
+    val cleanRDD = countRDD.filter(item => StringUtils.isNotEmpty(item._1))
+    var aggRDD = cleanRDD.reduceByKey((curr, agg) => curr + agg)
+    aggRDD = aggRDD.cache()
+
+    // 两个 RDD 的 Action 操作
+    // 每一个 Action 都会完整运行一下 RDD 的整个血统
+    val lessIp = aggRDD.sortBy(item => item._2, ascending = true).first()
+    val moreIp = aggRDD.sortBy(item => item._2, ascending = false).first()
+
+    println((lessIp, moreIp))
+  }
+```
+
+也可以使用 persist 方法进行缓存
+
+```scala
+  def persist(): Unit = {
+
+    val conf = new SparkConf().setAppName("cache_prepare").setMaster("local[6]")
+    val sc = new SparkContext(conf)
+
+    // RDD 的处理部分
+    val source = sc.textFile("D:\\intellij-workspace\\bigdata\\spark\\data\\access_log_sample.txt")
+    val countRDD = source.map(item => (item.split(" ")(0), 1))
+    val cleanRDD = countRDD.filter(item => StringUtils.isNotEmpty(item._1))
+    var aggRDD = cleanRDD.reduceByKey((curr, agg) => curr + agg)
+    aggRDD = aggRDD.persist(StorageLevel.MEMORY_ONLY)
+    println(aggRDD.getStorageLevel)
+
+    // 两个 RDD 的 Action 操作
+    // 每一个 Action 都会完整运行一下 RDD 的整个血统
+    val lessIp = aggRDD.sortBy(item => item._2, ascending = true).first()
+    val moreIp = aggRDD.sortBy(item => item._2, ascending = false).first()
+
+    println((lessIp, moreIp))
+  }
+```
+
+缓存其实是一种空间换时间的做法, 会占用额外的存储资源,根据缓存级别的不同, 缓存存储的位置也不同, 但是使用 `unpersist` 可以指定删除 RDD 对应的缓存信息, 并指定缓存级别为 `NONE`
+
+#### 缓存级别
+
+| 缓存级别                | `userDisk` 是否使用磁盘 | `useMemory` 是否使用内存 | `useOffHeap` 是否使用堆外内存 | `deserialized` 是否以反序列化形式存储 | `replication` 副本数 |
+| :---------------------- | :---------------------- | :----------------------- | :---------------------------- | :------------------------------------ | :------------------- |
+| `NONE`                  | false                   | false                    | false                         | false                                 | 1                    |
+| `DISK_ONLY`             | true                    | false                    | false                         | false                                 | 1                    |
+| `DISK_ONLY_2`           | true                    | false                    | false                         | false                                 | 2                    |
+| `MEMORY_ONLY`           | false                   | true                     | false                         | true                                  | 1                    |
+| `MEMORY_ONLY_2`         | false                   | true                     | false                         | true                                  | 2                    |
+| `MEMORY_ONLY_SER`       | false                   | true                     | false                         | false                                 | 1                    |
+| `MEMORY_ONLY_SER_2`     | false                   | true                     | false                         | false                                 | 2                    |
+| `MEMORY_AND_DISK`       | true                    | true                     | false                         | true                                  | 1                    |
+| `MEMORY_AND_DISK`       | true                    | true                     | false                         | true                                  | 2                    |
+| `MEMORY_AND_DISK_SER`   | true                    | true                     | false                         | false                                 | 1                    |
+| `MEMORY_AND_DISK_SER_2` | true                    | true                     | false                         | false                                 | 2                    |
+| `OFF_HEAP`              | true                    | true                     | true                          | false                                 | 1                    |
+
+### Checkpoint
+
+#### 作用
+
+Checkpoint 的主要作用是斩断 RDD 的依赖链, 并且将数据存储在可靠的存储引擎中, 例如支持分布式存储和副本机制的 HDFS
+
+#### 使用
+
+```scala
+  def checkpoint(): Unit = {
+
+    val conf = new SparkConf().setAppName("cache_prepare").setMaster("local[6]")
+    val sc = new SparkContext(conf)
+    // 设置保存 checkpoint 的目录, 也可以设置为 HDFS 上的目录
+    sc.setCheckpointDir("checkpoint")
+
+    // RDD 的处理部分
+    val source = sc.textFile("D:\\intellij-workspace\\bigdata\\spark\\data\\access_log_sample.txt")
+    val countRDD = source.map(item => (item.split(" ")(0), 1))
+    val cleanRDD = countRDD.filter(item => StringUtils.isNotEmpty(item._1))
+    var aggRDD = cleanRDD.reduceByKey((curr, agg) => curr + agg)
+
+    // checkpoint
+    // aggRDD = aggRDD.cache
+    // 不准确的说, Checkpoint 是一个 Action 操作, 也就是说
+    // 如果调用 checkpoint, 则会重新计算一下 RDD, 然后把结果存在 HDFS 或者本地目录中
+    // 所以, 应该在 Checkpoint 之前, 进行一次 Cache
+    aggRDD = aggRDD.cache()
+    aggRDD.checkpoint()
+
+    // 两个 RDD 的 Action 操作
+    // 每一个 Action 都会完整运行一下 RDD 的整个血统
+    val lessIp = aggRDD.sortBy(item => item._2, ascending = true).first()
+    val moreIp = aggRDD.sortBy(item => item._2, ascending = false).first()
+
+    println((lessIp, moreIp))
+  }
+```
+
+#### Checkpoint和Cache的区别
+
+Cache可以把RDD计算出来然后放在内存中,但是RDD的依赖链(相当于NameNode中的Edits日志)是不能丢掉的,因为这种缓存是不可靠的,如果出现了一些错误(例如Executor宕机),这个RDD的容错就只能通过回溯依赖链,重放计算出来.但是Checkpoint把结果保存在HDFS这类存储中,就是可靠的了,所以可以斩断依赖,如果出错了,则通过复制HDFS中的文件来实现容错.所以他们的区别主要在以下三点
+
+1. Checkpoint可以保存数据到HDFS这类可靠的存储上,Persist和Cache只能保存在本地的磁盘和内存中
+2. Checkpoint可以斩断RDD的依赖链,而Persist和Cache不行
+3. 因为CheckpointRDD没有向上的依赖链,所以程序结束后依然存在,不会被删除.而Cache和Persist会在程序结束后立刻被清除.
+
+
+
+
 
 
 

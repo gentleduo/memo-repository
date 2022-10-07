@@ -412,39 +412,64 @@ export JAVA_HOME=/usr/local/java/jdk1.8.0_144
 
 ```xml
 <configuration>
- 
-	<!-- 配置yarn主节点的位置 -->
-	<property>
-		<name>yarn.resourcemanager.hostname</name>
-		<value>server01</value>
-	</property>
-	<property>
-		<name>yarn.nodemanager.aux-services</name>
-		<value>mapreduce_shuffle</value>
-	</property>
-	<!-- 开启日志聚合功能 -->
-	<property>
-		<name>yarn.log-aggregation-enable</name>
-		<value>true</value>
-	</property>
-	<!-- 设置聚合日志在hdfs上的保存时间 -->
-	<property>
-		<name>yarn.log-aggregation.retain-seconds</name>
-		<value>604800</value>
-	</property>
-	<!-- 设置yarn集群的内存分配方案 -->
-	<property>    
-		<name>yarn.nodemanager.resource.memory-mb</name>    
-		<value>20480</value>
-	</property>
-	<property>  
-        	 <name>yarn.scheduler.minimum-allocation-mb</name>
-         	<value>2048</value>
-	</property>
-	<property>
-		<name>yarn.nodemanager.vmem-pmem-ratio</name>
-		<value>2.1</value>
-	</property>
+        <!-- 配置yarn主节点的位置 -->
+        <property>
+                <name>yarn.resourcemanager.hostname</name>
+                <value>server01</value>
+        </property>
+        <property>
+                <name>yarn.nodemanager.aux-services</name>
+                <value>mapreduce_shuffle</value>
+        </property>
+        <!-- 开启日志聚合功能 -->
+        <property>
+                <name>yarn.log-aggregation-enable</name>
+                <value>true</value>
+        </property>
+        <!-- 设置聚合日志在hdfs上的保存时间 -->
+        <property>
+                <name>yarn.log-aggregation.retain-seconds</name>
+                <value>604800</value>
+        </property>
+        <!-- 设置yarn集群的内存分配方案 -->
+    <!--可以为容器分配的物理内存量（以 MB 为单位）-->
+        <property>
+                <name>yarn.nodemanager.resource.memory-mb</name>
+                <value>4096</value>
+        </property>
+    	<!--RM上每个容器请求的最小分配，以MB为单位。低于此值的内存请求将引发InvalidResourceRequestException。-->
+        <property>
+                <name>yarn.scheduler.minimum-allocation-mb</name>
+                <value>1024</value>
+        </property>
+    	<!--RM上每个容器请求的最大分配，以MB为单位。高于此的内存请求将引发InvalidResourceRequestException。-->
+        <property>
+                <name>yarn.scheduler.maximum-allocation-mb</name>
+                <value>2048</value>
+        </property>
+        <property>
+                <name>yarn.nodemanager.vmem-pmem-ratio</name>
+                <value>2.1</value>
+        </property>
+        <property>
+                <name>yarn.nodemanager.vmem-check-enabled</name>
+                <value>false</value>
+        </property>
+    	<!--可以分配给容器的vcore数量，这是RM调度程序在为容器分配资源时使用的，这不是用来限制 YARN 容器使用的物理内核的数量。-->
+        <property>
+                <name>yarn.nodemanager.resource.cpu-vcores</name>
+                <value>2</value>
+        </property>
+    	<!--RM中每个容器请求的最小分配，以虚拟CPU内核计。低于此值的请求将引发InvalidResourceRequestException。-->
+        <property>
+                <name>yarn.scheduler.minimum-allocation-vcores</name>
+                <value>1</value>
+        </property>
+    	<!--RM上每个容器请求的最大分配，以虚拟CPU内核计。高于此值的请求将引发InvalidResourceRequestException。-->
+        <property>
+                <name>yarn.scheduler.maximum-allocation-vcores</name>
+                <value>2</value>
+        </property>
 </configuration>
 ```
 
@@ -495,6 +520,52 @@ mkdir -p /usr/local/hadoop-2.7.5/hadoopDatas/dfs/snn/edits
 # 停止HDFS
 [root@server01 hadoop-2.7.5]# sbin/stop-dfs.sh
 ```
+
+## HistoryServer服务
+
+YARN中提供了一个叫做JobHistoryServer的守护进程，它属于YARN集群的一项系统服务，仅存储已经运行完成的MapReduce应用程序的作业历史信息，并不会存储其他类型（如Spark、Flink等）应用程序的作业历史信息。
+
+1. 当启用JobHistoryServer服务时，仍需要开启日志聚合功能，否则每个Container的运行日志是存储在NodeManager节点本地，查看日志时需要访问各个NodeManager节点，不利于统一管理和分析。开启日志聚合的方法：在yarn-site.xml中增加yarn.log-aggregation-enable项，并且设置其value为true
+2. 当开启日志聚合功能后AM会自动收集每个Container的日志，并在应用程序完成后将这些日志移动到文件系统，例如HDFS。然后通过JHS的WebUI服务来提供用户使用和应用恢复。
+
+**JobHistoryServer管理MR应用**
+
+### 提交MR应用程序
+
+```bash
+[root@server01 mapreduce]# hadoop jar hadoop-mapreduce-examples-2.7.5.jar wordcount /data/wordcount.txt /ooxx
+```
+
+### MR运行历史信息
+
+MR应用程序在运行时，是通过AM（MRAppMaster类）将日志写到HDFS中，会生成.jhist、.summary和`_conf.xml`文件。其中.jhist文件是MR程序的计数信息，.summary文件是作业的摘要信息，_conf.xml文件是MR程序的配置信息。MR应用程序启动时，会把作业信息存储到${yarn.app.mapreduce.am.staging-dir}/${user}/.staging/${job_id}目录下。yarn.app.mapreduce.am.staging-dir的默认路径为：/tmp/hadoop-yarn/staging
+
+![image](D:\gentleduo\memo-repository\memo\assets\bigdata-47.png)
+
+### MR应用程序运行完成时生成的信息
+
+MR应用程序运行完成后，作业信息会被临时移动到`${mapreduce.jobhistory.intermediate-done-dir}/${user}`目录下。
+
+![image](D:\gentleduo\memo-repository\memo\assets\bigdata-48.png)
+
+### MR应用程序最终的作业信息
+
+等待${mapreduce.jobhistory.move.interval-ms}配置项的值（默认180000毫秒=3分钟）后，会把${mapreduce.jobhistory.intermediate-done-dir}/${user}下的作业数据移动到${mapreduce.jobhistory.done-dir}/${year}/${month}/${day}/${serialPart}目录下。此时.summary文件会被删除，因为.jhist文件提供了更详细的作业历史信息。JHS服务中的作业历史信息不是永久存储的，在默认情况下，作业历史清理程序默认按照86400000毫秒（一天）的频率去检查要删除的文件，只有在文件早于mapreduce.jobhistory.max-age-ms（一天）时才进行删除。JHS的历史文件的移动和删除操作由HistoryFileManager类完成。
+
+```properties
+mapreduce.jobhistory.move.interval-ms：180000（默认）
+mapreduce.jobhistory.intermediate-done-dir：/tmp/hadoop-yarn/staging/history/done_intermediate（默认）
+mapreduce.jobhistory.done-dir：/tmp/hadoop-yarn/staging/history/done（默认）
+mapreduce.jobhistory.cleaner.enable: true（默认）
+mapreduce.jobhistory.cleaner.interval-ms: 86400000（1天）
+mapreduce.jobhistory.max-age-ms: 86400000（1天）
+```
+
+![image](assets\bigdata-49.png)
+
+
+
+
 
 三个端口查看界面
 
@@ -15023,6 +15094,10 @@ public class HBaseVersionAndTTL {
 
 ## 概述
 
+代码：https://github.com/apache/spark/
+
+官网：https://spark.apache.org/docs/2.2.0/
+
 ### 历史
 
 - 2009 年由加州大学伯克利分校 AMPLab 开创
@@ -15144,7 +15219,7 @@ GraphX 是分布式图计算框架, 提供了一组可以表达图计算的 API,
 | **易用性** | API 较为底层, 算法适应性差     | API 较为顶层, 方便使用       |
 | **价格**   | 对机器要求低, 便宜             | 对内存有要求, 相对较贵       |
 
-## 集群搭建
+## standalone模式集群
 
 ### Step 1 下载和解压
 
@@ -15213,9 +15288,13 @@ GraphX 是分布式图计算框架, 提供了一组可以表达图计算的 API,
    - 将以下内容复制到`spark-defaults.conf`末尾处, 通过这段配置, 可以指定 Spark 将日志输入到 HDFS 中
 
      ```properties
-     spark.eventLog.enabled  true
-     spark.eventLog.dir      hdfs://server01:8020/spark_log
-     spark.eventLog.compress true
+     #spark.eventLog.dir是记录Spark事件的基本目录，如果spark.eventLog.enabled为true。 在此基本目录中，Spark为每个应用程序创建一个子目录，并在此目录中记录特定于应用程序的事件。
+     spark.eventLog.enabled        true
+     spark.eventLog.dir            hdfs://server01:8020/spark_log
+     spark.eventLog.compress       true
+     #spark.history.fs.logDirectory用于为历史记录程序提供文件系统，包含要加载的应用程序事件日志的目录URL。 
+     spark.history.fs.logDirectory hdfs://server01:8020/spark_log
+     #spark.eventLog.dir用于生成日志，spark.history.fs.logDirectory是Spark History Server发现日志事件的位置。
      ```
 
    - 将以下内容复制到`spark-env.sh`的**末尾**, 配置 HistoryServer 启动参数, 使得 HistoryServer 在启动的时候读取 HDFS 中写入的 Spark 日志
@@ -15280,6 +15359,13 @@ GraphX 是分布式图计算框架, 提供了一组可以表达图计算的 API,
 [root@server02 spark-2.2.0-bin-hadoop2.7]# sbin/start-master.sh
 ```
 
+在集群中任意挑选一台机器，启动history-server
+
+```bash
+[root@server01 sbin]# cd /usr/local/spark-2.2.0-bin-hadoop2.7/sbin
+[root@server01 sbin]# ./start-history-server.sh
+```
+
 ### Step 5 查看WebUI
 
 查看 server01 master 和 server02 master 的 WebUI，你会发现一个是 `ALIVE(主)`, 另外一个是 `STANDBY(备)`
@@ -15322,6 +15408,13 @@ server02中停止Master
 [root@server02 spark-2.2.0-bin-hadoop2.7]# sbin/stop-master.sh
 ```
 
+停止history-server
+
+```bash
+[root@server01 sbin]# cd /usr/local/spark-2.2.0-bin-hadoop2.7/sbin
+[root@server01 sbin]# ./stop-history-server.sh
+```
+
 *附录:Spark各服务端口*
 
 | Service        | port          |
@@ -15329,6 +15422,66 @@ server02中停止Master
 | Master WebUI   | server01:8080 |
 | Worker WebUI   | server01:8081 |
 | History Server | server01:4000 |
+
+## yarn模式集群
+
+spark-env.sh
+
+```shell
+# 设置 Java Home
+export JAVA_HOME=/usr/local/java/jdk1.8.0_144
+# 设置 HADOOP_CONF_DIR 注意：如果在/etc/profile中已经设置过了，这里可以省略
+# export HADOOP_CONF_DIR=/usr/local/hadoop-2.7.5/etc/hadoop/
+```
+
+spark-defaults.conf
+
+配置计算日志存储目录
+
+```properties
+#spark.eventLog.dir是记录Spark事件的基本目录，如果spark.eventLog.enabled为true。 在此基本目录中，Spark为每个应用程序创建一个子目录，并在此目录中记录特定于应用程序的事件
+。
+spark.eventLog.enabled        true
+spark.eventLog.dir            hdfs://server01:8020/spark_log
+spark.eventLog.compress       true
+##spark.history.fs.logDirectory用于为历史记录程序提供文件系统，包含要加载的应用程序事件日志的目录URL。
+spark.history.fs.logDirectory hdfs://server01:8020/spark_log
+##spark.eventLog.dir用于生成日志，spark.history.fs.logDirectory是Spark History Server发现日志事件的位置。
+
+#每次使用spark-submit提交作业时，都会把yarn所需的spark jar打包上传至HDFS，然后分发到每个NM，为了节省时间可以将jar包提前上传至HDFS，那么spark在运行时就少了一步上传，可以直接从HDFS读取了。
+spark.yarn.jars	hdfs://server01:8020/spark_lib/*
+```
+
+在hdfs中添加spark jar
+
+```bash
+[root@server01 ~]# hdfs dfs -mkdir /spark_lib
+[root@server01 ~]# cd /usr/local/spark-2.2.0-bin-hadoop2.7/jars/
+[root@server01 jars]# hdfs dfs -put ./* /spark_lib
+```
+
+分发至其他节点
+
+```bash
+[root@server01 conf]# scp spark-env.sh server02:$PWD
+spark-env.sh                                                                                                                          100% 4383     4.3KB/s   00:00
+[root@server01 conf]# scp spark-env.sh server02:$PWD
+spark-env.sh                                                                                                                          100% 4383     4.3KB/s   00:00
+[root@server01 conf]# scp spark-defaults.conf server03:$PWD
+spark-defaults.conf                                                                                                                   100% 1974     1.9KB/s   00:00
+[root@server01 conf]# scp spark-defaults.conf server02:$PWD
+spark-defaults.conf    
+```
+
+删除slaves
+
+```bash
+[root@server01 conf]# rm -rf slaves
+[root@server02 conf]# rm -rf slaves
+[root@server03 conf]# rm -rf slaves
+```
+
+yarn模式运行的话，修改完配置项后，无需启动任何服务，直接spark-submit即可。但是如果要看历史运行过程的话，就必须在集群中挑选一个节点启动HistoryServer，然后通过http://server02:18080/访问。
 
 ## 运行方式
 
@@ -15389,6 +15542,10 @@ Master 的地址可以有如下几种设置方式
 示例代码：
 
 ```bash
+[root@server01 bin]# ./spark-shell --master spark://server01:7077,server02:7077
+
+scala> sc.textFile("/data/wordcount.txt").flatMap(_.split(",")).map((_,1)).reduceByKey(_ + _).collect.foreach(println(_))
+
 scala> val sourceRdd = sc.textFile("file:///opt/wordcount.txt")
 sourceRdd: org.apache.spark.rdd.RDD[String] = file:///export/data/wordcount.txt MapPartitionsRDD[1] at textFile at <console>:24
 
@@ -15448,8 +15605,133 @@ spark-submit [options] <**app** jar> <**app** options>
 | `--driver-memory <memory size>`     | Driver 程序运行所需要的内存, 默认 512M                       |
 | `--executor-memory <memory size>`   | Executor 的内存大小, 默认 1G                                 |
 
+#### 参数
+
 ```bash
-[root@server01 spark-2.2.0-bin-hadoop2.7]# spark-submit --master spark://server01:7077 --class org.duo.spark.rdd.WordCount /opt/original-spark-1.0.jar
+[root@server01 jars]# ../../bin/spark-submit --help
+Usage: spark-submit [options] <app jar | python file> [app arguments]
+Usage: spark-submit --kill [submission ID] --master [spark://...]
+Usage: spark-submit --status [submission ID] --master [spark://...]
+Usage: spark-submit run-example [options] example-class [example args]
+
+Options:
+  --master MASTER_URL         spark://host:port, mesos://host:port, yarn, or local.
+  --deploy-mode DEPLOY_MODE   Whether to launch the driver program locally ("client") or
+                              on one of the worker machines inside the cluster ("cluster")
+                              (Default: client).
+  --class CLASS_NAME          Your application's main class (for Java / Scala apps).
+  --name NAME                 A name of your application.
+  --jars JARS                 Comma-separated list of local jars to include on the driver
+                              and executor classpaths.
+  --packages                  Comma-separated list of maven coordinates of jars to include
+                              on the driver and executor classpaths. Will search the local
+                              maven repo, then maven central and any additional remote
+                              repositories given by --repositories. The format for the
+                              coordinates should be groupId:artifactId:version.
+  --exclude-packages          Comma-separated list of groupId:artifactId, to exclude while
+                              resolving the dependencies provided in --packages to avoid
+                              dependency conflicts.
+  --repositories              Comma-separated list of additional remote repositories to
+                              search for the maven coordinates given with --packages.
+  --py-files PY_FILES         Comma-separated list of .zip, .egg, or .py files to place
+                              on the PYTHONPATH for Python apps.
+  --files FILES               Comma-separated list of files to be placed in the working
+                              directory of each executor. File paths of these files
+                              in executors can be accessed via SparkFiles.get(fileName).
+
+  --conf PROP=VALUE           Arbitrary Spark configuration property.
+  --properties-file FILE      Path to a file from which to load extra properties. If not
+                              specified, this will look for conf/spark-defaults.conf.
+
+  --driver-memory MEM         Memory for driver (e.g. 1000M, 2G) (Default: 1024M).
+  --driver-java-options       Extra Java options to pass to the driver.
+  --driver-library-path       Extra library path entries to pass to the driver.
+  --driver-class-path         Extra class path entries to pass to the driver. Note that
+                              jars added with --jars are automatically included in the
+                              classpath.
+
+  --executor-memory MEM       Memory per executor (e.g. 1000M, 2G) (Default: 1G).
+
+  --proxy-user NAME           User to impersonate when submitting the application.
+                              This argument does not work with --principal / --keytab.
+
+  --help, -h                  Show this help message and exit.
+  --verbose, -v               Print additional debug output.
+  --version,                  Print the version of current Spark.
+
+ Spark standalone with cluster deploy mode only:
+  --driver-cores NUM          Cores for driver (Default: 1).
+
+ Spark standalone or Mesos with cluster deploy mode only:
+  --supervise                 If given, restarts the driver on failure.
+  --kill SUBMISSION_ID        If given, kills the driver specified.
+  --status SUBMISSION_ID      If given, requests the status of the driver specified.
+
+ Spark standalone and Mesos only:
+  --total-executor-cores NUM  Total cores for all executors.
+                              #所有executor的总核心数
+ Spark standalone and YARN only:
+  --executor-cores NUM        Number of cores per executor. (Default: 1 in YARN mode,
+                              or all available cores on the worker in standalone mode)
+                              #在YARN模式下为1，或standalone模式下为worker中所有可用核心
+ YARN-only:
+  --driver-cores NUM          Number of cores used by the driver, only in cluster mode
+                              (Default: 1).
+  --queue QUEUE_NAME          The YARN queue to submit to (Default: "default").
+  --num-executors NUM         Number of executors to launch (Default: 2).
+                              If dynamic allocation is enabled, the initial number of
+                              executors will be at least NUM.
+  --archives ARCHIVES         Comma separated list of archives to be extracted into the
+                              working directory of each executor.
+  --principal PRINCIPAL       Principal to be used to login to KDC, while running on
+                              secure HDFS.
+  --keytab KEYTAB             The full path to the file that contains the keytab for the
+                              principal specified above. This keytab will be copied to
+                              the node running the Application Master via the Secure
+                              Distributed Cache, for renewing the login tickets and the
+                              delegation tokens periodically.
+```
+
+#### standalone
+
+standalone模式下，在不指定executor的资源使用的情况下，默认会抢占每个worker所有的可用的core，当再有任务提交的时候就会报出现资源不足的异常，例如：
+
+提交前：
+
+![image](assets\bigdata-42.png)
+
+提交后：
+
+```bash
+[root@server01 jars]# ../../bin/spark-submit --master spark://server01:7077,server02:7077 --class org.apache.spark.examples.SparkPi ./spark-examples_2.11-2.2.0.jar 1000
+```
+
+![image](assets\bigdata-43.png)
+
+![image](assets\bigdata-44.png)
+
+在standalone模式下可以通过参数total-executor-cores来控制任务占有的总的核心数
+
+```bash
+[root@server01 jars]# ../../bin/spark-submit --master spark://server01:7077,server02:7077 --class org.apache.spark.examples.SparkPi --total-executor-cores=3 --executor-cores=1 ./spark-examples_2.11-2.2.0.jar 1000
+```
+
+![image](assets\bigdata-45.png)
+
+![image](assets\bigdata-46.png)
+
+Driver的cluster模式：
+
+```bash
+[root@server01 jars]# ../../bin/spark-submit --master spark://server01:7077,server02:7077 --class org.apache.spark.examples.SparkPi --deploy-mode cluster --driver-memory 1024M ./spark-examples_2.11-2.2.0.jar 1000
+```
+
+#### yarn
+
+yarn模式下，通过指定num-executors、executor-cores以及executor-memory来控制总的资源，例如：
+
+```bash
+[root@server01 spark-2.2.0-bin-hadoop2.7]# ./bin/spark-submit --master yarn --deploy-mode cluster --class org.duo.spark.rdd.WordCount /opt/original-spark-1.0.jar /data/input/wordcount.txt /data/output/wordcount1/
 ```
 
 >*注意：* 
@@ -15889,6 +16171,367 @@ Cache可以把RDD计算出来然后放在内存中,但是RDD的依赖链(相当�
 1. Checkpoint可以保存数据到HDFS这类可靠的存储上,Persist和Cache只能保存在本地的磁盘和内存中
 2. Checkpoint可以斩断RDD的依赖链,而Persist和Cache不行
 3. 因为CheckpointRDD没有向上的依赖链,所以程序结束后依然存在,不会被删除.而Cache和Persist会在程序结束后立刻被清除.
+
+## 底层逻辑
+
+### 逻辑执行图
+
+使用reduceRDD的toDebugString方法可以打印调试信息
+
+```markdown
+(2) ShuffledRDD[4] at reduceByKey at WordCount.scala:27 []
+ +-(2) MapPartitionsRDD[3] at map at WordCount.scala:25 []
+    |  MapPartitionsRDD[2] at flatMap at WordCount.scala:23 []
+    |  hdfs://server01:8020/data/input/wordcount.txt MapPartitionsRDD[1] at textFile at WordCount.scala:18 []
+    |  hdfs://server01:8020/data/input/wordcount.txt HadoopRDD[0] at textFile at WordCount.scala:18 []
+```
+
+![image](assets\bigdata-50.png)
+
+### 物理执行图
+
+大部分 RDD 是不真正存放数据的, 只是数据从中流转, 所以,不能直接在集群中运行 RDD, 需要将这组RDD转为Stage和Task, 从而运行Task, 优化整体执行速度。
+
+![image](assets\bigdata-51.png)
+
+- Stage 的划分是由 Shuffle 操作来确定的, 有 Shuffle 的地方, Stage 断开
+- 同一个Stage中的所有RDD的对应分区, 在同一个Task中执行
+
+### 依赖关系
+
+整体流程图
+
+![image](assets\bigdata-52.png)
+
+#### 窄依赖
+
+假如 `rddB = rddA.transform(…)`, 如果 `rddB` 中一个分区依赖 `rddA` 也就是其父 `RDD` 的少量分区, 这种 `RDD` 之间的依赖关系称之为窄依赖，换句话说, 子 RDD 的每个分区依赖父 RDD 的少量个数的分区, 这种依赖关系称之为窄依赖
+
+例如：
+
+```scala
+val sc = ...
+
+val rddA = sc.parallelize(Seq(1, 2, 3))
+val rddB = sc.parallelize(Seq("a", "b"))
+
+/**
+  * 运行结果: (1,a), (1,b), (2,a), (2,b), (3,a), (3,b)
+  */
+rddA.cartesian(rddB).collect().foreach(println(_))
+```
+
+- 上述代码的 `cartesian` 是求得两个集合的笛卡尔积
+- 上述代码的运行结果是 `rddA` 中每个元素和 `rddB` 中的所有元素结合, 最终的结果数量是两个 `RDD` 数量之和
+- `rddC` 有两个父 `RDD`, 分别为 `rddA` 和 `rddB`
+
+对于 `cartesian` 来说, 依赖关系如下
+
+![image](assets\bigdata-53.png)
+
+上述图形中清晰展示如下现象
+
+1. `rddC` 中的分区数量是两个父 `RDD` 的分区数量之乘积
+2. `rddA` 中每个分区对应 `rddC` 中的两个分区 (因为 `rddB` 中有两个分区), `rddB` 中的每个分区对应 `rddC` 中的三个分区 (因为 `rddA` 有三个分区)
+
+它们之间是窄依赖, 事实上在 `cartesian` 中也是 `NarrowDependency`
+
+**因为所有的分区之间是拷贝关系, 并不是 Shuffle 关系**
+
+- `rddC` 中的每个分区并不是依赖多个父 `RDD` 中的多个分区
+- `rddC` 中每个分区的数量来自一个父 `RDD` 分区中的所有数据, 是一个 `FullDependence`, 所以数据可以直接从父 `RDD` 流动到子 `RDD`
+- 不存在一个父 `RDD` 中一部分数据分发过去, 另一部分分发给其它的 `RDD`
+
+#### 宽依赖
+
+并没有所谓的宽依赖, 宽依赖应该称作为`ShuffleDependency`；在`ShuffleDependency`的类声明上如下写到：Represents a dependency on the output of a shuffle stage.上面非常清楚的说道, 宽依赖就是`Shuffle`中的依赖关系, 换句话说, 只有`Shuffle`产生的地方才是宽依赖。那么宽窄依赖的判断依据就非常简单明确了, 是否有 Shuffle?举个`reduceByKey`的例子, `rddB = rddA.reduceByKey( (curr, agg) ⇒ curr + agg )` 会产生如下的依赖关系：
+
+![image](assets\bigdata-54.png)
+
+- `rddB`的每个分区都几乎依赖`rddA`的所有分区
+- 对于`rddA`中的一个分区来说,其将一部分分发给`rddB`的`p1`,另外一部分分发给`rddB`的`p2`,这不是数据流动,而是分发
+
+#### 如何分辨宽窄依赖 
+
+其实分辨宽窄依赖的本身就是在分辨父子RDD之间是否有Shuffle,大致有以下的方法
+
+- 如果是Shuffle,两个RDD的分区之间不是单纯的数据流动,而是分发和复制
+- 一般Shuffle的子RDD的每个分区会依赖父RDD的多个分区
+
+但是这样判断其实不准确, 如果想分辨某个算子是否是窄依赖, 或者是否是宽依赖, 则还是要取决于具体的算子, 例如想看 `cartesian` 生成的是宽依赖还是窄依赖, 可以通过如下步骤：
+
+先查看cartesian生成的是哪种算子：CartesianRDD
+
+```scala
+  def cartesian[U: ClassTag](other: RDD[U]): RDD[(T, U)] = withScope {
+    new CartesianRDD(sc, this, other)
+  }
+```
+
+再查看CartesianRDD的getDependence方法：NarrowDependency(窄依赖)
+
+```scala
+private[spark]
+class CartesianRDD[T: ClassTag, U: ClassTag](
+    sc: SparkContext,
+    var rdd1 : RDD[T],
+    var rdd2 : RDD[U])
+  extends RDD[(T, U)](sc, Nil)
+  with Serializable {
+
+  val numPartitionsInRdd2 = rdd2.partitions.length
+
+  override def getPartitions: Array[Partition] = {
+    // create the cross product split
+    val array = new Array[Partition](rdd1.partitions.length * rdd2.partitions.length)
+    for (s1 <- rdd1.partitions; s2 <- rdd2.partitions) {
+      val idx = s1.index * numPartitionsInRdd2 + s2.index
+      array(idx) = new CartesianPartition(idx, rdd1, rdd2, s1.index, s2.index)
+    }
+    array
+  }
+
+  override def getPreferredLocations(split: Partition): Seq[String] = {
+    val currSplit = split.asInstanceOf[CartesianPartition]
+    (rdd1.preferredLocations(currSplit.s1) ++ rdd2.preferredLocations(currSplit.s2)).distinct
+  }
+
+  override def compute(split: Partition, context: TaskContext): Iterator[(T, U)] = {
+    val currSplit = split.asInstanceOf[CartesianPartition]
+    for (x <- rdd1.iterator(currSplit.s1, context);
+         y <- rdd2.iterator(currSplit.s2, context)) yield (x, y)
+  }
+
+  override def getDependencies: Seq[Dependency[_]] = List(
+    new NarrowDependency(rdd1) {
+      def getParents(id: Int): Seq[Int] = List(id / numPartitionsInRdd2)
+    },
+    new NarrowDependency(rdd2) {
+      def getParents(id: Int): Seq[Int] = List(id % numPartitionsInRdd2)
+    }
+  )
+
+  override def clearDependencies() {
+    super.clearDependencies()
+    rdd1 = null
+    rdd2 = null
+  }
+}
+```
+
+再看 `reduceByKey` 生成的是宽依赖还是窄依赖, 可以通过如下步骤：
+
+```scala
+  def reduceByKey(partitioner: Partitioner, func: (V, V) => V): RDD[(K, V)] = self.withScope {
+    combineByKeyWithClassTag[V]((v: V) => v, func, func, partitioner)
+  }
+```
+
+再看combineByKeyWithClassTag生成的是哪种算子：
+
+```scala
+  @Experimental
+  def combineByKeyWithClassTag[C](
+      createCombiner: V => C,
+      mergeValue: (C, V) => C,
+      mergeCombiners: (C, C) => C,
+      partitioner: Partitioner,
+      mapSideCombine: Boolean = true,
+      serializer: Serializer = null)(implicit ct: ClassTag[C]): RDD[(K, C)] = self.withScope {
+    require(mergeCombiners != null, "mergeCombiners must be defined") // required as of Spark 0.9.0
+    if (keyClass.isArray) {
+      if (mapSideCombine) {
+        throw new SparkException("Cannot use map-side combining with array keys.")
+      }
+      if (partitioner.isInstanceOf[HashPartitioner]) {
+        throw new SparkException("HashPartitioner cannot partition array keys.")
+      }
+    }
+    val aggregator = new Aggregator[K, V, C](
+      self.context.clean(createCombiner),
+      self.context.clean(mergeValue),
+      self.context.clean(mergeCombiners))
+    if (self.partitioner == Some(partitioner)) {
+      self.mapPartitions(iter => {
+        val context = TaskContext.get()
+        new InterruptibleIterator(context, aggregator.combineValuesByKey(iter, context))
+      }, preservesPartitioning = true)
+    } else {
+      new ShuffledRDD[K, V, C](self, partitioner)
+        .setSerializer(serializer)
+        .setAggregator(aggregator)
+        .setMapSideCombine(mapSideCombine)
+    }
+  }
+```
+
+再查看ShuffledRDD的getDependence方法：ShuffleDependency(宽依赖)
+
+```scala
+@DeveloperApi
+class ShuffledRDD[K: ClassTag, V: ClassTag, C: ClassTag](
+    @transient var prev: RDD[_ <: Product2[K, V]],
+    part: Partitioner)
+  extends RDD[(K, C)](prev.context, Nil) {
+
+  private var userSpecifiedSerializer: Option[Serializer] = None
+
+  private var keyOrdering: Option[Ordering[K]] = None
+
+  private var aggregator: Option[Aggregator[K, V, C]] = None
+
+  private var mapSideCombine: Boolean = false
+
+  /** Set a serializer for this RDD's shuffle, or null to use the default (spark.serializer) */
+  def setSerializer(serializer: Serializer): ShuffledRDD[K, V, C] = {
+    this.userSpecifiedSerializer = Option(serializer)
+    this
+  }
+
+  /** Set key ordering for RDD's shuffle. */
+  def setKeyOrdering(keyOrdering: Ordering[K]): ShuffledRDD[K, V, C] = {
+    this.keyOrdering = Option(keyOrdering)
+    this
+  }
+
+  /** Set aggregator for RDD's shuffle. */
+  def setAggregator(aggregator: Aggregator[K, V, C]): ShuffledRDD[K, V, C] = {
+    this.aggregator = Option(aggregator)
+    this
+  }
+
+  /** Set mapSideCombine flag for RDD's shuffle. */
+  def setMapSideCombine(mapSideCombine: Boolean): ShuffledRDD[K, V, C] = {
+    this.mapSideCombine = mapSideCombine
+    this
+  }
+
+  override def getDependencies: Seq[Dependency[_]] = {
+    val serializer = userSpecifiedSerializer.getOrElse {
+      val serializerManager = SparkEnv.get.serializerManager
+      if (mapSideCombine) {
+        serializerManager.getSerializer(implicitly[ClassTag[K]], implicitly[ClassTag[C]])
+      } else {
+        serializerManager.getSerializer(implicitly[ClassTag[K]], implicitly[ClassTag[V]])
+      }
+    }
+    List(new ShuffleDependency(prev, part, serializer, keyOrdering, aggregator, mapSideCombine))
+  }
+
+  override val partitioner = Some(part)
+
+  override def getPartitions: Array[Partition] = {
+    Array.tabulate[Partition](part.numPartitions)(i => new ShuffledRDDPartition(i))
+  }
+
+  override protected def getPreferredLocations(partition: Partition): Seq[String] = {
+    val tracker = SparkEnv.get.mapOutputTracker.asInstanceOf[MapOutputTrackerMaster]
+    val dep = dependencies.head.asInstanceOf[ShuffleDependency[K, V, C]]
+    tracker.getPreferredLocationsForShuffle(dep, partition.index)
+  }
+
+  override def compute(split: Partition, context: TaskContext): Iterator[(K, C)] = {
+    val dep = dependencies.head.asInstanceOf[ShuffleDependency[K, V, C]]
+    SparkEnv.get.shuffleManager.getReader(dep.shuffleHandle, split.index, split.index + 1, context)
+      .read()
+      .asInstanceOf[Iterator[(K, C)]]
+  }
+
+  override def clearDependencies() {
+    super.clearDependencies()
+    prev = null
+  }
+}
+```
+
+#### 常见的窄依赖
+
+**一对一窄依赖**
+
+其实 `RDD` 中默认的是 `OneToOneDependency`，例如 `rddB = rddA.map(…)`
+
+**Range 窄依赖**
+
+Range窄依赖其实也是一对一窄依赖,但是保留了中间的分隔信息,可以通过某个分区获取其父分区,目前只有一个算子生成这种窄依赖,就是union算子,例如rddC=rddA.union(rddB)
+
+![image](assets\bigdata-55.png)
+
+**多对一窄依赖**
+
+多对一窄依赖其图形和Shuffle依赖非常相似,所以在遇到的时候,要注意其RDD之间是否有Shuffle过程,比较容易让人困惑,常见的多对一依赖就是重分区算子coalesce,例如rddB=rddA.coalesce(2,shuffle=false),但同时也要注意,如果shuffle=true那就是完全不同的情况了
+
+![image](assets\bigdata-56.png)
+
+宽窄依赖的区别非常重要, 因为涉及了一件非常重要的事情: **如何计算 `RDD` ?**宽窄以来的核心区别是: **窄依赖的 `RDD` 可以放在一个 `Task` 中运行**
+
+### Task划分
+
+数据不存储和不交换，让数据流动起来，为数据创建管道(`Pipeline`)：
+
+![image](assets\bigdata-57.png)
+
+简单来说, 就是为所有的 `RDD` 有关联的分区使用同一个 `Task`，但是就没问题了吗? 请关注红框部分
+
+![image](assets\bigdata-58.png)
+
+这两个 `RDD` 之间是 `Shuffle` 关系, 也就是说, 右边的 `RDD` 的一个分区可能依赖左边 `RDD` 的所有分区, 这样的话, 数据在这个地方流不动了, 怎么办?那就可以在这个地方中断一下，进行`Stage`的划分
+
+### Stage划分
+
+在 `Shuffle` 处, 断开管道, 进行数据交换, 交换过后, 继续流动, 所以整个流程可以变为如下样子
+
+![image](assets\bigdata-59.png)
+
+把Task断开成两个部分,Task4可以从Task1,2,3中获取数据,后Task4又作为管道,继续让数据在其中流动,可以为这个断开增加一个概念叫做阶段,按照阶段断开,阶段的英文叫做Stage,如下
+
+![image](assets\bigdata-60.png)
+
+所以划分阶段的本身就是设置断开点的规则, 那么该如何划分阶段呢?
+
+1. 第一步, 从最后一个 `RDD`, 也就是逻辑图中最右边的 `RDD` 开始, 向前滑动 `Stage` 的范围, 为 `Stage0`
+2. 第二步, 遇到 `ShuffleDependency` 断开 `Stage`, 从下一个 `RDD` 开始创建新的 `Stage`, 为 `Stage1`
+3. 第三步, 新的 `Stage` 按照同样的规则继续滑动, 直到包裹所有的 `RDD`
+
+总结来看, 就是针对于宽窄依赖来判断, 一个 `Stage` 中只有窄依赖, 因为只有窄依赖才能形成数据的 `Pipeline`.如果要进行 `Shuffle` 的话, 数据是流不过去的, 必须要拷贝和拉取. 所以遇到 `RDD` 宽依赖的两个 `RDD` 时, 要切断这两个 `RDD` 的 `Stage`.
+
+### Job
+
+当一个RDD调用了Action算子的时候,在Action算子内部,会使用sc.runJob()调用SparkContext中的runJob方法,这个方法又会调用DAGScheduler中的runJob,后在DAGScheduler中使用消息驱动的形式创建Job.
+
+简而言之,Job在RDD调用Action算子的时候生成,而且调用一次Action算子,就会生成一个Job,如果一个SparkApplication中调用了多次Action算子,会生成多个Job串行执行,每个Job独立运作,被独立调度,所以RDD的计算也会被执行多次.
+
+如果要将Spark的程序调度到集群中运行,Job是粒度最大的单位,调度以Job为最大单位,将Job拆分为Stage和Task去调度分发和运行,一个Job就是一个Spark程序从读取→计算→运行的过程.
+
+一个SparkApplication可以包含多个Job,这些Job之间是串行的,也就是第二个Job需要等待第一个Job的执行结束后才会开始执行.
+
+### Job和Stage的关系
+
+Job是一个最大的调度单位,也就是说DAGScheduler会首先创建一个Job的相关信息,后去调度Job
+
+- 一个 `Stage` 就是物理执行计划中的一个步骤, 一个 `Spark Job` 就是划分到不同 `Stage` 的计算过程
+- `Stage` 之间的边界由 `Shuffle` 操作来确定
+  - `Stage` 内的 `RDD` 之间都是窄依赖, 可以放在一个管道中执行
+  - 而 `Shuffle` 后的 `Stage` 需要等待前面 `Stage` 的执行
+
+`Stage` 有两种
+
+- `ShuffMapStage`, 其中存放窄依赖的 `RDD`
+- `ResultStage`, 每个 `Job` 只有一个, 负责计算结果, 一个 `ResultStage` 执行完成标志着整个 `Job` 执行完毕
+
+### Stage和Task的关系
+
+- 一个 `Stage` 就是一组并行的 `Task` 集合
+- Task 是 Spark 中最小的独立执行单元, 其作用是处理一个 RDD 分区
+- 一个 Task 只可能存在于一个 Stage 中, 并且只能计算一个 RDD 的分区
+
+### TaskSet
+
+梳理一下这几个概念, `Job > Stage > Task`, `Job 中包含 Stage 中包含 Task`
+
+而 `Stage` 中经常会有一组 `Task` 需要同时执行, 所以针对于每一个 `Task` 来进行调度太过繁琐, 而且没有意义, 所以每个 `Stage` 中的 `Task` 们会被收集起来, 放入一个 `TaskSet` 集合中
+
+- 一个 `Stage` 有一个 `TaskSet`
+- `TaskSet` 中 `Task` 的个数由 `Stage` 中的最大分区数决定
 
 
 

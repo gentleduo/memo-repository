@@ -16533,11 +16533,214 @@ Job是一个最大的调度单位,也就是说DAGScheduler会首先创建一个J
 - 一个 `Stage` 有一个 `TaskSet`
 - `TaskSet` 中 `Task` 的个数由 `Stage` 中的最大分区数决定
 
+### 分布式共享变量
 
+#### 闭包
 
+闭包通常来讲可以简单的认为是可以访问一个函数里面局部变量的另外一个函数
 
+例如：
 
+```scala
+scala> var more = 1
+more: Int = 1
 
+scala> val addMore = (x: Int) => x + more
+addMore: Int => Int = <function1>
+
+scala> addMore(10)
+res0: Int = 11
+```
+
+运行时从这个函数字面量创建出来的函数值（对象）被称为闭包。该名称源于“捕获”其自由变量从而“闭合”该函数字面量的动作。没有自由变量的函数字面量，比如`(x: Int) => x + 1`，称为闭合语（这里的语指的是一段源代码）。因此，运行时从这个函数字面量创建出来的函数值严格来说并不是一个闭包，因为`(x: Int) => x + 1`按照目前这个写法已经是闭合的了。而运行时从任何带有自由变量的函数字面量，比如`(x: Int) => x + more`创建的函数，按照定义，要求捕获到它的自由变量more的绑定。相应的函数值结果（包含指向被捕获的more变量的引用）就被称为闭包，因为函数值是通过闭合这个开放语的动作产生的。
+
+如果more在闭包创建以后被改变，闭包能够看到这个改变，例如：
+
+```scala
+scala> var more = 1
+more: Int = 1
+
+scala> val addMore = (x: Int) => x + more
+addMore: Int => Int = <function1>
+
+scala> addMore(10)
+res0: Int = 11
+
+scala> more = 9999
+more: Int = 9999
+
+scala> addMore(10)
+res1: Int = 10009
+```
+
+Scala的闭包捕获的是变量本身，而不是变量引用的值。创建的闭包能够看到闭包外对more的修改。反过来也是成立的：闭包对捕获到的变量的修改也能在闭包外被看到
+
+```scala
+scala> val someNumbers = List(-11, -10, -5, 0, 5, 10)
+someNumbers: List[Int] = List(-11, -10, -5, 0, 5, 10)
+
+scala> var sum = 0
+sum: Int = 0
+
+scala> someNumbers.foreach(sum += _)
+
+scala> sum
+res3: Int = -11
+```
+
+sum这个变量位于函数字面量`sum += _`的外围作用域，这个函数将数字加给sum。虽然运行时是这个闭包对sum进行的修改，最终的结果-11仍然能被闭包外部看到。
+
+如果一个闭包访问了某个随着程序运行会产生多个副本的变量，那么闭包引用的实例是在闭包被创建时活跃的那一个，例如：
+
+```scala
+scala> def makeIncreaser(more: Int) = (x: Int) => x + more
+makeIncreaser: (more: Int)Int => Int
+
+// 该函数每调用一次，就会创建一个新的闭包。每个闭包都会访问那个在它创建时活跃的变量more
+// 当调用makeIncreaser(1)时，一个捕获了more的绑定值为1的闭包就被创建并返回。
+scala> val inc1 = makeIncreaser(1)
+inc1: Int => Int = <function1>
+
+// 同理，当调用makeIncreaser(9999)时，返回的是一个捕获了more的绑定值9999的闭包。
+scala> val inc9999 = makeIncreaser(9999)
+inc9999: Int => Int = <function1>
+
+// 当你将这些闭包应用到入参时，其返回结果取决于闭包创建时more的定义
+scala> inc1(10)
+res4: Int = 11
+
+scala> inc9999(10)
+res5: Int = 10009
+```
+
+#### 累加器
+
+问题：
+
+```scala
+var count = 0
+
+val config = new SparkConf().setAppName("ip_ana").setMaster("local[6]")
+val sc = new SparkContext(config)
+
+sc.parallelize(Seq(1, 2, 3, 4, 5))
+  .foreach(count += _)
+
+println(count)
+```
+
+先明确两件事, `var count = 0` 是在Driver中定义的, `foreach(count += _)` 这个算子以及传递进去的闭包运行在Executor中。这段代码整体想做的事情是累加一个变量, 但是这段代码的写法却做不到这件事, 原因也很简单, 因为具体的算子是闭包, 被分发给不同的节点运行, 所以这个闭包中累加的并不是Driver中的这个变量，而是会在各自节点中分别创建一个count进行叠加。
+
+**全局累加器**
+
+Accumulators(累加器) 是一个只支持 `added`(添加) 的分布式变量, 可以在分布式环境下保持一致性, 并且能够做到高效的并发.原生 Spark 支持数值型的累加器, 可以用于实现计数或者求和, 也可以使用自定义累加器以实现更高级的需求
+
+```scala
+val config = new SparkConf().setAppName("ip_ana").setMaster("local[6]")
+val sc = new SparkContext(config)
+
+val counter = sc.longAccumulator("counter")
+
+sc.parallelize(Seq(1, 2, 3, 4, 5))
+  .foreach(counter.add(_))
+
+// 运行结果: 15
+println(counter.value)
+```
+
+注意点:
+
+- Accumulator 是支持并发并行的, 在任何地方都可以通过 `add` 来修改数值, 无论是 Driver 还是 Executor
+- 累加器能保证在 Spark 任务出现问题被重启的时候不会出现重复计算
+- 加器只有在 Action 执行的时候才会被触发
+- 只能在 Driver 中才能调用 `value` 来获取数值
+
+在 WebUI 中关于 Job 部分也可以看到 Accumulator 的信息, 以及其运行的情况
+
+**自定义累加器**
+
+- 可以通过继承 `AccumulatorV2` 来创建新的累加器
+- 有几个方法需要重写
+  - reset 方法用于把累加器重置为 0
+  - add 方法用于把其它值添加到累加器中
+  - merge 方法用于指定如何合并其他的累加器
+- `value` 需要返回一个不可变的集合, 因为不能因为外部的修改而影响自身的值
+
+#### 广播变量
+
+广播变量允许开发者将一个 `Read-Only` 的变量缓存到集群中每个节点中, 而不是传递给每一个 Task 一个副本.
+
+- 集群中每个节点, 指的是一个机器
+- 每一个 Task, 一个 Task 是一个 Stage 中的最小处理单元, 一个 Executor 中可以有多个 Stage, 每个 Stage 有多个 Task
+
+所以在需要跨多个 Stage 的多个 Task 中使用相同数据的情况下, 广播特别的有用
+
+![image](assets\bigdata-61.png)
+
+**广播变量的API**
+
+| 方法名      | 描述                                   |
+| :---------- | :------------------------------------- |
+| `id`        | 唯一标识                               |
+| `value`     | 广播变量的值                           |
+| `unpersist` | 在 Executor 中异步的删除缓存副本       |
+| `destroy`   | 销毁所有此广播变量所关联的数据和元数据 |
+| `toString`  | 字符串表示                             |
+
+假设在某个算子中需要使用一个保存了项目和项目的网址关系的 `Map[String, String]` 静态集合, 如下
+
+```scala
+package org.duo.spark.rdd
+
+import org.apache.spark.{SparkConf, SparkContext}
+
+object BroadcastOp {
+
+  def main(args: Array[String]): Unit = {
+
+    // 1. 创建SparkContext
+    val conf = new SparkConf().setMaster("local[6]").setAppName("spark_context") //本地运行
+    val sc = new SparkContext(conf)
+
+    val pws = Map("Apache Spark" -> "http://spark.apache.org/", "Scala" -> "http://www.scala-lang.org/")
+    val websites = sc.parallelize(Seq("Apache Spark", "Scala")).map(pws(_)).collect
+
+    websites.foreach(println(_))
+    sc.stop();
+  }
+
+}
+```
+
+上面这段代码是没有问题的, 可以正常运行的, 但是非常的低效, 因为需要把`pws`发往每个 `Executor`, 如果想要优化这段代码, 则需要尽可能的降低网络开销.可以使用广播变量进行优化, 因为广播变量会缓存在集群中的机器中, 比 `Executor` 在逻辑上更 "大"
+
+```scala
+package org.duo.spark.rdd
+
+import org.apache.spark.{SparkConf, SparkContext}
+
+object BroadcastOp {
+
+  def main(args: Array[String]): Unit = {
+
+    // 1. 创建SparkContext
+    val conf = new SparkConf().setMaster("local[6]").setAppName("spark_context") //本地运行
+    val sc = new SparkContext(conf)
+
+    val pws = Map("Apache Spark" -> "http://spark.apache.org/", "Scala" -> "http://www.scala-lang.org/")
+    val pwsB = sc.broadcast(pws)
+    val websites = sc.parallelize(Seq("Apache Spark", "Scala")).map(pwsB.value(_)).collect
+
+    websites.foreach(println(_))
+    pwsB.unpersist()
+    pwsB.destroy()
+    sc.stop();
+  }
+
+}
+```
+
+上面两段代码所做的事情其实是一样的, 但是当需要运行多个 `Executor` (以及多个 `Task`) 的时候, 后者的效率更高
 
 # Flink
 

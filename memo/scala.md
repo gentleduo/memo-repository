@@ -995,8 +995,6 @@ res52: List[Int] = List(1, 2, 3, 4, 5, 6)
 
 #### 获取列表的首个元素和剩余部分
 
-
-
 ```scala
 scala> val a = List(1,2,3)
 a: List[Int] = List(1, 2, 3)
@@ -3257,7 +3255,7 @@ scala中的模式匹配，还能用来匹配集合。
   ```scala
   Array(1,x,y)   // 以1开头，后续的两个元素不固定
   Array(0)	   // 只匹配一个0元素的元素
-  Array(0, ...)  // 可以任意数量，但是以0开头
+  Array(0, _*)  // 可以任意数量，但是以0开头
   ```
 
 * 使用模式匹配上述数组
@@ -3387,8 +3385,7 @@ println(x, y)
 scala中，Option类型来表示可选值。这种类型的数据有两种形式：
 
 - Some(x)：表示实际的值
-- None：表示没有值
-- 使用getOrElse方法，当值为None是可以指定一个默认值
+- None：表示没有值；使用getOrElse方法，当值为None是可以指定一个默认值
 
 示例一
 
@@ -3692,7 +3689,7 @@ def main(args: Array[String]): Unit = {
 
 # 提取器
 
-通过模式匹配，可以快速匹配样例类中的成员变量，但不是所有的类都可以进行这样的模式匹配，要支持模式匹配，必须要实现一个提取：样例类自动实现了apply、unapply方法。
+通过模式匹配，可以快速匹配样例类中的成员变量，但不是所有的类都可以进行这样的模式匹配，普通类要支持模式匹配，必须要实现一个提取（样例类自动实现了apply、unapply方法）：
 
 实现一个类的伴生对象中的apply方法，可以用类名来快速构建一个对象。伴生对象中，还有一个unapply方法。与apply相反，unapply是将该类的对象，拆解为一个个的元素。
 
@@ -4524,6 +4521,80 @@ object _04FuncDemo {
     println(add(1))
   }
 }
+```
+
+例如：
+
+```scala
+scala> var more = 1
+more: Int = 1
+
+scala> val addMore = (x: Int) => x + more
+addMore: Int => Int = <function1>
+
+scala> addMore(10)
+res0: Int = 11
+```
+
+运行时从这个函数字面量创建出来的函数值（对象）被称为闭包。该名称源于“捕获”其自由变量从而“闭合”该函数字面量的动作。没有自由变量的函数字面量，比如`(x: Int) => x + 1`，称为闭合语（这里的语指的是一段源代码）。因此，运行时从这个函数字面量创建出来的函数值严格来说并不是一个闭包，因为`(x: Int) => x + 1`按照目前这个写法已经是闭合的了。而运行时从任何带有自由变量的函数字面量，比如`(x: Int) => x + more`创建的函数，按照定义，要求捕获到它的自由变量more的绑定。相应的函数值结果（包含指向被捕获的more变量的引用）就被称为闭包，因为函数值是通过闭合这个开放语的动作产生的。
+
+如果more在闭包创建以后被改变，闭包能够看到这个改变，例如：
+
+```scala
+scala> var more = 1
+more: Int = 1
+
+scala> val addMore = (x: Int) => x + more
+addMore: Int => Int = <function1>
+
+scala> addMore(10)
+res0: Int = 11
+
+scala> more = 9999
+more: Int = 9999
+
+scala> addMore(10)
+res1: Int = 10009
+```
+
+Scala的闭包捕获的是变量本身，而不是变量引用的值。创建的闭包能够看到闭包外对more的修改。反过来也是成立的：闭包对捕获到的变量的修改也能在闭包外被看到
+
+```scala
+scala> val someNumbers = List(-11, -10, -5, 0, 5, 10)
+someNumbers: List[Int] = List(-11, -10, -5, 0, 5, 10)
+
+scala> var sum = 0
+sum: Int = 0
+
+scala> someNumbers.foreach(sum += _)
+
+scala> sum
+res3: Int = -11
+```
+
+sum这个变量位于函数字面量`sum += _`的外围作用域，这个函数将数字加给sum。虽然运行时是这个闭包对sum进行的修改，最终的结果-11仍然能被闭包外部看到。
+
+如果一个闭包访问了某个随着程序运行会产生多个副本的变量，那么闭包引用的实例是在闭包被创建时活跃的那一个，例如：
+
+```scala
+scala> def makeIncreaser(more: Int) = (x: Int) => x + more
+makeIncreaser: (more: Int)Int => Int
+
+// 该函数每调用一次，就会创建一个新的闭包。每个闭包都会访问那个在它创建时活跃的变量more
+// 当调用makeIncreaser(1)时，一个捕获了more的绑定值为1的闭包就被创建并返回。
+scala> val inc1 = makeIncreaser(1)
+inc1: Int => Int = <function1>
+
+// 同理，当调用makeIncreaser(9999)时，返回的是一个捕获了more的绑定值9999的闭包。
+scala> val inc9999 = makeIncreaser(9999)
+inc9999: Int => Int = <function1>
+
+// 当你将这些闭包应用到入参时，其返回结果取决于闭包创建时more的定义
+scala> inc1(10)
+res4: Int = 11
+
+scala> inc9999(10)
+res5: Int = 10009
 ```
 
 ## 隐式转换和隐式参数

@@ -16742,6 +16742,374 @@ object BroadcastOp {
 
 上面两段代码所做的事情其实是一样的, 但是当需要运行多个 `Executor` (以及多个 `Task`) 的时候, 后者的效率更高
 
+## Spark SQL
+
+### 定义
+
+#### 出现契机
+
+数据分析的方式大致上可以划分为命令式和 `SQL` 两种
+
+命令式：
+
+```scala
+def rddIntro(): Unit = {
+    val conf = new SparkConf().setMaster("local[6]").setAppName("rdd intro")
+    val sc = new SparkContext(conf)
+
+    sc.textFile("dataset/wordcount.txt")
+    .flatMap( _.split(" ") )
+    .map( (_, 1) )
+    .reduceByKey( _ + _ )
+    .collect()
+    .foreach( println(_) )
+}
+```
+
+命令式的优点
+
+- 操作粒度更细, 能够控制数据的每一个处理环节
+- 操作更明确, 步骤更清晰, 容易维护
+- 支持非结构化数据的操作
+
+命令式的缺点
+
+- 需要一定的代码功底
+- 写起来比较麻烦
+
+SQL式：
+
+```scala
+@Test
+def dfIntro(): Unit = {
+    val spark = new SparkSession.Builder()
+    .appName("ds intro")
+    .master("local[6]")
+    .getOrCreate()
+
+    import spark.implicits._
+
+    val sourceRDD = spark.sparkContext.parallelize(Seq(Person("zhangsan", 10), Person("lisi", 15)))
+
+    val df = sourceRDD.toDF()
+    df.createOrReplaceTempView("person")
+
+    val resultDF = spark.sql("select name from person where age > 10 and age < 20")
+
+    resultDF.show()
+}
+```
+
+SQL 的优点
+
+- 表达非常清晰, 比如说这段 `SQL` 明显就是为了查一个字段, 又比如说这段 `SQL` 明显能看到是想查询年龄在10 岁到20岁之间的条目
+
+SQL 的缺点
+
+- 想想一下 3 层嵌套的 `SQL`, 维护起来应该挺力不从心的吧
+- 试想一下, 如果使用 `SQL` 来实现机器学习算法, 也挺为难的吧
+
+SQL擅长数据分析和通过简单的语法表示查询,命令式操作适合过程式处理和算法性的处理.在Spark出现之前,对于结构化数据的查询和处理,一个工具一向只能支持SQL或者命令式,使用者被迫要使用多个工具来适应两种场景,并且多个工具配合起来比较费劲.而Spark出现了以后,统一了两种数据处理范式,是一种革新性的进步.
+
+SparkSQL
+
+解决的问题
+
+- `Spark SQL` 使用 `Hive` 解析 `SQL` 生成 `AST` 语法树, 将其后的逻辑计划生成, 优化, 物理计划都自己完成, 而不依赖 `Hive`
+- 执行计划和优化交给优化器 `Catalyst`
+- 内建了一套简单的 `SQL` 解析器, 可以不使用 `HQL`, 此外, 还引入和 `DataFrame` 这样的 `DSL API`, 完全可以不依赖任何 `Hive` 的组件
+- `Shark` 只能查询文件, `Spark SQL` 可以直接降查询作用于 `RDD`, 这一点是一个大进步
+
+新的问题
+
+对于初期版本的 `SparkSQL`, 依然有挺多问题, 例如只能支持 `SQL` 的使用, 不能很好的兼容命令式, 入口不够统一等
+
+Dataset
+
+SparkSQL在2.0时代,增加了一个新的API,叫做Dataset,Dataset统一和结合了SQL的访问和命令式API的使用,这是一个划时代的进步在Dataset中可以轻易的做到使用SQL查询并且筛选数据,然后使用命令式API进行探索式分析
+
+![image](assets\bigdata-62.png)
+
+SparkSQL不只是一个SQL引擎,SparkSQL也包含了一套对结构化数据的命令式API,事实上,所有Spark中常见的工具,都是依赖和依照于SparkSQL的API设计的
+
+*总结*
+
+SparkSQL是一个为了支持SQL而设计的工具,但同时也支持命令式的API
+
+#### 适用场景
+
+| 定义             | 特点                            | 举例                                                |                                     |
+| :--------------- | :------------------------------ | :-------------------------------------------------- | ----------------------------------- |
+| **结构化数据**   | 有固定的 `Schema`               | 有预定义的 `Schema`                                 | 关系型数据库的表                    |
+| **半结构化数据** | 没有固定的 `Schema`, 但是有结构 | 没有固定的 `Schema`, 有结构信息, 数据一般是自描述的 | 指一些有结构的文件格式, 例如 `JSON` |
+| **非结构化数据** | 没有固定 `Schema`, 也没有结构   | 没有固定 `Schema`, 也没有结构                       | 指文档图片之类的格式                |
+
+**结构化数据**
+
+一般指数据有固定的 `Schema`, 例如在用户表中, `name` 字段是 `String` 型, 那么每一条数据的 `name` 字段值都可以当作 `String` 来使用
+
+**半结构化数据**
+
+一般指的是数据没有固定的 `Schema`, 但是数据本身是有结构的
+
+1. 没有固定 `Schema`
+   1. 指的是半结构化数据是没有固定的 `Schema` 的, 可以理解为没有显式指定 `Schema`
+   2. 比如说一个用户信息的 `JSON` 文件, 第一条数据的 `phone_num` 有可能是 `String`, 第二条数据虽说应该也是 `String`, 但是如果硬要指定为 `BigInt`, 也是有可能的
+   3. 因为没有指定 `Schema`, 没有显式的强制的约束
+2. 有结构
+   1. 虽说半结构化数据是没有显式指定 `Schema` 的, 也没有约束, 但是半结构化数据本身是有有隐式的结构的, 也就是数据自身可以描述自身
+   2. 例如 `JSON` 文件, 其中的某一条数据是有字段这个概念的, 每个字段也有类型的概念, 所以说 `JSON` 是可以描述自身的, 也就是数据本身携带有元信息
+
+`SparkSQL` 处理什么数据的问题?
+
+- `Spark` 的 `RDD` 主要用于处理 非结构化数据 和 半结构化数据
+- `SparkSQL` 主要用于处理结构化数据
+
+`SparkSQL` 相较于 `RDD` 的优势在哪?
+
+- `SparkSQL` 提供了更好的外部数据源读写支持
+  - 因为大部分外部数据源是有结构化的, 需要在 `RDD` 之外有一个新的解决方案, 来整合这些结构化数据源
+- `SparkSQL` 提供了直接访问列的能力
+  - 因为 `SparkSQL` 主要用做于处理结构化数据, 所以其提供的 `API` 具有一些普通数据库的能力
+
+*总结*
+
+- `SparkSQL` 是一个即支持 `SQL` 又支持命令式数据处理的工具
+- `SparkSQL` 的主要适用场景是处理结构化数据
+
+#### 示例
+
+Dataset
+
+```scala
+@Test
+def dsIntro(): Unit = {
+    val spark = new SparkSession.Builder()
+    .appName("ds intro")
+    .master("local[6]")
+    .getOrCreate()
+
+    import spark.implicits._
+
+    val sourceRDD: RDD[Person] = spark.sparkContext.parallelize(Seq(Person("zhangsan", 10), Person("lisi", 15)))
+
+    val personDS: Dataset[Person] = sourceRDD.toDS()
+
+    val resultDS = personDS.where('age > 10)
+    .where('age < 20)
+    .select('name)
+    .as[String]
+
+    resultDS.show()
+}
+```
+
+DataFrame
+
+以往使用 `SQL` 肯定是要有一个表的, 在 `Spark` 中, 并不存在表的概念, 但是有一个近似的概念, 叫做 `DataFrame`, 所以一般情况下要先通过 `DataFrame` 或者 `Dataset` 注册一张临时表, 然后使用 `SQL` 操作这张临时表
+
+```scala
+@Test
+def dfIntro(): Unit = {
+    val spark = new SparkSession.Builder()
+    .appName("ds intro")
+    .master("local[6]")
+    .getOrCreate()
+
+    import spark.implicits._
+
+    val sourceRDD: RDD[Person] = spark.sparkContext.parallelize(Seq(Person("zhangsan", 10), Person("lisi", 15)))
+
+    val df: DataFrame = sourceRDD.toDF()
+    df.createOrReplaceTempView("person")
+
+    val resultDF = spark.sql("select name from person where age > 10 and age < 20")
+
+    resultDF.show()
+}
+```
+
+- SparkSQL 中有一个新的入口点, 叫做 SparkSession
+- SparkSQL 中有一个新的类型叫做 Dataset
+- SparkSQL 有能力直接通过字段名访问数据集, 说明 SparkSQL 的 API 中是携带 Schema 信息的
+
+#### SparkSession
+
+`SparkContext` 作为 `RDD` 的创建者和入口, 其主要作用有如下两点
+
+- 创建 `RDD`, 主要是通过读取文件创建 `RDD`
+- 监控和调度任务, 包含了一系列组件, 例如 `DAGScheduler`, `TaskSheduler`
+
+为什么无法使用 `SparkContext` 作为 `SparkSQL` 的入口?
+
+- `SparkContext` 在读取文件的时候, 是不包含 `Schema` 信息的, 因为读取出来的是 `RDD`
+- `SparkContext` 在整合数据源如 `Cassandra`, `JSON`, `Parquet` 等的时候是不灵活的, 而 `DataFrame` 和 `Dataset` 一开始的设计目标就是要支持更多的数据源
+- `SparkContext` 的调度方式是直接调度 `RDD`, 但是一般情况下针对结构化数据的访问, 会先通过优化器优化一下
+
+所以`SparkContext`确实已经不适合作为`SparkSQL`的入口,所以刚开始的时候`Spark`团队为`SparkSQL`设计了两个入口点,一个是`SQLContext`对应`Spark`标准的`SQL`执行,另外一个是`HiveContext`对应`HiveSQL`的执行和`Hive`的支持.在`Spark2.0`的时候,为了解决入口点不统一的问题,创建了一个新的入口点`SparkSession`,作为整个`Spark`生态工具的统一入口点,包括了`SQLContext`,`HiveContext`,`SparkContext`等组件的功能
+
+*总结*
+
+`SparkSQL`提供了`SQL`和命令式`API`两种不同的访问结构化数据的形式,并且它们之间可以无缝的衔接,命令式`API`由一个叫做`Dataset`的组件提供,其还有一个变形,叫做`DataFrame`
+
+#### Catalyst
+
+`RDD` **的运行流程**
+
+![image](assets\bigdata-63.png)
+
+大致运行步骤
+
+先将 `RDD` 解析为由 `Stage` 组成的 `DAG`, 后将 `Stage` 转为 `Task` 直接运行
+
+问题
+
+任务会按照代码所示运行, 依赖开发者的优化, 开发者的会在很大程度上影响运行效率
+
+解决办法
+
+创建一个组件, 帮助开发者修改和优化代码, 但是这在 `RDD` 上是无法实现的
+
+为什么 `RDD` 无法自我优化?
+
+- `RDD` 没有 `Schema` 信息
+- `RDD` 可以同时处理结构化和非结构化的数据
+
+`SparkSQL` **提供了什么?**
+
+![image](assets\bigdata-64.png)
+
+和 `RDD` 不同, `SparkSQL` 的 `Dataset` 和 `SQL` 并不是直接生成计划交给集群执行, 而是经过了一个叫做 `Catalyst` 的优化器, 这个优化器能够自动帮助开发者优化代码.也就是说, 在 `SparkSQL` 中, 开发者的代码即使不够优化, 也会被优化为相对较好的形式去执行
+
+优化流程：
+
+**Step 1 : 解析** `SQL`**, 并且生成** `AST` **(抽象语法树)**
+
+![image](assets\bigdata-65.png)
+
+**Step 2 : 在** `AST` **中加入元数据信息, 做这一步主要是为了一些优化, 例如** `col = col` **这样的条件, 下图是一个简略图, 便于理解**
+
+![image](assets\bigdata-66.png)
+
+- `score.id → id#1#L` 为 `score.id` 生成 `id` 为 1, 类型是 `Long`
+- `score.math_score → math_score#2#L` 为 `score.math_score` 生成 `id` 为 2, 类型为 `Long`
+- `people.id → id#3#L` 为 `people.id` 生成 `id` 为 3, 类型为 `Long`
+- `people.age → age#4#L` 为 `people.age` 生成 `id` 为 4, 类型为 `Long`
+
+**Step 3 : 对已经加入元数据的** `AST`**, 输入优化器, 进行优化, 从两种常见的优化开始, 简单介绍**
+
+![image](assets\bigdata-67.png)
+
+- 谓词下推 `Predicate Pushdown`, 将 `Filter` 这种可以减小数据集的操作下推, 放在 `Scan` 的位置, 这样可以减少操作时候的数据量
+
+![image](assets\bigdata-68.png)
+
+- 列值裁剪 `Column Pruning`, 在谓词下推后, `people` 表之上的操作只用到了 `id` 列, 所以可以把其它列裁剪掉, 这样可以减少处理的数据量, 从而优化处理速度
+
+- 还有其余很多优化点, 大概一共有一二百种, 随着 `SparkSQL` 的发展, 还会越来越多, 感兴趣的同学可以继续通过源码了解, 源码在 `org.apache.spark.sql.catalyst.optimizer.Optimizer`
+
+**Step 4 : 上面的过程生成的** `AST` **其实最终还没办法直接运行, 这个** `AST` **叫做** `逻辑计划`**, 结束后, 需要生成** `物理计划`**, 从而生成** `RDD` **来运行**
+
+- 在生成`物理计划`的时候, 会经过`成本模型`对整棵树再次执行优化, 选择一个更好的计划
+- 在生成`物理计划`以后, 因为考虑到性能, 所以会使用代码生成, 在机器中运行
+
+**可以使用** `queryExecution` **方法查看逻辑执行计划, 使用** `explain` **方法查看物理执行计划**
+
+![image](assets\bigdata-69.png)
+
+![image](assets\bigdata-70.png)
+
+**也可以使用** `Spark WebUI` **进行查看**
+
+![image](assets\bigdata-71.png)
+
+*总结*
+
+SparkSQL和RDD不同的主要点是在于其所操作的数据是结构化的,提供了对数据更强的感知和分析能力,能够对代码进行更深层的优化,而这种能力是由一个叫做Catalyst的优化器所提供的
+
+Catalyst的主要运作原理是分为三步,先对SQL或者Dataset的代码解析,生成逻辑计划,后对逻辑计划进行优化,再生成物理计划,最后生成代码到集群中以RDD的形式运行
+
+#### Dataset 
+
+Dataset是一个强类型,并且类型安全的数据容器,并且提供了结构化查询API和类似RDD一样的命令式API
+
+```scala
+  @Test
+  def dataset1(): Unit = {
+    // 1. 创建 SparkSession
+    val spark = new sql.SparkSession.Builder()
+      .master("local[6]")
+      .appName("dataset1")
+      .getOrCreate()
+
+    // 2. 导入隐式转换
+    import spark.implicits._
+
+    // 3. 演示
+    val sourceRDD = spark.sparkContext.parallelize(Seq(Person("zhangsan", 10), Person("lisi", 15)))
+    val dataset = sourceRDD.toDS()
+
+    // Dataset 支持强类型的 API
+    dataset.filter(item => item.age > 10).show()
+    // Dataset 支持弱类型 API
+    dataset.filter('age > 10).show()
+    dataset.filter($"age" > 10).show()
+    // Dataset 可以直接编写 SQL 表达式
+    dataset.filter("age > 10").show()
+  }
+
+```
+
+即使使用Dataset的命令式API,执行计划也依然会被优化
+
+```scala
+  @Test
+  def dataset3(): Unit = {
+    // 1. 创建 SparkSession
+    val spark = new sql.SparkSession.Builder()
+      .master("local[6]")
+      .appName("dataset1")
+      .getOrCreate()
+
+    // 2. 导入隐式转换
+    import spark.implicits._
+
+    // 3. 演示
+    //    val sourceRDD = spark.sparkContext.parallelize(Seq(Person("zhangsan", 10), Person("lisi", 15)))
+    //    val dataset = sourceRDD.toDS()
+    val dataset: Dataset[Person] = spark.createDataset(Seq(Person("zhangsan", 10), Person("lisi", 15)))
+    // 即使使用 Dataset 的命令式 API, 执行计划也依然会被优化
+    dataset.explain(true)
+    // 无论Dataset中放置的是什么类型的对象, 最终执行计划中的RDD上都是 InternalRow
+    // 直接获取到已经分析和解析过的 Dataset 的执行计划, 从中拿到 RDD
+    val executionRdd: RDD[InternalRow] = dataset.queryExecution.toRdd
+
+    // 通过将 Dataset 底层的 RDD[InternalRow] 通过 Decoder 转成了和 Dataset 一样的类型的 RDD
+    val typedRdd: RDD[Person] = dataset.rdd
+
+    println(executionRdd.toDebugString)
+    println()
+    println()
+    println(typedRdd.toDebugString)
+    // 可以看到 (2) 对比 (1) 对了两个步骤, 这两个步骤的本质就是将 Dataset 底层的 InternalRow 转为 RDD 中的对象形式, 
+    // 这个操作还是会有点重的, 所以慎重使用 rdd 属性来转换 Dataset 为 RDD
+  }
+```
+
+Dataset 的底层是什么?
+
+Dataset最底层处理的是对象的序列化形式,通过查看Dataset生成的物理执行计划,也就是最终所处理的RDD,就可以判定Dataset底层处理的是什么形式的数据
+
+dataset.queryExecution.toRdd这个API可以看到Dataset底层执行的RDD,这个RDD中的范型是InternalRow,InternalRow又称之为CatalystRow,是Dataset底层的数据结构,也就是说,无论Dataset的范型是什么,无论是Dataset[Person]还是其它的,其最底层进行处理的数据结构都是InternalRow
+
+所以,Dataset的范型对象在执行之前,需要通过Encoder转换为InternalRow,在输出之前,需要把InternalRow通过Decoder转换为范型对象
+
+*总结*
+
+1. `Dataset` 是一个新的 `Spark` 组件, 其底层还是 `RDD`
+2. `Dataset` 提供了访问对象中某个特定字段的能力, 不用像 `RDD` 一样每次都要针对整个对象做操作
+3. `Dataset` 和 `RDD` 不同, 如果想把 `Dataset[T]` 转为 `RDD[T]`, 则需要对 `Dataset` 底层的 `InternalRow` 做转换, 是一个比价重量级的操作
+
 # Flink
 
 ## 介绍

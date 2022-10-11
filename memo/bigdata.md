@@ -3832,7 +3832,7 @@ col_name data_type [comment '字段描述信息'])
 
 ##### external
 
-可以让用户创建一个外部表，在建表的同时指定一个指向实际数据的路径 （LOCATION），Hive 创建内部表时，会将数据移动到数据仓库指向的路径；若创建外部 表，仅记录数据所在的路径，不对数据的位置做任何改变。在删除表的时候，内部表的 元数据和数据会被一起删除，而外部表只删除元数据，不删除数据。
+当指定为external table的时候，相当于创建的是外部表，在删除表的时候只会删除元数据，不删除实际的数据。而如果不加external则表示创建的是内部表，在删除表的时候，元数据和数据会被一起删除。
 
 ##### comment
 
@@ -3873,7 +3873,7 @@ col_name data_type [comment '字段描述信息'])
            // 由于将字符6赋值给b，所以此时的b代表的就是字符6，而不是ascii码6代表的字符
            char b = '6';
            System.out.println(b);
-           // 将数值大于9的数赋值给字符会报错
+           // 将数值大于9的数赋值给字符会报错，因为char类型的变量只能存储单字节字符，'64'包含两个字节，所以char无法存储
            //char c = '64';
            // 将数值大于9的数赋值转义后赋值给字符，相当于将八进制的ascii码赋值给字符，此时的64表示的是八进制为64的ascii码代表的字符
            // 由于此时转义符后面只能跟八进制，所以 c = '\18', c = '\91'都是非法的(八进制中不存在8，和9的数字)
@@ -3895,7 +3895,7 @@ col_name data_type [comment '字段描述信息'])
 
 ##### location
 
-指定表文件的存储路径
+单独指定表文件的存储路径。如果指定了location相当于该表数据将保存在该目录下，如果不指定则会在hive-site.xml中设置的hive.metastore.warehouse.dir目录下创建一个目录保存表文件
 
 ####  内部表的操作
 
@@ -4527,8 +4527,8 @@ FROM table_reference
 ```
 
 1. order by 会对输入做全局排序，因此只有一个reducer，会导致当输入规模较大时，需要较长的计算时间。
-2. sort by不是全局排序，其在数据进入reducer前完成排序。因此，如果用sort by进行排序，并且设置mapred.reduce.tasks>1，则sort by只保证每个reducer的输出有序，不保证全局有序。
-3. distribute by(字段)根据指定的字段将数据分到不同的reducer（即：分区），且分发算法是hash散列。
+2. sort by不是全局排序，其实是会在每个reduce中对数据进行排序，也就是执行一个局部排序过程。因此，如果用sort by进行排序，并且设置mapred.reduce.tasks>1，可以保证每个reduce的输出数据都是有序的，不保证全局有序。
+3. distribute by(字段)根据指定的字段将数据分到不同的reducer（即：分区），且分发算法是hash散列。例如：如果想让同一年的数据一起处理，那么就可以使用distribute by来保证具有相同年份的数据分发到同一个reducer中进行处理，然后使用sort by来按照期望对数据进行排序。
 4. cluster by(字段) 除了具有distribute by的功能外，还会对该字段进行排序。
 
 因此，如果distribute 和sort字段是同一个时，此时， cluster by = distribute by + sort by
@@ -15530,7 +15530,7 @@ object WordCount {
 [root@server01 spark-2.2.0-bin-hadoop2.7]# bin/spark-shell --master local[6]
 ```
 
-Master 的地址可以有如下几种设置方式
+Master 的地址可以有如下几种设置方式7
 
 | 地址                | 解释                                                         |
 | :------------------ | :----------------------------------------------------------- |
@@ -17109,6 +17109,839 @@ dataset.queryExecution.toRdd这个API可以看到Dataset底层执行的RDD,这�
 1. `Dataset` 是一个新的 `Spark` 组件, 其底层还是 `RDD`
 2. `Dataset` 提供了访问对象中某个特定字段的能力, 不用像 `RDD` 一样每次都要针对整个对象做操作
 3. `Dataset` 和 `RDD` 不同, 如果想把 `Dataset[T]` 转为 `RDD[T]`, 则需要对 `Dataset` 底层的 `InternalRow` 做转换, 是一个比价重量级的操作
+
+#### DataFrame
+
+DataFrame是SparkSQL中一个表示关系型数据库中表的函数式抽象,其作用是让Spark处理大规模结构化数据的时候更加容易.一般DataFrame可以处理结构化的数据,或者是半结构化的数据,因为这两类数据中都可以获取到Schema信息.也就是说DataFrame中有Schema信息,可以像操作表一样操作DataFrame.DataFrame支持SQL中常见的操作,例如:select,filter,join,group,sort,join等
+
+DataFrame的创建方式
+
+```scala
+@Test
+def dataframe2(): Unit = {
+    val spark = SparkSession.builder()
+    .appName("dataframe1")
+    .master("local[6]")
+    .getOrCreate()
+
+    
+    // 必须要导入隐式转换，注意: spark在此处不是包, 而是SparkSession对象
+    import spark.implicits._
+
+    val personList = Seq(Person("zhangsan", 15), Person("lisi", 20))
+
+    // 通过隐式转换创建DataFrame，这种方式本质上是使用SparkSession中的隐式转换来进行的
+    // 1. toDF
+    val df1 = personList.toDF()
+    val df2 = spark.sparkContext.parallelize(personList).toDF()
+    // 通过集合创建 DataFrame 的时候, 集合中不仅可以包含样例类, 也可以只有普通数据类型, 后通过指定列名来创建
+    val df3: DataFrame = Seq("nihao", "hello").toDF("text")
+    df3.show()
+    val df4: DataFrame = Seq(("a", 1), ("b", 1)).toDF("word", "count")
+	df4.show()
+
+    // 2. createDataFrame 调用createDataFrame方法创建DataFrame
+    val df5 = spark.createDataFrame(personList)
+
+    // 3. read 通过外部集合创建DataFrame
+    val df6 = spark.read.option("header", true).csv("D:\intellij-workspace\bigdata\spark\data\BeijingPM20100101_20151231.csv")
+    df6.show()
+    df6.printSchema()
+}
+```
+
+使用SQL操作 DataFrame
+
+```scala
+@Test
+def dataframe3(): Unit = {
+    // 1. 创建 SparkSession
+    val spark = SparkSession.builder()
+    .master("local[6]")
+    .appName("pm analysis")
+    .getOrCreate()
+
+    import spark.implicits._
+
+    // 2. 读取数据集
+    val sourceDF: DataFrame = spark.read
+    .option("header", value = true)
+    .csv("D:\\intellij-workspace\\bigdata\\spark\\data\\BeijingPM20100101_20151231.csv")
+
+    // 查看 DataFrame 的 Schema 信息, 要意识到 DataFrame 中是有结构信息的, 叫做 Schema
+    sourceDF.printSchema()
+
+    // 3. 处理
+    //     1. 选择列
+    //     2. 过滤掉 NA 的 PM 记录
+    //     3. 分组 select year, month, count(PM_Dongsi) from ... where PM_Dongsi != NA group by year, month
+    //     4. 聚合
+    // 4. 得出结论
+    //    sourceDF.select('year, 'month, 'PM_Dongsi)
+    //      .where('PM_Dongsi =!= "NA")
+    //      .groupBy('year, 'month)
+    //      .count()
+    //      .show()
+
+    // 1. 使用SQL来操作某个DataFrame的话,SQL中必须要有一个from子句, 所以需要先将DataFrame注册为一张临时表
+    sourceDF.createOrReplaceTempView("pm")
+
+    // 2. 执行查询
+    val resultDF = spark.sql("select year, month, count(PM_Dongsi) from pm where PM_Dongsi != 'NA' group by year, month")
+
+    resultDF.show()
+
+    spark.stop()
+}
+```
+
+*总结*
+
+1. `DataFrame` 是一个类似于关系型数据库表的函数式组件
+2. `DataFrame` 一般处理结构化数据和半结构化数据
+3. `DataFrame` 具有数据对象的 Schema 信息
+4. 可以使用命令式的 `API` 操作 `DataFrame`, 同时也可以使用 `SQL` 操作 `DataFrame`
+5. `DataFrame` 可以由一个已经存在的集合直接创建, 也可以读取外部的数据源来创建
+
+#### Dataset和DataFrame的异同
+
+`DataFrame` 是 `Dataset` 的一种特殊情况, 也就是说 `DataFrame` 是 `Dataset[Row]` 的别名
+
+```scala
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package org.apache.spark
+
+import org.apache.spark.annotation.{DeveloperApi, InterfaceStability}
+import org.apache.spark.sql.execution.SparkStrategy
+
+/**
+ * Allows the execution of relational queries, including those expressed in SQL using Spark.
+ *
+ *  @groupname dataType Data types
+ *  @groupdesc Spark SQL data types.
+ *  @groupprio dataType -3
+ *  @groupname field Field
+ *  @groupprio field -2
+ *  @groupname row Row
+ *  @groupprio row -1
+ */
+package object sql {
+
+  /**
+   * Converts a logical plan into zero or more SparkPlans.  This API is exposed for experimenting
+   * with the query planner and is not designed to be stable across spark releases.  Developers
+   * writing libraries should instead consider using the stable APIs provided in
+   * [[org.apache.spark.sql.sources]]
+   */
+  @DeveloperApi
+  @InterfaceStability.Unstable
+  type Strategy = SparkStrategy
+
+  type DataFrame = Dataset[Row]
+}
+```
+
+`DataFrame` 和 `Dataset` 所表达的语义不同
+
+第一点: `DataFrame` 表达的含义是一个支持函数式操作的 `表`, 而 `Dataset` 表达是是一个类似 `RDD` 的东西, `Dataset` 可以处理任何对象
+
+第二点: `DataFrame` 中所存放的是 `Row` 对象, 而 `Dataset` 中可以存放任何类型的对象
+
+第三点: `DataFrame` 的操作方式和 `Dataset` 是一样的, 但是对于强类型操作而言, 它们处理的类型不同
+
+第四点: `DataFrame` 只能做到运行时类型检查, `Dataset` 能做到编译和运行时都有类型检查
+
+```scala
+@Test
+def dataframe4(): Unit = {
+    val spark = SparkSession.builder()
+    .appName("dataframe1")
+    .master("local[6]")
+    .getOrCreate()
+
+    import spark.implicits._
+
+    val personList = Seq(Person("zhangsan", 15), Person("lisi", 20))
+
+    // DataFrame 是弱类型的
+    val df: DataFrame = personList.toDF()
+    df.map((row: Row) => Row(row.get(0), row.getAs[Int](1) * 2))(RowEncoder.apply(df.schema))
+    .show()
+
+    // DataFrame 所代表的弱类型操作是编译时不安全
+    //    df.groupBy("name, school")
+
+    // Dataset 是强类型的
+    val ds: Dataset[Person] = personList.toDS()
+    ds.map((person: Person) => Person(person.name, person.age * 2))
+    .show()
+
+    // Dataset 所代表的操作, 是类型安全的, 编译时安全的
+    //    ds.filter( person => person.school )
+}
+```
+
+Row
+
+```scala
+@Test
+def row(): Unit = {
+    // 1. Row 如何创建, 它是什么
+    // row 对象必须配合 Schema 对象才会有 列名
+    val row = Row("zhangsan", 15)
+    row.schema
+    // 2. 如何从 Row 中获取数据
+    row.getString(0)
+    row.getInt(1)
+
+    // 3. Row 也是样例类
+    row match {
+        case Row(name, age) => println(name, age)
+    }
+}
+```
+
+`DataFrame` 和 `Dataset` 之间可以非常简单的相互转换
+
+```scala
+@Test
+def df2ds() = {
+
+    val spark: SparkSession = new sql.SparkSession.Builder()
+    .appName("hello")
+    .master("local[6]")
+    .getOrCreate()
+
+    import spark.implicits._
+
+    val df: DataFrame = Seq(Person("zhangsan", 15), Person("lisi", 15)).toDF()
+    val ds_fdf: Dataset[Person] = df.as[Person]
+
+    val ds: Dataset[Person] = Seq(Person("zhangsan", 15), Person("lisi", 15)).toDS()
+    val df_fds: DataFrame = ds.toDF()
+}
+```
+
+*总结*
+
+1. `DataFrame` 就是 `Dataset`, 他们的方式是一样的, 也都支持 `API` 和 `SQL` 两种操作方式
+2. `DataFrame` 只能通过表达式的形式, 或者列的形式来访问数据, 只有 `Dataset` 支持针对于整个对象的操作
+3. `DataFrame` 中的数据表示为 `Row`, 是一个行的概念
+
+### DataFrame读写
+
+#### DataFrameReader
+
+| 组件     | 解释                                                         |
+| :------- | :----------------------------------------------------------- |
+| `schema` | 结构信息, 因为 `Dataset` 是有结构的, 所以在读取数据的时候, 就需要有 `Schema` 信息, 有可能是从外部数据源获取的, 也有可能是指定的 |
+| `option` | 连接外部数据源的参数, 例如 `JDBC` 的 `URL`, 或者读取 `CSV` 文件是否引入 `Header` 等 |
+| `format` | 外部数据源的格式, 例如 `csv`, `jdbc`, `json` 等              |
+
+`DataFrameReader` 有两种访问方式, 一种是使用 `load` 方法加载, 使用 `format` 指定加载格式, 还有一种是使用封装方法, 类似 `csv`, `json`, `jdbc` 等，但是其实这两种方式本质上一样, 因为类似 `csv` 这样的方式只是 `load` 的封装
+
+```scala
+@Test
+def reader2(): Unit = {
+    // 1. 创建 SparkSession
+    val spark = SparkSession.builder()
+    .master("local[6]")
+    .appName("reader1")
+    .getOrCreate()
+
+    // 2. 第一种形式
+    spark.read
+    .format("csv")
+    .option("header", value = true)
+    .option("inferSchema", value = true)
+    .load("dataset/BeijingPM20100101_20151231.csv")
+    .show(10)
+
+    // 3. 第二种形式
+    spark.read
+    .option("header", value = true)
+    .option("inferSchema", value = true)
+    .csv("dataset/BeijingPM20100101_20151231.csv")
+    .show()
+}
+```
+
+>如果使用 `load` 方法加载数据, 但是没有指定 `format` 的话, 默认是按照 `Parquet` 文件格式读取，也就是说, `SparkSQL` 默认的读取格式是 `Parquet`
+
+*总结*
+
+1. 使用 `spark.read` 可以获取 SparkSQL 中的外部数据源访问框架 `DataFrameReader`
+2. `DataFrameReader` 有三个组件 `format`, `schema`, `option`
+3. `DataFrameReader` 有两种使用方式, 一种是使用 `load` 加 `format` 指定格式, 还有一种是使用封装方法 `csv`, `json` 等
+
+#### DataFrameWriter
+
+| 组件                  | 解释                                                         |
+| :-------------------- | :----------------------------------------------------------- |
+| `source`              | 写入目标, 文件格式等, 通过 `format` 方法设定                 |
+| `mode`                | 写入模式, 例如一张表已经存在, 如果通过 `DataFrameWriter` 向这张表中写入数据, 是覆盖表呢, 还是向表中追加呢? 通过 `mode` 方法设定 |
+| `extraOptions`        | 外部参数, 例如 `JDBC` 的 `URL`, 通过 `options`, `option` 设定 |
+| `partitioningColumns` | 类似 `Hive` 的分区, 保存表的时候使用, 这个地方的分区不是 `RDD` 的分区, 而是文件的分区, 或者表的分区, 通过 `partitionBy` 设定 |
+| `bucketColumnNames`   | 类似 `Hive` 的分桶, 保存表的时候使用, 通过 `bucketBy` 设定   |
+| `sortColumnNames`     | 用于排序的列, 通过 `sortBy` 设定                             |
+
+`mode` 指定了写入模式, 例如覆盖原数据集, 或者向原数据集合中尾部添加等
+
+| `Scala` 对象表示         | 字符串表示    | 解释                                                         |
+| :----------------------- | :------------ | :----------------------------------------------------------- |
+| `SaveMode.ErrorIfExists` | `"error"`     | 将 `DataFrame` 保存到 `source` 时, 如果目标已经存在, 则报错  |
+| `SaveMode.Append`        | `"append"`    | 将 `DataFrame` 保存到 `source` 时, 如果目标已经存在, 则添加到文件或者 `Table` 中 |
+| `SaveMode.Overwrite`     | `"overwrite"` | 将 `DataFrame` 保存到 `source` 时, 如果目标已经存在, 则使用 `DataFrame` 中的数据完全覆盖目标 |
+| `SaveMode.Ignore`        | `"ignore"`    | 将 `DataFrame` 保存到 `source` 时, 如果目标已经存在, 则不会保存 `DataFrame` 数据, 并且也不修改目标数据集, 类似于 `CREATE TABLE IF NOT EXISTS` |
+
+```scala
+@Test
+def writer1(): Unit = {
+    // 2. 读取数据集
+    val df = spark.read.option("header", true).csv("D:\\intellij-workspace\\bigdata\\spark\\data\\BeijingPM20100101_20151231.csv")
+
+    // 3. 写入数据集
+    df.write.json("D:\\intellij-workspace\\bigdata\\spark\\data\\beijing_pm.json")
+
+    df.write.format("json").save("D:\\intellij-workspace\\bigdata\\spark\\data\\beijing_pm2.json")
+}
+```
+
+> 默认没有指定 `format`, 默认的 `format` 是 `Parquet`
+
+*总结*
+
+1. 类似 `DataFrameReader`, `Writer` 中也有 `format`, `options`, 另外 `schema` 是包含在 `DataFrame` 中的
+2. `DataFrameWriter` 中还有一个很重要的概念叫做 `mode`, 指定写入模式, 如果目标集合已经存在时的行为
+3. `DataFrameWriter` 可以将数据保存到 `Hive` 表中, 所以也可以指定分区和分桶信息
+
+#### Parquet 
+
+在 `ETL` 中, `Spark` 经常扮演 `T` 的职务, 也就是进行数据清洗和数据转换.为了能够保存比较复杂的数据, 并且保证性能和压缩率, 通常使用 `Parquet` 是一个比较不错的选择.所以外部系统收集过来的数据, 有可能会使用 `Parquet`, 而 `Spark` 进行读取和转换的时候, 就需要支持对 `Parquet` 格式的文件的支持.默认不指定 `format` 的时候, 默认就是读写 `Parquet` 格式的文件
+
+```scala
+@Test
+def parquet(): Unit = {
+    // 1. 读取 CSV 文件的数据
+    val df = spark.read.option("header", true).csv("D:\\intellij-workspace\\bigdata\\spark\\data\\BeijingPM20100101_20151231.csv")
+
+    // 2. 把数据写为 Parquet 格式
+    // 写入的时候, 默认格式就是 parquet
+    // 写入模式, 报错, 覆盖, 追加, 忽略
+    df.write
+    .mode(SaveMode.Overwrite)
+    .save("D:\\intellij-workspace\\bigdata\\spark\\data\\beijing_pm3")
+
+    // 3. 读取 Parquet 格式文件
+    // 默认格式是否是 paruet? 是
+    // 是否可能读取文件夹呢? 是
+    spark.read
+    .load("D:\\intellij-workspace\\bigdata\\spark\\data\\beijing_pm3")
+    .show()
+}
+```
+
+```scala
+/**
+   * 表分区的概念不仅在 parquet 上有, 其它格式的文件也可以指定表分区
+   */
+@Test
+def parquetPartitions(): Unit = {
+    // 1. 读取数据
+    //    val df = spark.read
+    //      .option("header", value = true)
+    //      .csv("D:\intellij-workspace\bigdata\spark\data\BeijingPM20100101_20151231.csv")
+
+    // 2. 写文件, 表分区
+    //    df.write
+    //      .partitionBy("year", "month")
+    //      .save("dataset/beijing_pm4")
+
+    // 3. 读文件, 自动发现分区
+    // 写分区表的时候, 分区列不会包含在生成的文件中
+    // 直接通过文件来进行读取的话, 分区信息会丢失
+    // spark sql 会进行自动的分区发现
+    spark.read
+    .parquet("dataset/beijing_pm4")
+    .printSchema()
+}
+```
+
+`SparkSession` *中有关* `Parquet` *的配置*
+
+| 配置                                  | 默认值   | 含义                                                         |
+| :------------------------------------ | :------- | :----------------------------------------------------------- |
+| `spark.sql.parquet.binaryAsString`    | `false`  | 一些其他 `Parquet` 生产系统, 不区分字符串类型和二进制类型, 该配置告诉 `SparkSQL` 将二进制数据解释为字符串以提供与这些系统的兼容性 |
+| `spark.sql.parquet.int96AsTimestamp`  | `true`   | 一些其他 `Parquet` 生产系统, 将 `Timestamp` 存为 `INT96`, 该配置告诉 `SparkSQL` 将 `INT96` 解析为 `Timestamp` |
+| `spark.sql.parquet.cacheMetadata`     | `true`   | 打开 Parquet 元数据的缓存, 可以加快查询静态数据              |
+| `spark.sql.parquet.compression.codec` | `snappy` | 压缩方式, 可选 `uncompressed`, `snappy`, `gzip`, `lzo`       |
+| `spark.sql.parquet.mergeSchema`       | `false`  | 当为 true 时, Parquet 数据源会合并从所有数据文件收集的 Schemas 和数据, 因为这个操作开销比较大, 所以默认关闭 |
+| `spark.sql.optimizer.metadataOnly`    | `true`   | 如果为 `true`, 会通过原信息来生成分区列, 如果为 `false` 则就是通过扫描整个数据集来确定 |
+
+*总结*
+
+1. `Spark` 不指定 `format` 的时候默认就是按照 `Parquet` 的格式解析文件
+2. `Spark` 在读取 `Parquet` 文件的时候会自动的发现 `Parquet` 的分区和分区字段
+3. `Spark` 在写入 `Parquet` 文件的时候如果设置了分区字段, 会自动的按照分区存储
+
+#### JSON
+
+```scala
+@Test
+def json(): Unit = {
+    val df = spark.read
+    .option("header", value = true)
+    .csv("D:\\intellij-workspace\\bigdata\\spark\\data\\BeijingPM20100101_20151231.csv")
+
+    //    df.write
+    //      .json("dataset/beijing_pm5.json")
+
+    spark.read
+    .json("D:\\intellij-workspace\\bigdata\\spark\\data\\beijing_pm5.json")
+    .show()
+}
+
+/**
+   * toJSON 的场景:
+   * 处理完了以后, DataFrame中如果是一个对象, 如果其他的系统只支持 JSON 格式的数据
+   * SParkSQL 如果和这种系统进行整合的时候, 就需要进行转换
+   */
+@Test
+def json1(): Unit = {
+    val df = spark.read
+    .option("header", value = true)
+    .csv("D:\\intellij-workspace\\bigdata\\spark\\data\\BeijingPM20100101_20151231.csv")
+
+    df.toJSON.show()
+}
+
+/**
+   * 从消息队列中取出JSON格式的数据, 需要使用 SparkSQL 进行处理
+   */
+@Test
+def json2(): Unit = {
+    val df = spark.read
+    .option("header", value = true)
+    .csv("D:\\intellij-workspace\\bigdata\\spark\\data\\BeijingPM20100101_20151231.csv")
+
+    val jsonRDD = df.toJSON.rdd
+
+    spark.read.json(jsonRDD).show()
+}
+```
+
+#### Hive
+
+Hive是一个外部的数据存储和查询引擎,所以如果Spark要访问Hive的话,就需要先整合Hive
+
+- `MetaStore`, 元数据存储
+
+  `SparkSQL` 内置的有一个 `MetaStore`, 通过嵌入式数据库 `Derby` 保存元信息, 但是对于生产环境来说, 还是应该使用 `Hive` 的 `MetaStore`, 一是更成熟, 功能更强, 二是可以使用 `Hive` 的元信息
+
+- 查询引擎
+
+  `SparkSQL` 内置了 `HiveSQL` 的支持, 所以无需整合
+
+**开启** `Hive` **的** `MetaStore`
+
+`Hive` 的 `MetaStore` 是一个 `Hive` 的组件, 一个 `Hive` 提供的程序, 用以保存和访问表的元数据, 整个 `Hive` 的结构大致如下
+
+![image](assets\bigdata-72.png)
+
+由上图可知道, 其实 `Hive` 中主要的组件就三个, `HiveServer2` 负责接受外部系统的查询请求, 例如 `JDBC`, `HiveServer2` 接收到查询请求后, 交给 `Driver` 处理, `Driver` 会首先去询问 `MetaStore` 表在哪存, 后 `Driver` 程序通过 `MR` 程序来访问 `HDFS` 从而获取结果返回给查询请求者.而 `Hive` 的 `MetaStore` 对 `SparkSQL` 的意义非常重大, 如果 `SparkSQL` 可以直接访问 `Hive` 的 `MetaStore`, 则理论上可以做到和 `Hive` 一样的事情, 例如通过 `Hive` 表查询数据.而 Hive 的 MetaStore 的运行模式有三种:
+
+- 内嵌 `Derby` 数据库模式
+
+  这种模式不必说了, 自然是在测试的时候使用, 生产环境不太可能使用嵌入式数据库, 一是不稳定, 二是这个 `Derby` 是单连接的, 不支持并发
+
+- `Local` 模式
+
+  `Local` 和 `Remote` 都是访问 `MySQL` 数据库作为存储元数据的地方, 但是 `Local` 模式的 `MetaStore` 没有独立进程, 依附于 `HiveServer2` 的进程
+
+- `Remote` 模式
+
+  和 `Loca` 模式一样, 访问 `MySQL` 数据库存放元数据, 但是 `Remote` 的 `MetaStore` 运行在独立的进程中
+
+所以要选择 `Remote` 模式, 因为要让其独立运行, 这样才能让 `SparkSQL` 一直可以访问
+
+Step 1: 修改 hive-site.xml
+
+```xml
+<!-- 在hive-site.xml中增加如下两个配置项 -->
+<configuration>
+  <property>
+      <name>hive.metastore.local</name>
+      <value>false</value>
+  </property>
+  <property>
+      <name>hive.metastore.uris</name>
+      <value>thrift://server01:9083</value>
+  </property>
+</configuration>
+```
+
+Step 2: 启动 Hive MetaStore
+
+```bash
+[root@server01 bin]# nohup /usr/local/hive/bin/hive --service metastore 2>&1 >> /var/log.log &
+```
+
+SparkSQL 整合 Hive 的 MetaStore
+
+SparkSQL整合Hive的MetaStore主要思路就是要通过配置能够访问它,并且能够使用HDFS保存WareHouse,这些配置信息一般存在于Hadoop和HDFS的配置文件中,所以可以直接拷贝Hadoop和Hive的配置文件到Spark的配置目
+
+```bash
+[root@server01 conf]# cd /usr/local/hive/conf/
+[root@server01 conf]# cp hive-site.xml /usr/local/spark-2.2.0-bin-hadoop2.7/conf
+[root@server01 conf]# cd /usr/local/hadoop-2.7.5/etc/hadoop/
+[root@server01 hadoop]# cp hdfs-site.xml core-site.xml /usr/local/spark-2.2.0-bin-hadoop2.7/conf
+```
+
+拷贝mysql-connector-java-5.1.38.jar到Spark的jars目录
+
+```bash
+[root@server01 lib]# cd /usr/local/hive/lib/
+[root@server01 lib]# cp mysql-connector-java-5.1.38.jar /usr/local/spark-2.2.0-bin-hadoop2.7/jars/
+[root@server01 lib]# hdfs dfs -put mysql-connector-java-5.1.38.jar /spark_lib/
+```
+
+spark-shell中访问hive 
+
+*注意：只能访问hive-site.xml中hive.metastore.warehouse.dir属性所指定路径下的库和表，如果是创建库或者表时单独指定了location的这一部分是访问不了的，如果要访问只能修改hive.metastore.warehouse.dir属性，并重启spark-shell*
+
+```bash
+[root@server01 bin]# ./spark-shell --master yarn
+Setting default log level to "WARN".
+To adjust logging level use sc.setLogLevel(newLevel). For SparkR, use setLogLevel(newLevel).
+22/10/11 09:04:52 WARN util.NativeCodeLoader: Unable to load native-hadoop library for your platform... using builtin-java classes where applicable
+22/10/11 09:05:38 WARN metastore.ObjectStore: Failed to get database global_temp, returning NoSuchObjectException
+Spark context Web UI available at http://192.168.56.110:4040
+Spark context available as 'sc' (master = yarn, app id = application_1665449675927_0001).
+Spark session available as 'spark'.
+Welcome to
+      ____              __
+     / __/__  ___ _____/ /__
+    _\ \/ _ \/ _ `/ __/  '_/
+   /___/ .__/\_,_/_/ /_/\_\   version 2.2.0
+      /_/
+
+Using Scala version 2.11.8 (Java HotSpot(TM) 64-Bit Server VM, Java 1.8.0_144)
+Type in expressions to have them evaluated.
+Type :help for more information.
+
+scala> spark.sql("use myhive")
+res0: org.apache.spark.sql.DataFrame = []
+
+scala> val resultDF = spark.sql("select * from score")
+resultDF: org.apache.spark.sql.DataFrame = [s_id: string, c_id: string ... 2 more fields]
+
+scala> resultDF.show()
++----+----+-------+------+
+|s_id|c_id|s_score| month|
++----+----+-------+------+
+|  01|  01|     80|202207|
+|  01|  02|     90|202207|
+|  01|  03|     99|202207|
+|  02|  01|     70|202207|
+|  02|  02|     60|202207|
+|  02|  03|     80|202207|
+|  03|  01|     80|202207|
+|  03|  02|     80|202207|
+|  03|  03|     80|202207|
+|  04|  01|     50|202207|
+|  04|  02|     30|202207|
+|  04|  03|     20|202207|
+|  05|  01|     76|202207|
+|  05|  02|     87|202207|
+|  06|  01|     31|202207|
+|  06|  03|     34|202207|
+|  07|  02|     89|202207|
+|  07|  03|     98|202207|
+|  01|  01|     80|202208|
+|  01|  02|     90|202208|
++----+----+-------+------+
+only showing top 20 rows
+
+
+scala>
+```
+
+spark-submit中访问hive
+
+Step 1: 导入 Maven 依赖
+
+```xml
+<dependency>
+    <groupId>org.apache.spark</groupId>
+    <artifactId>spark-hive_2.11</artifactId>
+    <version>${spark.version}</version>
+</dependency>
+```
+
+Step 2: 配置 SparkSession
+
+如果希望使用 SparkSQL 访问 Hive 的话, 需要做三件件事
+
+1. 开启 SparkSession 的 Hive 支持：经过这一步配置, SparkSQL 才会把 SQL 语句当作 HiveSQL 来进行解析
+
+2. 设置 WareHouse 的位置：虽然 hive-stie.xml 中已经配置了 WareHouse 的位置, 但是在 Spark 2.0.0 后已经废弃了 hive-site.xml 中设置的 hive.metastore.warehouse.dir, 需要在 SparkSession 中设置 WareHouse 的位置
+
+3. 设置 MetaStore 的位置
+
+```scala
+package org.duo.spark.sql
+
+import org.apache.spark.sql.{DataFrame, Dataset, Row, SaveMode, SparkSession}
+import org.apache.spark.sql.types.{FloatType, IntegerType, StringType, StructField, StructType}
+
+object HiveAccess {
+
+  def main(args: Array[String]): Unit = {
+    // 1. 创建 SparkSession
+    //    1. 开启 Hive 支持
+    //    2. 指定 Metastore 的位置
+    //    3. 指定 Warehouse 的位置
+    val spark = SparkSession.builder()
+      .appName("hive access1")
+      .enableHiveSupport()
+      .config("hive.metastore.uris", "thrift://server01:9083")
+      // 创建student表时，指定了/location
+      .config("spark.sql.warehouse.dir", "/data/hive/student")
+      .getOrCreate()
+
+    import spark.implicits._
+
+    // 2. 读取数据
+    //    1. 上传 HDFS, 因为要在集群中执行, 没办法保证程序在哪个机器中执行
+    //        所以, 要把文件上传到所有的机器中, 才能读取本地文件
+    //        上传到 HDFS 中就可以解决这个问题, 所有的机器都可以读取 HDFS 中的文件
+    //        它是一个外部系统
+    //    2. 使用 DF 读取数据
+
+    val schema = StructType(
+      List(
+        StructField("id", StringType),
+        StructField("name", StringType),
+        StructField("birthday", StringType),
+        StructField("gender", StringType)
+      )
+    )
+
+    val dataframe: DataFrame = spark.read
+      .option("delimiter", "\t")
+      .schema(schema)
+      .csv("hdfs:///data/student")
+
+
+    //val resultDF: Dataset[Row] = dataframe.where('age > 50)
+
+    // 3. 写入数据, 使用写入表的 API, saveAsTable
+    dataframe.write.mode(SaveMode.Overwrite).saveAsTable("myhive.student")
+  }
+}
+```
+
+#### MySQL
+
+在使用 `JDBC` 访问关系型数据的时候, 其实也是使用 `DataFrameReader`, 对 `DataFrameReader` 提供一些配置, 就可以使用 `Spark` 访问 `JDBC`, 有如下几个配置可用
+
+| 属性             | 含义                                                         |
+| :--------------- | :----------------------------------------------------------- |
+| `url`            | 要连接的 `JDBC URL`                                          |
+| `dbtable`        | 要访问的表, 可以使用任何 `SQL` 语句中 `from` 子句支持的语法  |
+| `fetchsize`      | 数据抓取的大小(单位行), 适用于读的情况                       |
+| `batchsize`      | 数据传输的大小(单位行), 适用于写的情况                       |
+| `isolationLevel` | 事务隔离级别, 是一个枚举, 取值 `NONE`, `READ_COMMITTED`, `READ_UNCOMMITTED`, `REPEATABLE_READ`, `SERIALIZABLE`, 默认为 `READ_UNCOMMITTED` |
+
+写入数据：
+
+本地运行, 需要导入 `Maven` 依赖
+
+```xml
+<dependency>
+    <groupId>mysql</groupId>
+    <artifactId>mysql-connector-java</artifactId>
+    <version>5.1.47</version>
+</dependency>
+```
+
+读取数据集, 处理过后存往 `MySQL` 中的代码如下
+
+```scala
+package org.duo.spark.sql
+
+import org.apache.spark.sql.{SaveMode, SparkSession}
+import org.apache.spark.sql.types.{FloatType, IntegerType, StringType, StructField, StructType}
+
+/**
+  * MySQL 的访问方式有两种: 使用本地运行, 提交到集群中运行
+  *
+  * 写入 MySQL 数据时, 使用本地运行, 读取的时候使用集群运行
+  */
+object MySQLWrite {
+
+  def main(args: Array[String]): Unit = {
+    // 1. 创建 SparkSession 对象
+    val spark = SparkSession.builder()
+      .master("local[6]")
+      .appName("mysql write")
+      .getOrCreate()
+
+    // 2. 读取数据创建 DataFrame
+    //    1. 拷贝文件
+    //    2. 读取
+    val schema = StructType(
+      List(
+        StructField("name", StringType),
+        StructField("age", IntegerType),
+        StructField("gpa", FloatType)
+      )
+    )
+
+    val df = spark.read
+      .schema(schema)
+      .option("delimiter", "\t")
+      .csv("hdfs://server01:8020/data/studenttab10k")
+
+    // 3. 处理数据
+    val resultDF = df.where("age < 30")
+
+    // 4. 落地数据
+    resultDF.write
+      .format("jdbc")
+      .option("url", "jdbc:mysql://server01:3306/test_db")
+      .option("dbtable", "student")
+      .option("user", "root")
+      .option("password", "123456")
+      .mode(SaveMode.Overwrite)
+      .save()
+  }
+
+}
+```
+
+通过spark-shell读取数据：
+
+```bash
+[root@server01 bin]# ./spark-shell --master yarn
+Setting default log level to "WARN".
+To adjust logging level use sc.setLogLevel(newLevel). For SparkR, use setLogLevel(newLevel).
+22/10/11 12:58:24 WARN util.NativeCodeLoader: Unable to load native-hadoop library for your platform... using builtin-java classes where applicable
+22/10/11 12:59:15 WARN metastore.ObjectStore: Failed to get database global_temp, returning NoSuchObjectException
+Spark context Web UI available at http://192.168.56.110:4040
+Spark context available as 'sc' (master = yarn, app id = application_1665449675927_0004).
+Spark session available as 'spark'.
+Welcome to
+      ____              __
+     / __/__  ___ _____/ /__
+    _\ \/ _ \/ _ `/ __/  '_/
+   /___/ .__/\_,_/_/ /_/\_\   version 2.2.0
+      /_/
+
+Using Scala version 2.11.8 (Java HotSpot(TM) 64-Bit Server VM, Java 1.8.0_144)
+Type in expressions to have them evaluated.
+Type :help for more information.
+
+scala> spark.read.format("jdbc").option("url", "jdbc:mysql://server01:3306/test_db").option("dbtable", "student").option("user", "root").option("password", "123456").load().show()
+```
+
+默认情况下读取 `MySQL` 表时, 从 `MySQL` 表中读取的数据放入了一个分区, 拉取后可以使用 `DataFrame` 重分区来保证并行计算和内存占用不会太高, 但是如果感觉 `MySQL` 中数据过多的时候, 读取时可能就会产生 `OOM`, 所以在数据量比较大的场景, 就需要在读取的时候就将其分发到不同的 `RDD` 分区
+
+| 属性                       | 含义                                                         |
+| :------------------------- | :----------------------------------------------------------- |
+| `partitionColumn`          | 指定按照哪一列进行分区, 只能设置类型为数字的列, 一般指定为 `ID` |
+| `lowerBound`, `upperBound` | 确定步长的参数, `lowerBound - upperBound` 之间的数据均分给每一个分区, 小于 `lowerBound` 的数据分给第一个分区, 大于 `upperBound` 的数据分给最后一个分区 |
+| `numPartitions`            | 分区数量                                                     |
+
+```scala
+spark.read.format("jdbc")
+  .option("url", "jdbc:mysql://server01:3306/test_db")
+  .option("dbtable", "student")
+  .option("user", "root")
+  .option("password", "123456")
+  .option("partitionColumn", "age")
+  .option("lowerBound", 1)
+  .option("upperBound", 60)
+  .option("numPartitions", 10)
+  .load()
+  .show()
+```
+
+```scala
+scala> spark.read.format("jdbc").option("url", "jdbc:mysql://server01:3306/test_db").option("dbtable", "student").option("user", "root").option("password", "123456").option("partitionColumn", "age").option("lowerBound", 1).option("upperBound", 60).option("numPartitions", 10).load().show()
+```
+
+有时候可能要使用非数字列来作为分区依据, `Spark` 也提供了针对任意类型的列作为分区依据的方法
+
+```scala
+val predicates = Array(
+  "age < 20",
+  "age >= 20, age < 30",
+  "age >= 30"
+)
+
+val connectionProperties = new Properties()
+connectionProperties.setProperty("user", "spark")
+connectionProperties.setProperty("password", "Spark123!")
+
+spark.read
+  .jdbc(
+    url = "jdbc:mysql://server01:3306/test_db",
+    table = "student",
+    predicates = predicates,
+    connectionProperties = connectionProperties
+  ).show()
+```
+
+`SparkSQL` 中并没有直接提供按照 `SQL` 进行筛选读取数据的 `API` 和参数, 但是可以通过 `dbtable` 来曲线救国, `dbtable` 指定目标表的名称, 但是因为 `dbtable` 中可以编写 `SQL`, 所以使用子查询即可做到
+
+```scala
+spark.read.format("jdbc")
+  .option("url", "jdbc:mysql://server01:3306/test_db")
+  .option("dbtable", "(select name, age from student where age > 10 and age < 20) as stu")
+  .option("user", "root")
+  .option("password", "123456")
+  .option("partitionColumn", "age")
+  .option("lowerBound", 1)
+  .option("upperBound", 60)
+  .option("numPartitions", 10)
+  .load()
+  .show()
+```
+
+```scala
+scala> spark.read.format("jdbc").option("url", "jdbc:mysql://server01:3306/test_db").option("dbtable", "(select name, age from student where age > 10 and age < 20) as stu").option("user", "root").option("password", "123456").option("partitionColumn", "age").option("lowerBound", 1).option("upperBound", 60).option("numPartitions", 10).load().show()
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 # Flink
 

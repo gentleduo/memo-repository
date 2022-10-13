@@ -17929,6 +17929,266 @@ spark.read.format("jdbc")
 scala> spark.read.format("jdbc").option("url", "jdbc:mysql://server01:3306/test_db").option("dbtable", "(select name, age from student where age > 10 and age < 20) as stu").option("user", "root").option("password", "123456").option("partitionColumn", "age").option("lowerBound", 1).option("upperBound", 60).option("numPartitions", 10).load().show()
 ```
 
+## 基础操作
+
+### 有类型操作
+
+| 分类     | 算子           | 解释                                                         |
+| :------- | :------------- | ------------------------------------------------------------ |
+| 转换     | `flatMap`      | 通过 `flatMap` 可以将一条数据转为一个数组, 后再展开这个数组放入 `Dataset` |
+|          | map            | `map` 可以将数据集中每条数据转为另一种形式                   |
+|          | mapPartitions  | `mapPartitions` 和 `map` 一样, 但是 `map` 的处理单位是每条数据, `mapPartitions` 的处理单位是每个分区 |
+|          | transform      | `map` 和 `mapPartitions` 以及 `transform` 都是转换, `map` 和 `mapPartitions` 是针对数据, 而 `transform` 是针对整个数据集, 这种方式最大的区别就是 `transform` 可以直接拿到 `Dataset` 进行操作 |
+|          | as             | `as[Type]` 算子的主要作用是将弱类型的 `Dataset` 转为强类型的 `Dataset`, 它有很多适用场景, 但是最常见的还是在读取数据的时候, 因为 `DataFrameReader` 体系大部分情况下是将读出来的数据转换为 `DataFrame` 的形式, 如果后续需要使用 `Dataset` 的强类型 `API`, 则需要将 `DataFrame` 转为 `Dataset`. 可以使用 `as[Type]` 算子完成这种操作 |
+| 过滤     | filter         | `filter` 用来按照条件过滤数据集                              |
+| 聚合     | groupByKey     | `grouByKey` 算子的返回结果是 `KeyValueGroupedDataset`, 而不是一个 `Dataset`, 所以必须要先经过 `KeyValueGroupedDataset` 中的方法进行聚合, 再转回 `Dataset`, 才能使用 `Action` 得出结果 |
+| 切分     | randomSplit    | `randomSplit` 会按照传入的权重随机将一个 `Dataset` 分为多个 `Dataset`, 传入 `randomSplit` 的数组有多少个权重, 最终就会生成多少个 `Dataset`, 这些权重的加倍和应该为 1, 否则将被标准化 |
+|          | sample         | `sample` 会随机在 `Dataset` 中抽样                           |
+| 排序     | orderBy        | `orderBy` 配合 `Column` 的 `API`, 可以实现正反序排列         |
+|          | sort           | 其实 `orderBy` 是 `sort` 的别名, 所以它们所实现的功能是一样的 |
+| 分区     | coalesce       | 减少分区, 此算子和 `RDD` 中的 `coalesce` 不同, `Dataset` 中的 `coalesce` 只能减少分区数, `coalesce` 会直接创建一个逻辑操作, 并且设置 `Shuffle` 为 `false` |
+|          | repartitions   | repartitions` 有两个作用, 一个是重分区到特定的分区数, 另一个是按照某一列来分区, 类似于 `SQL` 中的 `DISTRIBUTE BY |
+| 去重     | dropDuplicates | 使用 `dropDuplicates` 可以去掉某一些列中重复的行             |
+|          | distinct       | 当 `dropDuplicates` 中没有传入列名的时候, 其含义是根据所有列去重, `dropDuplicates()` 方法还有一个别名, 叫做 `distinct`所以, 使用 `distinct` 也可以去重, 并且只能根据所有的列来去重 |
+| 集合操作 | except         | `except` 和 `SQL` 语句中的 `except` 一个意思, 是求得 `ds1` 中不存在于 `ds2` 中的数据, 其实就是差集 |
+|          | intersect      | 求得两个集合的交集                                           |
+|          | union          | 求得两个集合的并集                                           |
+|          | limit          | 限制结果集数量                                               |
+
+```scala
+package org.duo.spark.sql
+
+import java.lang
+
+import org.apache.spark.sql.{DataFrame, Dataset, KeyValueGroupedDataset, Row, SparkSession}
+import org.apache.spark.sql.types.{FloatType, IntegerType, StringType, StructField, StructType}
+import org.junit.Test
+
+class TypedTransformation {
+
+  // 1. 创建 SparkSession
+  val spark = SparkSession.builder().master("local[6]").appName("typed").getOrCreate()
+
+  import spark.implicits._
+
+  @Test
+  def trans(): Unit = {
+
+    // 3. flatMap
+    val ds1 = Seq("hello spark", "hello hadoop").toDS
+    ds1.flatMap(item => item.split(" ")).show()
+
+    // 4. map
+    val ds2 = Seq(Person("zhangsan", 15), Person("lisi", 20)).toDS()
+    ds2.map(person => Person(person.name, person.age * 2)).show()
+
+    // 5. mapPartitions
+    ds2.mapPartitions(
+      // iter 不能大到每个 Executor 的内存放不下, 不然就会 OOM
+      // 对每个元素进行转换, 后生成一个新的集合
+      iter => {
+        val result = iter.map(person => Person(person.name, person.age * 2))
+        result
+      }
+    ).show()
+  }
+
+  @Test
+  def trans1(): Unit = {
+
+    val ds = spark.range(10)
+    // map 和 mapPartitions 以及 transform 都是转换, map 和 mapPartitions 是针对数据,
+    // 而 transform 是针对整个数据集, 这种方式最大的区别就是 transform 可以直接拿到 Dataset 进行操作
+    ds.transform(dataset => dataset.withColumn("doubled", 'id * 2))
+      .show()
+  }
+
+  @Test
+  def as(): Unit = {
+
+    // 1. 读取
+    val schema = StructType(
+      Seq(
+        StructField("name", StringType),
+        StructField("age", IntegerType),
+        StructField("gpa", FloatType)
+      )
+    )
+
+    val df: DataFrame = spark.read
+      .schema(schema)
+      .option("delimiter", "\t")
+      .csv("dataset/studenttab10k")
+
+    // as[Type] 算子的主要作用是将弱类型的 Dataset 转为强类型的 Dataset, 它有很多适用场景, 但是最常见的还是在读取数据的时候,
+    // 因为 DataFrameReader 体系大部分情况下是将读出来的数据转换为 DataFrame 的形式, 如果后续需要使用 Dataset 的强类型 API,
+    // 则需要将 DataFrame 转为 Dataset. 可以使用 as[Type] 算子完成这种操作
+    // 2. 转换
+    // 本质上: Dataset[Row].as[Student] => Dataset[Student]
+    // Dataset[(String, int, float)].as[Student] => Dataset[Student]
+    val ds: Dataset[Student] = df.as[Student]
+
+    // 3. 输出
+    ds.show()
+  }
+
+  @Test
+  def filter(): Unit = {
+
+    val ds = Seq(Person("zhangsan", 15), Person("lisi", 20)).toDS()
+    ds.filter(person => person.age > 15).show()
+  }
+
+  @Test
+  def groupByKey(): Unit = {
+
+    val ds = Seq(Person("zhangsan", 15), Person("zhangsan", 16), Person("lisi", 20)).toDS()
+
+    // select count(*) from person group by name
+    val grouped: KeyValueGroupedDataset[String, Person] = ds.groupByKey(person => person.name)
+    val result: Dataset[(String, Long)] = grouped.count()
+
+    result.show()
+  }
+
+  @Test
+  def split(): Unit = {
+
+    val ds = spark.range(15)
+    // randomSplit, 切多少份, 权重多少
+    val datasets: Array[Dataset[lang.Long]] = ds.randomSplit(Array(5, 2, 3))
+    datasets.foreach(_.show())
+
+    // sample
+    ds.sample(withReplacement = false, fraction = 0.4).show()
+  }
+
+  @Test
+  def sort(): Unit = {
+
+    val ds = Seq(Person("zhangsan", 12), Person("zhangsan", 8), Person("lisi", 15)).toDS()
+    ds.orderBy('age.desc).show() // select * from ... order by ... asc
+    ds.sort('age.asc).show()
+  }
+
+  @Test
+  def dropDuplicates(): Unit = {
+
+    val ds = spark.createDataset(Seq(Person("zhangsan", 15), Person("zhangsan", 15), Person("lisi", 15)))
+    ds.distinct().show()
+    ds.dropDuplicates("age").show()
+  }
+
+  @Test
+  def collection(): Unit = {
+
+    val ds1 = spark.range(1, 10)
+    val ds2 = spark.range(5, 15)
+
+    // 差集
+    ds1.except(ds2).show()
+
+    // 交集
+    ds1.intersect(ds2).show()
+
+    // 并集
+    ds1.union(ds2).show()
+
+    // limit
+    ds1.limit(3).show()
+  }
+
+}
+
+case class Student(name: String, age: Int, gpa: Float)
+
+```
+
+### 无类型操作
+
+| 分类 | 算子              | 解释                                                         |
+| :--- | :---------------- | :----------------------------------------------------------- |
+| 选择 | `select`          | `select` 用来选择某些列出现在结果集中                        |
+|      | selectExpr        | 在 `SQL` 语句中, 经常可以在 `select` 子句中使用 `count(age)`, `rand()` 等函数, 在 `selectExpr` 中就可以使用这样的 `SQL` 表达式, 同时使用 `select` 配合 `expr` 函数也可以做到类似的效果 |
+|      | withColumn        | 通过 `Column` 对象在 `Dataset` 中创建一个新的列或者修改原来的列 |
+|      | withColumnRenamed | 修改列名                                                     |
+| 剪除 | drop              | 剪掉某个列<br>import spark.implicits._ <br/>val ds = Seq(Person("zhangsan", 12), Person("zhangsan", 8), Person("lisi", 15)).toDS() <br/>ds.drop('age).show() |
+| 聚合 | groupBy           | 按照给定的行进行分组                                         |
+
+```scala
+package org.duo.spark.sql
+
+import org.apache.spark.sql.{DataFrame, SparkSession}
+import org.junit.Test
+
+class UntypedTransformation {
+
+  val spark = SparkSession.builder().master("local[6]").appName("typed").getOrCreate()
+
+  import spark.implicits._
+
+  @Test
+  def select(): Unit = {
+
+    val ds = Seq(Person("zhangsan", 12), Person("lisi", 18), Person("zhangsan", 8)).toDS
+
+    // select * from ...
+    // from ... select ...
+    // 在 Dataset 中, select 可以在任何位置调用
+    // select count(*)
+    ds.select('name).show()
+
+    ds.selectExpr("sum(age)").show()
+
+    import org.apache.spark.sql.functions._
+
+    ds.select(expr("sum(age)")).show()
+  }
+
+  @Test
+  def column(): Unit = {
+    val ds = Seq(Person("zhangsan", 12), Person("lisi", 18), Person("zhangsan", 8)).toDS
+
+    import org.apache.spark.sql.functions._
+
+    // select rand() from ...
+    // 如果想使用函数功能
+    // 1. 使用 functions.xx
+    // 2. 使用表达式, 可以使用 expr("...") 随时随地编写表达式
+    ds.withColumn("random", expr("rand()")).show()
+
+    ds.withColumn("name_new", 'name).show()
+
+    ds.withColumn("name_jok", 'name === "").show()
+
+    ds.withColumnRenamed("name", "new_name").show()
+  }
+
+  @Test
+  def groupBy(): Unit = {
+    val ds = Seq(Person("zhangsan", 12), Person("zhangsan", 8), Person("lisi", 15)).toDS()
+
+    // 为什么 GroupByKey 是有类型的, 最主要的原因是因为 groupByKey 所生成的对象中的算子是有类型的
+    //    ds.groupByKey( item => item.name ).mapValues()
+
+    // 为什么  GroupBy 是无类型的, 因为 groupBy 所生成的对象中的算子是无类型的, 针对列进行处理的
+    import org.apache.spark.sql.functions._
+
+    ds.groupBy('name).agg(mean("age")).show()
+  }
+}
+```
+
+### Column对象
+
+
+
+
+
+
+
+### 缺失值处理
+
 
 
 

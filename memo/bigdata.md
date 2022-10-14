@@ -18181,25 +18181,751 @@ class UntypedTransformation {
 
 ### Column对象
 
+Column 表示了 Dataset 中的一个列, 并且可以持有一个表达式, 这个表达式作用于每一条数据, 对每条数据都生成一个值, 之所以有单独这样的一个章节是因为列的操作属于细节, 但是又比较常见, 会在很多算子中配合出现
 
+| 分类       | 操作          | 解释                                                         |
+| :--------- | :------------ | :----------------------------------------------------------- |
+| 创建       | `'`           | 单引号 `'` 在 Scala 中是一个特殊的符号, 通过 `'` 会生成一个 `Symbol` 对象, `Symbol` 对象可以理解为是一个字符串的变种, 但是比字符串的效率高很多, 在 `Spark` 中, 对 `Scala` 中的 `Symbol` 对象做了隐式转换, 转换为一个 `ColumnName` 对象, `ColumnName` 是 `Column` 的子类, 所以在 `Spark` 中可以如下去选中一个列 |
+|            | $             | 同理, `$` 符号也是一个隐式转换, 同样通过 `spark.implicits` 导入, 通过 `$` 可以生成一个 `Column` 对象 |
+|            | col           | SparkSQL` 提供了一系列的函数, 可以通过函数实现很多功能, 在后面课程中会进行详细介绍, 这些函数中有两个可以帮助我们创建 `Column` 对象, 一个是 `col`, 另外一个是 `column |
+|            | column        |                                                              |
+|            | Dataset.col   | 前面的 `Column` 对象创建方式所创建的 `Column` 对象都是 `Free` 的, 也就是没有绑定任何 `Dataset`, 所以可以作用于任何 `Dataset`, 同时, 也可以通过 `Dataset` 的 `col` 方法选择一个列, 但是这个 `Column` 是绑定了这个 `Dataset` 的, 所以只能用于创建其的 `Dataset` 上 |
+|            | Dataset.apply | 可以通过 `Dataset` 对象的 `apply` 方法来获取一个关联此 `Dataset` 的 `Column` 对象 |
+| 别名和转换 | as[Type]      | `as` 方法有两个用法, 通过 `as[Type]` 的形式可以将一个列中数据的类型转为 `Type` 类型 |
+|            | as(name)      | 通过 `as(name)` 的形式使用 `as` 方法可以为列创建别名         |
+| 添加列     | withColumn    | 通过 `Column` 在添加一个新的列时候修改 `Column` 所代表的列的数据 |
+| 操作       | like          | 通过 `Column` 的 `API`, 可以轻松实现 `SQL` 语句中 `LIKE` 的功能 |
+|            | isin          | 通过 `Column` 的 `API`, 可以轻松实现 `SQL` 语句中 `ISIN` 的功能 |
+|            | sort          | 在排序的时候, 可以通过 `Column` 的 `API` 实现正反序          |
 
+```scala
+package org.duo.spark.sql
 
+import org.apache.spark.sql
+import org.apache.spark.sql.{ColumnName, DataFrame, Dataset, SparkSession}
+import org.junit.Test
 
+class Column {
 
+  // 1. 创建 spark 对象
+  val spark = SparkSession.builder()
+    .master("local[6]")
+    .appName("column")
+    .getOrCreate()
+
+  import spark.implicits._
+
+  @Test
+  def creation(): Unit = {
+
+    val ds: Dataset[Person] = Seq(Person("zhangsan", 15), Person("lisi", 10)).toDS()
+    val ds1: Dataset[Person] = Seq(Person("zhangsan", 15), Person("lisi", 10)).toDS()
+    val df: DataFrame = Seq(("zhangsan", 15), ("lisi", 10)).toDF("name", "age")
+
+    // 2. ' 必须导入spark的隐式转换才能使用 str.intern()
+    val column: Symbol = 'name
+
+    // 3. $ 必须导入spark的隐式转换才能使用
+    val column1: ColumnName = $"name"
+
+    // 4. col 必须导入 functions
+    import org.apache.spark.sql.functions._
+
+    val column2: sql.Column = col("name")
+
+    // 5. column 必须导入 functions
+    val column3: sql.Column = column("name")
+
+    // 这四种创建方式, 有关联的 Dataset 吗?
+
+    ds.select(column).show()
+
+    // Dataset 可以, DataFrame 可以使用 Column 对象选中行吗?
+    df.select(column).show()
+
+    // select 方法可以使用 column 对象来选中某个列, 那么其他的算子行吗?
+    df.where(column === "zhangsan").show()
+
+    // column 有几个创建方式, 四种
+    // column 对象可以用作于 Dataset 和 DataFrame 中
+    // column 可以和命令式的弱类型的 API 配合使用 select where
+
+    // 6. dataset.col
+    // 使用 dataset 来获取 column 对象, 会和某个 Dataset 进行绑定, 在逻辑计划中, 就会有不同的表现
+    val column4: sql.Column = ds.col("name")
+    val column5: sql.Column = ds1.col("name")
+
+    // 这会报错
+    //    ds.select(column5).show()
+
+    // 为什么要和 dataset 来绑定呢?
+    //    ds.join(ds1, ds.col("name") === ds1.col("name"))
+
+    // 7. dataset.apply
+    val column6: sql.Column = ds.apply("name")
+    val column7: sql.Column = ds("name")
+  }
+
+  @Test
+  def as(): Unit = {
+
+    val ds: Dataset[Person] = Seq(Person("zhangsan", 15), Person("lisi", 10)).toDS()
+
+    // select name, count(age) as age from table group by name
+    ds.select('name as "new_name").show()
+
+    ds.select('age.as[Long]).show()
+  }
+
+  @Test
+  def api(): Unit = {
+
+    val ds: Dataset[Person] = Seq(Person("zhangsan", 15), Person("lisi", 10)).toDS()
+
+    // 需求一, ds 增加列, 双倍年龄
+    // 'age * 2 其实本质上就是将一个表达式(逻辑计划表达式) 附着到 column 对象上
+    // 表达式在执行的时候对应每一条数据进行操作
+    ds.withColumn("doubled", 'age * 2).show()
+
+    // 需求二, 模糊查询
+    // select * from table where name like zhang%
+    ds.where('name like "zhang%").show()
+
+    // 需求三, 排序, 正反序
+    ds.sort('age asc).show()
+
+    // 需求四, 枚举判断
+    ds.where('name isin("zhangsan", "wangwu", "zhaoliu")).show()
+  }
+}
+```
 
 ### 缺失值处理
 
+类型
+
+- `null`, `NaN` 等特殊类型的值, 某些语言中 `null` 可以理解是一个对象, 但是代表没有对象, `NaN` 是一个数字, 可以代表不是数字,针对这一类的缺失值, `Spark` 提供了一个名为 `DataFrameNaFunctions` 特殊类型来操作和处理
+- `"Null"`, `"NA"`, `" "` 等解析为字符串的类型, 但是其实并不是常规字符串数据,针对这类字符串, 需要对数据集进行采样, 观察异常数据, 总结经验, 各个击破
+
+```scala
+package org.duo.spark.sql
+
+import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.types.{DoubleType, IntegerType, LongType, StructField, StructType}
+import org.junit.Test
+
+class NullProcessor {
+
+  // 1. 创建 SparkSession
+  val spark = SparkSession.builder()
+    .master("local[6]")
+    .appName("null processor")
+    .getOrCreate()
+
+  @Test
+  def nullAndNaN(): Unit = {
 
 
+    // 2. 导入数据集
 
+    // 3. 读取数据集
+    //    1. 通过Saprk-csv自动的推断类型来读取, 推断数字的时候会将 NaN 推断为 字符串
+    //    spark.read
+    //      .option("header", true)
+    //      .option("inferSchema", true)
+    //      .csv(...)
+    //    2. 直接读取字符串, 在后续的操作中使用 map 算子转类型
+    //    spark.read.csv().map( row => row... )
+    //    3. 指定 Schema, 不要自动推断
+    val schema = StructType(
+      List(
+        StructField("id", LongType),
+        StructField("year", IntegerType),
+        StructField("month", IntegerType),
+        StructField("day", IntegerType),
+        StructField("hour", IntegerType),
+        StructField("season", IntegerType),
+        StructField("pm", DoubleType)
+      )
+    )
 
+    val sourceDF = spark.read
+      .option("header", value = true)
+      .schema(schema)
+      .csv("D:\\intellij-workspace\\bigdata\\spark\\data\\beijingpm_with_nan.csv")
 
+    sourceDF.show()
 
+    // 4. 丢弃
+    // 2019, 12, 12, NaN
+    // 规则:
+    //      1. any, 只有有一个 NaN 就丢弃
+    sourceDF.na.drop("any").show()
+    sourceDF.na.drop().show()
+    //      2. all, 所有数据都是 NaN 的行才丢弃
+    sourceDF.na.drop("all").show()
+    //      3. 某些列的规则
+    sourceDF.na.drop("any", List("year", "month", "day", "hour")).show()
 
+    // 5. 填充
+    // 规则:
+    //     1. 针对所有列数据进行默认值填充
+    sourceDF.na.fill(0).show()
+    //     2. 针对特定列填充
+    sourceDF.na.fill(0, List("year", "month")).show()
+  }
 
+  @Test
+  def strProcessor(): Unit = {
+    // 读取数据集
+    val sourceDF = spark.read
+      .option("header", value = true)
+      .option("inferSchema", value = true)
+      .csv("D:\\intellij-workspace\\bigdata\\spark\\data\\beijingpm_with_nan.csv")
 
+    //    sourceDF.show()
 
+    // 1. 丢弃
+    import spark.implicits._
+    //    sourceDF.where('PM_Dongsi =!= "NA").show()
 
+    // 2. 替换
+    import org.apache.spark.sql.functions._
+    // select name, age, case
+    // when ... then ...
+    // when ... then ...
+    // else
+    sourceDF.select(
+      'No as "id", 'year, 'month, 'day, 'hour, 'season,
+      when('PM_Dongsi === "NA", Double.NaN)
+        .otherwise('PM_Dongsi cast DoubleType)
+        .as("pm")
+    ).show()
+
+    // 原类型和转换过后的类型, 必须一致
+    sourceDF.na.replace("PM_Dongsi", Map("NA" -> "NaN", "NULL" -> "null")).show()
+  }
+
+}
+```
+
+## 聚合和连接
+
+### 聚合
+
+groupBy
+
+`groupBy` 算子会按照列将 `Dataset` 分组, 并返回一个 `RelationalGroupedDataset` 对象, 通过 `RelationalGroupedDataset` 可以对分组进行聚合
+
+rollup
+
+`rollup` 操作符其实就是 `groupBy` 的一个扩展, `rollup` 会对传入的列进行滚动 `groupBy`, `groupBy` 的次数为列数量 `+ 1`, 最后一次是对整个数据集进行聚合
+
+**Step 1: 创建数据集**
+
+```scala
+import org.apache.spark.sql.functions._
+
+val sales = Seq(
+  ("Beijing", 2016, 100),
+  ("Beijing", 2017, 200),
+  ("Shanghai", 2015, 50),
+  ("Shanghai", 2016, 150),
+  ("Guangzhou", 2017, 50)
+).toDF("city", "year", "amount")
+```
+
+**Step 1:** `rollup` **的操作**
+
+```scala
+sales.rollup("city", "year")
+  .agg(sum("amount") as "amount")
+  .sort($"city".desc_nulls_last, $"year".asc_nulls_last)
+  .show()
+
+/**
+  * 结果集:
+  * +---------+----+------+
+  * |     city|year|amount|
+  * +---------+----+------+
+  * | Shanghai|2015|    50| <-- 上海 2015 的小计
+  * | Shanghai|2016|   150|
+  * | Shanghai|null|   200| <-- 上海的总计
+  * |Guangzhou|2017|    50|
+  * |Guangzhou|null|    50|
+  * |  Beijing|2016|   100|
+  * |  Beijing|2017|   200|
+  * |  Beijing|null|   300|
+  * |     null|null|   550| <-- 整个数据集的总计
+  * +---------+----+------+
+  */
+```
+
+**Step 2: 如果使用基础的 groupBy 如何实现效果?**
+
+```scala
+val cityAndYear = sales
+  .groupBy("city", "year") // 按照 city 和 year 聚合
+  .agg(sum("amount") as "amount")
+
+val city = sales
+  .groupBy("city") // 按照 city 进行聚合
+  .agg(sum("amount") as "amount")
+  .select($"city", lit(null) as "year", $"amount")
+
+val all = sales
+  .groupBy() // 全局聚合
+  .agg(sum("amount") as "amount")
+  .select(lit(null) as "city", lit(null) as "year", $"amount")
+
+cityAndYear
+  .union(city)
+  .union(all)
+  .sort($"city".desc_nulls_last, $"year".asc_nulls_last)
+  .show()
+
+/**
+  * 统计结果:
+  * +---------+----+------+
+  * |     city|year|amount|
+  * +---------+----+------+
+  * | Shanghai|2015|    50|
+  * | Shanghai|2016|   150|
+  * | Shanghai|null|   200|
+  * |Guangzhou|2017|    50|
+  * |Guangzhou|null|    50|
+  * |  Beijing|2016|   100|
+  * |  Beijing|2017|   200|
+  * |  Beijing|null|   300|
+  * |     null|null|   550|
+  * +---------+----+------+
+  */
+```
+
+很明显可以看到, 在上述案例中, `rollup` 就相当于先按照 `city`, `year` 进行聚合, 后按照 `city` 进行聚合, 最后对整个数据集进行聚合, 在按照 `city` 聚合时, `year` 列值为 `null`, 聚合整个数据集的时候, 除了聚合列, 其它列值都为 `null`
+
+cube
+
+`cube` 的功能和 `rollup` 是一样的, 但也有区别, 区别如下
+
+- `rollup(A, B).sum`
+
+  其结果集中会有三种数据形式: `A B C`, `A null C`, `null null C`
+
+  不知道大家发现没, 结果集中没有对 `B` 列的聚合结果
+
+- `cube(A, B).sum`
+
+  其结果集中会有四种数据形式: `A B C`, `A null C`, `null null C`, `null B C`
+
+  不知道大家发现没, 比 `rollup` 的结果集中多了一个 `null B C`, 也就是说, `rollup` 只会按照第一个列来进行组合聚合, 但是 `cube` 会将全部列组合聚合
+
+```scala
+import org.apache.spark.sql.functions._
+
+pmFinal.cube('source, 'year)
+  .agg(sum("pm") as "pm_total")
+  .sort('source.asc_nulls_last, 'year.asc_nulls_last)
+  .show()
+
+/**
+  * 结果集为
+  *
+  * +-------+----+---------+
+  * | source|year| pm_total|
+  * +-------+----+---------+
+  * | dongsi|2013| 735606.0|
+  * | dongsi|2014| 745808.0|
+  * | dongsi|2015| 752083.0|
+  * | dongsi|null|2233497.0|
+  * |us_post|2010| 841834.0|
+  * |us_post|2011| 796016.0|
+  * |us_post|2012| 750838.0|
+  * |us_post|2013| 882649.0|
+  * |us_post|2014| 846475.0|
+  * |us_post|2015| 714515.0|
+  * |us_post|null|4832327.0|
+  * |   null|2010| 841834.0| <-- 新增
+  * |   null|2011| 796016.0| <-- 新增
+  * |   null|2012| 750838.0| <-- 新增
+  * |   null|2013|1618255.0| <-- 新增
+  * |   null|2014|1592283.0| <-- 新增
+  * |   null|2015|1466598.0| <-- 新增
+  * |   null|null|7065824.0|
+  * +-------+----+---------+
+  */
+```
+
+```scala
+package org.duo.spark.sql
+
+import org.apache.spark.sql.{RelationalGroupedDataset, SparkSession}
+import org.apache.spark.sql.types.{DoubleType, IntegerType, StringType, StructField, StructType}
+import org.junit.Test
+
+class AggProcessor {
+
+  // 1. 创建 SparkSession
+  val spark = SparkSession.builder()
+    .master("local[6]")
+    .appName("agg processor")
+    .getOrCreate()
+
+  import spark.implicits._
+
+  @Test
+  def groupBy(): Unit = {
+    // 2. 数据读取
+    val schema = StructType(
+      List(
+        StructField("id", IntegerType),
+        StructField("year", IntegerType),
+        StructField("month", IntegerType),
+        StructField("day", IntegerType),
+        StructField("hour", IntegerType),
+        StructField("season", IntegerType),
+        StructField("pm", DoubleType)
+      )
+    )
+
+    val sourceDF = spark.read
+      .schema(schema)
+      .option("header", value = true)
+      .csv("D:\\intellij-workspace\\bigdata\\spark\\data\\beijingpm_with_nan.csv")
+
+    // 3. 数据去掉空值
+    val cleanDF = sourceDF.where('pm =!= Double.NaN)
+
+    // 分组
+    val groupedDF: RelationalGroupedDataset = cleanDF.groupBy('year, $"month")
+
+    // 4. 使用 functions 函数来完成聚合
+    import org.apache.spark.sql.functions._
+
+    // 本质上, avg 这个函数定义了一个操作, 把表达式设置给 pm 列
+    // select avg(pm) from ... group by
+    groupedDF.agg(avg('pm) as "pm_avg")
+      .orderBy('pm_avg.desc)
+      .show()
+
+    groupedDF.agg(stddev(""))
+      .orderBy('pm_avg.desc)
+      .show()
+
+    // 5. 使用 GroupedDataset 的 API 来完成聚合
+    groupedDF.avg("pm")
+      .select($"avg(pm)" as "pm_avg")
+      .orderBy("pm_avg")
+      .show()
+
+    groupedDF.sum()
+      .select($"avg(pm)" as "pm_avg")
+      .orderBy("pm_avg")
+      .show()
+  }
+
+  @Test
+  def multiAgg(): Unit = {
+    val schemaFinal = StructType(
+      List(
+        StructField("source", StringType),
+        StructField("year", IntegerType),
+        StructField("month", IntegerType),
+        StructField("day", IntegerType),
+        StructField("hour", IntegerType),
+        StructField("season", IntegerType),
+        StructField("pm", DoubleType)
+      )
+    )
+
+    val pmFinal = spark.read
+      .schema(schemaFinal)
+      .option("header", value = true)
+      .csv("D:\\intellij-workspace\\bigdata\\spark\\data\\pm_final.csv")
+
+    import org.apache.spark.sql.functions._
+
+    // 需求1: 不同年, 不同来源, PM 值的平均数
+    // select source, year, avg(pm) as pm from ... group by source, year
+    val postAndYearDF = pmFinal.groupBy('source, 'year)
+      .agg(avg('pm) as "pm")
+
+    // 需求2: 在整个数据集中, 按照不同的来源来统计 PM 值的平均数
+    // select source, avg(pm) as pm from ... group by source
+    val postDF = pmFinal.groupBy('source)
+      .agg(avg('pm) as "pm")
+      .select('source, lit(null) as "year", 'pm)
+
+    // 合并在同一个结果集中
+    postAndYearDF.union(postDF)
+      .sort('source, 'year.asc_nulls_last, 'pm)
+      .show()
+  }
+
+  @Test
+  def rollup(): Unit = {
+    import org.apache.spark.sql.functions._
+
+    val sales = Seq(
+      ("Beijing", 2016, 100),
+      ("Beijing", 2017, 200),
+      ("Shanghai", 2015, 50),
+      ("Shanghai", 2016, 150),
+      ("Guangzhou", 2017, 50)
+    ).toDF("city", "year", "amount")
+
+    // 滚动分组, A, B 两列, AB, A, null
+    sales.rollup('city, 'year)
+      .agg(sum('amount) as "amount")
+      .sort('city.asc_nulls_last, 'year.asc_nulls_last)
+      .show()
+  }
+
+  @Test
+  def rollup1(): Unit = {
+    import org.apache.spark.sql.functions._
+
+    // 1. 数据集读取
+    val schemaFinal = StructType(
+      List(
+        StructField("source", StringType),
+        StructField("year", IntegerType),
+        StructField("month", IntegerType),
+        StructField("day", IntegerType),
+        StructField("hour", IntegerType),
+        StructField("season", IntegerType),
+        StructField("pm", DoubleType)
+      )
+    )
+
+    val pmFinal = spark.read
+      .schema(schemaFinal)
+      .option("header", value = true)
+      .csv("D:\\intellij-workspace\\bigdata\\spark\\data\\pm_final.csv")
+
+    // 2. 聚合和统计
+    // 需求1: 每个PM值计量者, 每年PM值统计的平均数 groupby source year
+    // 需求2: 每个PM值计量者, 整体上的PM平均值 groupby source
+    // 需求3: 全局所有的计量者, 和日期的PM值的平均值 groupby null
+    pmFinal.rollup('source, 'year)
+      .agg(avg('pm) as "pm")
+      .sort('source.asc_nulls_last, 'year.asc_nulls_last)
+      .show()
+  }
+
+  @Test
+  def cube(): Unit = {
+    val schemaFinal = StructType(
+      List(
+        StructField("source", StringType),
+        StructField("year", IntegerType),
+        StructField("month", IntegerType),
+        StructField("day", IntegerType),
+        StructField("hour", IntegerType),
+        StructField("season", IntegerType),
+        StructField("pm", DoubleType)
+      )
+    )
+
+    val pmFinal = spark.read
+      .schema(schemaFinal)
+      .option("header", value = true)
+      .csv("D:\\intellij-workspace\\bigdata\\spark\\data\\pm_final.csv")
+
+    import org.apache.spark.sql.functions._
+
+    pmFinal.cube('source, 'year)
+      .agg(avg('pm) as "pm")
+      .sort('source.asc_nulls_last, 'year.asc_nulls_last)
+      .show()
+  }
+
+  @Test
+  def cubeSql(): Unit = {
+    val schemaFinal = StructType(
+      List(
+        StructField("source", StringType),
+        StructField("year", IntegerType),
+        StructField("month", IntegerType),
+        StructField("day", IntegerType),
+        StructField("hour", IntegerType),
+        StructField("season", IntegerType),
+        StructField("pm", DoubleType)
+      )
+    )
+
+    val pmFinal = spark.read
+      .schema(schemaFinal)
+      .option("header", value = true)
+      .csv("D:\\intellij-workspace\\bigdata\\spark\\data\\pm_final.csv")
+
+    pmFinal.createOrReplaceTempView("pm_final")
+
+    val result = spark.sql("select source, year, avg(pm) as pm from pm_final group by source, year " +
+      "grouping sets ((source, year), (source), (year), ())" +
+      "order by source asc nulls last, year asc nulls last")
+
+    result.show()
+  }
+
+}
+```
+
+RelationalGroupedDataset
+
+常见的 `RelationalGroupedDataset` 获取方式有三种
+
+- `groupBy`
+- `rollup`
+- `cube`
+
+无论通过任何一种方式获取了 `RelationalGroupedDataset` 对象, 其所表示的都是是一个被分组的 `DataFrame`, 通过这个对象, 可以对数据集的分组结果进行聚合
+
+需要注意的是, `RelationalGroupedDataset` 并不是 `DataFrame`, 所以其中并没有 `DataFrame` 的方法, 只有如下一些聚合相关的方法, 如下这些方法在调用过后会生成 `DataFrame` 对象, 然后就可以再次使用 `DataFrame` 的算子进行操作了
+
+| 操作符  | 解释                                                  |
+| :------ | :---------------------------------------------------- |
+| `avg`   | 求平均数                                              |
+| `count` | 求总数                                                |
+| `max`   | 求极大值                                              |
+| `min`   | 求极小值                                              |
+| `mean`  | 求均数                                                |
+| `sum`   | 求和                                                  |
+| `agg`   | 聚合, 可以使用 `sql.functions` 中的函数来配合进行操作 |
+
+### 连接
+
+```scala
+package org.duo.spark.sql
+
+import org.apache.spark.sql.SparkSession
+import org.junit.Test
+
+class JoinProcessor {
+
+  val spark = SparkSession.builder()
+    .master("local[6]")
+    .appName("join")
+    .getOrCreate()
+
+  import spark.implicits._
+
+  private val person = Seq((0, "Lucy", 0), (1, "Lily", 0), (2, "Tim", 2), (3, "Danial", 3))
+    .toDF("id", "name", "cityId")
+  person.createOrReplaceTempView("person")
+
+  private val cities = Seq((0, "Beijing"), (1, "Shanghai"), (2, "Guangzhou"))
+    .toDF("id", "name")
+  cities.createOrReplaceTempView("cities")
+
+  @Test
+  def introJoin(): Unit = {
+    val person = Seq((0, "Lucy", 0), (1, "Lily", 0), (2, "Tim", 2), (3, "Danial", 0))
+      .toDF("id", "name", "cityId")
+
+    val cities = Seq((0, "Beijing"), (1, "Shanghai"), (2, "Guangzhou"))
+      .toDF("id", "name")
+
+    val df = person.join(cities, person.col("cityId") === cities.col("id"))
+      .select(person.col("id"),
+        person.col("name"),
+        cities.col("name") as "city")
+    //      .show()
+    df.createOrReplaceTempView("user_city")
+
+    spark.sql("select id, name, city from user_city where city = 'Beijing'")
+      .show()
+  }
+
+  @Test
+  def crossJoin(): Unit = {
+    person.crossJoin(cities)
+      .where(person.col("cityId") === cities.col("id"))
+      .show()
+
+    spark.sql("select u.id, u.name, c.name from person u cross join cities c " +
+      "where u.cityId = c.id")
+      .show()
+  }
+
+  @Test
+  def inner(): Unit = {
+    person.join(cities,
+      person.col("cityId") === cities.col("id"),
+      joinType = "inner")
+      .show()
+
+    spark.sql("select p.id, p.name, c.name " +
+      "from person p inner join cities c on p.cityId = c.id")
+      .show()
+  }
+
+  @Test
+  def fullOuter(): Unit = {
+    // 内连接, 就是只显示能连接上的数据, 外连接包含一部分没有连接上的数据, 全外连接, 指左右两边没有连接上的数据, 都显示出来
+    person.join(cities,
+      person.col("cityId") === cities.col("id"),
+      joinType = "full")
+      .show()
+
+    spark.sql("select p.id, p.name, c.name " +
+      "from person p full outer join cities c " +
+      "on p.cityId = c.id")
+      .show()
+  }
+
+  @Test
+  def leftRight(): Unit = {
+    // 左连接
+    person.join(cities,
+      person.col("cityId") === cities.col("id"),
+      joinType = "left")
+      .show()
+
+    spark.sql("select p.id, p.name, c.name " +
+      "from person p left join cities c " +
+      "on p.cityId = c.id")
+      .show()
+
+    // 右连接
+    person.join(cities,
+      person.col("cityId") === cities.col("id"),
+      joinType = "right")
+      .show()
+
+    spark.sql("select p.id, p.name, c.name " +
+      "from person p right join cities c " +
+      "on p.cityId = c.id")
+      .show()
+  }
+
+  @Test
+  def leftAntiSemi(): Unit = {
+      
+    // LeftAnti 是一种特殊的连接形式, 和左外连接类似, 但是其结果集中没有右侧的数据, 只包含左边集合中没连接上的数据
+    person.join(cities,
+      person.col("cityId") === cities.col("id"),
+      joinType = "leftanti")
+      .show()
+
+    spark.sql("select p.id, p.name " +
+      "from person p left anti join cities c " +
+      "on p.cityId = c.id")
+      .show()
+
+    // 和 LeftAnti 恰好相反, LeftSemi 的结果集也没有右侧集合的数据, 但是只包含左侧集合中连接上的数据
+    person.join(cities,
+      person.col("cityId") === cities.col("id"),
+      joinType = "leftsemi")
+      .show()
+
+    spark.sql("select p.id, p.name " +
+      "from person p left semi join cities c " +
+      "on p.cityId = c.id")
+      .show()
+  }
+}
+```
 
 
 

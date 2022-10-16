@@ -17259,7 +17259,7 @@ package object sql {
 
 `DataFrame` 和 `Dataset` 所表达的语义不同
 
-第一点: `DataFrame` 表达的含义是一个支持函数式操作的 `表`, 而 `Dataset` 表达是是一个类似 `RDD` 的东西, `Dataset` 可以处理任何对象
+第一点: `DataFrame` 表达的含义是一个支持函数式操作的 `表`, 而 `Dataset` 表达的是一个类似 `RDD` 的东西, `Dataset` 可以处理任何对象
 
 第二点: `DataFrame` 中所存放的是 `Row` 对象, 而 `Dataset` 中可以存放任何类型的对象
 
@@ -18927,7 +18927,901 @@ class JoinProcessor {
 }
 ```
 
+### UDF
 
+自定义函数(User-Defined Functions)
+
+```scala
+package org.duo.spark.sql
+
+import org.apache.spark.sql.SparkSession
+
+object UDF {
+  
+  def main(args: Array[String]): Unit = {
+
+    val spark = SparkSession.builder()
+      .appName("window")
+      .master("local[6]")
+      .getOrCreate()
+
+    import spark.implicits._
+
+    val source = Seq(
+      ("Thin", "Cell phone", 6000),
+      ("Normal", "Tablet", 1500),
+      ("Mini", "Tablet", 5500),
+      ("Ultra thin", "Cell phone", 5000),
+      ("Very thin", "Cell phone", 6000),
+      ("Big", "Tablet", 2500),
+      ("Bendable", "Cell phone", 3000),
+      ("Foldable", "Cell phone", 3000),
+      ("Pro", "Tablet", 4500),
+      ("Pro2", "Tablet", 6500)
+    ).toDF("product", "category", "revenue")
+
+    import org.apache.spark.sql.functions._
+
+    val toStrUDF = udf(toStr _)
+    source.select('product, 'category, toStrUDF('revenue)).show()
+  }
+
+  def toStr(revenue: Long): String = {
+    (revenue / 1000) + "K"
+  }
+}
+```
+
+### 窗口函数
+
+```scala
+package org.duo.spark.sql
+
+import org.apache.spark.sql
+import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.expressions.Window
+
+object WindowFun {
+
+  def main(args: Array[String]): Unit = {
+
+    val spark = SparkSession.builder()
+      .appName("window")
+      .master("local[6]")
+      .getOrCreate()
+
+    import spark.implicits._
+
+    val source = Seq(
+      ("Thin", "Cell phone", 6000),
+      ("Normal", "Tablet", 1500),
+      ("Mini", "Tablet", 5500),
+      ("Ultra thin", "Cell phone", 5000),
+      ("Very thin", "Cell phone", 6000),
+      ("Big", "Tablet", 2500),
+      ("Bendable", "Cell phone", 3000),
+      ("Foldable", "Cell phone", 3000),
+      ("Pro", "Tablet", 4500),
+      ("Pro2", "Tablet", 6500)
+    ).toDF("product", "category", "revenue")
+
+    import org.apache.spark.sql.functions._
+
+    //    // 定义窗口
+    //    val window = Window.partitionBy('category).orderBy('revenue.desc)
+    //
+    //    // 数据处理
+    //    source.select('product, 'category, dense_rank() over window as "rank").where('rank <= 2).show()
+    //
+    //    source.createOrReplaceTempView("productRevenue")
+    //    spark.sql("select product, category, revenue from " +
+    //      "(select * , dense_rank() over (partition by category order by revenue desc) as rank from productRevenue)" +
+    //      "where rank <= 2").show()
+
+    // 定义窗口 按照分类进行倒序排列
+    val window = Window.partitionBy('category).orderBy('revenue.desc)
+
+    // 找到最贵的商品价格
+    val maxPrice: sql.Column = max('revenue) over window
+
+    // 计算与最贵商品的差
+    source.select('product, 'category, 'revenue, (maxPrice - 'revenue) as "revenue_difference").show
+  }
+}
+```
+
+## SparkStreaming
+
+```scala
+package org.duo.spark.streaming
+
+import org.apache.spark.SparkConf
+import org.apache.spark.storage.StorageLevel
+import org.apache.spark.streaming.{Seconds, StreamingContext}
+
+object StreamingWordCount {
+
+  def main(args: Array[String]): Unit = {
+
+    if (args.length < 2) {
+      System.err.println("Usage: NetworkWordCount <hostname> <port>")
+      System.exit(1)
+    }
+
+    val sparkConf = new SparkConf().setAppName("NetworkWordCount")
+    //    val ssc = new StreamingContext(sparkConf, Seconds(1))
+
+    // StreamingContext在创建的时候也要用sparkConf，说明StreamingContext是基于Spark Core的
+    // 在执行master的时候不能指定一个线程，因为streaming运行的时候，需要开一个新的线程来去一直监听数据的获取
+    val ssc = new StreamingContext(sparkConf, Seconds(5))
+    ssc.sparkContext.setLogLevel("WARN")
+
+    val lines = ssc.socketTextStream(
+      hostname = args(0),
+      port = args(1).toInt,
+      storageLevel = StorageLevel.MEMORY_AND_DISK_SER)
+
+    val words = lines.flatMap(_.split(" "))
+    val wordCounts = words.map(x => (x, 1)).reduceByKey(_ + _)
+
+    wordCounts.print()
+
+    ssc.start()
+    // main方法执行完毕后整个程序就会退出，所以需要阻塞主线程
+    ssc.awaitTermination()
+  }
+}
+```
+
+在 `server02` 上使用 `nc` 开启一个 `Socket server`, 接受 `Streaming` 程序的连接请求, 从而建立连接发送消息给 `Streaming` 程序实时处理
+
+```bash
+[root@server02 ~]# nc -lk 0.0.0.0 9999
+```
+
+在 `server01` 执行如下命令运行程序
+
+```bash
+[root@server01 bin]# ./spark-submit --class org.duo.spark.streaming.StreamingWordCount  --master local[6] /opt/original-spark-1.0.jar server02 9999
+```
+
+注意点：
+
+- `Spark Streaming` 并不是真正的来一条数据处理一条
+
+  `Spark Streaming` 的处理机制叫做小批量, 英文叫做 `mini-batch`, 是收集了一定时间的数据后生成 `RDD`, 后针对 `RDD` 进行各种转换操作, 这个原理提现在如下两个地方
+
+  - 控制台中打印的结果是一个批次一个批次的, 统计单词数量也是按照一个批次一个批次的统计
+  - 多长时间生成一个 `RDD` 去统计呢? 由 `new StreamingContext(sparkConf, Seconds(1))` 这段代码中的第二个参数指定批次生成的时间
+
+- `Spark Streaming` 中至少要有两个线程
+
+  在使用 `spark-submit` 启动程序的时候, 不能指定一个线程
+
+  - 主线程被阻塞了, 等待程序运行
+  - 需要开启后台线程获取数据
+
+## Structured Streaming
+
+### Spark Streaming 和 Structured Streaming
+
+![image](assets\bigdata-73.png)
+
+- `Spark Streaming` 其实就是 `RDD` 的 `API` 的流式工具, 其本质还是 `RDD`, 存储和执行过程依然类似 `RDD`
+
+![image](assets\bigdata-74.png)
+
+- `Structured Streaming` 其实就是 `Dataset` 的 `API` 的流式工具, `API` 和 `Dataset` 保持高度一致
+
+总结：
+
+- `Structured Streaming` 相比于 `Spark Streaming` 的进步就类似于 `Dataset` 相比于 `RDD` 的进步
+- 另外还有一点, `Structured Streaming` 已经支持了连续流模型, 也就是类似于 `Flink` 那样的实时流, 而不是小批量, 但在使用的时候仍然有限制, 大部分情况还是应该采用小批量模式
+
+在 `2.2.0` 以后 `Structured Streaming` 被标注为稳定版本, 意味着以后的 `Spark` 流式开发不应该在采用 `Spark Streaming` 了
+
+### 入门案例
+
+```scala
+package org.duo.spark.structured
+
+import org.apache.spark.sql.streaming.OutputMode
+import org.apache.spark.sql.{Dataset, SparkSession}
+
+object SocketWordcount {
+
+  def main(args: Array[String]): Unit = {
+
+    // 1. 创建 SparkSession
+    val spark = SparkSession.builder()
+      .master("local[6]")
+      .appName("socket_processor")
+      .getOrCreate()
+
+    spark.sparkContext.setLogLevel("ERROR")
+
+    import spark.implicits._
+
+    // 2. 读取外部数据源, 并转为 Dataset[String]
+    val source: Dataset[String] = spark.readStream
+      .format("socket")
+      .option("host", "192.168.56.111")
+      .option("port", 9999)
+      .load()
+      .as[String]
+
+    // 3. 统计词频
+    val words = source.flatMap(_.split(" "))
+      .map((_, 1))
+      .groupByKey(_._1)
+      .count()
+
+    // 4. 输出结果
+    words.writeStream.outputMode(OutputMode.Complete())
+      .format("console")
+      .start()
+      .awaitTermination()
+  }
+}
+```
+
+1. 在虚拟机 `server02` 中运行 `nc -lk 9999`
+
+2. 在 IDEA 中运行程序
+
+3. 在 `server02` 中输入如下内容：
+
+   ```markdown
+   hello world
+   hello spark
+   hello hadoop
+   hello spark
+   hello spark
+   ```
+
+### Source
+
+#### 从HDFS中读取数据
+
+编写 `Python` 小程序, 在某个目录生成大量小文件。在真实的环境中, 数据也是一样的不断产生并且被放入 `HDFS` 中, 但是在真实场景下, 可能是 `Flume` 把小文件不断上传到 `HDFS` 中, 也可能是 `Sqoop` 增量更新不断在某个目录中上传小文件
+
+gen_files.py
+
+```python
+import os
+
+for index in range(100):
+    content = """
+    {"name": "Michael"}
+    {"name": "Andy", "age": 30}
+    {"name": "Justin", "age": 19}
+    """
+
+    file_name = "/opt/dataset/text{0}.json".format(index)
+
+    with open(file_name, "w") as file:
+        file.write(content)
+
+    os.system("/usr/local/hadoop-2.7.5/bin/hdfs dfs -mkdir -p /data/dataset/")
+    os.system("/usr/local/hadoop-2.7.5/bin/hdfs dfs -put {0} /data/dataset/".format(file_name))
+```
+
+使用 `Structured Streaming` 汇总数据。
+
+- `HDFS` 中的数据是不断的产生的, 所以也是流式的数据
+- 数据集是 `JSON` 格式, 要有解析 `JSON` 的能力
+- 因为数据是重复的, 要对全局的流数据进行汇总和去重, 其实真实场景下的数据清洗大部分情况下也是要去重的
+- 最终的数据结果以表的形式呈现，使用控制台展示数据意味着不需要在修改展示数据的代码，真实的工作中, 可能数据是要落地到 `MySQL`, `HBase`, `HDFS` 这样的存储系统中。
+
+```scala
+package org.duo.spark.structured
+
+import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.streaming.OutputMode
+import org.apache.spark.sql.types.StructType
+
+object HDFSSource {
+
+  def main(args: Array[String]): Unit = {
+
+    val spark = SparkSession.builder()
+      .appName("hdfs_source")
+      .master("local[6]")
+      .getOrCreate()
+
+    spark.sparkContext.setLogLevel("WARN")
+
+    val userSchema = new StructType()
+      .add("name", "string")
+      .add("age", "integer")
+
+    // 以流的形式读取某个 HDFS 目录，注意使用readStream的话一定要指定的是hdfs中的目录而不能是文件
+    val source = spark
+      .readStream
+      .schema(userSchema)
+      .json("hdfs://server01:8020/data/dataset")
+
+    val result = source.distinct()
+
+    result.writeStream
+      .outputMode(OutputMode.Update())
+      .format("console")
+      .start()
+      .awaitTermination()
+  }
+}
+```
+
+#### 从Kafka中读取数据
+
+`Structured Streaming` 对接 `Kafka` 的时候, 每一条 `Kafka` 消息不能只是 `KV`, 必须要有 `Topic`, `Partition` 之类的信息
+
+从 `Kafka` 获取的 `DataFrame` 格式，可以使用source.printSchema()打印schema信息，结果如下：
+
+```markdown
+root
+ |-- key: binary (nullable = true)
+ |-- value: binary (nullable = true)
+ |-- topic: string (nullable = true)
+ |-- partition: integer (nullable = true)
+ |-- offset: long (nullable = true)
+ |-- timestamp: timestamp (nullable = true)
+ |-- timestampType: integer (nullable = true)
+```
+
+从 `Kafka` 中读取到的并不是直接是数据, 而是一个包含各种信息的表格, 其中每个字段的含义如下
+
+| Key             | 类型        | 解释                                                         |
+| :-------------- | :---------- | :----------------------------------------------------------- |
+| `key`           | `binary`    | `Kafka` 消息的 `Key`                                         |
+| `value`         | `binary`    | `Kafka` 消息的 `Value`                                       |
+| `topic`         | `string`    | 本条消息所在的 `Topic`, 因为整合的时候一个 `Dataset` 可以对接多个 `Topic`, 所以有这样一个信息 |
+| `partition`     | `integer`   | 消息的分区号                                                 |
+| `offset`        | `long`      | 消息在其分区的偏移量                                         |
+| `timestamp`     | `timestamp` | 消息进入 `Kafka` 的时间戳                                    |
+| `timestampType` | `integer`   | 时间戳类型                                                   |
+
+解析 `Kafka` 中的 `JSON` 数据, 这是一个重点中的重点
+
+1. 准备好 `JSON` 所在的列
+
+   问题：由 `Dataset` 的结构可以知道 `key` 和 `value` 列的类型都是 `binary` 二进制, 所以要将其转为字符串, 才可进行 `JSON` 解析
+
+   解决方式：source.selectExpr("CAST(key AS STRING) as key", "CAST(value AS STRING) as value")
+
+2. 编写 `Schema` 对照 `JSON` 的格式
+
+   - `Key` 要对应 `JSON` 中的 `Key`
+
+   - `Value` 的类型也要对应 `JSON` 中的 `Value` 类型
+
+     ```scala
+     val eventType = new StructType()
+       .add("has_sound", BooleanType, nullable = true)
+       .add("has_motion", BooleanType, nullable = true)
+       .add("has_person", BooleanType, nullable = true)
+       .add("start_time", DateType, nullable = true)
+       .add("end_time", DateType, nullable = true)
+     
+     val camerasType = new StructType()
+       .add("device_id", StringType, nullable = true)
+       .add("last_event", eventType, nullable = true)
+     
+     val devicesType = new StructType()
+       .add("cameras", camerasType, nullable = true)
+     
+     val schema = new StructType()
+       .add("devices", devicesType, nullable = true)
+     ```
+
+3. 因为 `JSON` 中包含 `Date` 类型的数据, 所以要指定时间格式化方式
+
+   ```scala
+   val jsonOptions = Map("timestampFormat" -> "yyyy-MM-dd'T'HH:mm:ss.sss'Z'")
+   ```
+
+4. 使用 `from_json` 这个 `UDF` 格式化 `JSON`
+
+   ```scala
+   .select(from_json('value, schema, jsonOptions).alias("parsed_value"))
+   ```
+
+5. 选择格式化过后的 `JSON` 中的字段，因为 `JSON` 被格式化过后, 已经变为了 `StructType`, 所以可以直接获取其中某些字段的值
+
+   ```scala
+   .selectExpr("parsed_value.devices.cameras.last_event.has_person as has_person",
+             "parsed_value.devices.cameras.last_event.start_time as start_time")
+   ```
+
+示例：
+
+可以在一个在线的工具 `https://jsonformatter.org/` 中格式化 `JSON`, 将多行转成单行
+
+```json
+{
+  "devices": {
+    "cameras": {
+      "device_id": "awJo6rH",
+      "last_event": {
+        "has_sound": true,
+        "has_motion": true,
+        "has_person": true,
+        "start_time": "2016-12-29T00:00:00.000Z",
+        "end_time": "2016-12-29T18:42:00.000Z"
+      }
+    }
+  }
+}
+```
+
+```json
+{"devices":{"cameras":{"device_id":"awJo6rH","last_event":{"has_sound":true,"has_motion":true,"has_person":true,"start_time":"2016-12-29T00:00:00.000Z","end_time":"2016-12-29T18:42:00.000Z"}}}}
+```
+
+创建topic
+
+```bash
+[root@server01 kafka]# bin/kafka-topics.sh --zookeeper server01:2181/kafka --create --replication-factor 2 --partitions 3 --topic streaming-test
+```
+
+pom.xml
+
+```xml
+<dependency>
+    <groupId>org.apache.spark</groupId>
+    <artifactId>spark-sql-kafka-0-10_${scala.version}</artifactId>
+    <version>${spark.version}</version>
+</dependency>
+```
+
+KafkaSource
+
+```scala
+package org.duo.spark.structured
+
+import org.apache.spark.sql.SparkSession
+
+object KafkaSource {
+
+  def main(args: Array[String]): Unit = {
+
+    val spark = SparkSession.builder()
+      .appName("kafka_source")
+      .master("local[6]")
+      .getOrCreate()
+
+    spark.sparkContext.setLogLevel("WARN")
+
+    val source = spark.readStream
+      .format("kafka")
+      .option("kafka.bootstrap.servers", "server01:9092,server02:9092,server03:9092")
+      .option("subscribe", "streaming-test")
+      .option("startingOffsets", "earliest")
+      .load()
+
+    import org.apache.spark.sql.streaming.OutputMode
+    import org.apache.spark.sql.types._
+
+    val eventType = new StructType().add("has_sound", BooleanType, nullable = true)
+      .add("has_motion", BooleanType, nullable = true)
+      .add("has_person", BooleanType, nullable = true)
+      .add("start_time", DateType, nullable = true)
+      .add("end_time", DateType, nullable = true)
+
+    val camerasType = new StructType()
+      .add("device_id", StringType, nullable = true)
+      .add("last_event", eventType, nullable = true)
+
+    val devicesType = new StructType()
+      .add("cameras", camerasType, nullable = true)
+
+    val schema = new StructType()
+      .add("devices", devicesType, nullable = true)
+
+    val jsonOptions = Map("timestampFormat" -> "yyyy-MM-dd'T'HH:mm:ss.sss'Z'")
+
+    import org.apache.spark.sql.functions._
+    import spark.implicits._
+
+    val result = source.selectExpr("CAST(key AS STRING) as key", "CAST(value AS STRING) as value")
+      .select(from_json('value, schema, jsonOptions).alias("parsed_value"))
+      .selectExpr("parsed_value.devices.cameras.last_event.has_person as has_person",
+        "parsed_value.devices.cameras.last_event.start_time as start_time")
+      .filter('has_person === true)
+      .groupBy('has_person, 'start_time)
+      .count()
+
+    result.writeStream
+      .outputMode(OutputMode.Complete())
+      .format("console")
+      .start()
+      .awaitTermination()
+  }
+}
+```
+
+生产数据
+
+```bash
+[root@server01 kafka]# bin/kafka-console-producer.sh --broker-list server01:9092 --topic streaming-test
+>{"devices":{"cameras":{"device_id":"awJo6rH","last_event":{"has_sound":true,"has_motion":true,"has_person":true,"start_time":"2016-12-29T00:00:00.000Z","end_time":"2016-12-29T18:42:00.000Z"}}}}
+```
+
+### Sink
+
+#### HDFSSink
+
+```scala
+package org.duo.spark.structured
+
+import org.apache.spark.sql.SparkSession
+
+object HDFSSink {
+
+  def main(args: Array[String]): Unit = {
+
+    val spark = SparkSession.builder()
+      .master("local[6]")
+      .appName("kafka integration")
+      .getOrCreate()
+
+    import spark.implicits._
+
+    val source = spark
+      .readStream
+      .format("kafka")
+      .option("kafka.bootstrap.servers", "server01:9092,server02:9092,server03:9092")
+      .option("subscribe", "streaming-bank")
+      .option("startingOffsets", "earliest")
+      .load()
+      .selectExpr("CAST(value AS STRING)")
+      .as[String]
+
+    val result = source.map {
+      item =>
+        val arr = item.replace("\"", "").split(";")
+        (arr(0).toInt, arr(1).toInt, arr(5).toInt)
+    }
+      .as[(Int, Int, Int)]
+      .toDF("age", "job", "balance")
+
+    result.writeStream
+      .format("parquet") // 也可以是 "orc", "json", "csv" 等
+      .option("path", "D:\\intellij-workspace\\bigdata\\spark\\data\\streaming\\result")
+      .option("checkpointLocation", "D:\\intellij-workspace\\bigdata\\spark\\data\\checkpoint")
+      .start().awaitTermination()
+  }
+}
+```
+
+#### KafkaSink
+
+```scala
+package org.duo.spark.structured
+
+import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.streaming.OutputMode
+
+object KafkaSink {
+
+  def main(args: Array[String]): Unit = {
+
+    val spark = SparkSession.builder()
+      .master("local[6]")
+      .appName("kafka integration")
+      .getOrCreate()
+
+    import spark.implicits._
+
+    val source = spark
+      .readStream
+      .format("kafka")
+      .option("kafka.bootstrap.servers", "server01:9092,server02:9092,server03:9092")
+      .option("subscribe", "streaming-test")
+      .option("startingOffsets", "earliest")
+      .load()
+      .selectExpr("CAST(value AS STRING)")
+      .as[String]
+
+    val result = source.map {
+      item =>
+        val arr = item.replace("\"", "").split(";")
+        (arr(0).toInt, arr(1).toString, arr(5).toString)
+    }
+      .as[(Int, String, String)]
+      .toDF("age", "job", "balance")
+
+    result.writeStream
+      .format("kafka")
+      .outputMode(OutputMode.Append())
+      .option("kafka.bootstrap.servers", "server01:9092,server02:9092,server03:9092")
+      .option("checkpointLocation", "D:\\intellij-workspace\\bigdata\\spark\\data\\checkpoint")
+      .option("topic", "streaming-bank")
+      .start().awaitTermination()
+  }
+}
+```
+
+#### Foreach 
+
+目前Structured Streaming官方只支持sink至hdfs和kafka，如果有其他的目标端需要写入比如：MySQL、HBase等，就需要使用StructuredStreaming提供的Foreach模式，Foreach可以拿到每一个批次的数据，通过Foreach 拿到数据后, 可以通过自定义写入方式, 从而将数据落地到其它的系统。
+
+```scala
+package org.duo.spark.structured
+
+import org.apache.spark.sql.{ForeachWriter, Row, SparkSession}
+
+import java.sql.{Connection, DriverManager, Statement}
+
+object MySQLSink {
+
+  def main(args: Array[String]): Unit = {
+
+    val spark = SparkSession.builder()
+      .master("local[6]")
+      .appName("MySQL integration")
+      .getOrCreate()
+
+    import spark.implicits._
+
+    val source = spark
+      .readStream
+      .format("kafka")
+      .option("kafka.bootstrap.servers", "server01:9092,server02:9092,server03:9092")
+      .option("subscribe", "streaming-bank")
+      .option("startingOffsets", "earliest")
+      .load()
+      .selectExpr("CAST(value AS STRING)")
+      .as[String]
+
+    val result = source.map {
+      item =>
+        val arr = item.replace("\"", "").split(";")
+        (arr(0).toInt, arr(1).toInt, arr(5).toInt)
+    }
+      .as[(Int, Int, Int)]
+      .toDF("age", "job", "balance")
+
+    class MySQLWriter extends ForeachWriter[Row] {
+
+      val driver = "com.mysql.jdbc.Driver"
+      var statement: Statement = _
+      var connection: Connection = _
+      val url: String = "jdbc:mysql://server01:3306/streaming-bank-result"
+      val user: String = "root"
+      val pwd: String = "123456"
+
+      override def open(partitionId: Long, version: Long): Boolean = {
+        Class.forName(driver)
+        connection = DriverManager.getConnection(url, user, pwd)
+        this.statement = connection.createStatement
+        true
+      }
+
+      override def process(value: Row): Unit = {
+        statement.executeUpdate(s"insert into bank values(" +
+          s"${value.getAs[Int]("age")}, " +
+          s"${value.getAs[Int]("job")}, " +
+          s"${value.getAs[Int]("balance")} )")
+      }
+
+      override def close(errorOrNull: Throwable): Unit = {
+        connection.close()
+      }
+    }
+
+    result.writeStream
+      .foreach(new MySQLWriter)
+      .start()
+      .awaitTermination()
+  }
+}
+```
+
+### Tigger
+
+#### 微批次处理
+
+- 并不是真正的流, 而是缓存一个批次周期的数据, 后处理这一批次的数据
+
+rate是spark内置的一个测试数据源，提供一个由两列 `timestamp, value` 组成的数据, `value` 是一个随机数
+
+```scala
+package org.duo.spark.structured
+
+import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.streaming.{OutputMode, Trigger}
+import org.apache.spark.sql.types.IntegerType
+
+object TiggerTest {
+
+  def main(args: Array[String]): Unit = {
+
+    val spark = SparkSession.builder()
+      .master("local[6]")
+      .appName("socket_processor")
+      .getOrCreate()
+
+    import org.apache.spark.sql.functions._
+    import spark.implicits._
+
+    spark.sparkContext.setLogLevel("ERROR")
+
+    // 根据 Spark 提供的调试用的数据源 Rate 创建流式 DataFrame
+    // Rate 数据源会定期提供一个由两列 timestamp, value 组成的数据, value 是一个随机数
+    val source = spark.readStream
+      .format("rate")
+      .load()
+
+    // 对 value 求 log10 即可得出其位数
+    // 后按照位数进行分组, 最终就可以看到每个位数的数据有多少个
+    val result = source.select(log10('value) cast IntegerType as 'key, 'value)
+      .groupBy('key)
+      .agg(count('key) as 'count)
+      .select('key, 'count)
+      .where('key.isNotNull)
+      .sort('key.asc)
+
+    // 通过 Trigger.ProcessingTime() 指定处理间隔
+    result.writeStream.format("console").outputMode(OutputMode.Complete())
+      .trigger(Trigger.ProcessingTime("2 seconds"))
+      .start()
+      .awaitTermination()
+  }
+}
+```
+
+默认方式划分批次
+
+默认情况下的 `Structured Streaming` 程序会运行在微批次的模式下, 当一个批次结束后, 下一个批次会立即开始处理：指定落地到 `Console` 中, 不指定 `Trigger`
+
+按照固定时间间隔划分批次
+
+使用微批次处理数据, 使用用户指定的时间间隔启动批次, 如果间隔指定为 `0`, 则尽可能快的去处理, 一个批次紧接着一个批次，通过 `Trigger.ProcessingTime()` 指定处理间隔：
+
+- 如果前一批数据提前完成, 待到批次间隔达成的时候再启动下一个批次
+- 如果前一批数据延后完成, 下一个批次会在前面批次结束后立即启动
+- 如果没有数据可用, 则不启动处理
+
+一次性划分批次
+
+只划分一个批次, 处理完成以后就停止 `Spark` 工作, 当需要启动一下 `Spark` 处理遗留任务的时候, 处理完就关闭集群的情况下, 这个划分方式非常实用
+
+```scala
+result.writeStream
+  .outputMode(OutputMode.Complete())
+  .format("console")
+  .trigger(Trigger.Once())
+  .start()
+  .awaitTermination()
+```
+
+#### 连续流处理
+
+- 微批次会将收到的数据按照批次划分为不同的 `DataFrame`, 后执行 `DataFrame`, 所以其数据的处理延迟取决于每个 `DataFrame` 的处理速度, 最快也只能在一个 `DataFrame` 结束后立刻执行下一个, 最快可以达到 `100ms` 左右的端到端延迟
+- 而连续流处理可以做到大约 `1ms` 的端到端数据处理延迟
+- 连续流处理可以达到 `at-least-once` 的容错语义
+- 从 `Spark 2.3` 版本开始支持连续流处理, 这个特性截止到 `2.4` 依然是实验性质, 不建议在生产环境中使用
+
+```scala
+result.writeStream
+  .outputMode(OutputMode.Complete())
+  .format("console")
+  .trigger(Trigger.Continuous("1 second"))
+  .start()
+  .awaitTermination()
+```
+
+限制
+
+- 只支持 `Map` 类的有类型操作
+- 只支持普通的的 `SQL` 类操作, 不支持聚合
+- `Source` 只支持 `Kafka`
+- `Sink` 只支持 `Kafka`, `Console`, `Memory`
+
+### 错误恢复和容错语义
+
+#### 端到端
+
+![image](assets\bigdata-75.png)
+
+- `Source` 可能是 `Kafka`, `HDFS`
+- `Sink` 也可能是 `Kafka`, `HDFS`, `MySQL` 等存储服务
+- 消息从 `Source` 取出, 经过 `Structured Streaming` 处理, 最后落地到 `Sink` 的过程, 叫做端到端
+
+#### 三种容错语义
+
+at-most-once
+
+- 在数据从 `Source` 到 `Sink` 的过程中, 出错了, `Sink` 可能没收到数据, 但是不会收到两次, 叫做 `at-most-once`
+- 一般错误恢复的时候, 不重复计算, 则是 `at-most-once`
+
+at-least-once
+
+- 在数据从 `Source` 到 `Sink` 的过程中, 出错了, `Sink` 一定会收到数据, 但是可能收到两次, 叫做 `at-least-once`
+- 一般错误恢复的时候, 重复计算可能完成也可能未完成的计算, 则是 `at-least-once`
+
+exactly-once
+
+- 在数据从 `Source` 到 `Sink` 的过程中, 虽然出错了, `Sink` 一定恰好收到应该收到的数据, 一条不重复也一条都不少, 即是 `exactly-once`
+- 想做到 `exactly-once` 是非常困难的
+
+#### Sink 的容错
+
+![image](assets\bigdata-76.png)
+
+故障恢复一般分为 `Driver` 的容错和 `Task` 的容错
+
+- `Driver` 的容错指的是整个系统都挂掉了
+- `Task` 的容错指的是一个任务没运行明白, 重新运行一次
+
+因为 `Spark` 的 `Executor` 能够非常好的处理 `Task` 的容错, 所以主要讨论 `Driver` 的容错, 如果出错的时候
+
+- 读取 `WAL offsetlog` 恢复出最新的 `offsets`
+
+  当 `StreamExecution` 找到 `Source` 获取数据的时候, 会将数据的起始放在 `WAL offsetlog` 中, 当出错要恢复的时候, 就可以从中获取当前处理批次的数据起始, 例如 `Kafka` 的 `Offset`
+
+- 读取 `batchCommitLog` 决定是否需要重做最近一个批次
+
+  当 `Sink` 处理完批次的数据写入时, 会将当前的批次 `ID` 存入 `batchCommitLog`, 当出错的时候就可以从中取出进行到哪一个批次了, 和 `WAL` 对比即可得知当前批次是否处理完
+
+- 如果有必要的话, 当前批次数据重做
+
+  - 如果上次执行在 `(5)` 结束前即失效, 那么本次执行里 `Sink` 应该完整写出计算结果
+  - 如果上次执行在 `(5)` 结束后才失效, 那么本次执行里 `Sink` 可以重新写出计算结果 (覆盖上次结果), 也可以跳过写出计算结果(因为上次执行已经完整写出过计算结果了)
+
+- 这样即可保证每次执行的计算结果, 在 Sink 这个层面, 是 不重不丢 的, 即使中间发生过失效和恢复, 所以 `Structured Streaming` 可以做到 `exactly-once`
+
+容错所需要的存储
+
+- `offsetlog` 和 `batchCommitLog` 关乎于错误恢复
+- `offsetlog` 和 `batchCommitLog` 需要存储在可靠的空间里
+- `offsetlog` 和 `batchCommitLog` 存储在 `Checkpoint` 中
+- `WAL` 其实也存在于 `Checkpoint` 中
+
+只有指定了 `Checkpoint` 路径的时候, 对应的容错功能才可以开启
+
+```scala
+aggDF
+  .writeStream
+  .outputMode("complete")
+  .option("checkpointLocation", "path/to/HDFS/dir") 
+  .format("memory")
+  .start()
+```
+
+需要的外部支持
+
+如果要做到 `exactly-once`, 只是 `Structured Streaming` 能做到还不行, 还需要 `Source` 和 `Sink` 系统的支持
+
+- `Source` 需要支持数据重放
+
+  当有必要的时候, `Structured Streaming` 需要根据 `start` 和 `end offset` 从 `Source` 系统中再次获取数据, 这叫做重放
+
+- `Sink` 需要支持幂等写入
+
+  如果需要重做整个批次的时候, `Sink` 要支持给定的 `ID` 写入数据, 这叫幂等写入, 一个 `ID` 对应一条数据进行写入, 如果前面已经写入, 则替换或者丢弃, 不能重复
+
+所以 `Structured Streaming` 想要做到 `exactly-once`, 则也需要外部系统的支持, 如下
+
+Source
+
+| `Sources`    | 是否可重放 | 原生内置支持 | 注解                                                 |
+| ------------ | ---------- | ------------ | ---------------------------------------------------- |
+| `HDFS`       | 可以       | 已支持       | 包括但不限于 `Text`, `JSON`, `CSV`, `Parquet`, `ORC` |
+| `Kafka`      | 可以       | 已支持       | `Kafka 0.10.0+`                                      |
+| `RateStream` | 可以       | 已支持       | 以一定速率产生数据                                   |
+| RDBMS        | 可以       | 待支持       | 预计后续很快会支持                                   |
+| Socket       | 不可以     | 已支持       | 主要用途是在技术会议和讲座上做 `Demo`                |
+
+Sink
+
+| `Sinks`       | 是否幂等写入 | 原生内置支持 | 注解                                                  |
+| ------------- | ------------ | ------------ | ----------------------------------------------------- |
+| `HDFS`        | 可以         | 支持         | 包括但不限于 `Text`, `JSON`, `CSV`, `Parquet`, `ORC`  |
+| `ForeachSink` | 可以         | 支持         | 可定制度非常高的 `Sink`, 是否可以幂等取决于具体的实现 |
+| `RDBMS`       | 可以         | 待支持       | 预计后续很快会支持                                    |
+| `Kafka`       | 不可以       | 支持         | `Kafka` 目前不支持幂等写入, 所以可能会有重复写入      |
 
 # Flink
 
@@ -21344,6 +22238,10 @@ object DataSource_Socket {
     //1. 创建流式环境
     val env = StreamExecutionEnvironment.getExecutionEnvironment
 
+    // Netcat简写nc, 命令行中使用nc命令调用
+    // Netcat是一个非常常见的Socket工具, 可以使用nc建立Socket server也可以建立Socket client
+    // nc -lk port 建立 Socket server, l是listen监听的意思；k表示nc在接收完一个请求后不会立即退出，而是会继续监听其他请求。
+    // nc host port建立Socket client, 并连接到某个Socket server
     // 在Linux中，使用`nc -lk 端口号`监听端口，并发送单词
     // 2. 构建socket数据源
     val socketDataStream: DataStream[String] = env.socketTextStream("server01", 9999)

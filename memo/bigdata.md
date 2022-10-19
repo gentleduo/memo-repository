@@ -11194,6 +11194,49 @@ public class ClickStreamVisit {
 
 ### 数据仓库设计
 
+#### 数据分层
+
+##### 数据运营层（ODS）
+
+Operate data store，操作数据存储，是最接近数据源中数据的一层。本层的数据，总体上大多是按照源头业务系统的分类方式而分类的
+
+- ODS层是数据仓库准备区，为DWD层提供基础原始数据，可减少对业务系统的影响
+- 从业务系统增量抽取 保留时间由业务需求决定 可分表进行周期存储 数据不做清洗转换与业务系统数据模型保持一致 按主题逻辑划分
+
+##### 数据仓库层（DW）
+
+从ODS层中获得的数据按照主题建立各种数据模型
+
+###### 数据明细层（DWD）
+
+data warehouse details，数据明细层
+
+- 业务层和数据仓库层的隔离层，保持和ODS层相同颗粒度；
+- 为DW层提供来源明细数据，提供业务系统细节数据的长期沉淀，为分析类需求的扩展提供历史数据支撑
+- 数据模型与ODS层一致，进行数据清洗、转换处理；为支持数据重跑按年月日进行分表，用增量ODS层数据和前一天DWD相关表进行merge处理
+
+###### 数据中间层（DWM）
+
+data warehouse middle，数据中间层
+
+- 在DWD的基础上进行聚合操作，算出相应的统计指标
+- 聚合之后会生成中间表
+- DWB保持低粒度汇总加工数据
+
+###### 数据服务层（DWS）
+
+data warehouse service，数据中间层
+
+- 在DWM的基础上，按照各种主题划分生成维度比较多的宽表用来loap分析
+
+- DWS保持高粒度汇总数据
+
+###### 应用层（ADS）
+
+application data service 数据应用层
+
+存放在Druid、ES、Redis等系统中，主要是提供数据产品和数据分析使用的数据
+
 #### 维度建模基本概念
 
 维度模型是数据仓库领域大师Ralph Kimall所倡导，他的《数据仓库工具箱》，是数据仓库工程领域最流行的数仓建模经典。维度建模以分析决策的需求出发构建模型，构建的数据模型为分析需求服务，因此它重点解决用户如何更快速完成分析需求，同时还有较好的大规模复杂查询的响应性能。维度建模是专门应用于分析型数据库、数据仓库、数据集市建模的方法。数据集市可以理解为是一种"小型数据仓库"。
@@ -29945,3 +29988,149 @@ object App {
 }
 ```
 
+# Hudi
+
+## 数据湖
+
+Hudi（Hadoop Update and Incremental）官方介绍是为数据湖之上提供事务支持、行级别更新/删除（Row  Level Update/deletes）和变更流（Change  Stream）的一个数据湖框架，最早是由Uber开发于2016年，2017进入开源社区，并在2020年成为Apache 顶级项目。存储的数据可以使用任意格式：结构化、非结构化、半结构化数据。
+
+```mermaid
+graph LR
+  A[有了数仓为啥还要有数据湖]-->B[离线数仓]
+  A[有了数仓为啥还要有数据湖]-->C[Lambda架构]
+  C[Lambda架构]-->D[离线+实时链路]
+  C[Lambda架构]-->E[离线数仓+实时数仓]
+  A[有了数仓为啥还要有数据湖]-->F[Kappa架构]
+```
+
+lambda存在的问题：离线跟实时计算结构可能不一致、业务逻辑写两遍、数据存储两遍等。
+
+```mermaid
+graph LR
+A[数据源]-->|离线|B[ODS:Hive]
+B[ODS:Hive]-->C[DWD:Hive]
+C[DWD:Hive]-->D[DWS:Hive]
+D[DWS:Hive]-->E[DM:Impala,MySQL]
+A[数据源]-->|实时|F[ODS]
+F[ODS:Kafka]-->G[DWD:Kafka]
+G[DWD:Kafka]-->H[DWS:Kafka]
+H[DWS:Kafka]-->I[DM:Kudu,ES,Druid,MySQL]
+```
+
+介于lambda架构存在的问题，出现了一种新的基于Kafka+Flink的实时数仓，被称为Kappa，Kappa架构将离线和实时合并，可以理解没有离线部分了全部实时计算。但是Kappa架构也存在如下几个明显的缺陷：
+
+1. Kafka无法支持海量数据存储，对于海量数据量的业务线来说，Kafka一般只能存储非常短时间的数据，比如最近一周，甚至一天；
+2. Kafka无法支持高效的OLAP查询，大多数业务都希望能在DWD/DWS层支持即时查询，但是Kafka无法非常友好的支持这样的需求；
+3. 无法复用目前已经非常成熟的基于离线数仓的数据血缘，数据质量管理体系。需要重新实现一套数据血缘，数据质量管理体系；
+4. Kafka不支持update/upsert，目前Kafka仅支持append。
+
+```mermaid
+graph LR
+A[数据源]-->F[ODS:Kafka]
+F[ODS:Kafka]-->|Flink|G[DWD:Kafka]
+G[DWD:Kafka]-->|Flink|H[DWS:Kafka]
+H[DWS:Kafka]-->|Flink|I[DM:Kudu,ES,Druid,MySQL,HB,CH......]
+```
+
+为了解决Kappa架构的痛点问题，业界最主流是采用“批流一体”方式，这里批流一体指的是存储。Hudi就是用来解决实时场景下用kafka做实时数仓的分层时遇到的问题。
+
+1. Hudi支持实时做修改
+2. 支持海量数据的存储（Hudi的底层存储用的就是Hdfs）
+3. 支持sql查询，但是必须和hive进行整合
+4. hudi的查询速度也是比较快
+5. hudi真正做到了存储层面的批流一体、实时和离线采用一套架构
+
+Hudi基于parquet列式存储与avro行式存储，同时避免创建小文件，实现高效率低延迟的数据访问。在HDFS数据集上提供插入、更新、增量拉取、全量拉取。Hudi具有如下特点：
+
+- 快速upsert，可插入索引
+- 以原子方式操作数据并具有回滚功能
+- 写入器和查询之间的快照隔离
+- 用于数据恢复的savepoint保存点，Hudi通过Savepoint来实现数据恢复
+- 管理文件大小，使用统计数据布局
+- 行和列数据的异步压缩
+- 时间轴元数据跟踪血缘
+
+## 核心概念
+
+### Timeline
+
+Hudi内部对每个表都维护了一个Timeline，这个Timeline是由一组作用在某个表上的Instant对象组成。Instant表示在某个时间点对表进行操作的，从而达到某一个状态的表示，所以Instant包含Instant Action，Instant Time和Instant State这三个内容，它们的含义如下所示：
+
+- Instant Action：对Hudi表执行的操作类型，目前包括COMMITS、CLEANS、DELTA_COMMIT、COMPACTION、ROLLBACK、SAVEPOINT这6种操作类型。
+  - COMMITS：表明一批数据原子写入到表中
+  - CLEANS：后台进程，清理不再需要的旧版本数据
+  - DELTA_COMMIT：将一批记录原子写入到Merge On Read存储类型的数据集（写入增量日志log文件中）
+  - COMPACTION：后台进程，把行存的数据合并到列存格式文件，是一种特殊的 commit
+  - ROLLBACK：表明 commit/delta commit 失败并回滚，删除不完整的文件
+  - SAVEPOINT：对文件标记为“saved”,清理程序就不会删除这些文件，在遇到故障或者数据需要修复时，可以把表恢复到时间线的这个保存点
+- Instant Time：表示一个时间戳，这个时间戳必须是按照Instant Action开始执行的时间顺序单调递增的。
+- Instant State：表示在指定的时间点（Instant Time）对Hudi表执行操作（Instant Action）后，表所处的状态，目前包括REQUESTED（已调度但未初始化）、INFLIGHT（当前正在执行）、COMPLETED（操作执行完成）这3种状态。
+
+![image](assets\bigdata-84.png)
+
+### 文件及索引
+
+Hudi将表组织成HDFS上某个指定目录（basepath）下的目录结构，表被分成多个分区，分区是以目录的形式存在，每个目录下面会存在属于该分区的多个文件，类似Hive表，每个Hudi表分区通过一个分区路径（partitionpath）来唯一标识。在每个分区下面，通过文件分组（File Group）的方式来组织（**也有说是按commit时间分组，待验证**），每个分组对应一个唯一的文件ID。每个文件分组中包含多个文件分片（File Slice），每个文件分片包含一个Base文件（*.parquet），这个文件是在执行COMMIT/COMPACTION操作的时候生成的，同时还生成了几个日志文件（*.log.*），日志文件中包含了从该Base文件生成以后执行的插入/更新操作。
+Hudi采用MVCC设计，当执行COMPACTION操作时，会合并日志文件和Base文件，生成新的文件分片。CLEANS操作会清理掉不用的/旧的文件分片，释放存储空间。
+Hudi会通过记录Key与分区Path组成Hoodie Key，即Record Key+Partition Path，通过将Hoodie Key映射到前面提到的文件ID，具体其实是映射到file_group/file_id，这就是Hudi的索引。一旦记录的第一个版本被写入文件中，对应的Hoodie Key就不会再改变了。
+
+### Hudi表类型
+
+Hudi具有两种类型的表： 
+
+#### Copy-On-Write
+
+使用专门的列式文件格式存储数据，例如Parquet格式。更新时保存多版本，并且在写的过程中通过异步的Merge来实现重写（Rewrite）数据文件。
+Copy-On-Write表只包含列式格式的Base文件，每次执行COMMIT操作会生成新版本的Base文件（从老的版本copy出一份然后再写入，即每次写的时候先复制原来的然后再写入新增的），最终执行COMPACTION操作时还是会生成列式格式的Base文件。所以，Copy-On-Write表存在写放大的问题，因为每次有更新操作都会重写（Rewrite）整个Base文件。
+通过官网给出的一个例子，来说明写入Copy-On-Write表，并进行查询操作的基本流程，如下图所示：
+
+![image](D:\gentleduo\memo-repository\memo\assets\bigdata-85.png)
+
+上图中，每次执行INSERT或UPDATE操作，都会在Timeline上生成一个的COMMIT，同时对应着一个文件分片（File Slice）。如果是INSERT操作则生成文件分组的第一个新的文件分片，如果是UPDATE操作则会生成一个新版本的文件分片。
+写入过程中可以进行查询，如果查询COMMIT为10:10之前的数据，则会首先查询Timeline上最新的COMMIT，通过过滤掉只会小于10:10的数据查询出来，即把文件ID为1、2、3且版本为10:05的文件分片查询出来。
+
+优点：读取时只需要读取对应分区的一个数据文件即可，比较高效
+
+缺点：数据写入的时候，需要复制一个先前的副本再在其基础上生成新的数据文件，这个过程比较耗时，并且由于耗时，读请求读取到的数据相对就会滞后。
+
+#### Merge-On-Read
+
+使用列式和行式文件格式混合的方式来存储数据，列式文件格式比如Parquet，行式文件格式比如Avro。更新时写入到增量（Delta）文件中，之后通过同步或异步的COMPACTION操作，生成新版本的列式格式文件。
+Merge-On-Read表存在列式格式的Base文件，也存在行式格式的增量（Delta）文件，新到达的更新都会写到增量日志文件中，根据实际情况进行COMPACTION操作来将增量文件合并到Base文件上。通常，需要有效的控制增量日志文件的大小，来平衡读放大和写放大的影响。
+Merge-On-Read表可以支持Snapshot Query和Read Optimized Query，下面的例子展示了Merge-On-Read表读写的基本流程，如下图所示：
+
+![image](assets\bigdata-86.png)
+
+上图中，每个文件分组都对应一个增量日志文件（Delta Log File）。COMPACTION操作在后台定时执行，会把对应的增量日志文件合并到文件分组的Base文件中，生成新版本的Base文件。
+对于查询10:10之后的数据的Read Optimized Query，只能查询到10:05及其之前的数据，看不到之后的数据，查询结果只包含版本为10:05、文件ID为1、2、3的文件；但是Snapshot Query是可以查询到10:05之后的数据的。
+
+优点：由于写入数据先写delta log，且delta log较小，所以写入成本较低。
+
+缺点：需要定期合并整理compact，否则碎片文件较多。读取性能较差，因为需要将delta log和老数据文件合并。
+
+#### COW&MOR对比
+
+| 对比点   | Copy On Write                           | Merge On Read                                    |
+| -------- | --------------------------------------- | ------------------------------------------------ |
+| 数据延迟 | 每次基于上次生成新的文件-高             | 直接写入Avro log文件-低                          |
+| 查询延迟 | 列式-低                                 | 列式+行式-高                                     |
+| 更新IO   | 每次基于上次生成新的文件-大             | 直接写入log文件-小                               |
+| 文件大小 | 单个全量使用parquet文件存储，占用空间小 | 单个全量存储使用parquet+avro格式，占用空间相对大 |
+
+### Hudi查询类型
+
+Hudi支持三种查询类型：
+
+1. Snapshot Query：
+
+   只能查询到给定COMMIT或COMPACTION后的最新快照数据。对于Copy-On-Write表，Snapshot Query能够查询到，已经存在的列式格式文件（Parquet文件）；对于Merge-On-Read表，Snapshot Query能够查询到，通过合并已存在的Base文件和增量日志文件得到的数据。
+
+2. Incremental Query：
+
+   增量查询；只能查询到最新写入Hudi表的数据，也就是给定的COMMIT/COMPACTION之后的最新数据。
+
+3. Read Optimized Query：
+
+   只能查询到给定的COMMIT/COMPACTION之前所限定范围的最新数据。也就是说，只能看到列式格式Base文件中的最新数据。
+
+**总结：其实hudi就是存储在hdfs中的一种特殊文件格式**

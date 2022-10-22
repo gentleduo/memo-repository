@@ -184,6 +184,204 @@ Linux下是通过字母和数字的组合方式来标识硬盘的分区的，这
 - a：是分区命名的第3个字母，表示分区在哪个设备上。例如，/dev/hda代表第1个IDE硬盘，/dev/sdb则代表第2个SCSI硬盘，/dev/sdd则代表第4块SCSI硬盘，依此类推。
 - 2：这个数字代表分区，Linux下前4个分区（主分区或者扩展分区）用数字1～4表示，逻辑分区从5开始，依此类推。例如，/dev/hda2表示第1块IDE硬盘的第2个主分区或者扩展分区，而/dev/sdb3表示第2块SCSI硬盘上的第3个主分区或者扩展分区，/dev/sdc6则表示第3块SCSI硬盘的第2个逻辑分区。
 
+### 软件选择
+
+基本环境：带GUI的服务器，带有用于操作网络基础设施服务GUI的服务器。
+
+已选环境的附件项：开发工具，基本开发环境。
+
+### 安装位置
+
+主要是对系统进行分区，分区方案主要有两种：标准分区和LVM，生产环境一般使用标准分区，因为LVM分区存在几个缺点：性能相对于标准分区读写性能会差很多，因为在文件系统之上又集成了一个LVM的管理层；其他LVM后期维护性很差，磁盘坏了后数据几乎没办法恢复。
+
+#### 挂载点
+
+/boot
+
+系统引导程序，一般500M就足够了。然后设备类型一般选标准分区，文件系统一般选xfs，centos默认的文件系统格式就是xfs，在centos下xfs性能最好。
+
+/var
+
+主要存放系统日志，应用程序日志，大小一般为磁盘总容量的10%
+
+/usr
+
+主要存放应用程序，大小一般为磁盘总容量的10%
+
+swap
+
+swap指的是linux交换分区，是磁盘上的一块区域，可以是一个分区，也可以是一个文件，或者是两者的组合；swap类似于Windows的虚拟内存，就是当内存不足时，把一部分硬盘空间虚拟成内存使用，从而解决内存容量不足的情况。
+
+| 内存大小         | swap大小     |
+| ---------------- | ------------ |
+| <16G             | =2倍物理内存 |
+| 16G<物理内存<32G | =物理内存    |
+| >32G             | 8G           |
+
+/
+
+根分区，大小一定要足够大，一般为磁盘总容量的20%
+
+#### KDUMP
+
+kdump是在系统崩溃、死锁或者死机的时候用来转储内存运行参数的一个工具和服务；需要分析内核崩溃原因的话可以开启。
+
+# Linux系统基本结构与运行机制
+
+## Linux控制台的使用
+
+ Linux系统通过w命令查看连接到系统的终端信息，主要包括两大类：控制台终端(/dev/ttyn）虚拟终端(/dev/pts/n），虚拟终端一般是远程连接进来的
+
+```bash
+[root@server01 ~]# w
+ 17:32:15 up  1:25,  1 user,  load average: 0.00, 0.01, 0.03
+USER     TTY      FROM             LOGIN@   IDLE   JCPU   PCPU WHAT
+root     pts/0    192.168.56.1     17:27    7.00s  0.08s  0.00s w
+```
+
+## Linux硬件资源管理
+
+查看cpu信息
+
+```bash
+[root@server01 ~]# lscpu
+[root@server01 ~]# cat /proc/cpuinfo
+#要查看系统物理CPU的个数，可通过如下命令查看：
+[root@server01 ~]# cat /proc/cpuinfo | grep "physical id" | sort | uniq | wc –l
+#要查看每个物理CPU中Core的个数，可通过如下命令查看：
+[root@server01 ~]# cat /proc/cpuinfo | grep "cpu cores"
+#要查看系统所有逻辑CPU个数（所有物理CPU中Core的个数加上超线程个数），可通过如下命令查看：
+[root@server01 ~]# cat /proc/cpuinfo | grep "processor" | wc –l
+```
+
+查看内存信息
+
+```bash
+[root@server01 ~]# lsmem
+[root@server01 ~]# cat /proc/meminfo
+```
+
+查看硬盘信息
+
+```bash
+[root@server01 ~]# lsblk
+[root@server01 ~]# fdisk -l
+```
+
+## 硬件与设备文件
+
+在Linux系统下，硬件设备都是以文件的形式存在，因而不同硬件设备有不同的文件类型，我们把硬件与系统下相对应的文件称作设备文件。设备文件在外部设备与操作系统之间提供了一个接口，这样，用户使用外部设备就相当于使用普通文件一样。
+
+设备文件在Linux系统下存放在/dev下面，设备文件的命名方式是主设备号加次设备号，主设备号说明设备类型，次设备号说明具体指哪一个设备。
+
+U盘在Linux下被识别为SCSI设备，因此对应的设备文件为/dev/sdax，主设备号sd表示SCSI disk，a表示第一块SCSI设备。如果有第二块SCSI设备，那么对应的设备文件是/dev/sdb。x表示SCSI设备的相应分区编号。例如，/dev/sda1表示第一块SCSI设备的第一个分区，/dev/sdc5表示第三块SCSI设备的第一个逻辑分区。
+
+光驱是我们最经常使用的外设之一。IDE光驱在Linux下对应的设备文件为/dev/had，表示在第一个IDE口（Master）的IDE光驱；SCSI光驱在Linux下对应的设备文件为/dev/srx，x表示SCSI ID。
+
+## Linux下常见文件系统类型
+
+文件系统类型就是分区的格式，对于不同的外设，Linux也提供了不同的文件类型。
+
+1. msdos：DOS文件系统类型
+2. vfat：支持长文件名的DOS分区文件系统类型，也可理解为Windows文件系统类型
+3. iso9660：光盘格式文件系统类型
+4. ext2/ext3/ext4：Linux下的主流文件系统类型
+5. xfs：Linux下一种高性能的日志文件系统，在Centos7.x版本中成为默认文件系统
+
+## Linux下设备的挂载与使用
+
+Linux下挂载的命令是mount，格式如下：
+
+mount -t 文件系统类型 设备名 挂载点
+
+文件系统类型就是上面讲到的几种分区格式，设备名就是对应的设备文件，挂载点就是在Linux下指定的挂载目录，将设备指定到这个挂载目录后，以后访问这个挂载目录，就相当于访问这个设备了。Linux系统中有一个/mnt目录，专门用作临时挂载点（Mount Point）目录，主要用于系统管理员临时手动挂载一些媒体设备。此外，Linux系统中还有一个/media目录，此目录是一个自动挂载的目录，主要用于自动挂载光盘、U盘等移动设备。
+
+```bash
+# 挂载iso
+[root@server01 ~]# mount /home/CentOS-7-x86_64-DVD-1611.iso /media -o loop
+```
+
+设备的卸载
+
+umonut 挂载目录
+
+## Linux文件系统结构与目录功能
+
+### 经典树形目录
+
+Linux系统设计中最优秀的特性之一就是将所有内容都以文件的形式展现出来，通过一个树形结构统一管理和组织这些文件。
+
+![image](assets\linux-7.png)
+
+### 目录功能介绍
+
+#### /etc
+
+这个目录主要用于存放系统管理相关的配置文件以及子目录，其中比较重要的有系统初始化文件/etc/rc、用户信息文件/etc/passwd等，相关网络配置文件和服务启动文件也均在这个目录下
+
+#### /usr
+
+此目录主要用于存放应用程序和文件。如果在系统安装的时候，选择了很多软件包，那么这些软件包默认会安装到此目录下，我们平时安装的一些软件，默认情况下也会安装到此目录内，因此这个目录一般比较大。
+
+#### /var
+
+此目录主要用于存放系统运行以及软件运行的日志信息
+
+#### /dev
+
+dev目录包含了系统所有的设备文件
+
+#### /proc
+
+此目录是一个虚拟目录，目录所有信息都是内存的映射，通过这个虚拟的内存映射目录，可以和内核内部数据结构进行交互，获取有关进程的有用信息，同时也可以在系统运行中修改内核参数。与其他目录不同，/proc存在于内存中，而不是硬盘上。
+
+#### /boot
+
+该目录存放的是启动Linux时的一些核心文件，具体包含一些镜像文件和链接文件，因此这个目录非常重要，如果遭到破坏，系统将无法启动。
+
+#### /bin、/sbin
+
+这两个目录存放的都是可执行的二进制文件，bin其实就是binary的缩写，/bin目录下存放的就是我们经常使用的Linux命令，例如文件操作命令ls、cd、cp，文本编辑命令vi、ed，磁盘操作命令dd、df、mount，等等。/sbin中的s是Spuer User的意思，也就是说只有超级用户才能执行这些命令，常见的如磁盘检查修复命令fcsk、磁盘分区命令fdisk、创建文件系统命令mkfs、关机命令shutdown和初始化系统命令init等。
+
+#### /home
+
+该目录是系统中每个用户的工作目录，在Linux系统中，每个用户都有自己的一个目录，而该目录一般是由用户的账号命名的，例如有一个用户ixdba，那么它的默认目录就是/home/ixdba。
+
+#### /lib、/lib64
+
+该目录中存放的是共享程序库和映像文件，可供很多程序使用。通过这些共享映射文件，每个程序就不必分别保存自己的库文件（这会增加占用的磁盘空间），Linux提供了一组可供所有程序使用的文件。在该目录中，还包含引导进程所需的静态库文件。
+
+#### /root
+
+该目录是Linux超级用户root的默认主目录，如果通过root登录系统，就会自动进入到此目录，一般用户没有进入这个目录的权限。
+
+#### /tmp
+
+该目录为临时文件目录，主要用于存放临时文件，这些临时文件可能会随时被删除，也可以随时删除。
+
+
+
+
+
+
+
+
+
+| **sysvinit** **命令**              | **systemd** **命令**                | **备注**                                               |
+| ---------------------------------- | ----------------------------------- | ------------------------------------------------------ |
+| **service httpd start**            | systemctl  start httpd.service      | 启动httpd服务                                          |
+| **service httpd stop**             | systemctl  stop httpd.service       | 关闭httpd服务                                          |
+| **service** **httpd**  **restart** | systemctl  restart httpd.service    | 重启httpd服务，而不管httpd服务当前是否是启动或关闭状态 |
+| **service httpd reload**           | systemctl  reload httpd.service     | 重新载入httpd配置信息而不中断服务                      |
+| **service** **httpd**  **status**  | systemctl  status httpd.service     | 查看httpd服务的运行状态                                |
+| **chkconfig httpd on**             | systemctl  enable httpd.service     | 设置httpd服务开机自启动                                |
+| **chkconfig httpd off**            | systemctl  disable httpd.service    | 禁止httpd服务开机自启动                                |
+| **chkconfig httpd**                | systemctl  is-enabled httpd.service | 检查httpd服务在当前环境下是启用还是禁用                |
+
+
+
+
+
 # Linux内存管理与监控
 
 ## Linux内存管理与监控
@@ -1003,5 +1201,26 @@ RST=RESET:异常关闭连接
 
 .:表示没有任何标志
 
+# 附录
 
-
+>**设置SecureCRT编码及字体**
+>
+>1. 进入Options->Global Options->Default Session->Edit Default Settings...
+>
+>2. 选择Terminal->Appearance
+>
+>   Current color scheme：White / Black
+>
+>   Normal font：黑体 14pt
+>
+>   Character encoding：UTF-8
+>
+>**设置SecureCRT使vim代码显示彩色**
+>
+>1. Options->Global Options->Default Session->Edit Default Settings...->Terminal->Emulation
+>
+>   Terminal选择Linux，然后勾选ANSI Color和Use color scheme
+>
+>2. 在/root/.bashrc中添加：export TERM=xterm
+>
+>3. 最后关闭CRT，再重新打开连接一下

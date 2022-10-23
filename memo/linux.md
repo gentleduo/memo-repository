@@ -359,13 +359,121 @@ dev目录包含了系统所有的设备文件
 
 该目录为临时文件目录，主要用于存放临时文件，这些临时文件可能会随时被删除，也可以随时删除。
 
+## Linux初始化init系统
 
+### init系统
 
+Linux操作系统的启动首先从BIOS开始，接下来Linux引导程序将内核映像加载到内存，进行内核初始化，内核初始化的最后一步就是启动PID为1的init进程。这个进程是系统的第一个进程，它负责产生其它所有用户进程。仅仅将内核运行起来对使用操作系统来说毫无用处，因为对于操作系统来说内核只是基础，在内核之上还有很多服务的启动，只有服务启动之后才能使用操作系统。所以仅仅将init进程启动起来是不行的，所以接下来还有一系列的进程服务需要启动，所以还需要有一个系统去定义、管理和控制init进程的行为，并去负责组织运行许多独立或者相关的初始化工作，从而令操作系统进入用户设置的模式中运行。这个系统就是init系统，init系统和init进程是不同的概念。
 
+大多数Linux发行版的init系统是和System V相兼容的，因此被称为sysvinit，这是最早也是最流行的init系统，在RHEL7.x/Centos7.x发行版本之前的系统中都采用sysvinit。sysvinit概念简单清晰，主要依赖于Shell脚本，但它一次一个串行地启动进程，决定了它的最大弱点：启动太慢。虽然在服务器上这个缺点不算什么，但是当Linux被应用到移动终端设备上时，这个缺点就变成了大问题。
 
+upstart和systemd这两个是新一代init系统，以Ubuntu为代表的Linux发行版就采用的是upstart方式，而在RHEL7.x/Centos7.x版本中，已经默认开始采用systemd来管理系统。Upstart出现很早，而systemd出现较晚，但发展更快，大有取代upstart的趋势。systemd主要特点：并发处理所有服务，加速开机流程。
 
+### init管理机制
 
+init管理主要是针对于centos7以前的版本
 
+init管理机制与特点
+所有的服务启动脚本都放置于/etc/init.d/目录，基本上都是使用bash shell所写成的脚本程序，需要启动、关闭、重新启动、查看状态时，可以通过如下的方式来处理：
+启动：/etc/init.d/daemon start
+关闭：/etc/init.d/daemon stop
+重启：/etc/init.d/daemon restart
+查看状态：/etc/init.d/daemon status
+
+init机制的系统运行级
+init可以根据使用者自订的执行等级(runlevel)来唤醒不同的服务，以进入不同的操作模式。基本上 Linux 提供7个执行等级，分别是0, 1, 2...6 ，
+比较重要的是：
+init 0：关机模式
+init 1：单人维护模式、
+init 3：纯字符模式、
+init 5：图形界面模式。
+init 6：重启模式
+
+init管理机制服务设置方式
+各个执行等级的启动脚本是通过 /etc/rc.d/rc[0-6]/SXXdaemon 链接到 /etc/init.d/daemon 。即：管理在各个系统运行级中需要启动的服务
+链接文件名 (SXXdaemon) 的功能为： S 为启动该服务，XX是数字，表示启动的顺序。由于有SXX的设定，因此在开机时可以依序执行所有需要的服务。
+设置服务自启动： chkconfig daemon on
+关闭服务自启动： chkconfig daemon off
+查看服务是否自启动： chkconfig --list daemon
+设置服务在指定运行级中自动启动： chkconfig --level 35 daemon on
+将服务添加至系统运行级管理中： chkconfig --add daemon
+将服务从系统运行级管理中移除：chkconfig --del daemon
+
+### runlevel到target的改变
+
+在RHEL7.x/Centos7.x版本中，由于采用了systemd管理体系，以前的运行级别（runlevel）的概念被新的运行目标（target）所取代，tartget的命名类似于“multi-user.target”这种形式，比如原来的运行级别3（runlevel3）对应于新的多用户目标“multi-user.target”，运行级别5（runlevel5）就对应于“graphical.target”。由于systemd机制中不再使用runlevle的概念，所以/etc/inittab(centos6中inittab的主要作用是定义操作系统默认的运行级别)也不再被系统使用。在新的systemd管理体系里，默认的target（相当于以前的默认运行级别）是通过软链来实现。
+
+```bash
+[root@server01 rc5.d]# cd ~
+[root@server01 ~]# ll /lib/systemd/system/runlevel*.target
+lrwxrwxrwx. 1 root root 15 7月  31 2017 /lib/systemd/system/runlevel0.target -> poweroff.target
+lrwxrwxrwx. 1 root root 13 7月  31 2017 /lib/systemd/system/runlevel1.target -> rescue.target
+lrwxrwxrwx. 1 root root 17 7月  31 2017 /lib/systemd/system/runlevel2.target -> multi-user.target
+lrwxrwxrwx. 1 root root 17 7月  31 2017 /lib/systemd/system/runlevel3.target -> multi-user.target
+lrwxrwxrwx. 1 root root 17 7月  31 2017 /lib/systemd/system/runlevel4.target -> multi-user.target
+lrwxrwxrwx. 1 root root 16 7月  31 2017 /lib/systemd/system/runlevel5.target -> graphical.target
+lrwxrwxrwx. 1 root root 13 7月  31 2017 /lib/systemd/system/runlevel6.target -> reboot.target
+```
+
+### systemd
+
+systemd提供了一个非常强大的命令行工具systemctl，可能很多系统运维人员都已经非常熟悉基于sysvinit的服务管理方式，比如service、chkconfig命令，而systemd也能完成同样的管理任务，可以把systemctl看作是service和chkconfig的组合体。要查看、启动、停止、重启、启用或者禁用系统服务，都可以通过systemctl命令来实现 。
+
+linux系统中有很多的system目录，常看到的有/etc/systemd/system、/lib/systemd/system以及/usr/lib/systemd/system；目录/lib/systemd/system 以及/usr/lib/systemd/system 其实指向的是同一目录，在/目录下执行命令 `ll` 即可知：
+
+```bash
+[root@server01 system]# ll /
+总用量 56
+drwxr-xr-x   3 root root    36 8月  25 09:51 app
+lrwxrwxrwx.  1 root root     7 7月  31 2017 bin -> usr/bin
+dr-xr-xr-x.  4 root root  4096 7月  31 2017 boot
+drwxr-xr-x   3 root root    24 10月  7 09:33 data
+drwxr-xr-x  18 root root  2960 10月 23 10:48 dev
+drwxr-xr-x. 86 root root  8192 10月 23 10:48 etc
+drwxrwxrwx   2 root root    22 3月  12 2019 extend_folder
+drwxr-xr-x. 17 root root  4096 2月  10 2022 home
+-rw-r--r--   1 root root 12153 8月  18 2017 jars
+lrwxrwxrwx.  1 root root     7 7月  31 2017 lib -> usr/lib
+lrwxrwxrwx.  1 root root     9 7月  31 2017 lib64 -> usr/lib64
+drwxr-xr-x.  3 root root    38 10月 23 2018 media
+drwxr-xr-x.  2 root root     6 3月   5 2018 mnt
+drwxr-xr-x   2 root root     6 1月  17 2021 oldroot
+drwxr-xr-x. 42 root root  8192 10月 22 21:17 opt
+drwxr-xr-x   3 root root    22 3月  13 2018 output
+dr-xr-xr-x  89 root root     0 10月 23 10:48 proc
+dr-xr-x---. 21 root root  4096 10月 23 11:43 root
+drwxr-xr-x  22 root root   700 10月 23 10:48 run
+lrwxrwxrwx.  1 root root     8 7月  31 2017 sbin -> usr/sbin
+drwxr-xr-x.  2 root root     6 11月  5 2016 srv
+dr-xr-xr-x  13 root root     0 10月 23 10:48 sys
+drwxrwxrwt. 12 root root  4096 10月 23 11:42 tmp
+drwxr-xr-x. 13 root root   155 7月  31 2017 usr
+drwxr-xr-x. 20 root root  4096 10月 23 10:48 var
+```
+
+/etc/systemd/system/(系统管理员安装的单元, 优先级更高)。在一般的使用场景下，每一个 Unit（服务等） 都有一个配置文件，告诉 Systemd 怎么启动这个 Unit 。Systemd 默认从目录`/etc/systemd/system/`读取配置文件。但是，里面存放的大部分文件都是符号链接，指向目录`/usr/lib/systemd/system/`，真正的配置文件存放在这个目录。 `systemctl enable` 命令用于在上面两个目录之间，建立符号链接关系。
+
+```bash
+# 比如配置docker service开机启动，其实真正的Unit在放在/usr/lib/systemd/system/目录下，/etc/systemd/system/目录只是存放指向该文件的软链接；
+[root@server01 system]# systemctl enable docker   
+Created symlink from /etc/systemd/system/multi-user.target.wants/docker.service to /usr/lib/systemd/system/docker.service.
+[root@server01 system]# systemctl disable docker
+Removed symlink /etc/systemd/system/multi-user.target.wants/docker.service.
+# default.target设置的是系统默认运行级别，相当于原来init管理中的inittab
+[root@server01 system]# ll /etc/systemd/system
+总用量 4
+drwxr-xr-x. 2 root root   31 8月  23 11:02 basic.target.wants
+lrwxrwxrwx. 1 root root   37 7月  31 2017 default.target -> /lib/systemd/system/multi-user.target
+drwxr-xr-x. 2 root root   87 7月  31 2017 default.target.wants
+drwxr-xr-x  2 root root   53 8月   2 2019 docker.service.d_BAK
+drwxr-xr-x. 2 root root   32 7月  31 2017 getty.target.wants
+drwxr-xr-x. 2 root root 4096 10月 23 11:50 multi-user.target.wants
+drwxr-xr-x  2 root root   51 3月  12 2019 sockets.target.wants
+drwxr-xr-x  2 root root   89 5月  15 2018 sysinit.target.wants
+drwxr-xr-x. 2 root root   44 7月  31 2017 system-update.target.wants
+```
+
+### systemd命令和sysvinit命令对比
 
 | **sysvinit** **命令**              | **systemd** **命令**                | **备注**                                               |
 | ---------------------------------- | ----------------------------------- | ------------------------------------------------------ |
@@ -378,9 +486,682 @@ dev目录包含了系统所有的设备文件
 | **chkconfig httpd off**            | systemctl  disable httpd.service    | 禁止httpd服务开机自启动                                |
 | **chkconfig httpd**                | systemctl  is-enabled httpd.service | 检查httpd服务在当前环境下是启用还是禁用                |
 
+# Linux常用命令及使用技巧
 
+## shell简介
 
+shell的本意是“壳”的意思，其实已经很形象地说明了shell在Linux系统中的作用。shell就是围绕在Linux内核之外的一个“壳”程序，用户在操作系统上完成的所有任务都是通过shell与Linux系统内核的交互来实现的。
 
+Linux下除了默认的Bourne again shell（bash），还有很多其他的shell，例如C shell（csh）、Korn shell（ksh）、Bourne shell（sh）和Tenex C shell（tcsh）等。每个版本的shell功能基本相同，但各有千秋，现在的Linux系统发行版一般都以bash作为默认的shell。
+
+为了加快命令的运行，同时更有效地定制shell程序，shell中定义了一些内置的命令，一般我们把shell自身解释执行的命令称为内置命令，例如下面我们将要讲到的cd、pwd、exit和echo等命令，都是属于bash的内置命令。
+
+除了内置命令，Linux系统上还有很多可执行文件。可执行文件类似于Windows下的.exe文件，这些可执行文件也可以作为shell命令来执行。其实Linux上很多命令都不是shell的内置命令，例如ls就是一个可执行文件，存放在/bin/ls中。这些命令与shell内置命令不同，只有当它们被调用时，才由系统装入内存执行。
+
+shell执行命令解释的具体过程为：用户在命令行输入命令提交后，shell程序首先检测是否为内置命令，如果是，就通过shell内部的解释器将命令解释为系统调用，然后提交给内核执行；如果不是shell内置的命令，那么shell会按照用户给出的路径或者根据系统环境变量的配置信息在硬盘寻找对应的命令，然后将其调入内存，最后再将其解释为系统调用，提交给内核执行。
+
+## shell语法分析
+
+### 命令格式
+
+用户登录系统后，shell命令行启动。shell遵循一定的语法格式将用户输入的命令进行分析解释并传递给系统内核。shell命令的一般格式为：
+command	[options]	[arguments]
+根据习惯，我们一般把具有以上格式的字符串称为命令行。命令行是用户与shell之间对话的基本单位。
+command：表示命令的名称。
+options：表示命令的选项。
+arguments：表示命令的参数
+在命令行中，选项是包含一个或多个字母的代码，主要用于改变命令的执行方式。一般在选项前面有一个“-”符号，用于区别参数。
+
+### 通配符
+
+通配符主要是为了方便用户对文件或者目录的描述，例如用户仅仅需要以“.sh”结尾的文件时，使用通配符就能很方便地实现。各个版本的shell都有通配符，这些通配符是一些特殊的字符，用户可以在命令行的参数中使用这些字符，进行文件名或者路径名的匹配。
+
+“*”、匹配任意一个或多个字符
+“?”、匹配任意单一字符
+“[]”、匹配任何包含在方括号内的单字符
+
+```bash
+# 列出当前目录下以数字开头，随后一个是任意字符，接着以“.conf”结尾的所有文件。
+[root@server01 opt]# ls [0-9]?.conf
+11.conf
+# 列出当前目录下以x、y或z开头，最后以“.txt”结尾的文件。
+[root@server01 opt]# ls [xyz]*.txt
+x4adf.txt
+```
+
+### 引用
+
+在bash中有很多特殊字符，这些字符本身就具有特殊含义。如果在shell的参数中使用它们，就会出现问题。Linux中使用了“引用”技术来忽略这些字符的特殊含义，引用技术就是通知shell将这些特殊字符当作普通字符处理。shell中用于引用的字符有转义字符 “\”、单引号” ‘’ ”、双引号 “ “” “。
+
+如果将”\”放到特殊字符前面，shell就忽略这些特殊字符的原有含义，当作普通字符对待，例如：
+
+```bash
+[root@server01 opt]# vim C:\\backup
+[root@server01 opt]# ll C:\backup
+ls: 无法访问C:backup: 没有那个文件或目录
+[root@server01 opt]# ll C:\\backup
+-rw-r--r-- 1 root root 9 10月 23 13:36 C:\backup
+# 将C:\backup重命名为backup。因为文件名中含有特殊字符，所有都使用了转义字符“\”。
+[root@server01 opt]# mv C\:\\backup backup
+```
+
+单引号''，双引号""的区别是单引号''剥夺了所有字符的特殊含义，单引号''内就变成了单纯的字符。双引号""则大部分特殊字符可以当作普通字符处理，但是仍有一些特殊字符即使用双引号括起来，也仍然保留自己的特殊含义，比如参数替换：“$”、转义字符：“\”和命令替换：“`”
+
+例如：
+
+```bash
+[root@server01 opt]# n=3;
+# 使用$替换参数
+[root@server01 opt]# echo "$n"     
+3
+# 使用``替换命令
+[root@server01 opt]# echo "`date`"
+2022年 10月 23日 星期日 15:10:01 CST
+# 单引号''内就变成了单纯的字符
+[root@server01 opt]# echo '$n' 
+$n
+[root@server01 opt]# echo '`date`'
+`date`
+```
+
+## 系统管理与维护命令
+
+### ls
+
+显示指定工作目录下的内容，列出工作目录所含的文件及子目录。此命令与Windows下的dir类似。另外，Linux也提供了dir命令，用户也可以用dir命令代替ls命令。ls的语法如下：
+ls [选项] [路径或文件]
+常用选项：
+-a	显示指定目录下的所有文件以及子目录，包含隐藏文件（Linux下将“.”开头的文件或者目录视为隐藏文档）
+-l	除文件名称外，同时将文件或者子目录的权限、使用者和大小等信息详细列出
+-S	以文件大小排序
+-pF	在每个文件名后附上一个字符以说明该文件的类型。 “*”表示可执行的普通文件，“/”表示目录， “@” 表示符号链接，“|”表示FIFOs，“=”表示套接字（sockets）
+常用组合：
+ls –al、ll(ls –l) 、ls –Sl、	ls -apF
+
+### passwd
+
+用于设置用户口令。语法格式如下：passwd [用户名]
+
+普通用户要修改自己的口令，可使用以下命令：passwd
+
+超级用户root修改某个用户的口令时，使用以下命令：passwd
+
+### su
+
+su命令主要用于改变用户身份，其格式如下：
+su [选项] [用户名]
+-：加载相应用户下的环境变量（注释不是下划线是横杠）
+-l：使目前的shell成为改变身份后用户默认的shell
+-c：改变身份运行一个指令后就结束
+
+```bash
+# su后面的“-”就是加载root环境变量，如果直接输入su也可以转变为超级用户，但是由于没有加载root环境变量，因此某些指令可能无法执行，会提示“command not found”。
+[root@server01 ~]# su -
+上一次登录：日 10月 23 15:20:53 CST 2022pts/0 上
+```
+
+### dmesg
+
+功能说明
+kernel会将开机信息存储在ring buffer中。若是开机时来不及查看信息，可利用dmesg来查看。开机信息亦保存在/var/log目录中，名称为dmesg的文件里。其格式如下：
+dmesg [选项]
+-c	显示开机信息后，清除ring buffer信息
+-s	设置缓冲区大小，默认设置为8192
+主要用途:
+dmesg经常用于系统异常诊断，当系统出现问题时，会第一时间将异常信息写入dmesg内存中，注意dmesg命令和/var/log/dmesg的区别；dmesg命令输出的是内存中实时的状态信息或者说是在系统缓冲区（ring buffer）中的信息；而/var/log/dmesg保存的是系统的开机信息。
+
+### free
+
+功能说明
+free命令用来显示系统内存状态，具体包括系统物理内存、虚拟内存、共享内存和系统缓存。其格式如下：
+free [选项] [-s （间隔秒数）]
+-b	以Byte为单位显示内存使用情况
+-m	以MB为单位显示内存使用情况
+-K	以kB为单位显示内存使用情况
+-h  以合适的单位显示内存使用情况，最大为三位数，自动计算对应的单位值
+-s（间隔秒数）	根据指定的间隔秒数持续显示内存使用情况
+
+### ps
+
+功能说明
+ps命令显示系统进程在瞬间的运行动态，其格式如下：
+ps [选项]
+ps的选项非常之多，这里我们仅仅介绍常用的选项
+-a	显示所有用户的进程，包含每个程序的完整路径
+-x	显示所有系统程序，包括那些没有终端的程序
+-u	显示使用者的名称和起始时间
+-f	 详细显示程序执行的路径
+-l     代表长格式
+-e	将除内核进程以外所有进程的信息写到标准输出
+
+ps -eLf
+
+- UID：用户ID
+- PID：process id 进程id
+- PPID: parent process id 父进程id
+- LWP：表示这是个线程；要么是主线程(进程)，要么是线程
+- NLWP: num of light weight process 轻量级进程数量，即线程数量
+- STIME: start time 启动时间
+- TIME: 占用的CPU总时间
+- TTY：该进程是在哪个终端运行的;pts/0255代表虚拟终端，一般是远程连接的终端;tty1tty7 代表本地控制台终端
+- CMD： 进程的启动命令
+
+ps -elf
+
+| 表头  | 含义                                                         |
+| ----- | ------------------------------------------------------------ |
+| F     | 进程标志，说明进程的权限，常见的标志有两个:<br/>1：进程可以被复制，但是不能被执行；<br/>4：进程使用超级用户权限； |
+| S     | 进程状态。进程状态。常见的状态有以下几种：<br/>1.	-D：不可被唤醒的睡眠状态，通常用于 I/O 情况。<br/>2.	-R：该进程正在运行。<br/>3.	-S：该进程处于睡眠状态，可被唤醒。<br/>4.	-T：停止状态，可能是在后台暂停或进程处于除错状态。<br/>5.	-W：内存交互状态（从 2.6 内核开始无效）。<br/>6.	-X：死掉的进程（应该不会出现）。<br/>7.	-Z：僵尸进程。进程已经中止，但是部分程序还在内存当中。<br/>8.	-<：高优先级（以下状态在 BSD 格式中出现）。<br/>9.	-N：低优先级。<br/>10.	-L：被锁入内存。<br/>11.	-s：包含子进程。<br/>12.	-l：多线程（小写 L）。<br/>13.	-+：位于后台。 |
+| UID   | 运行此进程的用户的 ID；                                      |
+| PID   | 进程的 ID；                                                  |
+| PPID  | 父进程的 ID；                                                |
+| C     | 该进程的 CPU 使用率，单位是百分比；                          |
+| PRI   | 进程的优先级，数值越小，该进程的优先级越高，越早被 CPU 执行； |
+| NI    | 进程的优先级，数值越小，该进程越早被执行；                   |
+| ADDR  | 该进程在内存的哪个位置；                                     |
+| SZ    | 该进程占用多大内存；                                         |
+| WCHAN | 该进程是否运行。"-"代表正在运行；                            |
+| TTY   | 该进程由哪个终端产生；                                       |
+| TIME  | 该进程占用 CPU 的运算时间，注意不是系统时间；                |
+| CMD   | 产生此进程的命令名；                                         |
+
+改变进程优先级
+
+nice
+
+按用户指定的优先级运行进程：nice [-n NI值] 命令
+
+1. NI 范围是 -20~19。数值越大优先级越低
+2. 普通用户调整 NI 值的范围是 0~19，而且只能调整自己的进程。
+3. 普通用户只能调高 NI 值，而不能降低。如原本 NI 值为 0，则只能调整为大于 0。
+4. 只有 root 用户才能设定进程 NI 值为负值，而且可以调整任何用户的进程。
+
+renice
+
+改变正在运行进程的优先级：renice [优先级] PID
+
+ps -aux
+
+- PID：进程号
+- %CPU：用户可以查看某个进程占用了多少CPU
+- %MEM：内存使用率
+- VSZ：虚拟内存大小
+- RSS：指明了当前实际占用了多少内存
+- STAT：显示了进程当前的状态:
+  - D：不可中断 进程
+  - R：正在运行，或在队列中的进程
+  - S：处于休眠状态
+  - T：停止或被追踪
+  - Z：僵尸进程
+  - X：死掉的进程
+  - <：高优先级
+  - N：低优先级
+  - s：包含子进程
+  - +：位于后台的进程组
+
+### top
+
+第一行：top - 16:20:38 up 12 days,  5:24,  2 users,  load average: 0.04, 0.03, 0.05
+
+- top：当前时间
+- up：机器运行了多长时间
+- users：当前登录用户数
+- load average：系统负载，即任务队列的平均长度。三个数值分别为 1分钟、5分钟、15分钟前到现在的平均值。
+
+这里具体需要关注的还是load average三个数值。先来说说定义吧：在一段时间内，CPU正在处理以及等待CPU处理的进程数之和。三个数字分别代表了1分钟，5分钟，15分钟的统计值，这个数值的确能反应服务器的负载情况。但是，这个数值高了也并不能直接代表这台机器的性能有问题，可能是因为正在进行CPU密集型的计算，也有可能是因为I/O问题导致运行队列堵了。所以，当我们看到这个数值飙升的时候，还得具体问题具体分析。大家都知道，一个CPU在一个时间片里面只能运行一个进程，CPU核数的多少直接影响到这台机器在同时间能运行的进程数。所以一般来说Load Average的数值别超过这台机器的总核数，就基本没啥问题。
+
+第二行：Tasks: 127 total,   1 running, 126 sleeping,   0 stopped,   0 zombie
+
+- Tasks：当前有多少进程
+- running：正在运行的进程数
+- sleeping：正在休眠的进程数
+- stopped：停止的进程数
+- zombie：僵尸进程数
+
+这里running越多，服务器自然压力就越大。
+
+第三行：%Cpu(s):  0.3 us,  0.7 sy,  0.0 ni, 99.0 id,  0.0 wa,  0.0 hi,  0.0si,  0.0 st
+
+- us：用户空间占CPU的百分比（像shell程序、各种语言的编译器、各种应用、web服务器和各种桌面应用都算是运行在用户地址空间的进程，这些程序如果不是处于idle状态，那么绝大多数的CPU时间都是运行在用户态）
+- sy： 内核空间占CPU的百分比（所有进程要使用的系统资源都是由Linux内核处理的，对于操作系统的设计来说，消耗在内核态的时间应该是越少越好，在实践中有一类典型的情况会使sy变大，那就是大量的IO操作，因此在调查IO相关的问题时需要着重关注它）
+- ni：用户进程空间改变过优先级（ni是nice的缩写，可以通过nice值调整进程用户态的优先级，这里显示的ni表示调整过nice值的进程消耗掉的CPU时间，如果系统中没有进程被调整过nice值，那么ni就显示为0）
+- id： 空闲CPU占用率
+- wa： 等待输入输出的CPU时间百分比（和CPU的处理速度相比，磁盘IO操作是非常慢的，有很多这样的操作，比如，CPU在启动一个磁盘读写操作后，需要等待磁盘读写操作的结果。在磁盘读写操作完成前，CPU只能处于空闲状态。Linux系统在计算系统平均负载时会把CPU等待IO操作的时间也计算进去，所以在我们看到系统平均负载过高时，可以通过wa来判断系统的性能瓶颈是不是过多的IO操作造成的）
+- hi： 硬中断占用百分比（硬中断是硬盘、网卡等硬件设备发送给CPU的中断消息，当CPU收到中断消息后需要进行适当的处理(消耗CPU时间)。）
+- si：软中断占用百分比（软中断是由程序发出的中断，最终也会执行相应的处理程序，消耗CPU时间）
+- st：steal time，被虚拟机占用的cpu的时间
+
+第四行：KiB Mem : 1863012 total, 1286408 free,  216532 used, 360072 buff/cache
+
+- total：物理内存总量
+- free：空闲内存量
+- used：使用的内存量
+- buffer/cache：用作内核缓存的内存量
+
+第五行：KiB Swap: 5242876 total, 7999484 free,     0 used. 1468240 avail Mem
+
+- total：交换区内存总量
+- free：空闲交换区总量
+- used：使用的交换区总量
+- buffer/cache：缓冲的交换区总量
+
+第四第五行分别是内存信息和swap信息，所有程序的运行都是在内存中进行的，所以内存的性能对与服务器来说非常重要。不过当内存的free变少的时候，其实并不需要太紧张。真正需要看的是Swap中的used信息。Swap分区是由硬盘提供的交换区，当物理内存不够用的时候，操作系统才会把暂时不用的数据放到Swap中。所以当这个数值变高的时候，说明内存是真的不够用了。
+
+进程信息：PID    USER    PR  NI  VIRT    RES   SHR   S  %CPU  %MEM     TIME+  COMMAND
+
+- PID  	进程id
+- USER	进程所有者的用户名
+- PR	   	优先级
+- NI		nice值，负值表示高优先级，正值表示低优先级
+- VIRT	进程使用的虚拟内存总量，单位kb。VIRT=SWAP+RES
+- RES		进程使用的、未被换出的物理内存大小，单位kb。RES=CODE+DATA
+- SHR		共享内存大小，单位kb
+- S		进程状态。D=不可中断的睡眠状态 R=运行 S=睡眠 T=跟踪/停止 Z=僵尸进程
+- %CPU	上次更新到现在的CPU时间占用百分比
+- %MEM	进程使用的物理内存百分比
+- TIME+	进程使用的CPU时间总计，单位1/100秒
+- COMMAND	命令名/命令行
+
+默认情况下仅显示比较重要的 PID、USER、PR、NI、VIRT、RES、SHR、S、%CPU、%MEM、TIME+、COMMAND 列，还有一些参数，例如：
+
+- PPID	父进程id
+- GROUP   进程所有者的组名
+- SWAP:	进程使用的虚拟内存中被换出的大小
+- CODE	可执行代码占用的物理内存大小，单位kb
+- DATA	可执行代码以外的部分(数据段+栈)占用的物理内存大小，单位kb
+- nFLT	页面错误次数
+- nDRT	最后一次写入到现在，被修改过的页面数。
+- WCHAN	若该进程在睡眠，则显示睡眠中的系统函数名
+- Flags	任务标志
+
+PR(priority)进程优先级和NI(nice)优先级切换等级，都是优先级，有什么区别呢？如果，仔细观察，还会发现PR列的值是：rt或大于等于0的数字；NI列的值是：[-20,19]之间的数字，这些又代表什么意思呢？NI是代表nice的意思，是一个进程用户态的一个概念；PR代表priority优先级，是进程的实际优先级，是进程内核态的一个概念；对于一个普通任务进程来说，PR的值等于NI的值加20，即：PR=NI+20，所以，你就会发现，当进程的NI为0，PR就是20；NI为-20，PR就是0.平时启动的一个进程，如果没有特意去指定任务优先级的话，默认情况下，都是普通任务进程，NI的值为0。此外，对于一个实时任务进程来说，PR内核态优先级为rt(Realtime)，这种任务，在CPU中实时执行。
+
+top命令常用的选项参数：
+
+| 选项 | 功能                                                         |
+| ---- | ------------------------------------------------------------ |
+| -d   | 指定每两次屏幕信息刷新之间的时间间隔，如希望每秒刷新一次，则使用：top -d 1 |
+| -p   | 通过指定PID来仅仅监控某个进程的状态                          |
+| -S   | 指定累计模式                                                 |
+| -s   | 使top命令在安全模式中运行。这将去除交互命令所带来的潜在危险  |
+| -i   | 使top不显示任何闲置或者僵死的进程                            |
+| -c   | 显示整个命令行而不只是显示命令名                             |
+
+例如：
+
+```bash
+# 每隔3秒显式所有进程的资源占用情况
+[root@server01 ~]# top
+# 每隔1秒显式所有进程的资源占用情况
+[root@server01 ~]# top -d 1
+# 每隔3秒显式进程的资源占用情况，并显示进程的命令行参数(默认只有进程名)
+[root@server01 ~]# top -c
+# 每隔3秒显示pid是28820和pid是38830的两个进程的资源占用情况
+[root@server01 ~]# top -p 28820 -p 38830
+# 每隔2秒显示pid是69358的进程的资源使用情况，并显式该进程启动的命令行参数
+[root@server01 ~]# top -d 2 -c -p 69358
+```
+
+top的交互命令
+
+【1】敲top后，按键盘数字“1”可以监控每个逻辑CPU的状况：
+
+【2】敲top后，输入u，然后输入用户名，则可以查看相应的用户进程；
+
+【3】敲top后，top命令默认以K为单位显示内存大小，我们可以通过大写字母E来切换内存信息区域的显示单位，如下按一下E切换到MB
+
+### date
+
+top的交互命令显示或者修改系统时间与日期。只有超级用户才能用date命令设置时间，一般用户只能用date命令显示时间。
+date命令的语法如下：
+date [选项] 显示时间格式 (以+开头，后面接时间格式)
+
+```bash
+# 显示时间格式 (以+开头，后面接时间格式)
+[root@server01 ~]# date  '+%Y-%m-%d'
+2022-10-23
+# 显示两天前的日期
+[root@server01 ~]# date -d "2 days ago" +%Y-%m-%d
+2022-10-21
+# 显示两天后的日期
+[root@server01 ~]# date -d "-2 days ago" +%Y-%m-%d
+2022-10-25
+# 修改日期
+[root@server01 ~]# date -s 2019-08-07
+2019年 08月 07日 星期三 00:00:00 CST
+```
+
+### uname
+
+uname命令用来显示操作系统相关信息
+
+### uptime
+
+uptime命令用来输出系统任务队列信息
+
+### last
+
+列出目前与过去登入系统的用户相关信息。当执行last指令时，它会默认读取位于/var/log目录下名称为wtmp的文件，并把该给文件记录的登入系统的用户名单全部显示出来。
+
+## 文件管理与编辑命令
+
+### rm
+
+功能说明：rm命令用来删除某个目录及其下的所有文件及子目录。对于链接文件，只是断开了链接，原文件保持不变。其格式如下：
+rm [选项] 文件或者目录
+-r	告诉rm将选项中列出的全部目录以及子目录还有文件均递归地删除，如果在选项中不指定“-r”选项，“rm”命令将不能删除目录
+-f	忽略不存在的问题，也不给出提示
+-i	交互式删除，即在删除前进行确认
+注意：使用rm命令要特别小心，“rm –rf”组合要甚用，因为一旦文件被删除，就不能被恢复。Linux没有类似于Windows的回收站。因此，为了防止文件或者目录被误删除，可以使用rm的“-i”选项，来逐个确认要删除的文件。使用“-i”选项时，如果用户输入“y”，文件将被删除；如果输入其他任何信息，文件则不被删除。
+
+### ln
+
+功能说明：ln命令用来在文件或目录之间创建链接。Linux下的链接有两种，一种是硬链接（Hard Link），一种是符号链接（Symbolic Link），默认情况下ln命令产生的是硬链接。
+硬链接：是指通过文件的索引节点来进行链接。
+符号链接：也叫软链接，软链接类似于Windows中的快捷方式，因此软链接是一个指向真正的文件或者目录位置的符号连接。
+ln命令的格式如下：
+ln [选项]   源文件 	 目标链接名
+-s	进行软链接（Symbolic Link）
+
+```bash
+# 创建硬链接前通过ll命令可以看到链接数目为1
+[root@server01 app]# ll
+总用量 4
+drwxr-xr-x 3 root root 92 8月  20 2021 athn_cnmp_mgmt_service
+-rw-r--r-- 1 root root  5 10月 23 18:18 source
+# 通过ls -i查看源文件的inode编号
+[root@server01 app]# ls -i source
+51091626 source
+# 通过ln命令创建source的硬链接link
+[root@server01 app]# ln source link
+# 通过ls -i查看链接文件的i-node编号，可知硬链接文件的inode跟源文件的inode是一致的
+[root@server01 app]# ls -i link
+51091626 link
+# 创建硬链接后通过ll命令可以看到链接数目变为2，
+# 硬链接：inode号相同、表示一个物理文件在虚拟文件系统中两个不同的path、将源文件删除后对创建的链接没有影响
+[root@server01 app]# ll
+总用量 8
+drwxr-xr-x 3 root root 92 8月  20 2021 athn_cnmp_mgmt_service
+-rw-r--r-- 2 root root  5 10月 23 18:18 link
+-rw-r--r-- 2 root root  5 10月 23 18:18 source
+# 软链接：inode不相同、软链接相当于windows中的一个快捷方式；删除源文件后，软链接指向就丢失了
+[root@server01 app]# ln -s source soft-link
+[root@server01 app]# ll
+总用量 8
+drwxr-xr-x 3 root root 92 8月  20 2021 athn_cnmp_mgmt_service
+-rw-r--r-- 2 root root  5 10月 23 18:18 link
+lrwxrwxrwx 1 root root  6 10月 23 19:51 soft-link -> source
+-rw-r--r-- 2 root root  5 10月 23 18:18 source
+```
+
+### cp
+
+功能说明：
+cp命令用来将给出的文件或者目录拷贝到另一个文件或者目录中。cp与Windows下的copy命令类似，但是cp命令更加强大。其格式如下：
+cp [选项] 源文件或目录 目标文件或目录
+-a	在拷贝目录时使用。它保留所有的信息，包含文件链接、文件属性，并递归地拷贝目录
+-r	若给出的源文件是一目录文件，此时cp将递归复制该目录下所有的子目录和文件。此时目标文件必须为一个目录名
+-p	保留文件的修改时间和存取权限
+-i	如果已经有相同文件名的目标文件，则提示用户是否覆盖
+
+```bash
+# 通过more ~/.bashrc可以看到，cp是在系统命令的基础上进行了alias，因此在复制文件时有同名的文件时会提示
+[root@server01 app]# more ~/.bashrc
+# .bashrc
+
+# User specific aliases and functions
+
+alias rm='rm -i'
+alias cp='cp -i'
+alias mv='mv -i'
+
+# Source global definitions
+if [ -f /etc/bashrc ]; then
+        . /etc/bashrc
+fi
+export TERM=xterm
+# 由于a目录和b目录下有同名的文件，因此会提示是否覆盖
+[root@server01 app]# cp -r a/* b
+cp：是否覆盖"b/1"？
+# 如果想取消提示，则可以在cp命令前加转义字符\
+[root@server01 app]# \cp -r a/* b
+```
+
+### find
+
+功能说明
+find命令用来在指定的路径下查找指定的文件。其格式如下：
+find path-name  [ -options]  [-print –exec  -ok 命令 {}  \; ]
+具体的选项说明如下。
+path-name：find命令查找的目录路径，例如可以用“.”表示当前目录，用“/”表示系统根目录。
+-options：find命令的这个选项主要用来控制搜索的方式。
+-print：将搜索结果输出到标准输出。 -exec：对搜索出符合条件的文件执行所给出的Linux命令，而不询问用户是否需要执行该命令。{}表示shell命令的选项即为所查找到的文件。命令的末尾必须以“；”结束。
+注意：格式要正确，“-exec 命令 {} \;”，在}和\之间一定要有空格才行。
+-ok：对搜索出符合条件的文件执行所给出的Linux命令。与-exec不同的是，它会询问用户是否需要执行该命令。
+
+举例：
+查找系统中所有大小为0的普通文件，并列出它们的完整路径。
+find / -type f -size 0 -exec  ls -al {} \;
+查找系统/var/logs目录中修改时间在7天以前的普通文件，然后以交互方式删除。
+find /var/log -type f -mtime  +7 -ok  rm {} \;
+在系统根目录下，查找文件类型为普通文件，属于ixdba用户的，并且查找时不包含/usr/bin目录的文件名为iptables.sh的文件，并将结果输出到屏幕。
+find / -path "/usr/bin" -prune -o -name "iptables.sh"  -user ixdba -type f -print
+在系统根目录下查找不在/var/log和/usr/bin目录下的文件名为main.c的文件。
+find /  \( -path /var/log -o -path /usr/bin \) -prune -o -name “main.c” -print 
+
+### file
+
+file命令用来显示文件的类型。对于长度为0的文件，将识别为空文件；对于符号连接文件，缺省情况下将显示符号连接引用的真实文件路径。
+
+```bash
+[root@server01 app]# file /opt/char.c     
+/opt/char.c: C source, UTF-8 Unicode text
+```
+
+### stat
+
+stat能更详细的查看文件状态信息
+
+```bash
+[root@server01 app]# stat /opt/char.c 
+  文件："/opt/char.c"
+  大小：436             块：8          IO 块：4096   普通文件
+设备：802h/2050d        Inode：37792116    硬链接：1
+权限：(0644/-rw-r--r--)  Uid：(    0/    root)   Gid：(    0/    root)
+最近访问：2022-10-23 20:14:43.250300854 +0800
+最近更改：2022-06-20 14:23:11.301141490 +0800
+最近改动：2022-06-20 14:23:11.313141624 +0800
+创建时间：-
+```
+
+### grep
+
+grep命令是Linux下的文本过滤工具，grep根据指定的字符串，对文件的每一行进行搜索，如果找到了这个字符串，就输出该行的内容。其格式如下：
+grep [选项] 需要查找的字符串 文件名
+grep命令的选项有很多，这里列出最常使用的选项说明：
+-c	只显示符合条件的行数，而不是显示被匹配到的内容。
+-i	搜索时忽略大小写
+-n	在显示的搜索结果上显示行号
+-E    	支持扩展的正则表达式
+-w	被匹配的文本只能是单词，而不能是单词中的某一部分。
+-v ：	反过来（invert），只打印没有匹配的，而匹配的反而不打印。
+
+```bash
+[root@server01 ~]# grep -ni network anaconda-ks.cfg
+16:# Network information
+17:network  --bootproto=dhcp --device=enp0s3 --ipv6=auto --activate
+18:network  --hostname=localhost.localdomain
+```
+
+grep家族总共有三个：grep，egrep，fgrep。
+grep：标准grep命令，支持基本正则表达式
+egrep：扩展grep命令，支持基本和扩展正则表达式，等价于grep –E
+fgrep：快速grep命令，不支持正则表达式，按照字符串的字面意思进行匹配，等价于grep –F
+
+### diff
+
+diff命令用来比较文件的差异。diff以逐行的方式比较文本文件的异同，其格式如下：
+diff [选项]  文件1  文件2
+上面的命令执行后，会将比较后的不同之处以指定的形式列出，如下所示：
+n1 a n3,n4 
+n1,n2 d n3 
+n1,n2 c n3,n4 
+其中，字母"a"、"d"、"c"分别表示添加、删除及修改操作。而"n1"、"n2"表示在文件1中的行号，"n3"、"n4"表示在文件2中的行号。
+在输出形式中，每一行后面将跟随受到影响的若干行。其中，以<开始的行属于文件1，以>开始的行属于文件2。
+
+```bash
+[root@server01 app]# cat a
+hello
+hi
+hadoop flink
+scala
+spark
+hudi
+[root@server01 app]# cat b
+hello
+hi,
+hadoop flink
+scala
+spark
+# 2c2表示第一个文件中的第二行跟第二个文件中的第二行不一致
+# < hi：表示第一个文件的第二行为hi
+# > hi,：表示第二个文件的第二行为hi,
+# 6d5表示第一个文件中第六行在第二个文件中不存在
+[root@server01 app]# diff a b
+2c2
+< hi
+---
+> hi,
+6d5
+< hudi
+```
+
+## 压缩与解压缩命令
+
+### mv
+
+mv命令用来将文件或目录改名或将文件由一个目录移入另一个目录中。如果源类型和目标类型都是文件或者目录时，mv将进行目录重命名。如果源类型为文件，而目标类型为目录时，mv将进行文件的移动。如果源类型为目录，则目标类型只能是目录，不能是文件，此时完成目录重命名。其格式如下：
+mv [选项] 源文件或目录  目标文件或目录
+mv命令的选项及其说明：
+-i	交互式操作，对已经存在的文件或目录覆盖时，系统会询问是否覆盖，用户输入“y”进行覆盖，输入“n”则不覆盖
+-f	force 强制的意思，如果目标文件已经存在，不会询问而直接覆盖
+-b	若需覆盖文件，则覆盖前先行备份。
+
+### gzip/gunzip
+
+将一般的文件进行压缩或者解压。压缩文件预设的扩展名为“.gz”，其实gunzip就是gzip的硬链接，因此无论是压缩或者解压都可以通过gzip来实现。注意：gzip只能对文件进行压缩，不能压缩目录，即使指定压缩的目录，也只能压缩目录内的所有文件。
+格式如下：
+gzip [选项] 压缩（解压缩）的文档名
+-d	对压缩的文件进行解压
+-t	检查压缩文档的完整性
+-l	显示压缩文件的压缩信息，显示字段为压缩文档大小、未压缩文档大小、压缩比和未压缩文档名称
+
+### bzip2/bunzip2
+
+对文件进行压缩与解压缩。此命令类似于“gzip/gunzip”命令，只能对文件进行压缩。对于目录只能压缩目录下的所有文件，压缩完成后，在目录下生成以“.bz2”为后缀的压缩包。bunzip2其实是bzip2的符号链接，即软链接，因此压缩解压都可以通过bzip2实现。其格式如下：
+bzip2 [选项] 要压缩或解压的文件
+-d	执行解压缩，此时选项后面跟要解压缩的文件
+-k	bzip2在压缩或解压缩后，会删除原始的文件，若要保留原始文件，可使用此选项
+-t	测试“.bz2”压缩文件的完整性
+
+### tar
+
+tar是Linux下经常使用的归档工具，是对文件或者目录进行打包归档，归成一个文件，但是并不进行压缩。其格式如下：
+tar [主选项＋辅助选项] 文件或者目录
+tar命令的选项很多，这里列出一些经常用到的主选项
+-c	创建新的文件
+-t	列出档案文件中已经归档的文件列表
+-x	从打包的档案文件中还原出文件
+-z	调用gzip命令在文件打包的过程中进行压缩/解压文件
+-j	调用bzip2命令在文件打包的过程中进行压缩/解压文件
+-f	“-f”选项后面紧跟档案文件的存储设备，默认是磁盘，需要指定档案文件名；如果是磁带，只需指定磁带设备名即可。注意，在“-f”选项之后不能再跟任何其他选项，也就是说“-f”必须是tar命令的最后一个选项
+-v	指定在创建归档文件过程中，显示各个归档文件的名称
+-p	在文件归档的过程中，保持文件的属性不发生变化
+--exclude file	在打包过程中，不将指定file文件打包
+
+```bash
+# 压缩
+[root@server01 app]# tar -czvf athn_cnmp_mgmt_service.tar.gz athn_cnmp_mgmt_service
+# 解压
+[root@server01 app]# tar -xzvf athn_cnmp_mgmt_service.tar.gz -C /app/
+# 仅解开athn_cnmp_mgmt_service.tar.gz压缩文件中的/athn_cnmp_mgmt_service/deploy.sh文件
+[root@server01 app]# tar -xzvf athn_cnmp_mgmt_service.tar.gz athn_cnmp_mgmt_service/deploy.sh
+# 或者
+[root@server01 app]# tar -xzvf athn_cnmp_mgmt_service.tar.gz -C /app athn_cnmp_mgmt_service/deploy.sh
+# 将/etc目录打包压缩后直接解压到/opt目录下，而不生成打包的档案文件。
+[root@server01 ~]# tar -zcvf - /etc | tar -zxvf -  -C /opt
+```
+
+###  zip/unzip
+
+将一般的文件或者目录进行压缩或者解压，默认生成以“.zip”为后缀的压缩包。zip命令类似于Windows中的winzip压缩程序。其格式如下：
+zip [选项] 压缩文件名 需要压缩的文档列表
+unzip [选项] 压缩文件名
+-r		递归压缩，将指定目录下的所有文件以及子目录全部压缩
+-d		从压缩文件内删除指定的文件
+-x   “文件列表”	压缩时排除文件列表中指定的文件
+-u		更新文件到压缩文件中
+
+## 磁盘管理与维护命令
+
+### df
+
+功能说明
+df命令用来检查Linux系统的磁盘空间占用情况。其格式如下：
+df [选项]
+选项含义
+-h	以容易理解的格式输出文件系统分区占用情况，例如32kB、120MB、60GB
+-k	以kB大小为单位输出文件系统分区占用情况
+-m	以MB大小为单位输出文件系统分区占用情况
+-i	列出文件系统分区的inodes信息
+-T	显示磁盘分区的文件系统类型
+
+### du
+
+du命令用来显示文件或目录所占用的磁盘空间情况。其格式如下：
+du [选项] 文件或目录
+-sh	以人性化的格式显示文件或者目录大小，例如300MB、1.2GB等
+-ks	以MB为单位显示文件或者目录大小
+
+### fsck
+
+fsck命令用来检查文件系统并尝试修复错误。其格式如下：
+fsck  [-t <文件系统类型>] [设备名]
+“-t <文件系统类型>”是指定要检查的文件系统类型。一般情况下可不添加此选项。
+注意：在执行fsck命令修复某个文件系统时，这个文件系统对应的磁盘分区一定要处于卸载状态，磁盘分区在挂载状态下进行修复是极为不安全的，数据可能遭到破坏，也有可能损坏磁盘。
+
+### mount/umount
+
+挂载以及卸载指定的文件系统。
+mount [选项] [-L<标签>] [-o<选项>] [-t<文件系统类型>] [设备名] [挂载点]
+umount [挂载点]
+选项:
+-r	以只读方式加载设备
+-w	以可读写模式加载设备，属于mount默认设置
+-a	加载文件/etc/fstab中指定的所有设备
+-L<标签>：标签其实就是磁盘分区标识的别名，标签可以随便起名，这样便于记忆，在Linux下磁盘分区的设备名比较难记，利用标签代替设备名，简单易记。
+-o<选项>：指定加载文件系统时的选项， ro：以只读模式加载。rw：以可读写模式加载。remount,rw：以读写模式重新挂载
+-t<文件系统类型>：指定设备的文件系统类型，常见文件系统类型有xfs/ext4/ext3/ext2/vfat/nfs等。
+设备名：硬盘分区在Linux上的设备标识，类似于/dev/sda1、/dev/hda2等。
+挂载点：Linux系统下指定的某个目录。
+
+## 网络设置与维护命令
+
+### ifconfig
+
+ifconfig命令用来配置网络或显示当前网络接口状态。类似于Windows下的ipconfig命令，同时ifconfig命令必须以root用户来执行。其格式如下：
+ifconfig  [选项] [interface] [inet|up|down|netmask|addr|broadcast]
+在网卡enp0s3上配置两个IP地址，分别为192.168.60.136、192.168.66.138，子网掩码为255.255.255.0，使用以下命令：
+
+```bash
+[root@server01 ~]# ifconfig enp0s3 192.168.60.136 netmask 255.255.255.0
+[root@server01 ~]# ifconfig enp0s3:0 192.168.66.138 netmask 255.255.255.0
+# 修改网卡的MAC地址为新的MAC地址，使用以下命令：
+[root@server01 ~]#ifconfig enp0s3 hw ether xx:xx:xx:xx:xx:xx
+# 将网卡enp0s3禁用后再启用，使用以下命令：
+[root@server01 ~]# ifconfig enp0s3 down
+[root@server01 ~]# ifconfig enp0s3 up
+```
 
 # Linux内存管理与监控
 

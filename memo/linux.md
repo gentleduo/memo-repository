@@ -624,7 +624,7 @@ free [选项] [-s （间隔秒数）]
 ### ps
 
 功能说明
-ps命令显示系统进程在瞬间的运行动态，其格式如下：
+ps命令显示系统进程在瞬间的运行动态，CMD栏的内容被中括号括起来的进程一般都是系统进行，其格式如下：
 ps [选项]
 ps的选项非常之多，这里我们仅仅介绍常用的选项
 -a	显示所有用户的进程，包含每个程序的完整路径
@@ -809,6 +809,8 @@ top的交互命令
 【2】敲top后，输入u，然后输入用户名，则可以查看相应的用户进程；
 
 【3】敲top后，top命令默认以K为单位显示内存大小，我们可以通过大写字母E来切换内存信息区域的显示单位，如下按一下E切换到MB
+
+【4】敲top后，输入f，可以定制显示的列。通过光标移动到想要显示的列，然后按d或者Space，然后按q退出。
 
 ### date
 
@@ -2180,6 +2182,98 @@ LVM，是Logical Volume Manager的缩写，中文意思是逻辑卷管理，它�
 
 ## 文件系统管理
 
+### 线上业务系统选择文件系统标准
+
+Linux下常见的有DOS文件系统类型msdos，windows下的FAT系列（fat16和FAT32）和NTFS文件系统，光盘文件系统ISO-9660，单一文件系统ext2和日志文件系统ext3、ext4、xfs，集群文件系统gfs（Red Hat Global File System）、ocfs2（oracle cluster File System）、虚拟文件系统（比如 /proc），网络文件系统（NFS）。
+
+1. 读操作频繁，同时小文件众多的应用对于此类应用，选择ext4文件系统都是不错的选择。由于ext3的目录结构是线型的，因此当一个目录下文件较多时，ext3的性能就下降比较多。而ext4的延迟分配、多块分配和盘区功能，使ext4非常适合大量小文件的操作，因此，从性能方面考虑，对于小规模文件密集型应用，ext4文件系统是首选。而如果从性能和安全性方面综合考虑的话，xfs文件系统是比较好的选择。大量实践证明，如果业务环境是对文件要进行大量的创建和删除操作的话，ext4是更高效的文件系统，接下来依次是xfs、ext3。例如网站应用，邮件系统等，都可使用ext4文件系统来达到最优性能。
+2. 写操作频繁的应用，如果是一些大数据文件操作，同时，应用本身需要大量日志写操作，那么，xfs文件系统是最佳选择，根据实际应用经验，对xfs、ext4、ext3块写入性能对比，整体上性能差不多，但在效率上（CPU利用率）最好的是xfs，接下来依次是ext4和ext3。
+3. 对性能要求不高、数据安全要求不高的业务，对于这类应用，ext3/ext2文件系统是比较好的选择，因为ext2没有日志记录功能，这样就节省了很多磁盘性能。例如linux系统下的/tmp分区就可以采用ext2文件系统。
+
+### NFS
+
+NFS的全称是Network FileSystem，即网络文件系统，NFS主要实现的功能是让网络上的不同操作系统之间共享数据。NFS首先在远程服务端（共享数据的操作系统）共享出文件或者目录，然后远端共享出来的文件或者目录就可以通过挂载（mount）的方式挂接到本地的不同操作系统上，最后，本地系统就可以很方便的使用远端提供的文件服务，操作起来像在本地操作一样。从而实现了数据的共享。
+
+![image](assets\linux-14.png)
+
+#### NFS Server端的配置
+
+NFS的主要配置文件只有一个/etc/exports，配置非常简单，设置格式为：
+共享资源路径   [主机地址]   [选项]
+例如：下面是某系统/etc/exports的设置：
+/webdata  *(sync,rw,all_squash)
+/tmp　　　　　*(rw,no_root_squash) 
+/home/share 　192.168.1.*(rw,root_squash)　　 *(ro) 
+/opt/data 　　192.168.1.18(rw) 
+共享资源路径：就是要共享出来的目录或者磁盘分区。例如上面的/tmp、/home/share目录等，这些目录存在于NFS Server端，以供NFS Client挂载使用。
+主机地址：设定允许使用NFS Server共享资源的客户端主机地址，主机地址可以是主机名、域名、IP地址等，支持匹配。
+
+选项：下面是可用的各个选项含义：
+
+1. ro： 即为：read only，也就是客户端主机对共享资源仅仅有读权限。
+2. rw： 即为：read write，也就是客户端主机对共享资源有读、写权限。
+3. sync：资料同步写入磁盘中。默认选择。
+4. async：资料会先暂时存放在内存中，不会直接写入硬盘。
+5. all_squash：将远程访问的所有普通用户及所属组都映射为匿名用户或用户组（nfsnobody）；
+
+6. no_all_squash：与all_squash取反（默认设置）；
+
+7. root_squash：将root用户及所属组都映射为匿名用户或用户组（默认设置）；
+
+8. no_root_squash：与rootsquash取反；
+
+9. anonuid=xxx：将远程访问的所有用户都映射为匿名用户，并指定该用户为本地用户（UID=xxx）；
+
+10. anongid=xxx：将远程访问的所有用户组都映射为匿名用户组账户，并指定该匿名用户组账户为本地用户组账户（GID=xxx）；
+
+利用exportfs命令即可让修改生效
+重新mount 文件/etc/exports中分享出来的目录，显示mount过程，操作如下：
+[root@NFS Server ~]# exportfs  -rv 
+-r ：重新mount /etc/exports中分享出来的目录。 
+-v ：在 export 的時候，将详细的信息输出到屏幕上。
+
+#### NFS客户端的设定
+
+客户端系统也是linux，首先需要在客户端安装nfs-utils和rpcbind两个服务
+[root@localhost ~]# yum -y install nfs-utils
+[root@localhost ~]# systemctl start rpcbind 
+[root@localhost ~]# systemctl enable rpcbind 
+关闭NFS Server上开启了防火墙：
+[root@NFS Server ~]# systemctl stop firewalld
+[root@NFS Server ~]# systemctl disable firewalld
+客户端要使用NFS Server提供的共享资源，使用mount命令挂载就可以了：
+挂载的格式： 
+[root@localhost ~]#mount -t nfs Hostname(orIP):/directory  /mountpoint
+Hostname：用来指定NFS Server的地址，可以是IP地址或主机名。
+/directory：表示NFS Server共享出来的目录资源。
+/mountpoint：表示客户端主机指定的挂载点。通常是一个空目录。
+例如：
+[root@localhost ~]#mount -t nfs 192.168.60.133:/mydata  /data/nfs
+
+### 使用extundelete恢复误删除的文件
+
+反删除工具简介
+在Linux下，基于开源的数据恢复工具有很多，常见的有debugfs、R-Linux、ext3grep、extundelete等，比较常用的有ext3grep和extundelete，这两个工具的恢复原理基本一样，只是extundelete功能更加强大。
+ext3grep仅支持ext3文件系统的恢复，恢复速度较慢，而extundelete可以恢复ext3/ext4文件系统的数据，并且恢复速度很快。
+extundelete官网：http://extundelete.sourceforge.net/
+
+恢复原理
+extundelete首先会通过文件系统的inode信息（根目录的inode一般为2）来获得当前文件系统下所有文件的信息，包括存在的和已经删除的文件，然后利用inode信息结合日志去查询该inode所在的block位置，包括直接块，间接块等信息。最后利用dd命令将这些信息备份出来，从而恢复数据文件。
+
+extundelete的安装与使用
+[root@cloud1 app]#tar jxvf  extundelete-0.2.4.tar.bz2
+[root@cloud1 app]#cd extundelete-0.2.4
+[root@cloud1 extundelete-0.2.4]#./configure
+[root@cloud1 extundelete-0.2.4]#make
+[root@cloud1 extundelete-0.2.4]#make install
+成功安装extundelete后，会在系统中生成一个extundelete可执行文件
+
+extundelete常用选项：
+--restore-inode ino[,ino,...]，恢复命令参数，表示恢复节点“ino”的文件，恢复的文件会自动放在当前目录下的RESTORED_FILES文件夹中，使用节点编号作为扩展名。
+--restore-file 'path'，恢复命令参数，表示将恢复指定路径的文件，并把恢复的文件放在当前目录下的RECOVERED_FILES目录中。
+--restore-files 'path'	，恢复命令参数，表示将恢复在路径中已列出的所有文件。
+--restore-all，恢复命令参数，表示将尝试恢复所有目录和文件。
+
 ## 内存管理与监控
 
 ## 进程管理与监控
@@ -2398,6 +2492,201 @@ sysctl vm.swappiness=10
 cat /etc/sysctl.conf
 
 vm.swappiness=10
+
+# Linux进程管理与监控
+
+## 进程的概念与分类
+
+进程的的基本定义是：在自身的虚拟地址空间运行的一个独立的程序，从操作系统的角度来看，所有在系统上运行的东西，都可以称为一个进程。
+进程的分类
+
+1. 系统进程：可以执行内存资源分配和进程切换等管理工作；而且，该进程的运行不受用户的干预，即使是root用户也不能干预系统进程的运行。
+
+2. 用户进程：通过执行用户程序、应用程序或内核之外的系统程序而产生的进程，此类进程可以在用户的控制下运行或关闭。
+
+   - 交互进程：由一个shell终端启动的进程，在执行过程中，需要与用户进行交互操作，可以运行于前台，也可以运行在后台。
+
+   - 批处理进程：该进程是一个进程集合，负责按顺序启动其他的进程。
+
+   - 守护进程：守护进程是一直运行的一种进程，经常在linux系统启动时启动，在系统关闭时终止。例如httpd进程，一直处于运行状态，等待用户的访问。还有经常用的crond进程，这个进程类似与windows的计划任务，可以周期性的执行用户设定的某些任务。
+
+## 进程的监控与管理
+
+在linux系统中，进程ID（用PID表示）是区分不同进程的唯一标识，它们的大小是有限制的，最大ID为32768，用UID和GID分别表示启动这个进程的用户和用户组。所有的进程都是PID为1的init进程（centos7.x版本是systemd进程）的后代。内核在系统启动的最后阶段启动init进程，因而，这个进程是linux下所有进程的父进程，用PPID表示父进程。
+常用的进程管理命令有：
+ps、top、lsof、pgrep、kill、killall
+
+### lsof
+
+```bash
+# lsof -p PID：PID是进程号，通过进程号显示程序打开的所有文件及相关进程
+[root@server01 ~]# lsof -p 1065
+COMMAND  PID USER   FD   TYPE             DEVICE SIZE/OFF     NODE NAME
+sshd    1065 root  cwd    DIR                8,2     4096       64 /
+sshd    1065 root  rtd    DIR                8,2     4096       64 /
+sshd    1065 root  txt    REG                8,2   819640 50916842 /usr/sbin/sshd
+sshd    1065 root  DEL    REG                0,4             15932 /dev/zero
+sshd    1065 root  mem    REG                8,2   510416 50342739 /usr/lib64/libfreeblpriv3.so
+sshd    1065 root  mem    REG                8,2    15480 16873174 /usr/lib64/security/pam_lastlog.so
+# lsof -p PNAME：PNAME是进程名称，通过进程名称显示程序打开的所有文件及相关进程
+[root@server01 ~]# lsof -c sshd
+COMMAND  PID USER   FD   TYPE             DEVICE SIZE/OFF     NODE NAME
+sshd     531 root  cwd    DIR                8,2     4096       64 /
+sshd     531 root  rtd    DIR                8,2     4096       64 /
+sshd     531 root  txt    REG                8,2   819640 50916842 /usr/sbin/sshd
+sshd     531 root  mem    REG                8,2    62184 51936217 /usr/lib64/libnss_files-2.17.so
+sshd     531 root  mem    REG                8,2    44448 51936229 /usr/lib64/librt-2.17.so
+sshd     531 root  mem    REG                8,2    15688 50379752 /usr/lib64/libkeyutils.so.1.5
+# 通过lsof也可以查询每个进程打开的文件句柄数目
+[root@server01 ~]# lsof -c sshd | wc -l
+126
+# lsof -i  通过监听指定的协议、端口、主机等信息，显示符合条件的进程信息。
+# 查看占用22端口的进程的信息
+[root@server01 ~]#  lsof -i :22
+COMMAND  PID USER   FD   TYPE DEVICE SIZE/OFF NODE NAME
+sshd     531 root    3u  IPv4  13820      0t0  TCP *:ssh (LISTEN)
+sshd     531 root    4u  IPv6  13829      0t0  TCP *:ssh (LISTEN)
+sshd    1065 root    3u  IPv4  15881      0t0  TCP server01:ssh->192.168.56.1:65496 (ESTABLISHED)
+[root@server01 ~]#  lsof -i tcp:22
+COMMAND  PID USER   FD   TYPE DEVICE SIZE/OFF NODE NAME
+sshd     531 root    3u  IPv4  13820      0t0  TCP *:ssh (LISTEN)
+sshd     531 root    4u  IPv6  13829      0t0  TCP *:ssh (LISTEN)
+sshd    1065 root    3u  IPv4  15881      0t0  TCP server01:ssh->192.168.56.1:65496 (ESTABLISHED)
+# 通过pgrep命令获取进程名称对应的所有进程的PID
+[root@server01 ~]# pgrep sshd
+531
+1065
+```
+
+### kill
+
+用kill终止一个进程
+kill命令的使用语法为：
+kill [信号类型] 进程PID
+信号类型有很多种，可以通过kill –l查看所有信号类型。常用的信号类型有SIGKILL，对应的数字为9，还有SIGTERM和SIGINT，对应的数字分别为15和2。
+kill -0 进程PID：试探进程是否存在，如果存在就什么也不做，否则提示进程不存在
+kill -9 进程PID：表示强制结束进程
+kill -2 进程PID：表示结束进程，但是并不是强制性的，常用的ctrl+c组合键发出的就是一个kill -2的信号。
+kill -15 进程PID：表示正常结束进程，是kill的缺省选项，也就是kill不加任何信号类型时，默认类型就是15。
+
+killall也是关闭进程的一个命令，与kill不同的是，killall后面跟的是进程的名字，而不是进程的PID，因而，killall可以终止一组进程。
+killall的使用语法为：
+killall [信号类型] 进程名称
+信号类型：与kill命令中信号类型的含义相同。
+进程名称：进程对应的名称，例如java、httpd、mysqld、sshd、sendmail等
+
+## 任务调度进程crond的使用
+
+### crond的概念和分类
+
+crond是linux下用来周期性的执行某种任务或等待处理某些事件的一个守护进程，与windows下的计划任务类似。Linux下的任务调度分为两类，系统任务调度和用户任务调度。
+系统任务调度：系统周期性所要执行的工作，比如写缓存数据到硬盘、日志清理等。在/etc目录下有一个crontab文件，这个就是系统任务调度的配置文件。
+用户任务调度：用户定期要执行的工作，比如用户数据备份、定时邮件提醒等。用户可以使用 crontab 工具来定制自己的计划任务。所有用户定义的crontab 文件都被保存在 /var/spool/cron目录中。其文件名与用户名一致。
+
+### crontab常用的使用格式
+
+crontab [-u user] [file] 
+crontab [-u user] [-e|-l|-r |-i]
+选项含义如下：
+
+1. -u user：用来设定某个用户的crontab服务，例如，“-u ixdba”表示设定ixdba用户的crontab服务，此参数一般有root用户来运行。
+2. file：file是命令文件的名字,表示将file做为crontab的任务列表文件并载入crontab。如果在命令行中没有指定这个文件，crontab命令将接受标准输入（键盘）上键入的命令，并将它们载入crontab。
+3. -e：编辑某个用户的crontab文件内容。如果不指定用户，则表示编辑当前用户的crontab文件。
+4. -l：显示某个用户的crontab文件内容，如果不指定用户，则表示显示当前用户的crontab文件内容。
+5. -r：从/var/spool/cron目录中删除某个用户的crontab文件，如果不指定用户，则默认删除当前用户的crontab文件。
+6. -i：在删除用户的crontab文件时给确认提示。
+
+### crontab文件的含义
+
+用户所建立的crontab文件中，每一行都代表一项任务，每行的每个字段代表一项设置，它的格式共分为六个字段，前五段是时间设定段，第六段是要执行的命令段，格式如下：
+minute   hour   day   month   week   command
+其中：
+minute： 表示分钟，可以是从0到59之间的任何整数。
+hour：表示小时，可以是从0到23之间的任何整数。
+day：表示日期，可以是从1到31之间的任何整数。
+month：表示月份，可以是从1到12之间的任何整数。
+week：表示星期几，可以是从0到7之间的任何整数，这里的0或7代表星期日。
+command：要执行的命令，可以是系统命令，也可以是自己编写的脚本文件。
+在以上各个字段中，还可以使用以下特殊字符：
+
+```
+星号（*）：代表所有可能的值，例如month字段如果是星号，则表示在满足其它字段的制约条件后每月都执行该命令操作。
+逗号（,）：可以用逗号隔开的值指定一个列表范围，例如，“1,2,5,7,8,9”
+中杠（-）：可以用整数之间的中杠表示一个整数范围，例如“2-6”表示“2,3,4,5,6”
+正斜线（/）：可以用正斜线指定时间的间隔频率，例如“0-23/2”表示每两小时执行一次。同时正斜线可以和星号一起使用，例如*/10，如果用在minute字段，表示每十分钟执行一次。
+```
+
+### crontab应用举例
+
+0 */3 * * * /usr/local/apache2/apachectl restart
+表示每隔3个小时重启apache服务一次。
+
+30 3 * * 6 /webdata/bin/backup.sh
+表示每周六的3点30分执行/webdata/bin/backup.sh脚本的操作。
+
+0 0 1,20 * *  fsck /dev/sdb8
+表示每个月的1号和20号检查/dev/sdb8磁盘设备。
+
+10 5 */5 * *  echo "">/usr/local/apache2/log/access_log
+表示每个月的5号、10号、15号、20号、25号、30号的5点10分执行清理apache日志操作。
+
+```bash
+# 查看crontab是否被执行的日志
+[root@server01 var]# tail -f /var/log/cron
+Oct 26 16:30:01 localhost CROND[1474]: (root) CMD (/usr/lib64/sa/sa1 1 1)
+Oct 26 16:31:01 localhost CROND[1484]: (root) CMD (/usr/sbin/ntpdate ntp4.aliyun.com;)
+Oct 26 16:32:01 localhost CROND[1489]: (root) CMD (/usr/sbin/ntpdate ntp4.aliyun.com;)
+```
+
+### 注意事项
+
+1. 有时需要用到Crontab的定时任务去执行脚本，但是发现通过命令（./test.sh)执行Shell文件的时候，可以获取Linux的环境变量;可是通过Crontab做的定时任务，无法获取。
+
+   问题剖析：
+
+   crontab不会缺省的从用户profile文件中读取环境变量参数，经常导致在手工执行某个 脚本时是成功的，但是到crontab中试图让它定期执行时就是会出错。crontab执行环境在/etc/crontab，具体配置如下：
+
+   ```sh
+   SHELL=/bin/bash
+   PATH=/sbin:/bin:/usr/sbin:/usr/bin
+   MAILTO=root
+   
+   # For details see man 4 crontabs
+   
+   # Example of job definition:
+   # .---------------- minute (0 - 59)
+   # |  .------------- hour (0 - 23)
+   # |  |  .---------- day of month (1 - 31)
+   # |  |  |  .------- month (1 - 12) OR jan,feb,mar,apr ...
+   # |  |  |  |  .---- day of week (0 - 6) (Sunday=0 or 7) OR sun,mon,tue,wed,thu,fri,sat
+   # |  |  |  |  |
+   # *  *  *  *  * user-name  command to be executed
+   ```
+
+   配置解释：
+
+   前三行是用来配置crond任务运行的环境变量
+   第一行SHELL变量指定了系统要使用哪个shell，这里是bash；
+   第二行PATH变量指定了系统执行命令的路径；
+   第三行MAILTO变量指定了crond的任务执行信息将通过电子邮件发送给root用户，如果MAILTO变量的值为空，则表示不发送任务执行信息给用户；
+
+   几种解决办法：
+
+   1、在Shell文件里面获取环境变量值的路径写成绝对路径，别用环境变量的路径值。例如获取CPU的使用情况 通过绝对路径/proc/cpuinfo 来获取值；
+
+   2、在即将执行的Shell脚本缺省的#!/bin/sh开头换行后的第一行加入：source /etc/profile或者. /etc/profile
+
+   3、在/etc/crontab中添加环境变量，也可以在执行对应的命令之前，加入一条命令，使得环境变量生效，例如：
+
+   ```bash
+   0 * * * * . /etc/profile;/bin/sh /var/www/java/audit_no_count/bin/restart_audit.sh
+   ```
+
+   备注：在corntable 中执行多条语句时，用分号“；”隔开。故以上例子就是先执行. /etc/profile; 这条命令，然后再运行sh脚本。
+
+2. 注意清理系统用户的邮件日志，可以在crontab文件中设置如下形式，忽略日志输出：0 */3 * * * /usr/local/apache2/apachectl restart >/dev/null 2>&1
+
+3. 系统级任务调度与用户级任务调度，系统级任务调度主要完成系统的一些维护操作(比如定时重启机器），用户级任务调度主要完成用户自定义的一些任务，可以将用户级任务调度放到系统级任务调度来完成（不建议这么做），但是反过来却不行。
 
 # Linux系统性能评估
 

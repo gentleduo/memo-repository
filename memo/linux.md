@@ -699,6 +699,12 @@ ps -aux
   - s：包含子进程
   - +：位于后台的进程组
 
+```bash
+# 查看某个进程的启动时间
+[root@server01 limits.d]# ps -eo pid,lstart,etime | grep 542
+  542 Thu Oct 27 13:14:23 2022    01:34:26
+```
+
 ### top
 
 第一行：top - 16:20:38 up 12 days,  5:24,  2 users,  load average: 0.04, 0.03, 0.05
@@ -2687,6 +2693,657 @@ Oct 26 16:32:01 localhost CROND[1489]: (root) CMD (/usr/sbin/ntpdate ntp4.aliyun
 2. 注意清理系统用户的邮件日志，可以在crontab文件中设置如下形式，忽略日志输出：0 */3 * * * /usr/local/apache2/apachectl restart >/dev/null 2>&1
 
 3. 系统级任务调度与用户级任务调度，系统级任务调度主要完成系统的一些维护操作(比如定时重启机器），用户级任务调度主要完成用户自定义的一些任务，可以将用户级任务调度放到系统级任务调度来完成（不建议这么做），但是反过来却不行。
+
+# Linux日志分析与故障排查
+
+## Linux系统日志与分类
+
+1. 内核及系统日志：这种日志数据由系统服务syslog统一管理，根据其主配置文件"/etc/rsyslog.conf"中的设置决定将内核消息及各种系统程序消息记录到什么位置。（在centos7以前为/etc/syslog.conf）
+2. 用户日志：这种日志数据用于记录Linux系统用户登录及退出系统的相关信息，包括用户名、登录的终端、登录时间、来源主机、正在使用的进程操作等。
+3. 程序日志：有些应用程序运会选择自己来独立管理一份日志文件（而不是交给syslog服务管理），用于记录本程序运行过程中的各种事件信息。
+
+## Linux下日志文件解读
+
+Linux系统本身和大部分服务器程序的日志文件默认情况下都放置在目录“/var/log”中。
+/var/log/messages：公共日志文件，记录Linux内核消息及各种应用程序的公共日志信息，包括启动、IO错误、网络错误、程序故障等。对于未使用独立日志文件的应用程序或服务，一般都可以从该文件获得相关的事件记录信息。 
+/var/log/cron：记录crond计划任务产生的事件消息。 
+/var/log/dmesg： 包含内核缓冲信息（kernel ring buffer）。在系统启动时，会在屏幕上显示许多与硬件有关的信息。此文件记录的信息时系统上次启动时的信息。而用dmesg命令可查看本次系统启动时与硬件有关的信息，以及内核缓冲信息。 
+/var/log/maillog：记录进入或发出系统的电子邮件活动。
+/var/log/boot.log  记录系统启动时的软件日志信息。
+/var/log/secure：记录用户远程登录、认证过程中的事件信息。 
+/var/log/wtmp：记录系统所有登录进入和退出纪录。 可执行last命令查看
+/var/log/btmp：记录错误登录进入系统的日志信息，可执行lastb命令查看。
+/var/log/lastlog：记录最近成功登录的事件和最后一次不成功的登录事件。可执行lastlog命令查看。
+
+## 忘记root密码的解决案例
+
+这个问题出现的几率是很高的，不过，在linux下解决这个问题也很简单，只需重启linux系统，然后引导进入linux的单用户模式（init 1），由于单用户模式是不需要输入登录密码的，因此，可以直接登录系统，修改root密码即可解决问题。重点内容：如何重启系统，进入单用户模式（centos6.x和centox7.x方式不同）
+
+/boot/grub/grub.conf系统启动时的引导文件解读(在centos7对应的是/etc/grub2.conf)
+default=0：  定义了没有选择内核菜单的启动项时选择第一个内核启动。
+timeout=5 ： 定义了没有任何操作时5s的超时时间。
+splashimage=(hd0,0)/grub/splash.xpm.gz   定义了开机时内核选择菜单的背景图片，可以不写这一行，但是写错也会导致机器无法启动！
+hidemenu：   隐藏内核选择菜单，按任意键出现选择菜单，可以不写这一行。
+title：内核名字标题。
+root(hd0,0) ：  相对下面的内核和initrd全局定义root为第一块磁盘的第一个分区，此处的root不是真的root，而是开机时的/boot 分区，因为bootloader开机还没有加载内核以及/分区。加载的内核需要通过/boot分区加载/分区和内核。
+kernel ：  定义内核文件位置，向内核文件传递必要的参数。并且指定  /  分区所在的位置
+initrd：  包括加载根分区的必要的驱动以及可以在内存当中解压释放出虚根用于加载真正的内核文件
+
+## 系统无法启动故障案例
+
+### root文件系统破坏，导致系统无法启动故障案例
+
+这种情况多由于异常断电、不正常关机，引起文件系统结构不一致导致的。此种问题发生，在系统启动的时候，屏幕会显示：
+checking root filesystem
+/dev/sdb5 contains a file system with errors, check forced
+/dev/sdb5: UNEXPECTED INCONSISTENCY; RUN fsck MANUALLY
+(i.e., without -a or -p options)  FAILED
+Press enter for maintenance
+(or type Control-D to continue):
+give root password for maintenance
+从这个错误可以看出，系统根分区文件系统出现了问题，系统在启动时无法自动修复，然后进入到了一个交互界面，提示用户进行系统修复。
+解决方法：
+输入root密码后进入系统修复模式，在修复模式下，可以执行fsck命令（在修复前需要先umount），例如：
+[root@localhost /]# fsck .ext4 -y  /dev/sdb5
+
+### /etc/fstab文件丢失，导致系统无法启动案例
+
+/etc/fstab文件存放了系统中文件系统的相关信息，在linux启动时，系统会读取此文件，自动挂载linux的各个分区，如果此文件配置错误，或者丢失，就会导致系统无法启动，具体的故障现象是在检测mount partition时出现：starting system logger此后系统启动就停止了。
+解决方法：
+利用linux rescue修复模式登录系统，进而获取分区和挂载点信息，重构/etc/fstab文件。
+
+```bash
+# 查看分区对应的挂载点、UUID等详细的分区信息
+[root@server01 log]# tune2fs -l /dev/sda2
+```
+
+### Linux系统无法启动的通用解决方案
+
+（1）进入单用户模式或援救模式（rescue），修复分区错误或者备份数据，然后修复或重新安装系统。
+（2）如果是linux的引导程序出现问题，那么也可以通过光盘引导的方式进入linux修复模式，然后修改对应的引导程序或者重新安装引导程序。
+（3）如果linux内核崩溃或者丢失，同样可以先进入linux rescue模式下，然后加载root分区，最后重新编译内核。
+
+## Read-only file system
+
+现象：java.lang.RuntimeException: Cannot make directory: file:/www/data/html/2018-03-21
+思路：可能是服务器磁盘故障（磁盘空间满了或者磁盘无法写入了）
+原因：磁盘分区出现了问题，导致文件系统结构不一致，文件系统关闭了写功能，需要修复文件系统结构：
+[root@localhost ~]# umount /www/data
+[root@localhost ~]# fsck -y  /dev/sdb1
+
+## su命令切换用户带来的问题
+
+故障现象：su: warning: cannot change directory to /home/oracle: Permission denied
+解决思路：
+
+1. 用户目录/home/oracle权限问题
+2. su程序执行权限问题
+3. 序依赖的共享库权限问题
+4. selinux问题导致
+5. 系统根空间问题
+
+产生原因：根目录权限问题导致，修改根目录权限即可 [root@localhost ~]#chmod 555 /
+
+```bash
+# 查看用户目录权限：700表示用户对于用户目录拥有读写及执行权限，所以没有问题
+[root@server01 home]# ls -al | grep elasticsearch
+drwx------   7 elasticsearch elasticsearch      177 10月 25 16:24 elasticsearch
+# 查看su命令的权限，用户、用户组及其他用户都拥有su命令的执行权限，所以没有问题
+[root@server01 home]# ls -al /bin/su
+-rwsr-xr-x 1 root root 32208 3月  14 2019 /bin/su
+# 查看su命令依赖的动态库的权限
+[root@server01 home]# ldd /bin/su
+        linux-vdso.so.1 =>  (0x00007fff344fa000)
+        libpam.so.0 => /lib64/libpam.so.0 (0x00007f4722275000)
+        libpam_misc.so.0 => /lib64/libpam_misc.so.0 (0x00007f4722071000)
+        libc.so.6 => /lib64/libc.so.6 (0x00007f4721cad000)
+        libaudit.so.1 => /lib64/libaudit.so.1 (0x00007f4721a84000)
+        libdl.so.2 => /lib64/libdl.so.2 (0x00007f4721880000)
+        /lib64/ld-linux-x86-64.so.2 (0x00007f4722696000)
+        libcap-ng.so.0 => /lib64/libcap-ng.so.0 (0x00007f4721679000)
+# selinux问题
+[root@server01 home]# vim /etc/selinux/config
+# This file controls the state of SELinux on the system.
+# SELINUX= can take one of these three values:
+#     enforcing - SELinux security policy is enforced.
+#     permissive - SELinux prints warnings instead of enforcing.
+#     disabled - No SELinux policy is loaded.
+# 查看SELINUX是否启用，目前SELINUX是disabled状态(如果是启用的话就是enforcing)，所以没有问题
+SELINUX=disabled
+# SELINUXTYPE= can take one of three two values:
+#     targeted - Targeted processes are protected,
+#     minimum - Modification of targeted policy. Only selected processes are protected. 
+#     mls - Multi Level Security protection.
+SELINUXTYPE=targeted
+# 查看根目录权限：0666；在查看其他正常系统的根目录的权限为：0555，所以问题就出在根目录上，修改根目录权限即可：chmod 555 /
+[root@server01 home]# stat /
+  文件："/"
+  大小：4096            块：8          IO 块：4096   目录
+设备：802h/2050d        Inode：64          硬链接：22
+权限：(0666/drw-rw-rw-)  Uid：(    0/    root)   Gid：(    0/    root)
+最近访问：2022-10-26 13:03:18.324000000 +0800
+最近更改：2022-08-25 17:44:48.959909299 +0800
+最近改动：2022-08-25 17:44:48.959909299 +0800
+创建时间：-
+```
+
+## Too many open files
+
+对于服务器来说，file-max和ulimit都需要设置，否则会出现文件描述符耗尽的问题。
+
+### max-file
+
+max-file 表示系统级别的能够打开的文件句柄的数量。是对整个系统的限制，并不是针对用户的。
+
+```bash
+# 临时修改系统级打开最大文件句柄的数量的方法
+[root@server01 ~]# sysctl -w fs.file-max=640000
+# 系统级打开最大文件句柄的数量永久生效的修改方法
+# 修改文件/etc/sysctl.conf
+[root@server01 ~]# vim /etc/sysctl.conf
+# 文件末尾加入配置内容：fs.file-max = 640000
+fs.file-max = 64000
+# 然后执行命令，使修改配置立即生效
+[root@server01 ~]# sysctl -p
+fs.file-max = 640000
+```
+
+### ulimit
+
+ulimit -n 控制进程级别能够打开的文件句柄的数量。提供对shell及其启动的进程的可用文件句柄的控制。这是进程级别的。参数：
+
+-a	显示当前系统所有的limit资源信息。 
+-H	设置硬资源限制，一旦设置不能增加。
+-S	设置软资源限制，设置后可以增加，但是不能超过硬资源设置。
+-c	最大的core文件的大小，以 blocks 为单位。
+-f	进程可以创建文件的最大值，以blocks 为单位.
+-d	进程最大的数据段的大小，以Kbytes 为单位。
+-m	最大内存大小，以Kbytes为单位。
+-n	可以打开的最大文件描述符的数量。
+-s	线程栈大小，以Kbytes为单位。
+-p	管道缓冲区的大小，以Kbytes 为单位。
+-u	用户最大可用的进程数。
+-v	进程最大可用的虚拟内存，以Kbytes 为单位。
+-t	最大CPU占用时间，以秒为单位。
+-l	最大可加锁内存大小，以Kbytes 为单位。
+
+```bash
+# ulimit -a显示的是所有的limit资源信息：比如：core file size表示的是限制内核文件的大小、data seg size表示的是最大数据大小。
+[root@server01 ~]# ulimit -a
+core file size          (blocks, -c) 0
+data seg size           (kbytes, -d) unlimited
+scheduling priority             (-e) 0
+file size               (blocks, -f) unlimited
+pending signals                 (-i) 7927
+max locked memory       (kbytes, -l) unlimited
+max memory size         (kbytes, -m) unlimited
+open files                      (-n) 1024
+pipe size            (512 bytes, -p) 8
+POSIX message queues     (bytes, -q) 819200
+real-time priority              (-r) 0
+stack size              (kbytes, -s) 8192
+cpu time               (seconds, -t) unlimited
+max user processes              (-u) 7927
+virtual memory          (kbytes, -v) unlimited
+file locks                      (-x) unlimited
+# 设置的是当前shell的当前用户的打开的最大限制
+[root@server01 ~]# ulimit -n 65536
+# 进程级打开文件句柄数量永久生效的修改方法，修改limits.conf文件，limits.conf的格式如下：
+# <domain>　　 <type>　　 <item> 　　 <value>
+# domain ==>
+# username或者@groupname 设置需要被限制的用户名或组，组名前面加@和用户名区别；也可以用通配符*来做所有用户的限制。
+# type ==>
+# soft 指的是当前系统生效的设置值（警告）
+# hard 表明系统中所能设定的最大值（错误）
+# soft 的限制不能比hard限制高，- 表明同时设置了 soft 和 hard 的值。
+# item ==>
+# core - 限制内核文件的大小（KB）
+# date - 最大数据大小（KB）
+# fsize - 最大文件大小（KB）
+# memlock - 最大锁定内存地址空间（KB）
+# nofile - 打开的文件描述符的最大数目**（经常设置）**
+# rss - 最大持久设置大小（KB）
+# stack - 最大堆栈大小（KB）
+# cpu - 最大CPU时间（min）
+# noproc - 进程最大数量，注意最大进程数在/etc/security/limits.d/20-nproc.conf这个配置文件中也有设置，所以必须两边都改才会生效。
+# as - 地址空间限制（KB）
+# maxlogins - 此用户的最大登录数量
+# maxsyslogins - 在系统上登录的最大数目
+# priority - 优先级运行用户进程
+# locks -  文件的最大数量锁定用户可容纳
+# sigpending - 最大挂起信号的数量
+# msgqueue - 通过POSIX消息队列使用的最大内存（字节）
+# nice - 最大不错优先允许提高到值：[-20，19]
+# rtprio - 最大实时优先
+# 修改以后，需要重新登录才能生效。
+[root@server01 ~]# vim /etc/security/limits.conf
+* - nofile 65536
+```
+
+## Linux网络故障处理思路和经验
+
+检查网线状态
+
+```bash
+[root@server01 limits.d]# ethtool enp0s3   
+Settings for enp0s3:
+        Supported ports: [ TP ]
+        Supported link modes:   10baseT/Half 10baseT/Full 
+                                100baseT/Half 100baseT/Full 
+                                1000baseT/Full 
+        Supported pause frame use: No
+        Supports auto-negotiation: Yes
+        Advertised link modes:  10baseT/Half 10baseT/Full 
+                                100baseT/Half 100baseT/Full 
+                                1000baseT/Full 
+        Advertised pause frame use: No
+        Advertised auto-negotiation: Yes
+        Speed: 1000Mb/s
+        Duplex: Full
+        Port: Twisted Pair
+        PHYAD: 0
+        Transceiver: internal
+        Auto-negotiation: on
+        MDI-X: off (auto)
+        Supports Wake-on: umbg
+        Wake-on: d
+        Current message level: 0x00000007 (7)
+                               drv probe link
+        Link detected: yes  #yes表示网卡的链路是连通的
+```
+
+检查网卡状态
+
+```bash
+# 通过ethtool -i查看网卡驱动
+[root@server01 limits.d]# ethtool -i enp0s8
+driver: e1000
+version: 7.3.21-k8-NAPI
+firmware-version: 
+expansion-rom-version: 
+bus-info: 0000:00:08.0
+supports-statistics: yes
+supports-test: yes
+supports-eeprom-access: yes
+supports-register-dump: yes
+supports-priv-flags: no
+# 通过lsmod查看驱动是否正常加载
+[root@server01 limits.d]# lsmod | grep e1000
+e1000                 137544  0
+# ifconfig 查看网卡状态，flags中UP表示网卡是激活状态
+[root@server01 limits.d]# ifconfig
+enp0s3: flags=4163<UP,BROADCAST,RUNNING,MULTICAST>  mtu 1500
+        inet 10.0.2.15  netmask 255.255.255.0  broadcast 10.0.2.255
+        inet6 fe80::a00:27ff:fe8f:a57b  prefixlen 64  scopeid 0x20<link>
+        ether 08:00:27:8f:a5:7b  txqueuelen 1000  (Ethernet)
+        RX packets 967  bytes 91405 (89.2 KiB)
+        RX errors 0  dropped 0  overruns 0  frame 0
+        TX packets 982  bytes 81125 (79.2 KiB)
+        TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
+        
+enp0s8: flags=4163<UP,BROADCAST,RUNNING,MULTICAST>  mtu 1500
+        inet 192.168.56.110  netmask 255.255.255.0  broadcast 192.168.56.255
+        inet6 fe80::a00:27ff:fef3:c0da  prefixlen 64  scopeid 0x20<link>
+        ether 08:00:27:f3:c0:da  txqueuelen 1000  (Ethernet)
+        RX packets 953  bytes 103881 (101.4 KiB)
+        RX errors 0  dropped 0  overruns 0  frame 0
+        TX packets 561  bytes 126677 (123.7 KiB)
+        TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
+
+lo: flags=73<UP,LOOPBACK,RUNNING>  mtu 65536
+        inet 127.0.0.1  netmask 255.0.0.0
+        inet6 ::1  prefixlen 128  scopeid 0x10<host>
+        loop  txqueuelen 1  (Local Loopback)
+        RX packets 242  bytes 13552 (13.2 KiB)
+        RX errors 0  dropped 0  overruns 0  frame 0
+        TX packets 242  bytes 13552 (13.2 KiB)
+        TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
+# 查看系统中网卡数量
+[root@server01 limits.d]# lspci|grep  Ethernet
+00:03.0 Ethernet controller: Intel Corporation 82540EM Gigabit Ethernet Controller (rev 02)
+00:08.0 Ethernet controller: Intel Corporation 82540EM Gigabit Ethernet Controller (rev 02)
+```
+
+检查网卡配置文件
+
+/etc/sysconfig/network-scripts/
+
+RHEL/Centos7.0以及之后的系统版本中，所有网络设置和管理都统一由NetworkManager服务来维护，相对于旧的/etc/init.d/network脚本管理方式，NetworkManager是动态的、事件驱动的网络管理服务。
+关闭NetworkManager服务的命令如下：
+[root@localhost network-scripts]# systemctl  stop NetworkManager
+[root@localhost network-scripts]# systemctl  disable  NetworkManager
+ip<-----ifconfig
+ss<-----netstat
+
+检查DNS解析文件是否设置正确
+/etc/resolve.conf：可指定需要的域名服务器（注意NetworkManager会自动管理DNS解析文件）
+nslookup命令诊断DNS解析功能
+
+检查系统防火墙iptables和selinux的状态
+iptables -L -n
+more  /etc/selinux/config	（setenforce 1|0）
+
+检查网络连通性以及路由信息
+通过ping命令查看网络连通性
+ping www.ixdba.net
+通过route命令检查系统路由表信息是否正确
+route -n
+通过mtr、traceroute命令检查远程路由信息
+mtr www.163.com
+通过telnet、netstat命令检查主机端口与服务状态
+telnet www.ixdba.net 80
+netstat -antlp
+
+# Linux线上服务器运维技巧与优化经验
+
+## 线上Linux服务器基础优化
+
+1. 最小化安装系统
+
+   仅安装需要的，按需安装、不用不装，必须安装的有开发包、基本网络包、基本应用包。
+
+2. ssh登录系统策略
+
+   ```bash
+   [root@server01 security]# vim /etc/ssh/sshd_config
+   #SSH链接默认端口，修改默认22端口为1万以上端口号，避免被扫描和攻击。
+   Port 22221
+   #不使用DNS反查，可提高ssh连接速度
+   UseDNS no
+   #关闭GSSAPI验证，可提高ssh连接速度
+   GSSAPIAuthentication no
+   #禁止root账号远程登陆
+   PermitRootLogin no
+   ```
+
+3. selinux， iptables策略设置
+
+   ```bash
+   [root@server01 security]# cat  /etc/selinux/config
+   
+   # This file controls the state of SELinux on the system.
+   # SELINUX= can take one of these three values:
+   #     enforcing - SELinux security policy is enforced.
+   #     permissive - SELinux prints warnings instead of enforcing.
+   #     disabled - No SELinux policy is loaded.
+   # enforcing 开启状态、permissive 提醒的状态 、disabled 关闭状态
+   # 命令行关闭：setenforce  0（临时生效）
+   SELINUX=disabled
+   # SELINUXTYPE= can take one of three two values:
+   #     targeted - Targeted processes are protected,
+   #     minimum - Modification of targeted policy. Only selected processes are protected. 
+   #     mls - Multi Level Security protection.
+   SELINUXTYPE=targeted 
+   ```
+
+4. 更新yum源及必要软件安装
+
+   ```bash
+   # 更新系统所有软件和内核
+   [root@server01 security]# yum update
+   ```
+
+5. 定时自动更新服务器时间
+
+   ```bash
+   # 阿里云时间服务器
+   [root@server01 /]# crontab -e
+   # 设置BIOS/硬件时间定时更新：/sbin/hwclock -w
+   /usr/sbin/ntpdate ntp1.aliyun.com >> /var/log/ntp.log 2>&1; /sbin/hwclock -w
+   ```
+
+6. 重要文件加锁
+
+   ```bash
+   # 加锁
+   [root@server01 ~]# chattr +i  /etc/sudoer
+   [root@server01 ~]# chattr +i  /etc/shadow
+   [root@server01 ~]# chattr +i  /etc/passwd
+   [root@server01 ~]# chattr +i  /etc/grub2.cfg
+   # 查看锁状态
+   [root@server01 /]# lsattr /etc/sudoers
+   ----i----------- /etc/sudoers
+   # 解锁
+   [root@server01 /]# chattr -i /etc/sudoers 
+   ```
+
+7. 系统资源参数优化
+
+   ```bash
+   [root@server01 ~]# vim /etc/security/limits.conf
+   [root@server01 ~]# vim /etc/security/limits.d/20-nproc.conf
+
+## 系统安全与网络安全
+
+### 常见攻击类型
+
+口令暴力破解攻击
+拒绝服务攻击（DDoS）
+应用程序漏洞攻击（挂马、SQL注入）
+
+### 防范攻击策略
+
+![image](assets\linux-15.png)
+
+### 操作系统常用安全策略
+
+#### 密码登录安全
+
+复杂密码+普通用户ssh登录
+密钥认证方式远程登录
+openssh配置文件/etc/ssh/sshd_config，注意关注下面几个配置项：
+Port 22
+AuthorizedKeysFile      .ssh/authorized_keys
+PermitRootLogin no
+GSSAPIAuthentication no
+UseDNS no
+
+#### 端口与服务安全
+
+在linux操作系统下，系统共定义了65536个可用端口，这些端口又分为两个部分，以1024作为分割点， 分别是“只有root用户才能启用的port”和“客户端的port”：
+0-1023端口，都需要以root身份才能启用，可以通过查阅linux下/etc/services文件得到端口与服务的对应列表。比如20、21端口是预留给ftp服务的，23端口是预留给telnet服务的，25是预留给mail服务的，而80是预留给www服务的。
+1024以上（包含1024）的端口主要是给客户端软件使用的，这些端口都是有软件随机分配的，大于或者等于1024的端口的启用不受root用户的控制，例如，经常使用的mysql数据库，服务的默认端口是3306，而这个端口就是由mysql用户启用的。Oracle数据库默认的监听端口是1521，也是由oracle用户启动的。
+
+#### 软件安全
+
+yum update glibc
+yum update openssl
+
+#### 禁止ping操作
+
+```bash
+[root@server01 /]# echo "1" > /proc/sys/net/ipv4/icmp_echo_ignore_all
+```
+
+#### 设定tcp_wrappers防火墙
+
+tcp_Wrappers的使用很简单，仅仅两个配置文件：/etc/hosts.allow和/etc/hosts.deny
+
+## Linux软件防火墙iptables
+
+### iptables的概念
+
+iptables是linux系统内嵌的一个防火墙软件（封包过滤式防火墙），它集成在系统内核中，因此执行效率非常的高，iptables通过设置一些封包过滤规则，来定义什么数据可以接收，什么数据需要剔除，因此，用户通过iptables可以对进出计算机的数据包进行IP过滤，以达到保护主机的目的。iptables是有最基本的多个表格（tables）组成的，而且每个表格的用途都不一样，在每个表格中，又定义了多个链（chain），通过这些链可以设置相应的规则和策略.
+
+### iptables的功能组成
+
+![image](assets\linux-16.png)
+
+### filter表
+
+iptables有3种常用的表选项，包括管理本机数据进出的filter、管理防火墙内部主机nat 和改变不同包及包头内容的mangle。
+filter表一般用于的信息包过滤，内置了INPUT、OUTPUT和FORWARD链。
+
+1. INPUT链	主要是对外部数据包进入linux系统进行信息过滤
+2. OUTPUT链	主要是对内部linux系统所要发送的数据包进行信息过滤
+3. FORWARD链	将外面过来的数据包传递到内部计算机中
+
+### NAT表
+
+NAT表主要用处是网络地址转换，即Network Address Translation，缩写为NAT，它包含PREROUTING、POSTROUTING和OUTPUT链。
+
+1. PREROUTING链：是在数据包刚刚到达防火墙时，根据需要改变它的目的地址。例如DNAT操作，就是通过一个合法的公网IP地址，通过对防火墙的访问，重定向到防火墙内的其它计算机（DMZ区域），也就是说通过防火墙改变了访问的目的地址，以使数据包能重定向到指定的主机。
+2. POSTROUTING链：在包就要离开防火墙之前改变其源地址，例如SNAT操作，屏蔽了本地局域网主机的信息，本地主机通过防火墙连接到internet，这样在internet上看到的本地主机的来源地址都是同一个IP，屏蔽了来源主机地址信息。
+3. OUTPUT链：改变了本地产生包的目的地址。
+
+### 防火墙规则的查看与清除
+
+```bash
+# 列出当前系统filter表的链信息
+[root@server01 /]# iptables -L -n
+Chain INPUT (policy ACCEPT)
+target     prot opt source               destination         
+
+Chain FORWARD (policy ACCEPT)
+target     prot opt source               destination         
+
+Chain OUTPUT (policy ACCEPT)
+target     prot opt source               destination   
+# 列出当前系统nat表的链信息
+[root@server01 /]# iptables -t nat -L -n
+Chain PREROUTING (policy ACCEPT)
+target     prot opt source               destination         
+
+Chain INPUT (policy ACCEPT)
+target     prot opt source               destination         
+
+Chain OUTPUT (policy ACCEPT)
+target     prot opt source               destination         
+
+Chain POSTROUTING (policy ACCEPT)
+target     prot opt source               destination 
+# 清除本机防火墙的所有规则设定：上面三条指令可以清除防火墙的所有规则，但是不能清除预设的默认规则（policy）
+[root@server01 /]# iptables -F
+[root@server01 /]# iptables -X
+[root@server01 /]# iptables -Z
+```
+
+### iptables的执行流程
+
+![image](assets\linux-17.png)
+
+### 制定防火墙规则
+
+#### 设置预设规则（policy）
+
+-P	--policy，定义策略，针对filter table有INPUT,OUTPUT,FORWARD3条链可选。
+注意，这里的”P”为大写
+-t	后面接table，常见的有filter、NAT等，如果没有用“-t”指定table，则默认使用filter表
+
+```bash
+# 预设规则先将进来的数据报全部drop，然后出去的数据报全部通过
+# 由于防火墙是先读自定义规则，最后才去看预设规则，所以不用担心数据包进不来，可以在自定义规则中让它进来即可
+[root@server01 ~]# iptables -P INPUT DROP
+[root@server01 ~]# iptables -P OUTPUT ACCEPT
+[root@server01 ~]# iptables -P FORWARD ACCEPT
+```
+
+#### 针对ip/网络、网络接口、tcp,udp协议的过滤规则
+
+iptables设置语法如下：
+
+```bash
+[root@server01 ~]# iptables [-t tables] [-AI 链] [-io 网络接口] [-p 协议] [-s 来源IP/网络] [-d 目标IP/网络] -j [ACCEPT|DROP|REJECT|REDIRECT]
+```
+
+-A	新增加一条规则，放到已有规则的最后面
+-I	插入一条规则，如果没有制定插入规则的顺序，则新插入的变成第一条规则，A和I后面跟链：INPUT、OUTPUT、FORWARD
+-i	指定数据包进入的那个网络接口。linux下常见的有eth0、eth1、lo等等。此参数一般与INPUT链配合使用
+-o	指定数据包传出的那个网络接口。经常与OUTPUT链配合使用
+-p	指定此规则适用的协议，常用的协议有tcp、udp、icmp以及all
+-s	指定来源IP或者网络，也就是限定数据包来源的IP或者网络，可以单独指定某个IP，也可以指定某段网络
+-d	指定目标IP或者网络，跟参数“-s”类似
+-j	此参数后面指定要执行的动作，主要的动作有接受(ACCEPT)、抛弃(DROP)及记录(LOG)
+	ACCEPT	接受该数据包
+	DROP	直接丢弃该数据包，不给客户端任何回应。
+-m  指定iptables使用的扩展模块，常用的有tcp模块等
+--sport 端口范围	限制来源的端口号码，端口号码可以是连续的，例如 1024:65535
+--dport 端口范围	限制目标的端口号码
+
+```bash
+# --dport为目标端口，即服务器上的端口
+# 整条规则的含义：仅仅允许客户端192.168.56.1通过tcp连接服务器的22端口
+[root@server01 /]# iptables -A INPUT -s 192.168.56.1 -p tcp -m tcp --dport 22 -j ACCEPT
+# 此时由于设置预设规则中的INPUT为ACCEPT，所以上面设置的规则没有效果，必须将INPUT链设置为DROP状态
+[root@server01 ~]# iptables -L -n
+Chain INPUT (policy ACCEPT)
+target     prot opt source               destination         
+ACCEPT     tcp  --  192.168.56.1         0.0.0.0/0            tcp dpt:22
+
+Chain FORWARD (policy ACCEPT)
+target     prot opt source               destination         
+
+Chain OUTPUT (policy ACCEPT)
+target     prot opt source               destination 
+# 只有将INPUT链设置为DROP状态上面的规则才能生效
+[root@server01 ~]# iptables -P INPUT DROP
+[root@server01 ~]# iptables -L -n        
+Chain INPUT (policy DROP)
+target     prot opt source               destination         
+ACCEPT     tcp  --  192.168.56.1         0.0.0.0/0            tcp dpt:22
+
+Chain FORWARD (policy ACCEPT)
+target     prot opt source               destination         
+
+Chain OUTPUT (policy ACCEPT)
+target     prot opt source               destination
+# 执行上述规则后，在192.168.56.111上无法通过ssh连接server01了
+[root@server02 ~]# ssh server01
+ssh: connect to host server01 port 22: Connection timed out
+# 允许所有客户端访问服务器的80端口
+[root@server01 ~]# iptables -A INPUT -p tcp -m tcp --dport 80 -j ACCEPT 
+# 允许192.168.56.1访问服务器的任意端口
+[root@server01 ~]# iptables -A INPUT -s 192.168.56.1 -j ACCEPT
+# 将来自网络接口lo的数据包，全部接受
+[root@server01 ~]# iptables -A INPUT -i lo -j ACCEPT
+# 允许通过icmp协议访问主机的数据包通过
+[root@server01 ~]# iptables -A INPUT -i enp0s8 -p icmp -j ACCEPT
+# 允许局域网内192.168.56.0/24的所有主机访问我们这个服务器，除了192.168.56.111这台主机：
+[root@server01 ~]#iptables -A INPUT -i enp0s8 -s 192.168.56.111  -j DROP
+[root@server01 ~]#iptables -A INPUT -i enp0s8 -s 192.168.56.0/24 -j  ACCEPT
+# 允许来自222.91.99.0/28的1024:65535端口范围的主机可以通过22端口连接linux服务器
+[root@server01 ~]#iptables -A INPUT -i eth0 -p tcp -s  222.91.99.0/28  --sport 1024:65534 --dport 22 -j  ACCEPT
+```
+
+#### 针对数据状态模块的过滤规则
+
+数据状态模块机制是iptables中特殊的一部分，严格来说不应该叫状态机制，因为它只是一种连接跟踪机制。连接跟踪可以让filter table知道某个特定连接的状态。
+
+```bash
+[root@server01 ~]# iptables -A INPUT -m state/mac --state NEW/ESTABLISHED/RELATED/INVALID
+```
+
+-m	iptables的几个模块选项，常见的有：
+
+1. state：状态模块
+2. mac：网卡硬件地址（hardware address）
+
+--state	一些数据封包的状态，主要有：
+
+1. NEW：某个连接的第一个包。
+2. ESTABLISHED：表示该封包属于某个已经建立的链接。
+3. RELATED：当一个连接和某个已处于ESTABLISHED状态的连接有关系时，就被认为是RELATED的了。
+4. INVALID：表示数据包不能被识别属于哪个连接或没有任何状态。
+
+```bash
+# 只要是已建立的连接或者相关数据包就予以通过，不能识别或者没有任何状态的数据包全部丢弃，设置如下规则：
+[root@server01 ~]#iptables -A INPUT -m   state --state RELATED,ESTABLISHED -j ACCEPT
+[root@server01 ~]#iptables -A INPUT -m   state --state INVALID -j DROP
+```
+
+#### NAT表SNAT操作
+
+```bash
+# 比如有两台机器：172.16.213.78和172.16.213.51，
+# 172.16.213.78不能上网；
+# 172.16.213.51可以上网，172.16.213.51中连接外网的IP为171.84.4.131
+# 那么可以在172.16.213.51中添加一条规则：
+[root@localhost ~]# iptables -t nat -A POSTROUTING -s 172.16.213.78/32 -j SNAT --to-source 171.84.4.131
+# 然后再在172.16.213.78中添加一条路由规则：
+[root@localhost ~]# route add default gw 172.16.213.51
+```
+
+
 
 # Linux系统性能评估
 

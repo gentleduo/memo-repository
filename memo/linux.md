@@ -3345,6 +3345,84 @@ ssh: connect to host server01 port 22: Connection timed out
 
 
 
+## rsync数据镜像工具与应用案例
+
+### rsync功能介绍
+
+rsync是Linux系统下的数据镜像备份工具，通过rsync可以将本地系统数据通过网络备份到任何远程主机上。
+rsync有如下特性：
+可以镜像保存整个目录树和文件系统
+可以增量同步数据，文件传输效率高，因而同步时间很短。
+可以保持原有文件的权限、时间等属性。
+加密传输数据，保证了数据的安全性。
+rsync有两种应用模式：client/server模式、client/client模式。
+
+### rsync的client/server模式
+
+client/server模式下，是在server端启动一个服务端口，然后客户端来连接这个端口，进行数据的同步和传输。
+服务端设置：
+rsync服务端的配置文件为/etc/rsyncd.conf
+uid = nobody
+gid = nobody
+use chroot = no
+max connections = 10
+pid file = /var/run/rsyncd.pid
+lock file = /var/run/rsync.lock
+log file = /var/log/rsyncd.log
+[ixdba]
+path = /webdata
+comment = ixdba file
+ignore errors
+read only = true
+list = false
+uid = root
+gid = root
+auth users = backup
+secrets file = /etc/server.pass
+
+uid    此选项指定当该模块传输文件时守护进程应该具有的用户ID，默认值是“nobody”。
+gid   此选项指定当该模块传输文件时守护进程应该具有的用户组ID。默认值为“nobody”。
+max connections  此选项指定模块的最大并发连接数量，以保护服务器，超过限制的连接请求，将被暂时限制。默认值是0，也就是没有限制。
+pid file 此选项用来指定rsync守护进程对应的PID文件路径。
+lock file 此选择指定支持max connections的锁文件，默认值是/var/run/rsyncd.lock。
+log file  此选项指定了rsync的日志输出文件路径。
+[ixdba] 表示定义一个模块的开始，ixdba就是对应的模块名称。
+path  此选项用来指定需要备份的文件或目录，必填项，这里指定的目录为/webdata。
+list  此选项设定当客户请求可以使用的模块列表时，该模块是否被列出。默认值是true，如果需要建立隐藏的模块。可以设置为false。
+auth users 此选项用来定义可以连接该模块的用户名，多个用户用空格或逗号分隔开。需要注意的是这里的用户和Linux系统用户没有任何关系。这里指定的用户是backup。
+secrets file  此选项指定一个包含“用户名:密码”格式的文件，用户名就是“auth users”选项定义的用户，密码可以随便指定，只要和客户端的secrets file对应起来就行。只有在auth users被定义时，该文件才起作用。系统默认没有这个文件，自己手动创建一个即可。
+
+服务端执行如下指令启动rsync守护进程：
+
+```bash
+[root@server01 ~]# /usr/local/bin/rsync --daemon
+[root@server01 ~]# ps -ef|grep rsync
+root     20278     1  0 16:29 ?        00:00:00 /usr/local/bin/rsync --daemon
+```
+
+客户端拉取：
+
+```bash
+[root@server01 ~]# /usr/local/bin/rsync -vzrtopg --delete --progress backup@192.168.56.110::ixdba  /data  --password-file=/etc/server.pass
+```
+
+1. “--vzrtopg”选项中v是“-verbose”，即详细模式输出，z表示“--compress” 即对备份的文件在传输时进行压缩处理，r表示“--recursive”，也就是对子目录以递归模式处理。t即“--times”，用来保持文件时间信息，o即“--owner”用来保持文件属主信息。p即“--perms”用来保持文件权限，g即“--group”用来保持文件的属组信息。
+2. “--delete”选项指定以rsync服务端为基准进行数据镜像同步，也就是要保持rsync服务端目录与客户端目录的完全一致性。
+3. “--progress”选项用于显示数据镜像同步的过程。
+4. “backup@192.168.60.253::ixdba” 表示对服务器192.168.60.253中的ixdba模块进行备份，也就是指定备份的模块，backup表示使用“backup”这个用户对该模块进行备份。
+5. “/data”用于指定备份文件在客户端机器上的存放路径，也就是将备份的文件存放在备份机的/data目录下。
+6. “--password-file=/etc/server.pass”用来指定客户机上存放的密码文件位置，这样在客户端执行同步命令时就无需输入交互密码了，注意，这个密码文件的名称和位置可以随意指定，但是在客户机上必须存在此文件，文件的内容仅仅为备份用户的密码，这里指的是backup的密码。
+
+```bash
+# 推送模式 相当于scp
+[root@server01 ~]# rsync -vzrtopg --delete --progress   Python-3.6.5.tgz  root@172.16.213.233:/mnt
+# 拉取模式  相当于scp
+[root@server01 ~]# rsync -vzrtopg --delete --progress   root@172.16.213.233:/mnt/Python-3.6.5.tgz  /app/
+# 默认情况下rsync走的是ssh协议，22端口，如果ssh是非默认的22端口，那么可以添加“-e“选项：
+[root@server01 ~]# rsync -vzrtopg --delete --progress -e 'ssh -p 9090'  Python-3.6.5.tgz  root@172.16.213.233:/mnt
+[root@server01 ~]# rsync -vzrtopg --delete --progress -e 'ssh -p 9090'   root@172.16.213.233:/mnt/Python-3.6.5.tgz  /app/
+```
+
 # Linux系统性能评估
 
 ## cpu性能评估

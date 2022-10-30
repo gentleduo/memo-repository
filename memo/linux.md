@@ -4019,6 +4019,894 @@ RST=RESET:异常关闭连接
 
 .:表示没有任何标志
 
+# Linux虚拟内存管理
+
+在程序中编写业务逻辑代码的时候，往往需要引用这些创建出来的数据结构，并通过这些引用对相关数据结构进行业务处理。当程序运行起来之后就变成了进程，而这些业务数据结构的引用在进程的视角里全都都是虚拟内存地址，因为进程无论是在用户态还是在内核态能够看到的都是虚拟内存空间，物理内存空间被操作系统所屏蔽进程是看不到的。进程通过虚拟内存地址访问这些数据结构的时候，虚拟内存地址会在内存管理子系统中被转换成物理内存地址，通过物理内存地址就可以访问到真正存储这些数据结构的物理内存了。随后就可以对这块物理内存进行各种业务操作，从而完成业务逻辑。
+
+## 为什么要使用虚拟地址访问内存
+
+假设现在没有虚拟内存地址，在程序中对内存的操作全都都是使用物理内存地址，在这种情况下，程序员就需要精确的知道每一个变量在内存中的具体位置，需要手动对物理内存进行布局，明确哪些数据存储在内存的哪些位置，除此之外还需要考虑为每个进程究竟要分配多少内存？内存紧张的时候该怎么办？如何避免进程与进程之间的地址冲突？等等一系列复杂且琐碎的细节。如果在单进程系统中比如嵌入式设备上开发应用程序，系统中只有一个进程，这单个进程独享所有的物理资源包括内存资源。在这种情况下，上述提到的这些直接使用物理内存的问题可能还好处理一些，但是仍然具有很高的开发门槛。然而在现代操作系统中往往支持多个进程，需要处理多进程之间的协同问题，在多进程系统中直接使用物理内存地址操作内存所带来的上述问题就变得非常复杂了。这里笔者为大家举一个简单的例子来说明在多进程系统中直接使用物理内存地址的复杂性。比如现在有这样一个简单的 Java 程序。
+
+```java
+public static void main(String[] args) throws Exception {
+
+    string i = args[0];
+}
+```
+
+在程序代码相同的情况下，用这份代码同时启动三个JVM进程，暂时将进程依次命名为a,b,c。这三个进程用到的代码是一样的，都是提前写好的，可以被多次运行。由于是直接操作物理内存地址，假设变量i保存在0x354这个物理地址上。这三个进程运行起来之后，同时操作这个0x354物理地址，这样这个变量i的值不就混乱了吗？三个进程就会出现变量的地址冲突。
+
+![image](assets\linux-18.png)
+
+所以在直接操作物理内存的情况下，需要知道每一个变量的位置都被安排在了哪里，而且还要注意和多个进程同时运行的时候，不能共用同一个地址，否则就会造成地址冲突。现实中一个程序会有很多的变量和函数，这样一来给它们都需要计算一个合理的位置，还不能与其他进程冲突，这就很复杂了。那么该如何解决这个问题呢？可以利用程序的局部性原理
+
+>程序局部性原理表现为：时间局部性和空间局部性。时间局部性是指如果程序中的某条指令一旦执行，则不久之后该指令可能再次被执行；如果某块数据被访问，则不久之后该数据可能再次被访问。空间局部性是指一旦程序访问了某个存储单元，则不久之后，其附近的存储单元也将被访问。
+
+从程序局部性原理的描述中我们可以得出这样一个结论：进程在运行之后，对于内存的访问不会一下子就要访问全部的内存，相反进程对于内存的访问会表现出明显的倾向性，更加倾向于访问最近访问过的数据以及热点数据附近的数据。根据这个结论我们就清楚了，无论一个进程实际可以占用的内存资源有多大，根据程序局部性原理，在某一段时间内，进程真正需要的物理内存其实是很少的一部分，只需要为每个进程分配很少的物理内存就可以保证进程的正常执行运转。而虚拟内存的引入正是要解决上述的问题，虚拟内存引入之后，进程的视角就会变得非常开阔，每个进程都拥有自己独立的虚拟地址空间，进程与进程之间的虚拟内存地址空间是相互隔离，互不干扰的。每个进程都认为自己独占所有内存空间，自己想干什么就干什么。系统上还运行了哪些进程和我没有任何关系。这样一来就可以将多进程之间协同的相关复杂细节统统交给内核中的内存管理模块来处理，极大地解放了程序员的负担。这一切都是因为虚拟内存能够提供内存地址空间的隔离，极大地扩展了可用空间。
+
+![image](assets\linux-19.png)
+
+这样进程就以为自己独占了整个内存空间资源，给进程产生了所有内存资源都属于它自己的幻觉，这其实是CPU和操作系统使用的一个障眼法罢了，任何一个虚拟内存里所存储的数据，本质上还是保存在真实的物理内存里的。只不过内核帮我们做了虚拟内存到物理内存的这一层映射，将不同进程的虚拟地址和不同内存的物理地址映射起来。当CPU访问进程的虚拟地址时，经过地址翻译硬件将虚拟地址转换成不同的物理地址，这样不同的进程运行的时候，虽然操作的是同一虚拟地址，但其实背后写入的是不同的物理地址，这样就不会冲突了。
+
+## 进程虚拟内存空间
+
+首先是一个进程运行起来是为了执行我们交代给进程的工作，执行这些工作的步骤我们通过程序代码事先编写好，然后编译成二进制文件存放在磁盘中，CPU会执行二进制文件中的机器码来驱动进程的运行。所以在进程运行之前，这些存放在二进制文件中的机器码需要被加载进内存中，而用于存放这些机器码的虚拟内存空间叫做代码段。
+
+在程序运行起来之后，总要操作变量吧，在程序代码中我们通常会定义大量的全局变量和静态变量，这些全局变量在程序编译之后也会存储在二进制文件中，在程序运行之前，这些全局变量也需要被加载进内存中供程序访问。所以在虚拟内存空间中也需要一段区域来存储这些全局变量。
+
+- 那些在代码中被我们指定了初始值的全局变量和静态变量在虚拟内存空间中的存储区域我们叫做数据段。
+- 那些没有指定初始值的全局变量和静态变量在虚拟内存空间中的存储区域我们叫做BSS段。这些未初始化的全局变量被加载进内存之后会被初始化为0值。
+
+上面介绍的这些全局变量和静态变量都是在编译期间就确定的，但是我们程序在运行期间往往需要动态的申请内存，所以在虚拟内存空间中也需要一块区域来存放这些动态申请的内存，这块区域就叫做堆。注意这里的堆指的是OS堆并不是JVM中的堆。
+
+除此之外，程序在运行过程中还需要依赖动态链接库，这些动态链接库以.so文件的形式存放在磁盘中，比如C程序中的glibc，里边对系统调用进行了封装。glibc库里提供的用于动态申请堆内存的malloc函数就是对系统调用sbrk和mmap的封装。这些动态链接库也有自己的对应的代码段，数据段，BSS段，也需要一起被加载进内存中。还有用于内存文件映射的系统调用mmap，会将文件与内存进行映射，那么映射的这块内存（虚拟内存）也需要在虚拟地址空间中有一块区域存储。这些动态链接库中的代码段，数据段，BSS 段，以及通过mmap系统调用映射的共享内存区，在虚拟内存空间的存储区域叫做文件映射与匿名映射区。
+
+最后我们在程序运行的时候总该要调用各种函数吧，那么调用函数过程中使用到的局部变量和函数参数也需要一块内存区域来保存。这一块区域在虚拟内存空间中叫做栈。
+
+综上所述，内核根据进程运行的过程中所需要不同种类的数据而为其开辟了对应的地址空间。分别为：
+
+- 用于存放进程程序二进制文件中的机器指令的代码段
+- 用于存放程序二进制文件中定义的全局变量和静态变量的数据段和 BSS 段。
+- 用于在程序运行过程中动态申请内存的堆。
+- 用于存放动态链接库以及内存映射区域的文件映射与匿名映射区。
+- 用于存放函数调用过程中的局部变量和函数参数的栈。
+
+![image](assets\linux-20.png)
+
+## Linux进程虚拟内存空间
+
+上面介绍了进程虚拟内存空间中各个内存区域的一个大概分布，在此基础之上，分别从32位和64位机器上看下在Linux系统中进程虚拟内存空间的真实分布情况。
+
+### 32位机器上进程虚拟内存空间分布
+
+在32位机器上，指针的寻址范围为2^32，所能表达的虚拟内存空间为4GB。所以在32位机器上进程的虚拟内存地址范围为：0x00000000-0xFFFFFFFF。
+其中用户态虚拟内存空间为3GB，虚拟内存地址范围为：0x00000000-0xC000000。
+内核态虚拟内存空间为1GB，虚拟内存地址范围为：0xC000000-0xFFFFFFFF。
+
+![image](assets\linux-21.png)
+
+但是用户态虚拟内存空间中的代码段并不是从0x00000000地址开始的，而是从0x08048000地址开始。
+0x00000000到0x08048000这段虚拟内存地址是一段不可访问的保留区，因为在大多数操作系统中，数值比较小的地址通常被认为不是一个合法的地址，这块小地址是不允许访问的。比如在C语言中通常会将一些无效的指针设置为NULL，指向这块不允许访问的地址。
+保留区的上边就是代码段和数据段，它们是从程序的二进制文件中直接加载进内存中的，BSS段中的数据也存在于二进制文件中，因为内核知道这些数据是没有初值的，所以在二进制文件中只会记录BSS段的大小，在加载进内存时会生成一段0填充的内存空间。
+紧挨着BSS段的上边就是经常使用到的堆空间，从图中的红色箭头可以知道在堆空间中地址的增长方向是从低地址到高地址增长。
+内核中使用start_brk标识堆的起始位置，brk标识堆当前的结束位置。当堆申请新的内存空间时，只需要将brk指针增加对应的大小，回收地址时减少对应的大小即可。比如当通过malloc向内核申请很小的一块内存时（128K之内），就是通过改变brk位置实现的。
+堆空间的上边是一段待分配区域，用于扩展堆空间的使用。接下来就来到了文件映射与匿名映射区域。进程运行时所依赖的动态链接库中的代码段，数据段，BSS段就加载在这里。还有调用mmap映射出来的一段虚拟内存空间也保存在这个区域。注意：在文件映射与匿名映射区的地址增长方向是从高地址向低地址增长。
+接下来用户态虚拟内存空间的最后一块区域就是栈空间了，在这里会保存函数运行过程所需要的局部变量以及函数参数等函数调用信息。栈空间中的地址增长方向是从高地址向低地址增长。每次进程申请新的栈地址时，其地址值是在减少的。
+在内核中使用start_stack标识栈的起始位置，RSP寄存器中保存栈顶指针stackpointer，RBP寄存器中保存的是栈基地址。
+在栈空间的下边也有一段待分配区域用于扩展栈空间，在栈空间的上边就是内核空间了，进程虽然可以看到这段内核空间地址，但是就是不能访问。
+
+### 64位机器上进程虚拟内存空间分布
+
+上小节中介绍的32位虚拟内存空间布局和本小节即将要介绍的64位虚拟内存空间布局都可以通过cat/proc/pid/maps或者pmappid来查看某个进程的实际虚拟内存布局。在32位机器上，指针的寻址范围为2^32，所能表达的虚拟内存空间为4GB。在64位机器上，指针的寻址范围为2^64，所能表达的虚拟内存空间为16EB。虚拟内存地址范围为：0x00000000000000000000-0xFFFFFFFFFFFFFFFF。但是在现实情况中根本不会用到这么大范围的内存空间，事实上在目前的64位系统下只使用了48位来描述虚拟内存空间，寻址范围为2^48，所能表达的虚拟内存空间为256TB。其中低128T表示用户态虚拟内存空间，虚拟内存地址范围为：0x0000000000000000-0x00007FFFFFFFF000。高128T表示内核态虚拟内存空间，虚拟内存地址范围为：0xFFFF800000000000-0xFFFFFFFFFFFFFFFF。这样一来就在用户态虚拟内存空间与内核态虚拟内存空间之间形成了一段0x00007FFFFFFFF000-0xFFFF800000000000的地址空洞，这个空洞被叫做canonicaladdress空洞。
+
+![image](assets\linux-22.png)
+
+那么这个canonical-address空洞是如何形成的呢？在64位机器上的指针寻址范围为2^64，但是在实际使用中只使用了其中的低48位来表示虚拟内存地址，那么这多出的高16位就形成了这个地址空洞。在低128T的用户态地址空间：0x0000000000000000-0x00007FFFFFFFF000范围中，所以虚拟内存地址的高16位全部为0。如果一个虚拟内存地址的高16位全部为0，那么就可以直接判断出这是一个用户空间的虚拟内存地址。同样的道理，在高128T的内核态虚拟内存空间：0xFFFF800000000000-0xFFFFFFFFFFFFFFFF范围中，所以虚拟内存地址的高16位全部为1。也就是说内核态的虚拟内存地址的高16位全部为1，如果一个试图访问内核的虚拟地址的高16位不全为1，则可以快速判断这个访问是非法的。这个高16位的空闲地址被称为canonical。如果虚拟内存地址中的高16位全部为0（表示用户空间虚拟内存地址）或者全部为1（表示内核空间虚拟内存地址），这种地址的形式叫做canonicalform，对应的地址称作canonical-address。那么处于canonical-address空洞：0x00007FFFFFFFF000-0xFFFF800000000000范围内的地址的高16位不全为0也不全为1。如果某个虚拟地址落在这段canonical-address空洞区域中，那就是既不在用户空间，也不在内核空间，肯定是非法访问了。未来也可以利用这块canonical-address空洞，来扩展虚拟内存地址的范围，比如扩展到56位。在理解了canonical-address这个概念之后，再来看下64位Linux系统下的真实虚拟内存空间布局情况：
+
+![image](assets\linux-23.png)
+
+从上图中可以看出64位系统中的虚拟内存布局和32位系统中的虚拟内存布局大体上是差不多的。主要不同的地方有三点：
+
+1. 就是前边提到的由高16位空闲地址造成的canonical-address空洞。在这段范围内的虚拟内存地址是不合法的，因为它的高16位既不全为0也不全为1，不是一个canonical-address，所以称之为canonical-address空洞。
+2. 在代码段跟数据段的中间还有一段不可以读写的保护段，它的作用是防止程序在读写数据段的时候越界访问到代码段，这个保护段可以让越界访问行为直接崩溃，防止它继续往下运行。
+3. 用户态虚拟内存空间与内核态虚拟内存空间分别占用128T，其中低128T分配给用户态虚拟内存空间，高128T分配给内核态虚拟内存空间。
+
+## 进程虚拟内存空间的管理
+
+进程的虚拟内存空间管理，首先是进程在内核中的描述符task_struct结构
+
+```c
+struct task_struct {
+    // 进程id
+    pid_t        pid;
+    // 用于标识线程所属的进程 pid
+    pid_t        tgid;
+    // 进程打开的文件信息
+    struct files_struct    *files;
+    // 内存描述符表示进程虚拟地址空间
+    struct mm_struct    *mm;
+    // .......... 省略 .......
+}
+```
+
+在进程描述符task_struct结构中，有一个专门描述进程虚拟地址空间的内存描述符mm_struct结构，这个结构体中包含了前边几个小节中介绍的进程虚拟内存空间的全部信息。每个进程都有唯一的mm_struct结构体，也就是前边提到的每个进程的虚拟地址空间都是独立，互不干扰的。当调用fork()函数创建进程的时候，表示进程地址空间的mm_struct结构会随着进程描述符task_struct的创建而创建。
+
+```c
+long _do_fork(unsigned long clone_flags,
+        unsigned long stack_start,
+        unsigned long stack_size,
+        int __user *parent_tidptr,
+        int __user *child_tidptr,
+        unsigned long tls)
+{
+  //......... 省略 ..........
+  struct pid *pid;
+  struct task_struct *p;
+
+  //......... 省略 ..........
+  // 为进程创建 task_struct 结构，用父进程的资源填充 task_struct 信息
+  p = copy_process(clone_flags, stack_start, stack_size,
+       child_tidptr, NULL, trace, tls, NUMA_NO_NODE);
+
+  //......... 省略 ..........
+}
+```
+
+随后会在copy_process函数中创建task_struct结构，并拷贝父进程的相关资源到新进程的task_struct结构里，其中就包括拷贝父进程的虚拟内存空间mm_struct结构。这里可以看出子进程在新创建出来之后它的虚拟内存空间是和父进程的虚拟内存空间一模一样的，直接拷贝过来。
+
+```c
+static __latent_entropy struct task_struct *copy_process(
+          unsigned long clone_flags,
+          unsigned long stack_start,
+          unsigned long stack_size,
+          int __user *child_tidptr,
+          struct pid *pid,
+          int trace,
+          unsigned long tls,
+          int node)
+{
+
+    struct task_struct *p;
+    // 创建 task_struct 结构
+    p = dup_task_struct(current, node);
+
+    //....... 初始化子进程 ...........
+
+    //....... 开始继承拷贝父进程资源  .......      
+    // 继承父进程打开的文件描述符
+    retval = copy_files(clone_flags, p);
+    // 继承父进程所属的文件系统
+    retval = copy_fs(clone_flags, p);
+    // 继承父进程注册的信号以及信号处理函数
+    retval = copy_sighand(clone_flags, p);
+    retval = copy_signal(clone_flags, p);
+    // 继承父进程的虚拟内存空间
+    retval = copy_mm(clone_flags, p);
+    // 继承父进程的 namespaces
+    retval = copy_namespaces(clone_flags, p);
+    // 继承父进程的 IO 信息
+    retval = copy_io(clone_flags, p);
+
+    //...........省略.........
+    // 分配 CPU
+    retval = sched_fork(clone_flags, p);
+    // 分配 pid
+    pid = alloc_pid(p->nsproxy->pid_ns_for_children);
+
+    //..........省略.........
+}
+```
+
+这里重点关注copy_mm函数，正是在这里完成了子进程虚拟内存空间mm_struct结构的的创建以及初始化。
+
+```c
+static int copy_mm(unsigned long clone_flags, struct task_struct *tsk)
+{
+    // 子进程虚拟内存空间，父进程虚拟内存空间
+    struct mm_struct *mm, *oldmm;
+    int retval;
+
+    //...... 省略 ......
+
+    tsk->mm = NULL;
+    tsk->active_mm = NULL;
+    // 获取父进程虚拟内存空间
+    oldmm = current->mm;
+    if (!oldmm)
+        return 0;
+
+    //...... 省略 ......
+    // 通过 vfork 或者 clone 系统调用创建出的子进程（线程）和父进程共享虚拟内存空间
+    if (clone_flags & CLONE_VM) {
+        // 增加父进程虚拟地址空间的引用计数
+        mmget(oldmm);
+        // 直接将父进程的虚拟内存空间赋值给子进程（线程）
+        // 线程共享其所属进程的虚拟内存空间
+        mm = oldmm;
+        goto good_mm;
+    }
+
+    retval = -ENOMEM;
+    // 如果是 fork 系统调用创建出的子进程，则将父进程的虚拟内存空间以及相关页表拷贝到子进程中的 mm_struct 结构中。
+    mm = dup_mm(tsk);
+    if (!mm)
+        goto fail_nomem;
+
+    good_mm:
+    // 将拷贝出来的父进程虚拟内存空间 mm_struct 赋值给子进程
+    tsk->mm = mm;
+    tsk->active_mm = mm;
+    return 0;
+
+    //...... 省略 ......
+}
+```
+
+由于本小节中举的示例是通过fork()函数创建子进程的情形，所以这里先占时忽略if(clone_flags&CLONE_VM)这个条件判断逻辑，copy_mm函数首先会将父进程的虚拟内存空间current->mm赋值给指针oldmm。然后通过dup_mm函数将父进程的虚拟内存空间以及相关页表拷贝到子进程的mm_struct结构中。最后将拷贝出来的mm_struct赋值给子进程的task_struct结构。
+
+>通过fork()函数创建出的子进程，它的虚拟内存空间以及相关页表相当于父进程虚拟内存空间的一份拷贝，直接从父进程中拷贝到子进程中。
+
+而当通过vfork或者clone系统调用创建出的子进程，首先会设置CLONE_VM标识，这样来到copy_mm函数中就会进入if (clone_flags & CLONE_VM)条件中，在这个分支中会将父进程的虚拟内存空间以及相关页表直接赋值给子进程。这样一来父进程和子进程的虚拟内存空间就变成共享的了。也就是说父子进程之间使用的虚拟内存空间是一样的，并不是一份拷贝。子进程共享了父进程的虚拟内存空间，这样子进程就变成了熟悉的线程，是否共享地址空间几乎是进程和线程之间的本质区别。Linux内核并不区别对待它们，线程对于内核来说仅仅是一个共享特定资源的进程而已。
+
+内核线程和用户态线程的区别就是内核线程没有相关的内存描述符mm_struct，内核线程对应的task_struct结构中的mm域指向Null，所以内核线程之间调度是不涉及地址空间切换的。当一个内核线程被调度时，它会发现自己的虚拟地址空间为Null，虽然它不会访问用户态的内存，但是它会访问内核内存，聪明的内核会将调度之前的上一个用户态进程的虚拟内存空间mm_struct直接赋值给内核线程，因为内核线程不会访问用户空间的内存，它仅仅只会访问内核空间的内存，所以直接复用上一个用户态进程的虚拟地址空间就可以避免为内核线程分配mm_struct和相关页表的开销，以及避免内核线程之间调度时地址空间的切换开销。
+
+> 父进程与子进程的区别，进程与线程的区别，以及内核线程与用户态线程的区别其实都是围绕着这个 mm_struct 展开的。
+
+### 内核如何划分用户态和内核态虚拟内存空间
+
+进程的虚拟内存空间分为两个部分：一部分是用户态虚拟内存空间，另一部分是内核态虚拟内存空间。那么用户态的地址空间和内核态的地址空间在内核中是如何被划分的呢？这就用到了进程的内存描述符mm_struct结构体中的task_size变量，task_size定义了用户态地址空间与内核态地址空间之间的分界线。
+
+```c
+struct mm_struct {
+    unsigned long task_size;  /* size of task vm space */
+}
+```
+
+通过前边小节的内容介绍可知在32位系统中用户态虚拟内存空间为3GB，虚拟内存地址范围为：0x00000000-0xC000000。内核态虚拟内存空间为1GB，虚拟内存地址范围为：0xC000000 - 0xFFFFFFFF。
+
+![image](assets\linux-24.png)
+
+32位系统中用户地址空间和内核地址空间的分界线在0xC000000地址处，那么自然进程的mm_struct结构中的task_size为0xC000000。再来看下内核在/arch/x86/include/asm/page_32_types.h文件中关于TASK_SIZE的定义。
+
+```c
+/*
+ * User space process size: 3GB (default).
+ */
+#define TASK_SIZE    __PAGE_OFFSET
+```
+
+如下图所示：__PAGE_OFFSET 的值在 32 位系统下为  0xC000 000。
+
+![image](assets\linux-25.png)
+
+而在64位系统中，只使用了其中的低48位来表示虚拟内存地址。其中用户态虚拟内存空间为低128T，虚拟内存地址范围为：0x0000000000000000-0x00007FFFFFFFF000。内核态虚拟内存空间为高128T，虚拟内存地址范围为：0xFFFF800000000000-0xFFFFFFFFFFFFFFFF。
+
+![image](assets\linux-26.png)
+
+64位系统中用户地址空间和内核地址空间的分界线在0x00007FFFFFFFF000地址处，那么自然进程的mm_struct结构中的task_size为0x00007FFFFFFFF000。再来看下内核在/arch/x86/include/asm/page_64_types.h文件中关于TASK_SIZE的定义。
+
+```c
+#define TASK_SIZE    (test_thread_flag(TIF_ADDR32) ? \
+          IA32_PAGE_OFFSET : TASK_SIZE_MAX)
+
+#define TASK_SIZE_MAX    task_size_max()
+
+#define task_size_max()    ((_AC(1,UL) << __VIRTUAL_MASK_SHIFT) - PAGE_SIZE)
+
+#define __VIRTUAL_MASK_SHIFT  47
+```
+
+来看下在64位系统中内核如何来计算TASK_SIZE，在task_size_max()的计算逻辑中1左移47位得到的地址是0x0000800000000000，然后减去一个PAGE_SIZE（默认为4K），就是0x00007FFFFFFFF000，共128T。所以在64位系统中的TASK_SIZE为0x00007FFFFFFFF000。
+
+> 这里可以看出，64 位虚拟内存空间的布局是和物理内存页page的大小有关的，物理内存页page默认大小 PAGE_SIZE为4K。
+
+PAGE_SIZE 定义在 /arch/x86/include/asm/page_types.h文件中：
+
+```c
+/* PAGE_SHIFT determines the page size */
+#define PAGE_SHIFT    12
+#define PAGE_SIZE    (_AC(1,UL) << PAGE_SHIFT)
+```
+
+而内核空间的起始地址是0xFFFF 8000 0000 0000 。在 0x00007FFFFFFFF000 - 0xFFFF 8000 0000 0000之间的内存区域就是在前面64位机器上进程虚拟内存空间分布小节中介绍的canonical address空洞。
+
+### 内核如何布局进程虚拟内存空间
+
+接下来介绍内核是如何划分进程虚拟内存空间中的这些内存区域的
+
+![image](assets\linux-27.png)
+
+前边提到，内核中采用了一个叫做内存描述符的mm_struct结构体来表示进程虚拟内存空间的全部信息。那么就到mm_struct结构体内部去寻找下相关的线索。
+
+```c
+struct mm_struct {
+    unsigned long task_size;    /* size of task vm space */
+    unsigned long start_code, end_code, start_data, end_data;
+    unsigned long start_brk, brk, start_stack;
+    unsigned long arg_start, arg_end, env_start, env_end;
+    unsigned long mmap_base;  /* base of mmap area */
+    unsigned long total_vm;    /* Total pages mapped */
+    unsigned long locked_vm;  /* Pages that have PG_mlocked set */
+    unsigned long pinned_vm;  /* Refcount permanently increased */
+    unsigned long data_vm;    /* VM_WRITE & ~VM_SHARED & ~VM_STACK */
+    unsigned long exec_vm;    /* VM_EXEC & ~VM_WRITE & ~VM_STACK */
+    unsigned long stack_vm;    /* VM_STACK */
+
+    //...... 省略 ........
+}
+```
+
+内核中用mm_struct结构体中的上述属性来定义上图中虚拟内存空间里的不同内存区域。
+
+start_code和end_code定义代码段的起始和结束位置，程序编译后的二进制文件中的机器码被加载进内存之后就存放在这里。
+
+start_data和end_data定义数据段的起始和结束位置，二进制文件中存放的全局变量和静态变量被加载进内存中就存放在这里。
+
+后面紧挨着的是BSS段，用于存放未被初始化的全局变量和静态变量，这些变量在加载进内存时会生成一段0填充的内存区域（BSS段），BSS段的大小是固定的，
+
+下面就是OS堆了，在堆中内存地址的增长方向是由低地址向高地址增长，start_brk定义堆的起始位置，brk定义堆当前的结束位置。
+
+> 使用 malloc 申请小块内存时（低于 128K），就是通过改变 brk 位置调整堆大小实现的。
+
+接下来就是内存映射区，在内存映射区内存地址的增长方向是由高地址向低地址增长，mmap_base 定义内存映射区的起始地址。进程运行时所依赖的动态链接库中的代码段，数据段，BSS 段以及调用mmap映射出来的一段虚拟内存空间就保存在这个区域。
+
+start_stack是栈的起始位置在RBP寄存器中存储，栈的结束位置也就是栈顶指针stackpointer在RSP寄存器中存储。在栈中内存地址的增长方向也是由高地址向低地址增长。
+
+arg_start和arg_end是参数列表的位置，env_start和env_end是环境变量的位置。它们都位于栈中的最高地址处。
+
+![image](assets\linux-28.png)
+
+在mm_struct结构体中除了上述用于划分虚拟内存区域的变量之外，还定义了一些虚拟内存与物理内存映射内容相关的统计变量，操作系统会把物理内存划分成一页一页的区域来进行管理，所以物理内存到虚拟内存之间的映射也是按照页为单位进行的。这部分后续会详细介绍，这里只需要有个概念就行。mm_struct 结构体中的 total_vm 表示在进程虚拟内存空间中总共与物理内存映射的页的总数。
+
+> 注意映射这个概念，它表示只是将虚拟内存与物理内存建立关联关系，并不代表真正的分配物理内存。
+
+当内存吃紧的时候，有些页可以换出到硬盘上，而有些页因为比较重要，不能换出。locked_vm就是被锁定不能换出的内存页总数，pinned_vm表示既不能换出，也不能移动的内存页总数。data_vm表示数据段中映射的内存页数目，exec_vm是代码段中存放可执行文件的内存页数目，stack_vm是栈中所映射的内存页数目，这些变量均是表示进程虚拟内存空间中的虚拟内存使用情况。现在关于内核如何对进程虚拟内存空间进行布局的内容我们已经清楚了，那么布局之后划分出的这些虚拟内存区域在内核中又是如何被管理的呢？接着往下看
+
+### 内核如何管理虚拟内存区域
+
+在上面的介绍中，知道内核是通过一个mm_struct结构的内存描述符来表示进程的虚拟内存空间的，并通过task_size域来划分用户态虚拟内存空间和内核态虚拟内存空间。而在划分出的这些虚拟内存空间里边又包含了许多特定的虚拟内存区域，比如：代码段，数据段，堆，内存映射区，栈。那么这些虚拟内存区域在内核中又是如何表示的呢？本小节中，将介绍一个新的结构体vm_area_struct，正是这个结构体描述了这些虚拟内存区域VMA（virtual memory area）。
+
+```c
+struct vm_area_struct {
+
+    unsigned long vm_start;    /* Our start address within vm_mm. */
+    unsigned long vm_end;    /* The first byte after our end address
+             within vm_mm. */
+    /*
+   * Access permissions of this VMA.
+   */
+    pgprot_t vm_page_prot;
+    unsigned long vm_flags;  
+
+    struct anon_vma *anon_vma;  /* Serialized by page_table_lock */
+    struct file * vm_file;    /* File we map to (can be NULL). */
+    unsigned long vm_pgoff;    /* Offset (within vm_file) in PAGE_SIZE
+             units */  
+    void * vm_private_data;    /* was vm_pte (shared mem) */
+    /* Function pointers to deal with this struct. */
+    const struct vm_operations_struct *vm_ops;
+}
+```
+
+每个vm_area_struct结构对应于虚拟内存空间中的唯一虚拟内存区域VMA，vm_start指向了这块虚拟内存区域的起始地址（最低地址），vm_start本身包含在这块虚拟内存区域内。vm_end指向了这块虚拟内存区域的结束地址（最高地址），而vm_end本身包含在这块虚拟内存区域之外，所以vm_area_struct结构描述的是[vm_start，vm_end)这样一段左闭右开的虚拟内存区域。
+
+![image](assets\linux-29.png)
+
+### 定义虚拟内存区域的访问权限和行为规范
+
+vm_page_prot和vm_flags都是用来标记vm_area_struct结构表示的这块虚拟内存区域的访问权限和行为规范。
+上边小节中也提到，内核会将整块物理内存划分为一页一页大小的区域，以页为单位来管理这些物理内存，每页大小默认4K。而虚拟内存最终也是要和物理内存一一映射起来的，所以在虚拟内存空间中也有虚拟页的概念与之对应，虚拟内存中的虚拟页映射到物理内存中的物理页。无论是在虚拟内存空间中还是在物理内存中，内核管理内存的最小单位都是页。
+vm_page_prot偏向于定义底层内存管理架构中页这一级别的访问控制权限，它可以直接应用在底层页表中，它是一个具体的概念。
+虚拟内存区域 VMA 由许多的虚拟页 (page) 组成，每个虚拟页需要经过页表的转换才能找到对应的物理页面。页表中关于内存页的访问权限就是由vm_page_prot决定的。
+vm_flags则偏向于定于整个虚拟内存区域的访问权限以及行为规范。描述的是虚拟内存区域中的整体信息，而不是虚拟内存区域中具体的某个独立页面。它是一个抽象的概念。可以通过vma->vm_page_prot=vm_get_page_prot(vma->vm_flags)实现到具体页面访问权限vm_page_prot的转换。
+列举一些常用到的vm_flags：VM_READ，VM_WRITE，VM_EXEC定义了虚拟内存区域是否可以被读取，写入，执行等权限。
+比如代码段这块内存区域的权限是可读，可执行，但是不可写。数据段具有可读可写的权限但是不可执行。堆则具有可读可写，可执行的权限（Java中的字节码存储在堆中，所以需要可执行权限），栈一般是可读可写的权限，一般很少有可执行权限。而文件映射与匿名映射区存放了共享链接库，所以也需要可执行的权限。
+
+![image](assets\linux-30.png)
+
+VM_SHARD用于指定这块虚拟内存区域映射的物理内存是否可以在多进程之间共享，以便完成进程间通讯。
+VM_IO的设置表示这块虚拟内存区域可以映射至设备IO空间中。通常在设备驱动程序执行mmap进行IO空间映射时才会被设置。
+VM_RESERVED的设置表示在内存紧张的时候，这块虚拟内存区域非常重要，不能被换出到磁盘中。
+VM_SEQ_READ的设置用来暗示内核，应用程序对这块虚拟内存区域的读取是会采用顺序读的方式进行，内核会根据实际情况决定预读后续的内存页数，以便加快下次顺序访问速度。
+VM_RAND_READ的设置会暗示内核，应用程序会对这块虚拟内存区域进行随机读取，内核则会根据实际情况减少预读的内存页数甚至停止预读。
+
+通过这一系列的介绍，可以看到vm_flags就是定义整个虚拟内存区域的访问权限以及行为规范，而内存区域中内存的最小单位为页（4K），虚拟内存区域中包含了很多这样的虚拟页，对于虚拟内存区域VMA设置的访问权限也会全部复制到区域中包含的内存页中。
+
+### 关联内存映射中的映射关系
+
+接下来的三个属性anon_vma，vm_file，vm_pgoff分别和虚拟内存映射相关，虚拟内存区域可以映射到物理内存上，也可以映射到文件中，映射到物理内存上称之为匿名映射，映射到文件中称之为文件映射。那么这个映射关系在内核中该如何表示呢？这就用到了vm_area_struct结构体中的上述三个属性。
+
+当调用malloc申请内存时，如果申请的是小块内存（低于128K）则会使用do_brk()系统调用通过调整堆中的brk指针大小来增加或者回收堆内存。
+如果申请的是比较大块的内存（超过128K）时，则会调用mmap在虚拟内存空间中的文件映射与匿名映射区创建出一块VMA内存区域（这里是匿名映射）。这块匿名映射区域就用struct anon_vma结构表示。
+当调用mmap进行文件映射时，vm_file属性就用来关联被映射的文件。这样一来虚拟内存区域就与映射文件关联了起来。vm_pgoff则表示映射进虚拟内存中的文件内容，在文件中的偏移。当然在匿名映射中，vm_area_struct结构中的vm_file就为null，vm_pgoff也就没有了意义。
+vm_private_data则用于存储VMA中的私有数据。具体的存储内容和内存映射的类型有关，暂不展开论述。
+
+### 针对虚拟内存区域的相关操作
+
+struct vm_area_struct结构中还有一个vm_ops用来指向针对虚拟内存区域VMA的相关操作的函数指针。
+
+```c
+struct vm_operations_struct {
+    void (*open)(struct vm_area_struct * area);
+    void (*close)(struct vm_area_struct * area);
+    vm_fault_t (*fault)(struct vm_fault *vmf);
+    vm_fault_t (*page_mkwrite)(struct vm_fault *vmf);
+
+    //..... 省略 .......
+}
+```
+
+- 当指定的虚拟内存区域被加入到进程虚拟内存空间中时，open 函数会被调用
+- 当虚拟内存区域 VMA 从进程虚拟内存空间中被删除时，close 函数会被调用
+- 当进程访问虚拟内存时，访问的页面不在物理内存中，可能是未分配物理内存也可能是被置换到磁盘中，这时就会产生缺页异常，fault 函数就会被调用。
+- 当一个只读的页面将要变为可写时，page_mkwrite 函数会被调用。
+
+struct vm_operations_struct结构中定义的都是对虚拟内存区域VMA的相关操作函数指针。
+
+### 虚拟内存区域在内核中是如何被组织的
+
+在上一小节中，介绍了内核中用来表示虚拟内存区域VMA的结构体struct vm_area_struct，并详细为剖析了struct vm_area_struct中的一些重要的关键属性。现在已经熟悉了这些虚拟内存区域，那么接下来就是分析在内核中这些虚拟内存区域是如何被组织的。
+
+继续来到struct vm_area_struct结构中，来看一下与组织结构相关的一些属性：
+
+```c
+struct vm_area_struct {
+
+    struct vm_area_struct *vm_next, *vm_prev;
+    struct rb_node vm_rb;
+    struct list_head anon_vma_chain; 
+    struct mm_struct *vm_mm;  /* The address space we belong to. */
+
+    unsigned long vm_start;     /* Our start address within vm_mm. */
+    unsigned long vm_end;       /* The first byte after our end address
+                       within vm_mm. */
+    /*
+     * Access permissions of this VMA.
+     */
+    pgprot_t vm_page_prot;
+    unsigned long vm_flags; 
+
+    struct anon_vma *anon_vma;  /* Serialized by page_table_lock */
+    struct file * vm_file;      /* File we map to (can be NULL). */
+    unsigned long vm_pgoff;     /* Offset (within vm_file) in PAGE_SIZE
+                       units */ 
+    void * vm_private_data;     /* was vm_pte (shared mem) */
+    /* Function pointers to deal with this struct. */
+    const struct vm_operations_struct *vm_ops;
+}
+```
+
+在内核中其实是通过一个struct vm_area_struct结构的双向链表将虚拟内存空间中的这些虚拟内存区域VMA串联起来的。
+vm_area_struct结构中的vm_next，vm_prev指针分别指向VMA节点所在双向链表中的后继节点和前驱节点，内核中的这个VMA双向链表是有顺序的，所有VMA节点按照低地址到高地址的增长方向排序。
+双向链表中的最后一个VMA节点的vm_next指针指向NULL，双向链表的头指针存储在内存描述符struct mm_struct结构中的mmap中，正是这个mmap串联起了整个虚拟内存空间中的虚拟内存区域。
+
+```c
+struct mm_struct {
+    struct vm_area_struct *mmap;    /* list of VMAs */
+}
+```
+
+在每个虚拟内存区域VMA中又通过struct vm_area_struct中的vm_mm指针指向了所属的虚拟内存空间 mm_struct。
+
+![image](assets\linux-31.png)
+
+可以通过cat /proc/pid/maps或者pmappid查看进程的虚拟内存空间布局以及其中包含的所有内存区域。这两个命令背后的实现原理就是通过遍历内核中的这个vm_area_struct双向链表获取的。内核中关于这些虚拟内存区域的操作除了遍历之外还有许多需要根据特定虚拟内存地址在虚拟内存空间中查找特定的虚拟内存区域。尤其在进程虚拟内存空间中包含的内存区域VMA比较多的情况下，使用红黑树查找特定虚拟内存区域的时间复杂度是O(logN)，可以显著减少查找所需的时间。所以在内核中，同样的内存区域vm_area_struct会有两种组织形式，一种是双向链表用于高效的遍历，另一种就是红黑树用于高效的查找。每个VMA区域都是红黑树中的一个节点，通过structvm_area_struct结构中的vm_rb将自己连接到红黑树中。而红黑树中的根节点存储在内存描述符struct mm_struct中的mm_rb中：
+
+```c
+struct mm_struct {
+     struct rb_root mm_rb;
+}
+```
+
+![image](assets\linux-32.png)
+
+## 程序编译后的二进制文件如何映射到虚拟内存空间中
+
+进程的虚拟内存空间mm_struct以及这些虚拟内存区域vm_area_struct的初始化创建过程：首先程序代码编译之后会生成一个ELF格式的二进制文件，这个二进制文件中包含了程序运行时所需要的元信息，比如程序的机器码，程序中的全局变量以及静态变量等。这个ELF格式的二进制文件中的布局和前边讲的虚拟内存空间中的布局类似，也是一段一段的，每一段包含了不同的元数据。磁盘文件中的段叫做Section，内存中的段叫做Segment，也就是内存区域。磁盘文件中的这些Section会在进程运行之前加载到内存中并映射到内存中的Segment。通常是多个Section映射到一个Segment。比如磁盘文件中的.text，.rodata等一些只读的Section，会被映射到内存的一个只读可执行的Segment里（代码段）。而.data，.bss等一些可读写的Section，则会被映射到内存的一个具有读写权限的Segment里（数据段，BSS段）。那么这些ELF格式的二进制文件中的Section是如何加载并映射进虚拟内存空间的呢？内核中完成这个映射过程的函数是load_elf_binary，这个函数的作用很大，加载内核的是它，启动第一个用户态进程init的是它，fork完了以后，调用exec运行一个二进制程序的也是它。当exec运行一个二进制程序的时候，除了解析ELF的格式之外，另外一个重要的事情就是建立上述提到的内存映射。
+
+```c
+
+static int load_elf_binary(struct linux_binprm *bprm)
+{
+    //...... 省略 ........
+    // 设置虚拟内存空间中的内存映射区域起始地址 mmap_base
+    setup_new_exec(bprm);
+
+    //...... 省略 ........
+    // 创建并初始化栈对应的 vm_area_struct 结构。
+    // 设置 mm->start_stack 就是栈的起始地址也就是栈底，并将 mm->arg_start 是指向栈底的。
+    retval = setup_arg_pages(bprm, randomize_stack_top(STACK_TOP),
+                             executable_stack);
+
+    //...... 省略 ........
+    // 将二进制文件中的代码部分映射到虚拟内存空间中
+    error = elf_map(bprm->file, load_bias + vaddr, elf_ppnt,
+                    elf_prot, elf_flags, total_size);
+
+    //...... 省略 ........
+    // 创建并初始化堆对应的的 vm_area_struct 结构
+    // 设置 current->mm->start_brk = current->mm->brk，设置堆的起始地址 start_brk，结束地址 brk。 起初两者相等表示堆是空的
+    retval = set_brk(elf_bss, elf_brk, bss_prot);
+
+    //...... 省略 ........
+    // 将进程依赖的动态链接库 .so 文件映射到虚拟内存空间中的内存映射区域
+    elf_entry = load_elf_interp(&loc->interp_elf_ex,
+                                interpreter,
+                                &interp_map_addr,
+                                load_bias, interp_elf_phdata);
+
+    //...... 省略 ........
+    // 初始化内存描述符 mm_struct
+    current->mm->end_code = end_code;
+    current->mm->start_code = start_code;
+    current->mm->start_data = start_data;
+    current->mm->end_data = end_data;
+    current->mm->start_stack = bprm->p;
+
+    //...... 省略 ........
+}
+
+```
+
+- setup_new_exec 设置虚拟内存空间中的内存映射区域起始地址 mmap_base
+- setup_arg_pages 创建并初始化栈对应的 vm_area_struct 结构。置 mm->start_stack 就是栈的起始地址也就是栈底，并将 mm->arg_start 是指向栈底的。
+- elf_map 将 ELF 格式的二进制文件中.text ，.data，.bss 部分映射到虚拟内存空间中的代码段，数据段，BSS 段中。
+- set_brk 创建并初始化堆对应的的 vm_area_struct 结构，设置 current->mm->start_brk = current->mm->brk，设置堆的起始地址 start_brk，结束地址 brk。 起初两者相等表示堆是空的。
+- load_elf_interp 将进程依赖的动态链接库 .so 文件映射到虚拟内存空间中的内存映射区域
+- 初始化内存描述符 mm_struct
+
+## 内核虚拟内存空间
+
+不同进程之间的虚拟内存空间是相互隔离的，彼此之间相互独立，相互感知不到其他进程的存在。使得进程以为自己拥有所有的内存资源。而内核态虚拟内存空间是所有进程共享的，不同进程进入内核态之后看到的虚拟内存空间全部是一样的。
+
+>用户态是指进程在用户代码中运行。
+>
+>内核态是指进程进入内核代码，执行内核的代码。
+
+![image](assets\linux-19.png)
+
+比如上图中的进程a，进程b，进程c分别在各自的用户态虚拟内存空间中访问虚拟地址x。由于进程之间的用户态虚拟内存空间是相互隔离相互独立的，虽然在进程a，进程b，进程c访问的都是虚拟地址x但是看到的内容却是不一样的（背后可能映射到不同的物理内存中）。但是当进程a，进程b，进程c进入到内核态之后情况就不一样了，由于内核虚拟内存空间是各个进程共享的，所以它们在内核空间中看到的内容全部是一样的，比如进程a，进程b，进程c在内核态都去访问虚拟地址y。这时它们看到的内容就是一样的了。
+
+> 这里澄清一个经常被误解的概念：由于内核会涉及到物理内存的管理，所以很多人会想当然地认为只要进入了内核态就开始使用物理地址了，这就大错特错了，千万不要这样理解，进程进入内核态之后使用的仍然是虚拟内存地址，只不过在内核中使用的虚拟内存地址被限制在了内核态虚拟内存空间范围中
+
+在清楚了这个基本概念之后，下面分别从32位体系和64位体系下为大家介绍内核态虚拟内存空间的布局。
+
+### 32位体系内核虚拟内存空间布局
+
+在前边《内核如何划分用户态和内核态虚拟内存空间》中提到，内核在/arch/x86/include/asm/page_32_types.h文件中通过TASK_SIZE将进程虚拟内存空间和内核虚拟内存空间分割开来。__PAGE_OFFSET的值在32位系统下为0xC000000，在32位体系结构下进程用户态虚拟内存空间为3GB，虚拟内存地址范围为：0x00000000-0xC000000。内核态虚拟内存空间为1GB，虚拟内存地址范围为：0xC000000-0xFFFFFFFF。本小节主要关注0xC000000-0xFFFFFFFF这段虚拟内存地址区域也就是内核虚拟内存空间的布局情况。
+
+#### 直接映射区
+
+在总共大小1G的内核虚拟内存空间中，位于最前边有一块896M大小的区域，被称之为直接映射区或者线性映射区，地址范围为3G--3G+896m。之所以这块896M大小的区域称为直接映射区或者线性映射区，是因为这块连续的虚拟内存地址会映射到0-896M这块连续的物理内存上。也就是说3G--3G+896m这块896M大小的虚拟内存会直接映射到0-896M这块896M大小的物理内存上，这块区域中的虚拟内存地址直接减去0xC0000000(3G)就得到了物理内存地址。所以称这块区域为直接映射区。为了理解，假设现在机器上的物理内存为4G大小：
+
+![image](assets\linux-33.png)
+
+> 虽然这块区域中的虚拟地址是直接映射到物理地址上，但是内核在访问这段区域的时候还是走的虚拟内存地址，内核也会为这块空间建立映射页表。关于页表的概念笔者后续再讲解，这里只需要简单理解为页表保存了虚拟地址到物理地址的映射关系即可。
+
+这里只需要记得内核态虚拟内存空间的前896M区域是直接映射到物理内存中的前896M区域中的，直接映射区中的映射关系是一比一映射。映射关系是固定的不会改变。接下来就看一下这块直接映射区域在物理内存中究竟存的是什么内容：
+
+1. 在这段896M大小的物理内存中，前1M已经在系统启动的时候被系统占用，1M之后的物理内存存放的是内核代码段，数据段，BSS段（这些信息起初存放在ELF格式的二进制文件中，在系统启动的时候被加载进内存）。可以通过cat/proc/iomem命令查看具体物理内存布局情况。
+2. 当使用fork系统调用创建进程的时候，内核会创建一系列进程相关的描述符，比如之前提到的进程的核心数据结构task_struct，进程的内存空间描述符mm_struct，以及虚拟内存区域描述符vm_area_struct等。这些进程相关的数据结构也会存放在物理内存前896M的这段区域中，当然也会被直接映射至内核态虚拟内存空间中的3G--3G+896m这段直接映射区域中。
+3. 当进程被创建完毕之后，在内核运行的过程中，会涉及内核栈的分配，内核会为每个进程分配一个固定大小的内核栈（一般是两个页大小，依赖具体的体系结构），每个进程的整个调用链必须放在自己的内核栈中，内核栈也是分配在直接映射区。
+4. 与进程用户空间中的栈不同的是，内核栈容量小而且是固定的，用户空间中的栈容量大而且可以动态扩展。内核栈的溢出危害非常巨大，它会直接悄无声息的覆盖相邻内存区域中的数据，破坏数据。
+5. 通过以上内容的介绍了解到内核虚拟内存空间最前边的这段896M大小的直接映射区如何与物理内存进行映射关联，并且清楚了直接映射区主要用来存放哪些内容。
+
+接下来再次从功能划分的角度介绍下这块直接映射区域。
+
+内核对物理内存的管理都是以页为最小单位来管理的，每页默认4K大小，理想状况下任何种类的数据页都可以存放在任何页框中，没有什么限制。比如：存放内核数据，用户数据，缓冲磁盘数据等。但是实际的计算机体系结构受到硬件方面的限制制约，间接导致限制了页框的使用方式。比如在X86体系结构下，ISA总线的DMA（直接内存存取）控制器，只能对内存的前16M进行寻址，这就导致了ISA设备不能在整个32位地址空间中执行DMA，只能使用物理内存的前16M进行DMA操作。因此直接映射区的前16M专门让内核用来为DMA分配内存，这块16M大小的内存区域称之为ZONE_DMA。用于DMA的内存必须从ZONE_DMA区域中分配。而直接映射区中剩下的部分也就是从16M到896M（不包含896M）这段区域，称之为ZONE_NORMAL。从字面意义上可以了解到，这块区域包含的就是正常的页框（使用没有任何限制）。ZONE_NORMAL由于也是属于直接映射区的一部分，对应的物理内存16M到896M这段区域也是被直接映射至内核态虚拟内存空间中的3G+16M到3G+896M这段虚拟内存上。
+
+![image](assets\linux-34.png)
+
+> 注意这里的 ZONE_DMA 和 ZONE_NORMAL 是内核针对物理内存区域的划分。
+
+现在物理内存中的前896M的区域也就是前边介绍的ZONE_DMA和ZONE_NORMAL区域到内核虚拟内存空间的映射就介绍完了，它们都是采用直接映射的方式，一比一进行映射。
+
+#### ZONE_HIGHMEM 高端内存
+
+而物理内存896M以上的区域被内核划分为ZONE_HIGHMEM区域，被称之为高端内存。本例中的物理内存假设为4G，高端内存区域为4G-896M=3200M，那么这块3200M大小的ZONE_HIGHMEM区域该如何映射到内核虚拟内存空间中呢？由于内核虚拟内存空间中的前896M虚拟内存已经被直接映射区所占用，而在32体系结构下内核虚拟内存空间总共也就1G的大小，这样一来内核剩余可用的虚拟内存空间就变为了1G-896M=128M。显然物理内存中3200M大小的ZONE_HIGHMEM区域无法继续通过直接映射的方式映射到这128M大小的虚拟内存空间中。这样一来物理内存中的ZONE_HIGHMEM区域就只能采用动态映射的方式映射到128M大小的内核虚拟内存空间中，也就是说只能动态的一部分一部分的分批映射，先映射正在使用的这部分，使用完毕解除映射，接着映射其他部分。知道了ZONE_HIGHMEM区域的映射原理，接着往下看这128M大小的内核虚拟内存空间究竟是如何布局的？
+
+![image](assets\linux-35.png)
+
+内核虚拟内存空间中的3G+896M这块地址在内核中定义为high_memory，high_memory往上有一段8M大小的内存空洞。空洞范围为：high_memory到VMALLOC_START。VMALLOC_START定义在内核源码/arch/x86/include/asm/pgtable_32_areas.h文件中：
+
+```c
+#define VMALLOC_OFFSET  (8 * 1024 * 1024)
+
+#define VMALLOC_START  ((unsigned long)high_memory + VMALLOC_OFFSET)
+
+```
+
+#### vmalloc 动态映射区
+
+接下来 VMALLOC_START 到 VMALLOC_END 之间的这块区域成为动态映射区。采用动态映射的方式映射物理内存中的高端内存。
+
+```c
+#ifdef CONFIG_HIGHMEM
+# define VMALLOC_END  (PKMAP_BASE - 2 * PAGE_SIZE)
+#else
+# define VMALLOC_END  (LDT_BASE_ADDR - 2 * PAGE_SIZE)
+#endif
+
+```
+
+![image](assets\linux-36.png)
+
+和用户态进程使用malloc申请内存一样，在这块动态映射区内核是使用vmalloc进行内存分配。由于之前介绍的动态映射的原因，vmalloc分配的内存在虚拟内存上是连续的，但是物理内存是不连续的。通过页表来建立物理内存与虚拟内存之间的映射关系，从而可以将不连续的物理内存映射到连续的虚拟内存上。
+
+> 由于 vmalloc 获得的物理内存页是不连续的，因此它只能将这些物理内存页一个一个地进行映射，在性能开销上会比直接映射大得多。
+>
+> 关于vmalloc分配内存的相关实现原理，后面再讲解，这里只需要明白它在哪块虚拟内存区域中活动即可。
+
+#### 永久映射区
+
+![image](assets\linux-37.png)
+
+而在PKMAP_BASE到FIXADDR_START之间的这段空间称为永久映射区。在内核的这段虚拟地址空间中允许建立与物理高端内存的长期映射关系。比如内核通过alloc_pages()函数在物理内存的高端内存中申请获取到的物理内存页，这些物理内存页可以通过调用kmap映射到永久映射区中。
+
+> LAST_PKMAP 表示永久映射区可以映射的页数限制。
+
+```c
+#define PKMAP_BASE    \
+  ((LDT_BASE_ADDR - PAGE_SIZE) & PMD_MASK)
+
+#define LAST_PKMAP 1024
+
+```
+
+#### 固定映射区
+
+![image](assets\linux-38.png)
+
+内核虚拟内存空间中的下一个区域为固定映射区，区域范围为：FIXADDR_START到FIXADDR_TOP。FIXADDR_START和FIXADDR_TOP定义在内核源码/arch/x86/include/asm/fixmap.h文件中：
+
+```c
+#define FIXADDR_START    (FIXADDR_TOP - FIXADDR_SIZE)
+
+extern unsigned long __FIXADDR_TOP; // 0xFFFF F000
+#define FIXADDR_TOP  ((unsigned long)__FIXADDR_TOP)
+
+```
+
+在内核虚拟内存空间的直接映射区中，直接映射区中的虚拟内存地址与物理内存前896M的空间的映射关系都是预设好的，一比一映射。在固定映射区中的虚拟内存地址可以自由映射到物理内存的高端地址上，但是与动态映射区以及永久映射区不同的是，在固定映射区中虚拟地址是固定的，而被映射的物理地址是可以改变的。也就是说，有些虚拟地址在编译的时候就固定下来了，是在内核启动过程中被确定的，而这些虚拟地址对应的物理地址不是固定的。采用固定虚拟地址的好处是它相当于一个指针常量（常量的值在编译时确定），指向物理地址，如果虚拟地址不固定，则相当于一个指针变量。那为什么会有固定映射这个概念呢?比如：在内核的启动过程中，有些模块需要使用虚拟内存并映射到指定的物理地址上，而且这些模块也没有办法等待完整的内存管理模块初始化之后再进行地址映射。因此，内核固定分配了一些虚拟地址，这些地址有固定的用途，使用该地址的模块在初始化的时候，将这些固定分配的虚拟地址映射到指定的物理地址上去。
+
+#### 临时映射区
+
+![image](assets\linux-39.png)
+
+比如在Buffered IO模式下进行文件写入的时候，在下图中的第四步，内核会调用iov_iter_copy_from_user_atomic函数将用户空间缓冲区DirectByteBuffer中的待写入数据拷贝到pagecache中。
+
+![image](assets\linux-40.png)
+
+但是内核又不能直接进行拷贝，因为此时从page cache中取出的缓存页page是物理地址，而在内核中是不能够直接操作物理地址的，只能操作虚拟地址。那怎么办呢？所以就需要使用kmap_atomic将缓存页临时映射到内核空间的一段虚拟地址上，这段虚拟地址就位于内核虚拟内存空间中的临时映射区上，然后将用户空间缓存区DirectByteBuffer中的待写入数据通过这段映射的虚拟地址拷贝到page cache中的相应缓存页中。这时文件的写入操作就已经完成了。由于是临时映射，所以在拷贝完成之后，调用kunmap_atomic将这段映射再解除掉。
+
+```c
+size_t iov_iter_copy_from_user_atomic(struct page *page,
+                                      struct iov_iter *i, unsigned long offset, size_t bytes)
+{
+    // 将缓存页临时映射到内核虚拟地址空间的临时映射区中
+    char *kaddr = kmap_atomic(page), 
+    *p = kaddr + offset;
+    // 将用户缓存区 DirectByteBuffer 中的待写入数据拷贝到文件缓存页中
+    iterate_all_kinds(i, bytes, v,
+                      copyin((p += v.iov_len) - v.iov_len, v.iov_base, v.iov_len),
+                      memcpy_from_page((p += v.bv_len) - v.bv_len, v.bv_page,
+                                       v.bv_offset, v.bv_len),
+                      memcpy((p += v.iov_len) - v.iov_len, v.iov_base, v.iov_len)
+                     )
+        // 解除内核虚拟地址空间与缓存页之间的临时映射，这里映射只是为了临时拷贝数据用
+        kunmap_atomic(kaddr);
+    return bytes;
+}
+```
+
+#### 32位体系结构下Linux虚拟内存空间整体布局
+
+![image](assets\linux-41.png)
+
+### 64位体系内核虚拟内存空间布局
+
+内核虚拟内存空间在32位体系下只有1G大小，实在太小了，因此需要精细化的管理，于是按照功能分类划分除了很多内核虚拟内存区域，这样就显得非常复杂。到了64位体系下，内核虚拟内存空间的布局和管理就变得容易多了，因为进程虚拟内存空间和内核虚拟内存空间各自占用128T的虚拟内存，实在是太大了，可以在这里边随意挥霍。因此在64位体系下的内核虚拟内存空间与物理内存的映射就变得非常简单，由于虚拟内存空间足够的大，即便是内核要访问全部的物理内存，直接映射就可以了，不在需要用到之前介绍的高端内存那种动态映射方式。
+
+内核在/arch/x86/include/asm/page_64_types.h文件中通过TASK_SIZE将进程虚拟内存空间和内核虚拟内存空间分割开来。
+
+```c
+#define TASK_SIZE    (test_thread_flag(TIF_ADDR32) ? \
+          IA32_PAGE_OFFSET : TASK_SIZE_MAX)
+
+#define TASK_SIZE_MAX    task_size_max()
+
+#define task_size_max()    ((_AC(1,UL) << __VIRTUAL_MASK_SHIFT) - PAGE_SIZE)
+
+#define __VIRTUAL_MASK_SHIFT  47
+
+```
+
+> 64 位系统中的 TASK_SIZE 为 0x00007FFFFFFFF000
+
+![image](assets\linux-42.png)
+
+在64位系统中，只使用了其中的低48位来表示虚拟内存地址。其中用户态虚拟内存空间为低128T，虚拟内存地址范围为：0x0000 0000 0000 0000 - 0x0000 7FFF FFFF F000。内核态虚拟内存空间为高128T，虚拟内存地址范围为：0xFFFF 8000 0000 0000 - 0xFFFF FFFF FFFF FFFF。本节主要关注0xFFFF 8000 0000 0000 - 0xFFFF FFFF FFFF FFFF这段内核虚拟内存空间的布局情况。
+
+![image](assets\linux-43.png)
+
+64位内核虚拟内存空间从0xFFFF 8000 0000 0000开始到0xFFFF 8800 0000 0000这段地址空间是一个8T大小的内存空洞区域。
+紧着着8T大小的内存空洞下一个区域就是64T大小的直接映射区。这个区域中的虚拟内存地址减去PAGE_OFFSET就直接得到了物理内存地址。
+PAGE_OFFSET变量定义在/arch/x86/include/asm/page_64_types.h文件中：
+
+```c
+#define __PAGE_OFFSET_BASE      _AC(0xffff880000000000, UL)
+#define __PAGE_OFFSET           __PAGE_OFFSET_BASE
+
+```
+
+从图中VMALLOC_START到VMALLOC_END的这段区域是32T大小的vmalloc映射区，这里类似用户空间中的堆，内核在这里使用vmalloc系统调用申请内存。
+
+VMALLOC_START和VMALLOC_END变量定义在/arch/x86/include/asm/pgtable_64_types.h文件中：
+
+```c
+#define __VMALLOC_BASE_L4  0xffffc90000000000UL
+
+#define VMEMMAP_START    __VMEMMAP_BASE_L4
+
+#define VMALLOC_END    (VMALLOC_START + (VMALLOC_SIZE_TB << 40) - 1)
+
+```
+
+从VMEMMAP_START开始是1T大小的虚拟内存映射区，用于存放物理页面的描述符structpage结构用来表示物理内存页。
+
+VMEMMAP_START变量定义在/arch/x86/include/asm/pgtable_64_types.h文件中：
+
+```c
+#define __VMEMMAP_BASE_L4  0xffffea0000000000UL
+
+# define VMEMMAP_START    __VMEMMAP_BASE_L4
+
+```
+
+从 `__START_KERNEL_map开始是大小为512M的区域用于存放内核代码段、全局变量、BSS等。这里对应到物理内存开始的位置，减去__START_KERNEL_map`就能得到物理内存的地址。这里和直接映射区有点像，但是不矛盾，因为直接映射区之前有8T的空洞区域，早就过了内核代码在物理内存中加载的位置。
+
+__START_KERNEL_map变量定义在/arch/x86/include/asm/page_64_types.h文件中：
+
+```c
+#define __START_KERNEL_map  _AC(0xffffffff80000000, UL)
+
+```
+
+#### 64位体系结构下Linux虚拟内存空间整体布局
+
+![image](assets\linux-44.png)
+
+## 到底什么是物理内存地址
+
+接着分析物理内存，平时所称的内存也叫随机访问存储器（random-access memory）也叫RAM。而RAM分为两类：
+一类是静态RAM（SRAM），这类SRAM用于CPU高速缓存L1 Cache，L2 Cache，L3 Cache。其特点是访问速度快，访问速度为1-30个时钟周期，但是容量小，造价高。
+
+![image](assets\linux-45.png)
+
+另一类则是动态RAM(DRAM)，这类DRAM用于我们常说的主存上，其特点的是访问速度慢（相对高速缓存），访问速度为50-200个时钟周期，但是容量大，造价便宜些（相对高速缓存）。
+
+内存由一个一个的存储器模块（memory module）组成，它们插在主板的扩展槽上。常见的存储器模块通常以 64 位为单位（ 8 个字节）传输数据到存储控制器上或者从存储控制器传出数据。
+
+![image](assets\linux-46.png)
+
+如图所示内存条上黑色的元器件就是存储器模块（memory module）。多个存储器模块连接到存储控制器上，就聚合成了主存。
+
+![image](assets\linux-47.png)
+
+而 DRAM 芯片就包装在存储器模块中，每个存储器模块中包含 8 个 DRAM 芯片，依次编号为 0 - 7 。
+
+![image](assets\linux-48.png)
+
+而每一个 DRAM 芯片的存储结构是一个二维矩阵，二维矩阵中存储的元素我们称为超单元（supercell），每个 supercell 大小为一个字节（8 bit）。每个 supercell 都由一个坐标地址（i，j）。
+
+> i 表示二维矩阵中的行地址，在计算机中行地址称为 RAS (row access strobe，行访问选通脉冲)。j 表示二维矩阵中的列地址，在计算机中列地址称为 CAS (column access strobe,列访问选通脉冲)。
+
+下图中的 supercell 的 RAS = 2，CAS = 2。
+
+![image](assets\linux-49.png)
+
+DRAM 芯片中的信息通过引脚流入流出 DRAM 芯片。每个引脚携带 1 bit 的信号。
+
+图中 DRAM 芯片包含了两个地址引脚( `addr` )，因为我们要通过 RAS，CAS 来定位要获取的 supercell 。还有 8 个数据引脚（`data`），因为 DRAM 芯片的 IO 单位为一个字节（8 bit），所以需要 8 个 data 引脚从 DRAM 芯片传入传出数据。
+
+> 注意这里只是为了解释地址引脚和数据引脚的概念，实际硬件中的引脚数量是不一定的。
+
+### DRAM 芯片的访问
+
+现在就以读取上图中坐标地址为（2，2）的 supercell 为例，来说明访问 DRAM 芯片的过程。
+
+![image](assets\linux-50.png)
+
+1. 首先存储控制器将行地址 RAS = 2 通过地址引脚发送给 DRAM 芯片。
+2. DRAM 芯片根据 RAS = 2 将二维矩阵中的第二行的全部内容拷贝到内部行缓冲区中。
+3. 接下来存储控制器会通过地址引脚发送 CAS = 2 到 DRAM 芯片中。
+4. DRAM 芯片从内部行缓冲区中根据 CAS = 2 拷贝出第二列的 supercell 并通过数据引脚发送给存储控制器。
+
+> DRAM 芯片的 IO 单位为一个 supercell ，也就是一个字节(8 bit)。
+
+### CPU 如何读写主存
+
+前边介绍了内存的物理结构，以及如何访问内存中的 DRAM 芯片获取 supercell 中存储的数据（一个字节）。本小节来介绍下 CPU 是如何访问内存的：
+
+![image](assets\linux-51.png)
+
+CPU 与内存之间的数据交互是通过总线（bus）完成的，而数据在总线上的传送是通过一系列的步骤完成的，这些步骤称为总线事务（bus transaction）。
+
+其中数据从内存传送到 CPU 称之为读事务（read transaction），数据从 CPU 传送到内存称之为写事务（write transaction）。
+
+总线上传输的信号包括：地址信号，数据信号，控制信号。其中控制总线上传输的控制信号可以同步事务，并能够标识出当前正在被执行的事务信息：
+
+- 当前这个事务是到内存的？还是到磁盘的？或者是到其他 IO 设备的？
+- 这个事务是读还是写？
+- 总线上传输的地址信号（物理内存地址），还是数据信号（数据）？。
+
+> **这里需要注意总线上传输的地址均为物理内存地址**。比如：在 MESI 缓存一致性协议中当 CPU core0 修改字段 a 的值时，其他 CPU 核心会在总线上嗅探字段 a 的**物理内存地址**，如果嗅探到总线上出现字段 a 的**物理内存地址**，说明有人在修改字段 a，这样其他 CPU 核心就会失效字段 a 所在的 cache line 。
+
+如上图所示，其中系统总线是连接 CPU 与 IO bridge 的，存储总线是来连接 IO bridge 和主存的。
+
+IO bridge 负责将系统总线上的电子信号转换成存储总线上的电子信号。IO bridge 也会将系统总线和存储总线连接到 IO 总线（磁盘等 IO 设备）上。这里我们看到 IO bridge 其实起的作用就是转换不同总线上的电子信号。
+
+### CPU 从内存读取数据过程
+
+假设 CPU 现在需要将物理内存地址为 A 的内容加载到寄存器中进行运算。
+
+> 需要注意的是 CPU 只会访问虚拟内存，在操作总线之前，需要把虚拟内存地址转换为物理内存地址，总线上传输的都是物理内存地址，这里省略了虚拟内存地址到物理内存地址的转换过程，这部分内容笔者会在后续文章的相关章节详细为大家讲解，这里我们聚焦如果通过物理内存地址读取内存数据。
+
+![image](assets\linux-52.png)
+
+首先 CPU 芯片中的总线接口会在总线上发起读事务（read transaction）。 该读事务分为以下步骤进行：
+
+1. CPU 将物理内存地址 A 放到系统总线上。随后 IO bridge 将信号传递到存储总线上。
+2. 主存感受到存储总线上的地址信号并通过存储控制器将存储总线上的物理内存地址 A 读取出来。
+3. 存储控制器通过物理内存地址 A 定位到具体的存储器模块，从 DRAM 芯片中取出物理内存地址 A 对应的数据 X。
+4. 存储控制器将读取到的数据 X 放到存储总线上，随后 IO bridge 将存储总线上的数据信号转换为系统总线上的数据信号，然后继续沿着系统总线传递。
+5. CPU 芯片感受到系统总线上的数据信号，将数据从系统总线上读取出来并拷贝到寄存器中。
+
+以上就是 CPU 读取内存数据到寄存器中的完整过程。
+
+但是其中还涉及到一个重要的过程，这里我们还是需要摊开来介绍一下，那就是存储控制器如何通过物理内存地址 A 从主存中读取出对应的数据 X 的？
+
+接下来结合前边介绍的内存结构以及从 DRAM 芯片读取数据的过程，来总体介绍下如何从主存中读取数据。
+
+### 如何根据物理内存地址从主存中读取数据
+
+前边介绍到，当主存中的存储控制器感受到了存储总线上的地址信号时，会将内存地址从存储总线上读取出来。随后会通过内存地址定位到具体的存储器模块。而每个存储器模块中包含了 8 个 DRAM 芯片，编号从 0 - 7 。
+
+![image](assets\linux-53.png)
+
+存储控制器会将物理内存地址转换为 DRAM 芯片中 supercell 在二维矩阵中的坐标地址(RAS，CAS)。并将这个坐标地址发送给对应的存储器模块。随后存储器模块会将 RAS 和 CAS 广播到存储器模块中的所有 DRAM 芯片。依次通过 (RAS，CAS) 从 DRAM0 到 DRAM7 读取到相应的 supercell 。
+
+![image](assets\linux-54.png)
+
+一个 supercell 存储了一个字节（ 8 bit ） 数据，这里从 DRAM0 到 DRAM7 依次读取到了 8 个 supercell 也就是 8 个字节，然后将这 8 个字节返回给存储控制器，由存储控制器将数据放到存储总线上。
+
+CPU 总是以 word size 为单位从内存中读取数据，在 64 位处理器中的 word size 为 8 个字节。64 位的内存每次只能吞吐 8 个字节。
+
+> CPU 每次会向内存读写一个 cache line 大小的数据（ 64 个字节），但是内存一次只能吞吐 8 个字节。
+
+所以在物理内存地址对应的存储器模块中，DRAM0 芯片存储第一个低位字节（ supercell ），DRAM1 芯片存储第二个字节，......依次类推 DRAM7 芯片存储最后一个高位字节。
+
+![image](assets\linux-55.png)
+
+由于存储器模块中这种由 8 个 DRAM 芯片组成的物理存储结构的限制，内存读取数据只能是按照物理内存地址，8 个字节 8 个字节地顺序读取数据。所以说内存一次读取和写入的单位是 8 个字节。
+
+![image](assets\linux-56.png)
+
+而且在程序员眼里连续的物理内存地址实际上在物理上是不连续的。因为这连续的 8 个字节其实是存储于不同的 DRAM 芯片上的。每个 DRAM 芯片存储一个字节（supercell）
+
+### CPU 向内存写入数据过程
+
+假设 CPU 要将寄存器中的数据 X 写到物理内存地址 A 中。同样的道理，CPU 芯片中的总线接口会向总线发起写事务（write transaction）。写事务步骤如下：
+
+1. CPU 将要写入的物理内存地址 A 放入系统总线上。
+2. 通过 IO bridge 的信号转换，将物理内存地址 A 传递到存储总线上。
+3. 存储控制器感受到存储总线上的地址信号，将物理内存地址 A 从存储总线上读取出来，并等待数据的到达。
+4. CPU 将寄存器中的数据拷贝到系统总线上，通过 IO bridge 的信号转换，将数据传递到存储总线上。
+5. 存储控制器感受到存储总线上的数据信号，将数据从存储总线上读取出来。
+6. 存储控制器通过内存地址 A 定位到具体的存储器模块，最后将数据写入存储器模块中的 8 个 DRAM 芯片中。
+
+
+
 # 附录
 
 >**设置SecureCRT编码及字体**

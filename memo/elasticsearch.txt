@@ -69,7 +69,7 @@ vm.max_map_count = 262144
 重启
 
 Elasticsearch(Linux)指定单独JDK版本
-修改bin/elasticsearch-env.bat
+修改bin/elasticsearch-env
 在下面这一块前面增加下面一句话：JAVA_HOME=/usr/local/elasticsearch/jdk
 if [ ! -z "$JAVA_HOME" ]; then
   JAVA="$JAVA_HOME/bin/java"
@@ -268,7 +268,7 @@ GET /_cluster/health/
 # 查看索引级别,找到红色的索引
 GET /_cluster/health?level=indices
 #查看索引的分片
-GET _cluster/health?level=shards
+GET /_cluster/health?level=shards
 # Explain 变红的原因
 GET /_cluster/allocation/explain
 （2）快速查看集群中有哪些索引

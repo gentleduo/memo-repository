@@ -2418,3 +2418,648 @@ Type被废弃了。一个index中只有一个默认的type，即_doc。ES的Type
 [elasticsearch@server01 /]$ curl -X DELETE server01:9200/class/_doc/2
 {"_index":"class","_type":"_doc","_id":"2","_version":2,"result":"deleted","_shards":{"total":2,"successful":2,"failed":0},"_seq_no":4,"_primary_term":1}[elasticsearch@server01 /]$
 ```
+
+## Mapping
+
+### 概念
+
+映射是定义文档及其包含的字段的存储和索引方式的过程。ES中的mapping类似于RDB中表结构的概念，在MySQL中，表结构里包含了字段名称，字段的类型还有索引信息等。在mapping里也包含了一些属性，比如字段名称、类型、字段使用的分词器、是否评分、是否创建索引等属性。
+
+### 查看mapping
+
+```bash
+[elasticsearch@server01 elasticsearch]$  curl -X GET http://server01:9200/class/_mapping?pretty 
+{
+  "class" : {
+    "mappings" : {
+      "properties" : {
+        "age" : {
+          "type" : "long"
+        },
+        "name" : {
+          "type" : "text",
+          "fields" : {
+            "keyword" : {
+              "type" : "keyword",
+              "ignore_above" : 256
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+### Mapping数据类型
+
+#### 常见类型
+
+##### 数据类型
+
+long integer short byte double float half_float scaled_float unsigned_long
+
+##### keywords
+
+keyword：适用于索引结构化的字段，可以用于过滤、排序、聚合。keyword类型的字段只能通过精确值(exact value)搜索到。Id应该用keyword
+
+constant_keyword：始终包含相同值的关键字字段
+
+wildcard：可针对类似grep的通配符查询优化日志行和类似的关键字段
+
+关键字字段通常用于排序、汇总和Term查询，例如term
+
+##### Dates
+
+包括date和date_nanos
+
+##### alias
+
+为现有字段定义别名
+
+##### binary
+
+binary
+
+##### range
+
+integer_range float_range long_range double_range date_range
+
+##### text
+
+当一个字段是要被全文索引的，比如产品描述、邮件内容等，这些字段应该使用text类型。设置text类型以后，字段内容会被分析，在生成倒排索引以前，字符串会被分词器分成一个一个词项，text类型的字段不用于排序，很少用于聚合。
+
+一般不为text创建正排索引：doc_values，原因：正排索引会占用大量堆空间，尤其是在加载高基数(即去重后还剩下大量字段)text字段时，数据段一旦被加载到堆中，就在该段的生命周期内保持在那里。同样，加载字段数据也是一个昂贵的过程，可能导致延迟问题。
+
+#### 对象关系类型
+
+##### object
+
+用于单个json对象
+
+##### nested
+
+用于json对象数组
+
+##### flattened
+
+允许将整个json对象索引成单个字段
+
+#### 结构化类型
+
+##### geo-point
+
+经度/维度
+
+##### geo-shape
+
+用于多边形等复杂形状
+
+##### point
+
+笛卡尔坐标点
+
+##### shape
+
+笛卡尔任意几何图形
+
+#### 特殊类型
+
+##### ip地址
+
+ip用于IPv4和IPv6地址
+
+##### completion
+
+提供自动完成建议，即：自动提示
+
+##### token_count
+
+计算字符串中令牌的数量
+
+##### join
+
+为同一索引内的文档定义父子关系
+
+##### array
+
+在Elasticsearch中，数组不需要专用的字段数据类型，默认情况下，任何字段都可以包含零个或多个值，但是，数组中的所有值都必须具有相同的数据类型。
+
+### 映射方式
+
+#### dynamic mapping
+
+整型 ==> long
+
+浮点数 ==> float
+
+true || false ==> boolean
+
+日期 ==> date
+
+数组 ==> 取决于数组中的第一个有效值
+
+对象 ==> object
+
+字符串 ==> 如果不是数字和日期类型，那会被映射为text和keyword两个类型
+
+除了上述字段类型之外，其他类型都必须显示映射，也就是必须手工指定，因为其他类型ES无法自动识别。
+
+#### explicit mapping
+
+##### 映射参数
+
+keyword：适用于索引结构化的字段，可以用于过滤、排序、聚合。keyword类型的字段只能通过精确值(exact value)搜索到。Id应该用keyword
+
+index：控制是否对字段值建立索引，默认true。未索引的字段不可查询。
+
+analyzer：text字段文本解析器
+
+boots：增强匹配权重，默认1.0
+
+coerce：是否允许强制类型转换，默认true。如：如string（“10”）强制转换为integer（10）
+
+copy_to：将多个字段的值复制到同一字段中，然后可以将其作为单个字段进行查询
+
+doc_values：开启字段的排序、聚合和脚本中访问字段，支持除了text和annotated_text的所有字段类型，默认true。本质上是列式存储，保持与原始文档字段相同的值，如果确定不需要对字段进行排序或聚合，也不需要通过脚本访问字段值，则可以禁用doc值以节省磁盘空间。
+
+dynamic：新检测到的字段添加到映射，默认true。false表示不建立索引，strict表示拒绝文档
+
+eager_global_ordinals：全局序号映射。文档中字段的值仅存储序号，而不存原始内容，用于聚合时提高性能
+
+enabled：尝试为字段建立索引，仅可应用于顶级映射和object类型下，默认true。如果禁用整个映射，意味着可以对其进行获取，但是不会以任何方式对它的内容建立索引
+
+fields：为不同的目的以不同的方式对同一字段建立索引
+
+format：自定义日期格式
+
+ignore_above：超过长度的字符串内容将不会被索引
+
+ignore_malformed：忽略错误的数据类型插入到索引中。默认抛出异常并丢弃文档
+
+index：控制是否对字段值建立索引，默认true。未索引的字段不可查询
+
+index_options：控制哪些信息添加到倒排索引已进行搜索并突出显示，仅使用于文本字段
+
+index_phrases：将两个词的组合词索引到一个单独的字段中。默认false
+
+index_prefixes：为字段值的前缀编制索引，以加快前缀搜索速度
+
+meta：附加到字段的元数据
+
+norms：用于计算查询的文档分数，默认true。对于仅用于过滤或聚合的字段，不需要对字段进行打分排序时设置为false
+
+null_value：使用指定的值替换为null值，以便可以进行索引和搜索
+
+position_increment_gap：当为具有多个值的文本字段建立索引时，将在值之间添加“假”间隙，以防止大多数短语查询在值之间进行匹配，默认值为100
+
+properties：类型映射，object字段和nested字段包含子字段叫properties
+
+search_analyzer：查询时使用指定的分析器
+
+similarity：字段打分的相似性算法，默认BM25
+
+store：单独存储属性值。默认对字段值进行索引以使其可搜索，但不单独存储它们，但是已存储在_source字段中
+
+term_vector：存储分析过程的词矢量（Term vectors）信息。包括：词、位置、偏移量、有效载荷
+
+##### 新建自定义mapping的index
+
+```bash
+# 新建index并且自定义mapping
+[elasticsearch@server01 opt]$ curl -X PUT -H "Content-type:application/json" server01:9200/product -d '{"settings": {"number_of_shards": 1,"number_of_replicas": 0},"mappings" :{"properties" : {"date":{"type":"text"},"desc":{"type":"text","analyzer":"english"},"name":{"type":"text","index":"false"},"price":{"type":"long"},"tags":{"type":"text","index":"true"},"parts":{"type":"object"},"partlist":{"type":"nested"}},"_source": {"enabled": true}}}'
+
+```
+
+##### 修改索引信息
+
+```bash
+[elasticsearch@server01 opt]$ curl -X PUT -H "Content-type:application/json" server01:9200/product/_settings -d '{"number_of_replicas": 1}'
+```
+
+##### 修改mapping信息
+
+```bash
+[elasticsearch@server01 elasticsearch]$ curl -X POST -H "Content-type:application/json" server01:9200/student/_mapping?pretty -d '{"properties": {"name": {"type": "text","fielddata": true}}}'                     
+{
+  "acknowledged" : true
+}
+```
+
+
+
+### Mapping参数
+
+#### doc_values
+
+不分词的所有field（如：keyword、long、integer等）可以执行聚合操作；因为在创建索引的时候doc_values的属性默认为true，所以会自动生成doc_values正排索引，如果将doc_values设置为false，则无法基于该字段排序、聚合。
+
+```bash
+# 例如：
+# 新建index、将类型为：keyword和integer的字段的doc_values设置为false：
+[elasticsearch@server01 opt]$ curl -X PUT -H "Content-type:application/json" server01:9200/student -d '{"mappings" :{"properties": {"name": {"type": "keyword","doc_values": false},"age": {"type": "integer","doc_values": false}}}}'
+# 插入数据
+[elasticsearch@server01 elasticsearch]$ vim data.json
+{ "index" : { "_index" : "student", "_id" : "1" } }
+{ "name" : "张三", "age": 12 }
+{ "index" : { "_index" : "student", "_id" : "2" } }
+{ "name" : "李四", "age": 10 }
+{ "index" : { "_index" : "student", "_id" : "3" } }
+{ "name" : "王五", "age": 11 }
+[elasticsearch@server01 elasticsearch]$ curl -X POST -H "Content-type:application/json"  server01:9200/_bulk --data-binary @data.json
+# 查询数据并按照age排序，会报错
+[elasticsearch@server01 elasticsearch]$ curl -X POST -H "Content-type:application/json" server01:9200/student/_search?pretty -d '{"query": {"match_all": {}},"sort" : [{"age": {"order": "desc"}}],"from": 0,"size": 1}' 
+{
+  "error" : {
+    "root_cause" : [
+      {
+        "type" : "illegal_argument_exception",
+        "reason" : "Can't load fielddata on [age] because fielddata is unsupported on fields of type [integer]. Use doc values instead."
+      }
+    ],
+    "type" : "search_phase_execution_exception",
+    "reason" : "all shards failed",
+    "phase" : "query",
+    "grouped" : true,
+    "failed_shards" : [
+      {
+        "shard" : 0,
+        "index" : "student",
+        "node" : "g8_A-f4WS_OCunZ4C0j_UQ",
+        "reason" : {
+          "type" : "illegal_argument_exception",
+          "reason" : "Can't load fielddata on [age] because fielddata is unsupported on fields of type [integer]. Use doc values instead."
+        }
+      }
+    ],
+    "caused_by" : {
+      "type" : "illegal_argument_exception",
+      "reason" : "Can't load fielddata on [age] because fielddata is unsupported on fields of type [integer]. Use doc values instead.",
+      "caused_by" : {
+        "type" : "illegal_argument_exception",
+        "reason" : "Can't load fielddata on [age] because fielddata is unsupported on fields of type [integer]. Use doc values instead."
+      }
+    }
+  },
+  "status" : 400
+}
+
+# 新建index并且开启doc_values
+[elasticsearch@server01 elasticsearch]$ curl -X DELETE -H "Content-type:application/json" server01:9200/student
+{"acknowledged":true}
+[elasticsearch@server01 elasticsearch]$ curl -X PUT -H "Content-type:application/json" server01:9200/student -d '{"mappings" :{"properties": {"name": {"type": "keyword","doc_values": true},"age": {"type": "integer","doc_values": true}}}}'
+{"acknowledged":true,"shards_acknowledged":true,"index":"student"}
+# 重新导入数据
+[elasticsearch@server01 elasticsearch]$ curl -X POST -H "Content-type:application/json"  server01:9200/_bulk --data-binary @data.json
+{"took":22,"errors":false,"items":[{"index":{"_index":"student","_type":"_doc","_id":"1","_version":1,"result":"created","_shards":{"total":2,"successful":2,"failed":0},"_seq_no":0,"_primary_term":1,"status":201}},{"index":{"_index":"student","_type":"_doc","_id":"2","_version":1,"result":"created","_shards":{"total":2,"successful":2,"failed":0},"_seq_no":1,"_primary_term":1,"status":201}},{"index":{"_index":"student","_type":"_doc","_id":"3","_version":1,"result":"created","_shards":{"total":2,"successful":2,"failed":0},"_seq_no":2,"_primary_term":1,"status":201}}]}
+# 查询数据并按照age排序，正常执行
+[elasticsearch@server01 elasticsearch]$ curl -X POST -H "Content-type:application/json" server01:9200/student/_search?pretty -d '{"query": {"match_all": {}},"sort" : [{"age": {"order": "desc"}}],"from": 0,"size": 1}' 
+{
+  "took" : 59,
+  "timed_out" : false,
+  "_shards" : {
+    "total" : 1,
+    "successful" : 1,
+    "skipped" : 0,
+    "failed" : 0
+  },
+  "hits" : {
+    "total" : {
+      "value" : 3,
+      "relation" : "eq"
+    },
+    "max_score" : null,
+    "hits" : [
+      {
+        "_index" : "student",
+        "_type" : "_doc",
+        "_id" : "1",
+        "_score" : null,
+        "_source" : {
+          "name" : "张三",
+          "age" : 12
+        },
+        "sort" : [
+          12
+        ]
+      }
+    ]
+  }
+}
+# 查询数据并按照name排序，正常执行
+[elasticsearch@server01 elasticsearch]$ curl -X POST -H "Content-type:application/json" server01:9200/student/_search?pretty -d '{"query": {"match_all": {}},"sort" : [{"name": {"order": "desc"}}],"from": 0,"size": 1}'
+{
+  "took" : 11,
+  "timed_out" : false,
+  "_shards" : {
+    "total" : 1,
+    "successful" : 1,
+    "skipped" : 0,
+    "failed" : 0
+  },
+  "hits" : {
+    "total" : {
+      "value" : 3,
+      "relation" : "eq"
+    },
+    "max_score" : null,
+    "hits" : [
+      {
+        "_index" : "student",
+        "_type" : "_doc",
+        "_id" : "3",
+        "_score" : null,
+        "_source" : {
+          "name" : "王五",
+          "age" : 11
+        },
+        "sort" : [
+          "王五"
+        ]
+      }
+    ]
+  }
+}
+# 获取age平均值，正常执行
+[elasticsearch@server01 elasticsearch]$ curl -X POST -H "Content-type:application/json" server01:9200/student/_search?pretty -d '{"aggs":{"age_stat": {"avg": {"field": "age"}}},"from": 0,"size": 0}'                            
+{
+  "took" : 655,
+  "timed_out" : false,
+  "_shards" : {
+    "total" : 1,
+    "successful" : 1,
+    "skipped" : 0,
+    "failed" : 0
+  },
+  "hits" : {
+    "total" : {
+      "value" : 3,
+      "relation" : "eq"
+    },
+    "max_score" : null,
+    "hits" : [ ]
+  },
+  "aggregations" : {
+    "age_stat" : {
+      "value" : 11.0
+    }
+  }
+}
+```
+
+#### fielddata
+
+对于分词的field（如：text），由于在创建索引的时候不会给它建立doc_values正排索引，所以无法基于该字段排序、聚合；如果一定要对分词的field执行聚合，那么必须将fielddata=true，然后es就会在执行聚合操作的时候，现场将field对应的数据，建立一份fielddata正排索引，fielddata正排索引的结构跟doc_value是类似的，但是只会将fielddata正排索引加载到内存中来，然后基于内存中的fielddata正排索引执行分词field的聚合操作。
+
+```bash
+# 创建index，包含分词field：name
+[elasticsearch@server01 elasticsearch]$ curl -X PUT -H "Content-type:application/json" server01:9200/student -d '{"mappings" : {"properties" : {"name" : {"type" : "text","fields" : {"keyword" : {"type" : "keyword","ignore_above" : 256}}},"age" : {"type" : "integer"}}}}'                         
+{"acknowledged":true,"shards_acknowledged":true,"index":"student"}
+# 插入数据
+[elasticsearch@server01 elasticsearch]$ curl -X POST -H "Content-type:application/json"  server01:9200/_bulk --data-binary @data.json
+{"took":23,"errors":false,"items":[{"index":{"_index":"student","_type":"_doc","_id":"1","_version":1,"result":"created","_shards":{"total":2,"successful":2,"failed":0},"_seq_no":0,"_primary_term":1,"status":201}},{"index":{"_index":"student","_type":"_doc","_id":"2","_version":1,"result":"created","_shards":{"total":2,"successful":2,"failed":0},"_seq_no":1,"_primary_term":1,"status":201}},{"index":{"_index":"student","_type":"_doc","_id":"3","_version":1,"result":"created","_shards":{"total":2,"successful":2,"failed":0},"_seq_no":2,"_primary_term":1,"status":201}}]}
+# 以name进行分组会报错
+[elasticsearch@server01 elasticsearch]$ curl -X GET -H "Content-type:application/json" server01:9200/student/_search?pretty -d '{"aggs": {"group_by_name_field": {"terms": {"field": "name"}}}}'    
+{
+  "error" : {
+    "root_cause" : [
+      {
+        "type" : "illegal_argument_exception",
+        "reason" : "Text fields are not optimised for operations that require per-document field data like aggregations and sorting, so these operations are disabled by default. Please use a keyword field instead. Alternatively, set fielddata=true on [name] in order to load field data by uninverting the inverted index. Note that this can use significant memory."
+      }
+    ],
+    "type" : "search_phase_execution_exception",
+    "reason" : "all shards failed",
+    "phase" : "query",
+    "grouped" : true,
+    "failed_shards" : [
+      {
+        "shard" : 0,
+        "index" : "student",
+        "node" : "g8_A-f4WS_OCunZ4C0j_UQ",
+        "reason" : {
+          "type" : "illegal_argument_exception",
+          "reason" : "Text fields are not optimised for operations that require per-document field data like aggregations and sorting, so these operations are disabled by default. Please use a keyword field instead. Alternatively, set fielddata=true on [name] in order to load field data by uninverting the inverted index. Note that this can use significant memory."
+        }
+      }
+    ],
+    "caused_by" : {
+      "type" : "illegal_argument_exception",
+      "reason" : "Text fields are not optimised for operations that require per-document field data like aggregations and sorting, so these operations are disabled by default. Please use a keyword field instead. Alternatively, set fielddata=true on [name] in order to load field data by uninverting the inverted index. Note that this can use significant memory.",
+      "caused_by" : {
+        "type" : "illegal_argument_exception",
+        "reason" : "Text fields are not optimised for operations that require per-document field data like aggregations and sorting, so these operations are disabled by default. Please use a keyword field instead. Alternatively, set fielddata=true on [name] in order to load field data by uninverting the inverted index. Note that this can use significant memory."
+      }
+    }
+  },
+  "status" : 400
+}
+# 使用类型为keyword的内置field，可以正常执行聚合操作
+[elasticsearch@server01 elasticsearch]$ curl -X GET -H "Content-type:application/json" server01:9200/student/_search?pretty -d '{"aggs": {"group_by_name_field": {"terms": {"field": "name.keyword"}}}}'
+{
+  "took" : 26,
+  "timed_out" : false,
+  "_shards" : {
+    "total" : 1,
+    "successful" : 1,
+    "skipped" : 0,
+    "failed" : 0
+  },
+  "hits" : {
+    "total" : {
+      "value" : 3,
+      "relation" : "eq"
+    },
+    "max_score" : 1.0,
+    "hits" : [
+      {
+        "_index" : "student",
+        "_type" : "_doc",
+        "_id" : "1",
+        "_score" : 1.0,
+        "_source" : {
+          "name" : "张三",
+          "age" : 12
+        }
+      },
+      {
+        "_index" : "student",
+        "_type" : "_doc",
+        "_id" : "2",
+        "_score" : 1.0,
+        "_source" : {
+          "name" : "李四",
+          "age" : 10
+        }
+      },
+      {
+        "_index" : "student",
+        "_type" : "_doc",
+        "_id" : "3",
+        "_score" : 1.0,
+        "_source" : {
+          "name" : "王五",
+          "age" : 11
+        }
+      }
+    ]
+  },
+  "aggregations" : {
+    "group_by_name_field" : {
+      "doc_count_error_upper_bound" : 0,
+      "sum_other_doc_count" : 0,
+      "buckets" : [
+        {
+          "key" : "张三",
+          "doc_count" : 1
+        },
+        {
+          "key" : "李四",
+          "doc_count" : 1
+        },
+        {
+          "key" : "王五",
+          "doc_count" : 1
+        }
+      ]
+    }
+  }
+}
+# 对于分词的field，设置fielddata为true，可以正常执行聚合操作
+[elasticsearch@server01 elasticsearch]$ curl -X POST -H "Content-type:application/json" server01:9200/student/_mapping?pretty -d '{"properties": {"name": {"type": "text","fielddata": true}}}'                     
+{
+  "acknowledged" : true
+}
+# 可以正常执行聚合操作
+[elasticsearch@server01 elasticsearch]$ curl -X GET -H "Content-type:application/json" server01:9200/student/_search?pretty -d '{"aggs": {"group_by_name_field": {"terms": {"field": "name"}}}}'        
+{
+  "took" : 24,
+  "timed_out" : false,
+  "_shards" : {
+    "total" : 1,
+    "successful" : 1,
+    "skipped" : 0,
+    "failed" : 0
+  },
+  "hits" : {
+    "total" : {
+      "value" : 3,
+      "relation" : "eq"
+    },
+    "max_score" : 1.0,
+    "hits" : [
+      {
+        "_index" : "student",
+        "_type" : "_doc",
+        "_id" : "1",
+        "_score" : 1.0,
+        "_source" : {
+          "name" : "张三",
+          "age" : 12
+        }
+      },
+      {
+        "_index" : "student",
+        "_type" : "_doc",
+        "_id" : "2",
+        "_score" : 1.0,
+        "_source" : {
+          "name" : "李四",
+          "age" : 10
+        }
+      },
+      {
+        "_index" : "student",
+        "_type" : "_doc",
+        "_id" : "3",
+        "_score" : 1.0,
+        "_source" : {
+          "name" : "王五",
+          "age" : 11
+        }
+      }
+    ]
+  },
+  "aggregations" : {
+    "group_by_name_field" : {
+      "doc_count_error_upper_bound" : 0,
+      "sum_other_doc_count" : 0,
+      "buckets" : [
+        {
+          "key" : "三",
+          "doc_count" : 1
+        },
+        {
+          "key" : "五",
+          "doc_count" : 1
+        },
+        {
+          "key" : "四",
+          "doc_count" : 1
+        },
+        {
+          "key" : "张",
+          "doc_count" : 1
+        },
+        {
+          "key" : "李",
+          "doc_count" : 1
+        },
+        {
+          "key" : "王",
+          "doc_count" : 1
+        }
+      ]
+    }
+  }
+}
+```
+
+总结
+
+Doc Values和Fielddata就是用来给文档建立正排索引的, DocValues工作地盘主要在磁盘，是建立索引的时候进行的初始化，而Fielddata的工作地盘在内存，需要开启 fielddata=true ，fielddata 构建和管理 100% 在内存中，常驻于 JVM 内存堆，使用text字段进行聚合排序的时候才加载到内存。
+
+| 对比        | Doc Values                                                | Fielddata                                                    |
+| ----------- | --------------------------------------------------------- | ------------------------------------------------------------ |
+| 存储位置    | docvalues存储在磁盘，和倒排索引存储位置一样，序列化到磁盘 | JVM堆内存，所以会OOM                                         |
+| 加载时间    | 创建索引的时候就会创建docvalues及倒排索引                 | 搜索临时使用的时候才会把fielddata加载到jvm，懒加载           |
+| 占用JVM内存 | 不会占用Heap内存                                          | 加载时，占用JVM内存                                          |
+| 速度效率    | docvalues 从磁盘加载，一般不会太大，很快                  | 首次加载如果fielddata过大就会加载很慢，另外如果剩余jvm比较小，会导致频繁的出发gc |
+| 数据类型    | docvalues 不支持 analyed字段，其他非analyed字段都支持     | 支持其他类型及分词 analyed字段的text文本                     |
+
+!!!尽量不要再生产环境使用fielddata=true，即使要用也要控制好占用内存比例的大小，否则容易出现OOM
+
+#### _source
+
+Es除了将数据保存在倒排索引中，另外还有一分原始文档，原始文档就是存储在`_source`中的，其实在elasticsearch中搜索文档，查看文档的内容就是`_source`中的内容
+
+source字段得作用：
+
+| ID _source     | 倒排索引            | ID 原始文档 |
+| -------------- | ------------------- | ----------- |
+| 1 {‘我爱中国’} | 我爱[1,2,3] 中国[1] | 1 我爱中国  |
+| 2 {‘我爱游戏’} | 游戏[2]             | 2 我爱游戏  |
+| 3 {‘我爱游戏’} | 爱[1,2,3]           | 3 我啥都爱  |
+
+1、如果关闭source字段，也就是enable:false，那么在检索过程中会根据关键字比如”游戏”去倒排索引【记录了词项和文档之间的对应关系】中查询文档的ID，但是source字段的enable:false，那么原始文档中没有这些内容，就只能查到文档的ID，字段内容是找不到的
+
+2、如果开启source字段，也就是enable:true,那么在检索过程过程中，客户端通过解析返回存储整个文档信息的source JSON串，获取指定field信息。
+
+3、source字段默认是存储的，不用保留source字段的情况：如果某个字段内容非常多，业务里面只需要能对该字段进行搜索，最后返回文档id，查看文档内容会再次到mysql或者hbase中取数据。
+
+![image](assets\middleware-23.png)
+
+#### store
+
+如果将字段的store设置为true，这意味着这个field的数据将会被单独存储。这时如果要返回field1（store：yes），es会分辨出field1已经被存储了，因此不会从_source中加载，而是从field1的存储块中加载。从每一个stored field中获取值都需要一次磁盘io，如果想获取多个field的值，就需要多次磁盘io。但是，如果从source中获取多个field的值，则只需要一次磁盘io（因为source存储的是整个文档的信息），因为source只是一个字段而已。所以在大多数情况下，从source中获取是快速而高效的。
+
+大多数情况并不是必须的。从`_source`中获取值是快速而且高效的。如果你的文档长度很长，存储`_source`或者从`_source`中获取field的代价很大，你可以显式的将某些field的store属性设置为yes。
+优点是只查询这一个字段的值的话效率高；
+缺点如上边所说：假设你存储了10个field，而如果想获取这10个field的值，则需要多次的io，
+如果从`_source`中获取则只需要一次，而且`_source`是被压缩过的。
+
+总结：
+
+果对某个field做了索引，则可以查询。如果store：yes，则可以展示该field的值。
+是如果你存储了这个doc的数据（`_source` enable），即使store为no，仍然可以得到field的值（client去解析）。
+一个store设置为no的field，如果_source被disable，则只能检索不能展示

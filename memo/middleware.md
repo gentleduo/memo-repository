@@ -3674,9 +3674,11 @@ must：必须满足子句（查询）必须出现在匹配的文档中，并计�
 
 filter：过滤器，不计算相关度分数，
 
-should：可能满足
+should：可能满足 
 
 must not：必须不满足，不计算相关度分数，not子句（查询）不得出现在匹配的文档中，这意味着计分被忽略
+
+minimum_should_match：参数指定should返回的文档必须匹配的子句的数量或百分比。如果bool查询包含至少一个should子句，而没有must或filter子句，则默认值为1。否则，默认值为0
 
 ```json
 {
@@ -3703,3 +3705,12 @@ must not：必须不满足，不计算相关度分数，not子句（查询）不
 }
 ```
 
+## 分词器
+
+### 归一化：normalization
+
+normalization主要是用来提高查询的命中率的 我们知道es会将一段文字进行分词 形成倒排索引后存储 如下面的这句话：Mr. Ma is an excellent teacher. I‘m glad to meet him；如果搜索的关键字为Teacher 由于原文档中并没有Teacher这个单词 所以正常情况该搜索是无法命中的 所以这个时候就需要normalization来处理。normalization简单的来说就是将搜索条件中的一些不规范的词项进行规范化如将搜索条件中的大写字母转成小写字母 对搜索条件中的错误单词进行校正、去掉单词中的复数形式、去掉语气助词等等。
+
+![image](assets\middleware-24.png)
+
+![image](assets\middleware-25.png)

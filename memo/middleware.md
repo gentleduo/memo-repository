@@ -2646,8 +2646,6 @@ term_vector：存储分析过程的词矢量（Term vectors）信息。包括：
 }
 ```
 
-
-
 ### Mapping参数
 
 #### doc_values
@@ -3031,7 +3029,7 @@ Doc Values和Fielddata就是用来给文档建立正排索引的, DocValues工�
 
 #### _source
 
-Es除了将数据保存在倒排索引中，另外还有一分原始文档，原始文档就是存储在`_source`中的，其实在elasticsearch中搜索文档，查看文档的内容就是`_source`中的内容
+元数据；Es除了将数据保存在倒排索引中，另外还有一分原始文档，原始文档就是存储在`_source`中的，其实在elasticsearch中搜索文档，查看文档的内容就是`_source`中的内容
 
 source字段得作用：
 
@@ -3049,6 +3047,183 @@ source字段得作用：
 
 ![image](assets\middleware-23.png)
 
+在创建索引的时候通过mapping设置`_source_includes`和`_source_excludes`
+
+```bash
+# 通过设置_source的enabled属性关闭_source
+[elasticsearch@server03 elasticsearch]$ curl -X PUT -H "Content-type:application/json" server01:9200/product?pretty -d '{"settings": {"number_of_shards": 1,"number_of_replicas": 0},"mappings" :{"properties" : {"date":{"type":"text"},"desc":{"type":"text","analyzer":"english"},"name":{"type":"text","index":"false"},"price":{"type":"long"},"tags":{"type":"text","index":"true"}},"_source": {"enabled": false}}}'
+{
+  "acknowledged" : true,
+  "shards_acknowledged" : true,
+  "index" : "product"
+}
+# 插入数据
+[elasticsearch@server03 elasticsearch]$ curl -X PUT -H "Content-type:application/json" server01:9200/product/_doc/1?pretty -d '{"name":"lee","desc":"man","price":399,"tags":["lowbee","zhili"]}'
+{
+  "_index" : "product",
+  "_type" : "_doc",
+  "_id" : "1",
+  "_version" : 1,
+  "result" : "created",
+  "_shards" : {
+    "total" : 1,
+    "successful" : 1,
+    "failed" : 0
+  },
+  "_seq_no" : 0,
+  "_primary_term" : 1
+}
+# 查询结果中不包含_source信息
+[elasticsearch@server03 elasticsearch]$  curl -X GET -H "Content-type:application/json" server01:9200/product/_search?pretty
+{
+  "took" : 847,
+  "timed_out" : false,
+  "_shards" : {
+    "total" : 1,
+    "successful" : 1,
+    "skipped" : 0,
+    "failed" : 0
+  },
+  "hits" : {
+    "total" : {
+      "value" : 1,
+      "relation" : "eq"
+    },
+    "max_score" : 1.0,
+    "hits" : [
+      {
+        "_index" : "product",
+        "_type" : "_doc",
+        "_id" : "1",
+        "_score" : 1.0
+      }
+    ]
+  }
+}
+# 删除索引product
+[elasticsearch@server03 elasticsearch]$ curl -X DELETE -H "Content-type:application/json" server01:9200/product  {"acknowledged":true}
+# 通过_source结合includes(包含的字段)，excludes(屏蔽的字段)，屏蔽部分字段
+[elasticsearch@server03 elasticsearch]$ curl -X PUT -H "Content-type:application/json" server01:9200/product?pretty -d '{"mappings":{"_source":{"includes":["name","price"],"excludes":["desc","tags"]}}}'
+{
+  "acknowledged" : true,
+  "shards_acknowledged" : true,
+  "index" : "product"
+}
+# 插入数据
+[elasticsearch@server03 elasticsearch]$ curl -X PUT -H "Content-type:application/json" server01:9200/product/_doc/1?pretty -d '{"name":"lee","desc":"man","price":399,"tags":["lowbee","zhili"]}'
+{
+  "_index" : "product",
+  "_type" : "_doc",
+  "_id" : "1",
+  "_version" : 1,
+  "result" : "created",
+  "_shards" : {
+    "total" : 2,
+    "successful" : 2,
+    "failed" : 0
+  },
+  "_seq_no" : 0,
+  "_primary_term" : 1
+}
+# 查询结果中，只包含includes中指定的字段
+[elasticsearch@server03 elasticsearch]$ curl -X GET -H "Content-type:application/json" server01:9200/product/_search?pretty
+{
+  "took" : 768,
+  "timed_out" : false,
+  "_shards" : {
+    "total" : 1,
+    "successful" : 1,
+    "skipped" : 0,
+    "failed" : 0
+  },
+  "hits" : {
+    "total" : {
+      "value" : 1,
+      "relation" : "eq"
+    },
+    "max_score" : 1.0,
+    "hits" : [
+      {
+        "_index" : "product",
+        "_type" : "_doc",
+        "_id" : "1",
+        "_score" : 1.0,
+        "_source" : {
+          "price" : 399,
+          "name" : "lee"
+        }
+      }
+    ]
+  }
+}
+```
+
+在请求体中设置`_source_includes`和`_source_excludes`
+
+```bash
+# 删除索引
+[elasticsearch@server03 elasticsearch]$ curl -X DELETE -H "Content-type:application/json" server01:9200/product  {"acknowledged":true}
+# 创建索引
+[elasticsearch@server03 elasticsearch]$ curl -X PUT -H "Content-type:application/json" server01:9200/product?pretty -d '{"settings": {"number_of_shards": 1,"number_of_replicas": 0},"mappings" :{"properties" : {"date":{"type":"text"},"desc":{"type":"text","analyzer":"english"},"name":{"type":"text","index":"false"},"price":{"type":"long"},"tags":{"type":"text","index":"true"}}}}'                              
+{
+  "acknowledged" : true,
+  "shards_acknowledged" : true,
+  "index" : "product"
+}
+# 插入数据
+[elasticsearch@server03 elasticsearch]$ curl -X PUT -H "Content-type:application/json" server01:9200/product/_doc/1?pretty -d '{"name":"lee","desc":"man","price":399,"tags":["lowbee","zhili"]}'
+{
+  "_index" : "product",
+  "_type" : "_doc",
+  "_id" : "1",
+  "_version" : 1,
+  "result" : "created",
+  "_shards" : {
+    "total" : 1,
+    "successful" : 1,
+    "failed" : 0
+  },
+  "_seq_no" : 0,
+  "_primary_term" : 1
+}
+# 设置_source=false，则不返回_source
+[elasticsearch@server03 elasticsearch]$  curl -X GET -H "Content-type:application/json" server01:9200/product/_search?_source=false
+{"took":4,"timed_out":false,"_shards":{"total":1,"successful":1,"skipped":0,"failed":0},"hits":{"total":{"value":1,"relation":"eq"},"max_score":1.0,"hits":[{"_index":"product","_type":"_doc","_id":"1","_score":1.0}]}}
+# _source_includes:只返回部分字段
+[elasticsearch@server03 elasticsearch]$ curl -X GET -H "Content-type:application/json" server01:9200/product/_search?pretty -d '{"_source":"tags","query":{"match_all":{}}}'
+{
+  "took" : 9,
+  "timed_out" : false,
+  "_shards" : {
+    "total" : 1,
+    "successful" : 1,
+    "skipped" : 0,
+    "failed" : 0
+  },
+  "hits" : {
+    "total" : {
+      "value" : 1,
+      "relation" : "eq"
+    },
+    "max_score" : 1.0,
+    "hits" : [
+      {
+        "_index" : "product",
+        "_type" : "_doc",
+        "_id" : "1",
+        "_score" : 1.0,
+        "_source" : {
+          "tags" : [
+            "lowbee",
+            "zhili"
+          ]
+        }
+      }
+    ]
+  }
+}
+```
+
 #### store
 
 如果将字段的store设置为true，这意味着这个field的数据将会被单独存储。这时如果要返回field1（store：yes），es会分辨出field1已经被存储了，因此不会从_source中加载，而是从field1的存储块中加载。从每一个stored field中获取值都需要一次磁盘io，如果想获取多个field的值，就需要多次磁盘io。但是，如果从source中获取多个field的值，则只需要一次磁盘io（因为source存储的是整个文档的信息），因为source只是一个字段而已。所以在大多数情况下，从source中获取是快速而高效的。
@@ -3063,3 +3238,468 @@ source字段得作用：
 果对某个field做了索引，则可以查询。如果store：yes，则可以展示该field的值。
 是如果你存储了这个doc的数据（`_source` enable），即使store为no，仍然可以得到field的值（client去解析）。
 一个store设置为no的field，如果_source被disable，则只能检索不能展示
+
+## 搜索和查询
+
+### DSL
+
+DSL：Domain Specified Language，特定领域的语言；http request body：请求体，可以用json的格式来构建查询语法，比较方便，可以构建各种复杂的语法，比query string search肯定强大多了
+
+#### 全文检索：match
+
+match_phrase会将关键字分词，match_phrase的分词结构必须在被检索字段的分词中都包含，而且顺序必须相同，而且默认必须都是连续的
+
+```bash
+# 插入数据
+[elasticsearch@server01 elasticsearch]$ curl -X PUT -H "Content-type:application/json" server01:9200/product/_doc/1?pretty -d '{"name":"lee","age":"10","desc":"a football boy"}'
+{
+  "_index" : "product",
+  "_type" : "_doc",
+  "_id" : "1",
+  "_version" : 3,
+  "result" : "updated",
+  "_shards" : {
+    "total" : 2,
+    "successful" : 2,
+    "failed" : 0
+  },
+  "_seq_no" : 2,
+  "_primary_term" : 1
+}
+[elasticsearch@server01 elasticsearch]$ curl -X PUT -H "Content-type:application/json" server01:9200/product/_doc/2?pretty -d '{"name":"robert","age":"11","desc":"a baskball boy"}'
+{
+  "_index" : "product",
+  "_type" : "_doc",
+  "_id" : "2",
+  "_version" : 1,
+  "result" : "created",
+  "_shards" : {
+    "total" : 2,
+    "successful" : 2,
+    "failed" : 0
+  },
+  "_seq_no" : 3,
+  "_primary_term" : 1
+}
+# 由下面的结果可知match是全文检索
+[elasticsearch@server01 elasticsearch]$ curl -X GET -H "Content-type:application/json" server01:9200/product/_search?pretty -d '{"query" : {"match" : {"desc" : "boy"}}}'           
+{
+  "took" : 914,
+  "timed_out" : false,
+  "_shards" : {
+    "total" : 1,
+    "successful" : 1,
+    "skipped" : 0,
+    "failed" : 0
+  },
+  "hits" : {
+    "total" : {
+      "value" : 2,
+      "relation" : "eq"
+    },
+    "max_score" : 0.18232156,
+    "hits" : [
+      {
+        "_index" : "product",
+        "_type" : "_doc",
+        "_id" : "1",
+        "_score" : 0.18232156,
+        "_source" : {
+          "name" : "lee",
+          "age" : "10",
+          "desc" : "a football boy"
+        }
+      },
+      {
+        "_index" : "product",
+        "_type" : "_doc",
+        "_id" : "2",
+        "_score" : 0.18232156,
+        "_source" : {
+          "name" : "robert",
+          "age" : "11",
+          "desc" : "a baskball boy"
+        }
+      }
+    ]
+  }
+}
+# text的keyword字段用来做精确匹配以及排序
+[elasticsearch@server01 elasticsearch]$ curl -X GET -H "Content-type:application/json" server01:9200/product/_search?pretty -d '{"query" : {"match" : {"desc.keyword" : "a football boy"}}}'
+{
+  "took" : 3,
+  "timed_out" : false,
+  "_shards" : {
+    "total" : 1,
+    "successful" : 1,
+    "skipped" : 0,
+    "failed" : 0
+  },
+  "hits" : {
+    "total" : {
+      "value" : 1,
+      "relation" : "eq"
+    },
+    "max_score" : 0.6931471,
+    "hits" : [
+      {
+        "_index" : "product",
+        "_type" : "_doc",
+        "_id" : "1",
+        "_score" : 0.6931471,
+        "_source" : {
+          "name" : "lee",
+          "age" : "10",
+          "desc" : "a football boy"
+        }
+      }
+    ]
+  }
+} 
+[elasticsearch@server02 elasticsearch]$ curl -X GET -H "Content-type:application/json" server01:9200/product/_search?pretty -d '{"query" : {"match_all" : {}},"_source": ["desc", "boy"]}'
+{
+  "took" : 135,
+  "timed_out" : false,
+  "_shards" : {
+    "total" : 1,
+    "successful" : 1,
+    "skipped" : 0,
+    "failed" : 0
+  },
+  "hits" : {
+    "total" : {
+      "value" : 2,
+      "relation" : "eq"
+    },
+    "max_score" : 1.0,
+    "hits" : [
+      {
+        "_index" : "product",
+        "_type" : "_doc",
+        "_id" : "1",
+        "_score" : 1.0,
+        "_source" : {
+          "desc" : "a football boy"
+        }
+      },
+      {
+        "_index" : "product",
+        "_type" : "_doc",
+        "_id" : "2",
+        "_score" : 1.0,
+        "_source" : {
+          "desc" : "a baskball boy"
+        }
+      }
+    ]
+  }
+}
+# match_phrase：
+# 1.如match搜索一样进行分词，
+# 2.对分词后的单词到field中去进行搜索。这一步返回每个单词对应的doc，并返回这些单词在对应的doc中的位置，
+# 3.对返回的doc进行第一步的筛选：所有的单词必须在同一个doc中。
+# 4.对第3步进行筛选后的doc进行再一次的筛选，选回位置符合要求的doc。比如，对于match_phrase，就是找到后一个单词的位置比前一个单词的位置大1。
+# 比如在下面这个例子中：match_phrase的检索条件是"a football"，那么会先对a football分词，变成"a"和"football"
+# 然后分别对a和football进行全文检索，返回doc1和doc2
+# 但是doc2中只有单词a没有单词football所以排除
+# 然后再对返回的结果：doc1进一步进行校验，由于没有指定分词器那么doc1中的desc字段将按照默认的分词器：standard进行分词，可以看到使用默认的分词器分词后"a football"中的a的位置为1，football的位置为2，满足后一个单词比前一个单词的位置大1，所以doc1满足条件
+[elasticsearch@server02 elasticsearch]$ curl -X GET -H "Content-type:application/json" server01:9200/product/_search?pretty -d '{"query" : {"match_phrase" : {"desc":"a football"}}}'
+{
+  "took" : 22,
+  "timed_out" : false,
+  "_shards" : {
+    "total" : 1,
+    "successful" : 1,
+    "skipped" : 0,
+    "failed" : 0
+  },
+  "hits" : {
+    "total" : {
+      "value" : 1,
+      "relation" : "eq"
+    },
+    "max_score" : 0.87546873,
+    "hits" : [
+      {
+        "_index" : "product",
+        "_type" : "_doc",
+        "_id" : "1",
+        "_score" : 0.87546873,
+        "_source" : {
+          "name" : "lee",
+          "age" : "10",
+          "desc" : "a football boy"
+        }
+      }
+    ]
+  }
+}
+# 使用分词器测试句子分词后的结果
+[elasticsearch@server02 elasticsearch]$ curl -X GET -H "Content-type:application/json" server01:9200/_analyze?pretty -d '{"analyzer": "standard","text":"a football boy"}'
+{
+  "tokens" : [
+    {
+      "token" : "a",
+      "start_offset" : 0,
+      "end_offset" : 1,
+      "type" : "<ALPHANUM>",
+      "position" : 0
+    },
+    {
+      "token" : "football",
+      "start_offset" : 2,
+      "end_offset" : 10,
+      "type" : "<ALPHANUM>",
+      "position" : 1
+    },
+    {
+      "token" : "boy",
+      "start_offset" : 11,
+      "end_offset" : 14,
+      "type" : "<ALPHANUM>",
+      "position" : 2
+    }
+  ]
+}
+```
+
+#### 精准查询：term
+
+term搜索不会将搜索词分词，keyword是字段类型，是对于source data中的字段值不分词
+
+```bash
+# 添加数据
+[elasticsearch@server03 elasticsearch]$ curl -X PUT -H "Content-type:application/json" server01:9200/product/_doc/3?pretty -d '{"name":"robert","age":"11","desc":"sport boy"}'      
+{
+  "_index" : "product",
+  "_type" : "_doc",
+  "_id" : "3",
+  "_version" : 1,
+  "result" : "created",
+  "_shards" : {
+    "total" : 2,
+    "successful" : 2,
+    "failed" : 0
+  },
+  "_seq_no" : 4,
+  "_primary_term" : 4
+}
+# 由于term是精准匹配所以query中的”sport boy“不会被分词之后再去doc中检索的，而由于doc中的内容是被分词的所以通过下面的检索语句是检索不到doc的
+[elasticsearch@server03 elasticsearch]$ curl -X GET -H "Content-type:application/json" server01:9200/product/_search?pretty -d '{"query" : {"term" : {"desc":"sport boy"}}}'                 
+{
+  "took" : 551,
+  "timed_out" : false,
+  "_shards" : {
+    "total" : 1,
+    "successful" : 1,
+    "skipped" : 0,
+    "failed" : 0
+  },
+  "hits" : {
+    "total" : {
+      "value" : 0,
+      "relation" : "eq"
+    },
+    "max_score" : null,
+    "hits" : [ ]
+  }
+}
+# 如果term中使用的是字段的keyword，由于搜索词和source data都不分词，所以能搜索到
+[elasticsearch@server03 elasticsearch]$ curl -X GET -H "Content-type:application/json" server01:9200/product/_search?pretty -d '{"query" : {"term" : {"desc.keyword":"sport boy"}}}'  
+{
+  "took" : 10,
+  "timed_out" : false,
+  "_shards" : {
+    "total" : 1,
+    "successful" : 1,
+    "skipped" : 0,
+    "failed" : 0
+  },
+  "hits" : {
+    "total" : {
+      "value" : 1,
+      "relation" : "eq"
+    },
+    "max_score" : 0.9808291,
+    "hits" : [
+      {
+        "_index" : "product",
+        "_type" : "_doc",
+        "_id" : "3",
+        "_score" : 0.9808291,
+        "_source" : {
+          "name" : "robert",
+          "age" : "11",
+          "desc" : "sport boy"
+        }
+      }
+    ]
+  }
+}
+# 如果通过单独的”sport“是能够检索到内容的
+[elasticsearch@server03 elasticsearch]$ curl -X GET -H "Content-type:application/json" server01:9200/product/_search?pretty -d '{"query" : {"term" : {"desc":"sport"}}}'    
+{
+  "took" : 677,
+  "timed_out" : false,
+  "_shards" : {
+    "total" : 1,
+    "successful" : 1,
+    "skipped" : 0,
+    "failed" : 0
+  },
+  "hits" : {
+    "total" : {
+      "value" : 1,
+      "relation" : "eq"
+    },
+    "max_score" : 1.0925692,
+    "hits" : [
+      {
+        "_index" : "product",
+        "_type" : "_doc",
+        "_id" : "3",
+        "_score" : 1.0925692,
+        "_source" : {
+          "name" : "robert",
+          "age" : "11",
+          "desc" : "sport boy"
+        }
+      }
+    ]
+  }
+}
+```
+
+#### 范围查找：range
+
+```bash
+[elasticsearch@server03 elasticsearch]$ curl -X PUT -H "Content-type:application/json" server01:9200/product/_doc/4?pretty -d '{"name":"robert","age":"21","desc":"CBA member"}'
+{
+  "_index" : "product",
+  "_type" : "_doc",
+  "_id" : "4",
+  "_version" : 1,
+  "result" : "created",
+  "_shards" : {
+    "total" : 2,
+    "successful" : 2,
+    "failed" : 0
+  },
+  "_seq_no" : 5,
+  "_primary_term" : 4
+}
+# 范围查找
+[elasticsearch@server03 elasticsearch]$ curl -X GET -H "Content-type:application/json" server01:9200/product/_search?pretty -d '{"query":{"range":{"age":{"gte":12,"lte":30}}}}'
+{
+  "took" : 20,
+  "timed_out" : false,
+  "_shards" : {
+    "total" : 1,
+    "successful" : 1,
+    "skipped" : 0,
+    "failed" : 0
+  },
+  "hits" : {
+    "total" : {
+      "value" : 1,
+      "relation" : "eq"
+    },
+    "max_score" : 1.0,
+    "hits" : [
+      {
+        "_index" : "product",
+        "_type" : "_doc",
+        "_id" : "4",
+        "_score" : 1.0,
+        "_source" : {
+          "name" : "robert",
+          "age" : "21",
+          "desc" : "CBA member"
+        }
+      }
+    ]
+  }
+}
+```
+
+#### 过滤器：filter
+
+- filter，仅仅只是按照搜索条件过滤出需要的数据而已，不计算任何相关度分数，对相关度没有任何影响
+- query，会去计算每个document相对于搜索条件的相关度，并按照相关度进行排序
+- 一般来说，如果你是在进行搜索，需要将最匹配搜索条件的数据先返回，那么用query；如果你只是要根据一些条件筛选出一部分数据，不关注其排序，那么用filter
+- 除非是你的这些搜索条件，你希望越符合这些搜索条件的document越排在前面返回，那么这些搜索条件要放在query中；如果你不希望一些搜索条件来影响你的document排序，那么就放在filter中即可
+- filter，不需要计算相关度分数，不需要按照相关度分数进行排序，同时还有内置的自动cache最常使用filter的数据
+- query，相反，要计算相关度分数，按照分数进行排序，而且无法cache结果
+
+```bash
+# 
+[elasticsearch@server03 elasticsearch]$ curl -X GET -H "Content-type:application/json" server01:9200/product/_search?pretty -d '{"query":{"constant_score":{"filter":{"term":{"desc":"sport"}}}}}'    
+{
+  "took" : 1,
+  "timed_out" : false,
+  "_shards" : {
+    "total" : 1,
+    "successful" : 1,
+    "skipped" : 0,
+    "failed" : 0
+  },
+  "hits" : {
+    "total" : {
+      "value" : 1,
+      "relation" : "eq"
+    },
+    "max_score" : 1.0,
+    "hits" : [
+      {
+        "_index" : "product",
+        "_type" : "_doc",
+        "_id" : "3",
+        "_score" : 1.0,
+        "_source" : {
+          "name" : "robert",
+          "age" : "11",
+          "desc" : "sport boy"
+        }
+      }
+    ]
+  }
+}
+```
+
+#### 组合查询：bool query
+
+可以组合多个查询条件，bool查询也是采用more_matches_is_better机制，因此满足must和should子句的文档将会合并起来计算分值
+
+must：必须满足子句（查询）必须出现在匹配的文档中，并计算相关度评分
+
+filter：过滤器，不计算相关度分数，
+
+should：可能满足
+
+must not：必须不满足，不计算相关度分数，not子句（查询）不得出现在匹配的文档中，这意味着计分被忽略
+
+```json
+{
+  "query": {
+    "bool": {
+        "must":     { "match": { "title": "how to make millions" }},
+        "must_not": { "match": { "tag":   "spam" }},
+        "should": [
+            { "match": { "tag": "starred" }}
+        ],
+        "filter": {
+          "bool": { 
+              "must": [
+                  { "range": { "date": { "gte": "2014-01-01" }}},
+                  { "range": { "price": { "gte": 29.99 }}}
+              ],
+              "must_not": [
+                  { "term": { "category": "ebooks" }}
+              ]
+          }
+        }
+    }
+  }
+}
+```
+

@@ -3395,6 +3395,9 @@ match_phrase会将关键字分词，match_phrase的分词结构必须在被检�
   }
 }
 # match_phrase：
+# 1.match_phrase关键字也会被分词
+# 2.被检索字段必须包含match_phrase中所有词项并且顺序必须是相同的
+# 3.被检索字段包含的match_phrase中的词项之间不能有其他词项
 # 1.如match搜索一样进行分词，
 # 2.对分词后的单词到field中去进行搜索。这一步返回每个单词对应的doc，并返回这些单词在对应的doc中的位置，
 # 3.对返回的doc进行第一步的筛选：所有的单词必须在同一个doc中。
@@ -3707,6 +3710,15 @@ minimum_should_match：参数指定should返回的文档必须匹配的子句的
 
 ## 分词器
 
+### 使用场合
+
+分词器主要有两种情况会被使用：
+第一种是插入文档时，将text类型的字段做分词然后插入倒排索引，
+第二种就是在查询时，先对要查询的text类型的输入做分词，再去倒排索引搜索
+如果想要让索引和查询时使用不同的分词器，ElasticSearch也是能支持的，只需要在字段上加上search_analyzer参数
+在索引时，只会去看字段有没有定义analyzer，有定义的话就用定义的，没定义就用ES预设的
+在查询时，会先去看字段有没有定义search_analyzer，如果没有定义，就去看有没有analyzer，再没有定义，才会去使用ES预设的
+
 ### 归一化：normalization
 
 normalization主要是用来提高查询的命中率的 我们知道es会将一段文字进行分词 形成倒排索引后存储 如下面的这句话：Mr. Ma is an excellent teacher. I‘m glad to meet him；如果搜索的关键字为Teacher 由于原文档中并没有Teacher这个单词 所以正常情况该搜索是无法命中的 所以这个时候就需要normalization来处理。normalization简单的来说就是将搜索条件中的一些不规范的词项进行规范化如将搜索条件中的大写字母转成小写字母 对搜索条件中的错误单词进行校正、去掉单词中的复数形式、去掉语气助词等等。
@@ -3714,3 +3726,2842 @@ normalization主要是用来提高查询的命中率的 我们知道es会将一�
 ![image](assets\middleware-24.png)
 
 ![image](assets\middleware-25.png)
+
+### 字符过滤器：Character Filter
+
+es的字符过滤器有三种html_strip、mapping、pattern_replace
+
+#### html_strip
+
+![image](assets\middleware-26.png)
+
+html_strip这种字符过滤器用于处理文本中的html标签 html_strip还可以通过属性指定哪些html需要保留 通过escaped_tags属性来设置要保留哪些html标签
+
+#### mapping
+
+mapping过滤器主要是将某些特定的词汇做一个转换
+
+![image](assets\middleware-27.png)
+
+![image](assets\middleware-28.png)
+
+#### **pattern_replace** 
+
+正则字符过滤器
+
+![image](assets\middleware-29.png)
+
+**备注上面几张截图的标注有问题 analyzer是分析器 tokenizer才是分词器**
+
+### 令牌过滤器：token filter
+
+同义词过滤
+
+创建同义词文件
+
+```bash
+[elasticsearch@server03 config]$ cd /usr/local/elasticsearch/config
+[elasticsearch@server03 config]$ mkdir analysis
+[elasticsearch@server03 config]$ cd analysis
+[elasticsearch@server03 analysis]$ cd analysis
+[elasticsearch@server03 analysis]$ vim synonyms.txt
+蒙丢丢,mengdiou => 蒙迪欧
+大G => 奔驰G级
+霸道 => 普拉多
+daG => prodo
+```
+
+```json
+PUT /test_index
+{
+  "settings": {
+    "analysis": {
+      "filter": {
+        "my_synonym":{
+          "type":"synonym",
+          "synonyms_path":"analysis/synonyms.txt"
+        }
+      }, 
+      "analyzer": {
+       "my_analyzer":{
+         "tokenizer":"ik_max_word",
+         "filter":["my_synonym"]
+       } 
+      }
+    }
+  }
+}
+GET test_index/_analyze
+{
+  "analyzer": "my_analyzer",
+  "text": ["蒙丢丢,大G,霸道,daG"]
+}
+```
+
+直接在query中指定synonyms的方式：
+
+```json
+PUT /test_index
+{
+  "settings": {
+    "analysis": {
+      "filter": {
+        "my_synonym":{
+          "type":"synonym",
+          "synonyms":["蒙丢丢,mengdiou => 蒙迪欧","大G => 奔驰G级"]
+        }
+      }, 
+      "analyzer": {
+       "my_analyzer":{
+         "tokenizer":"ik_max_word",
+         "filter":["my_synonym"]
+       } 
+      }
+    }
+  }
+}
+GET test_index/_analyze
+{
+  "analyzer": "my_analyzer",
+  "text": ["蒙丢丢,大G,霸道,daG"]
+}
+```
+
+大写换小写
+
+```json
+GET _analyze
+{
+  "tokenizer" : "standard",
+  "filter" : ["lowercase"],
+  "text" : "THE Quick FoX JUMPs"
+}
+```
+
+大写转小写
+
+```json
+GET _analyze
+{
+  "tokenizer" : "standard",
+  "filter" : ["uppercase"],
+  "text" : "the Quick FoX JUMPs"
+}
+```
+
+条件过滤：当单词的长度小于5则转大写
+
+```json
+GET test_index/_analyze
+{
+  "tokenizer": "standard",
+  "filter": {
+    "type":"condition",
+    "filter":"uppercase",
+    "script": {
+      "source": "token.getTerm().length() < 5"
+    }
+  },
+  "text": ["hello everybody come on"]
+}
+```
+
+### 分词器：tokenizer
+
+默认的英文分词器是：standard
+
+```json
+GET test_index/_analyze
+{
+  "tokenizer": "standard",
+  "text": ["Teacher me and you in the china"]
+}
+```
+
+### 自定义分词器
+
+说的自定义分词器其实是指的自定义分析器
+
+char_filter：内置或自定义字符过滤器
+
+token filter：内置或自定义token filter
+
+tokenizer：内置或自定义分词器
+
+![image](assets\middleware-30.png)
+
+![image](assets\middleware-31.png)
+
+### 中文分词器
+
+#### 下载
+
+```bash
+#ik分词器github地址 找到对应的版本下载
+https://github.com/medcl/elasticsearch-analysis-ik
+```
+
+#### 安装
+
+在es安装目录的home目录下找到对应的plugins目录
+
+cd到plugins目录 然后解压缩刚刚下载的ik分词器的文件夹 并重命名为ik
+
+重启es ik分词器安装完成
+
+```json
+GET test_index/_analyze
+{
+  "tokenizer": "ik_max_word",
+  "text": ["我是中国人"]
+}
+```
+
+#### 文件描述
+
+配置文件及词库位于config目录下
+
+IKAnalyzer.cfg.xml：IK分词配置文件
+
+主词库：main.dic
+
+英文停用词：stopword.dic，不会建立在倒排索引中
+
+特殊词库：
+
+quantifier.dic：特殊词库，计量单位等
+
+suffix.dic：特殊词库：后缀名
+
+surname.dic：特殊词库：百家姓
+
+preposition.dic：特殊词库：语气词
+
+自定义词库：网络词汇、流行词、自造词等
+
+#### 自定义扩展字典
+
+真实的业务场景中原生的ik分词器的字典中不包含某些特定的词汇，这个时候可以通过修改ik分词器的配置 自定义扩展字典。
+
+IKAnalyzer.cfg.xml
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE properties SYSTEM "http://java.sun.com/dtd/properties.dtd">
+<properties>
+        <comment>IK Analyzer 扩展配置</comment>
+        <!--用户可以在这里配置自己的扩展字典 -->
+        <entry key="ext_dict"></entry>
+         <!--用户可以在这里配置自己的扩展停止词字典-->
+        <entry key="ext_stopwords"></entry>
+        <!--用户可以在这里配置远程扩展字典 -->
+        <!-- <entry key="remote_ext_dict">words_location</entry> -->
+        <!--用户可以在这里配置远程扩展停止词字典-->
+        <!-- <entry key="remote_ext_stopwords">words_location</entry> -->
+</properties>
+```
+
+例如：
+
+![image](assets\middleware-32.png)
+
+ik分词器热更新方法
+
+上面的方式虽然能够扩展字典，但是每次更新自定义词典都需要重启es, ik分词目前支持热更新
+
+![image](assets\middleware-33.png)
+
+基于MySQL的热词更新
+
+需要修改IK源码
+
+## 聚合查询
+
+### 聚合分类
+
+#### 分桶聚合
+
+Bucket agregations
+
+相当于sql的group by 能按照某一个或多个条件，对数据进行分桶（分组），默认返回数据的count（计数）条数，但实际上，可以理解为数据被分桶了，方便后面的聚合或者统计操作
+
+#### 指标聚合
+
+Metrics agregations
+
+就是对分桶，或者未分桶的数据进行计算，例如avg求平均值，MAX最大值，min最小值，value count 计数 cardinality 基数 去重 starts 统计聚合等
+
+#### 管道聚合
+
+Pipeline agregations
+
+基于聚合结果的查询，分桶有可能是多层的，也有可能和指标是嵌套的，管道聚合可以根据路径（分桶和指标聚合时候的命名路径）对数据进行有针对性的操作，例如排序
+
+创建索引
+
+```json
+PUT product
+{
+  "mappings": {
+      "properties": { 
+      "createtime": {
+        "type":"date"
+      },
+      "desc": {
+        "type":"text",
+        "fields":{
+          "keyword":{
+            "type":"keyword",
+            "ignore_above":256
+          }
+        },
+        "analyzer":"ik_max_word"
+      },
+      "lv": {
+        "type":"text",
+        "fields":{
+          "keyword":{
+            "type":"keyword",
+            "ignore_above":256
+          }
+        }
+      },
+      "name": {
+        "type":"text",
+        "fields":{
+          "keyword":{
+            "type":"keyword",
+            "ignore_above":256
+          }
+        },
+        "analyzer":"ik_max_word"
+      },
+     "price": {
+        "type":"long"
+      },
+      "tags": {
+        "type":"text",
+        "fields":{
+          "keyword":{
+            "type":"keyword",
+            "ignore_above":256
+          }
+        }
+      },
+      "type": {
+        "type":"text",
+        "fields":{
+          "keyword":{
+            "type":"keyword",
+            "ignore_above":256
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+插入数据
+
+```json
+PUT /product/_doc/1
+{
+    "name" : "小米手机",
+    "desc" :  "手机中的战斗机",
+    "price" :  3999,
+    "lv":"旗舰机",
+    "type":"手机",
+    "createtime":"2020-10-01T08:00:00Z",
+    "tags": [ "性价比", "发烧", "不卡顿" ]
+}
+PUT /product/_doc/2
+{
+    "name" : "小米NFC手机",
+    "desc" :  "支持全功能NFC，手机中的滑翔机",
+    "price" :  4999,
+        "lv":"旗舰机",
+    "type":"手机",
+    "createtime":"2020-05-21T08:00:00Z",
+    "tags": [ "性价比", "发烧", "公交卡" ]
+}
+PUT /product/_doc/3
+{
+    "name" : "NFC手机",
+    "desc" :  "手机中的轰炸机",
+    "price" :  2999,
+        "lv":"高端机",
+    "type":"手机",
+    "createtime":"2020-06-20",
+    "tags": [ "性价比", "快充", "门禁卡" ]
+}
+PUT /product/_doc/4
+{
+    "name" : "小米耳机",
+    "desc" :  "耳机中的黄焖鸡",
+    "price" :  999,
+        "lv":"百元机",
+    "type":"耳机",
+    "createtime":"2020-06-23",
+    "tags": [ "降噪", "防水", "蓝牙" ]
+}
+PUT /product/_doc/5
+{
+    "name" : "红米耳机",
+    "desc" :  "耳机中的肯德基",
+    "price" :  399,
+    "type":"耳机",
+        "lv":"百元机",
+    "createtime":"2020-07-20",
+    "tags": [ "防火", "低音炮", "听声辨位" ]
+}
+PUT /product/_doc/6
+{
+    "name" : "小米手机12",
+    "desc" :  "充电贼快掉电更快，超级无敌望远镜，高刷电竞屏",
+    "price" :  5999,
+        "lv":"旗舰机",
+    "type":"手机",
+    "createtime":"2020-07-27",
+    "tags": [ "120HZ刷新率", "120W快充", "120倍变焦" ]
+}
+PUT /product/_doc/7
+{
+    "name" : "挨炮 SE2",
+    "desc" :  "除了CPU，一无是处",
+    "price" :  3299,
+        "lv":"旗舰机",
+    "type":"手机",
+    "createtime":"2020-07-21",
+    "tags": [ "割韭菜", "割韭菜", "割新韭菜" ]
+}
+PUT /product/_doc/8
+{
+    "name" : "XS Max",
+    "desc" :  "听说要出新款15手机了，终于可以换掉手中的4S了",
+    "price" :  4399,
+        "lv":"旗舰机",
+    "type":"手机",
+    "createtime":"2020-08-19",
+    "tags": [ "5V1A", "4G全网通", "大" ]
+}
+PUT /product/_doc/9
+{
+    "name" : "小米电视",
+    "desc" :  "70寸性价比只选，不要一万八，要不要八千八，只要两千九百九十八",
+    "price" :  2998,
+        "lv":"高端机",
+    "type":"电视",
+    "createtime":"2020-08-16",
+    "tags": [ "巨馍", "家庭影院", "游戏" ]
+}
+PUT /product/_doc/10
+{
+    "name" : "红米电视",
+    "desc" :  "我比上边那个更划算，我也2998，我也70寸，但是我更好看",
+    "price" :  2999,
+    "type":"电视",
+        "lv":"高端机",
+    "createtime":"2020-08-28",
+    "tags": [ "大片", "蓝光8K", "超薄" ]
+}
+PUT /product/_doc/11
+{
+  "name": "红米电视",
+  "desc": "我比上边那个更划算，我也2998，我也70寸，但是我更好看",
+  "price": "2998",
+  "type": "电视",
+  "lv": "高端机",
+  "createtime": "2020-08-28",
+  "tags": [
+    "大片",
+    "蓝光8K",
+    "超薄"
+  ]
+}
+```
+
+验证插入结果
+
+```json
+GET product/_search?size=20
+```
+
+
+
+### 分桶聚合
+
+统计不同标签的商品数量
+
+```json
+GET product/_search
+{
+  "size": 0,
+  "aggs":{
+      "agg_tag":{
+        "terms":{
+        "field":"tags.keyword",
+        "size":30,
+        "order": {
+          "_count": "asc"
+        }
+      }
+    } 
+  }
+}
+```
+
+### 指标聚合
+
+```json
+GET product/_search
+{
+  "size": 0,
+  "aggs": {
+    "max_price": {
+      "max": {
+        "field": "price"
+      }
+    },
+    "min_price": {
+      "min": {
+        "field": "price"
+      }
+    },
+    "avg_price": {
+      "avg": {
+        "field": "price"
+      }
+    },
+    "sum_price": {
+      "sum": {
+        "field": "price"
+      }
+    },
+    "count": {
+      "value_count": {
+        "field": "price"
+      }
+    }
+  }
+}
+# 查询所有指标
+GET product/_search
+{
+  "size":0,
+  "aggs":{
+    "price_stats":{
+      "stats":{
+        "field":"price"
+      }
+    }
+  }
+}
+
+# 按照name去重后的数量
+GET product/_search
+{
+  "size":0,
+  "aggs":{
+    "name_count":{
+      "cardinality":{
+        "field":"name.keyword"
+      }
+    }
+  }
+}
+```
+
+### 管道聚合
+
+![image](assets\middleware-34.png)
+
+```json
+# 统计平均价格最低的商品分类
+GET product/_search
+{
+  "size":0,
+  "aggs":{
+    "type_bucket":{
+      "terms":{
+        "field":"type.keyword"
+      },
+      "aggs": {
+        "price_bucket": {
+          "avg": {
+            "field": "price"
+          }
+        }
+      }
+    },
+    "min_bucket":{
+      "min_bucket": {
+        "buckets_path": "type_bucket>price_bucket"
+      }
+    }
+  }
+}
+```
+
+### 嵌套聚合
+
+根据商品的type，和lv（级别）进行分桶（嵌套），利用avg函数对价格计算平均值，利用管道查出分桶平均后的最小值
+
+```json
+GET product/_search
+{
+  "size": 0,
+  "aggs": {
+    "type": {
+      "terms": {
+        "field": "type.keyword"
+      },
+      "aggs": {
+        "lv": {
+          "terms": {
+            "field": "lv.keyword"
+          },
+          "aggs": {
+            "price_avg": {
+              "avg": {
+                "field": "price"
+              }
+            }
+          }
+        },
+        "price_min": {
+          "min_bucket": {
+            "buckets_path": "lv>price_avg"
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+### 基于查询结果的聚合
+
+可以再aggs同级下添加 查询或筛选条件，对分桶的数据进行条件限制
+
+如添加条件筛选，按标签分桶，限制价格区间
+
+```json
+GET product/_search
+{
+  "query": {
+    "range": {
+      "price": {
+        "gte": 2000,
+        "lte": 6000
+      } 
+    }
+  }, 
+  "aggs": {
+    "type_lv": {
+      "terms": {
+        "field": "type.keyword"
+      }
+    }
+  }
+}
+```
+
+用过滤器先进行过滤然后分桶
+
+```json
+GET product/_search
+{
+  "query": {
+    "bool": {
+      "filter": [
+        {
+          "range": {
+            "price": {
+              "gte": 10,
+              "lte": 2000
+            }
+          }
+          
+        }
+      ]
+    }
+  },
+  "aggs": {
+    "type_lv": {
+      "terms": {
+        "field": "type.keyword"
+      }
+    }
+  }
+}
+```
+
+对分桶的部分结果，取消查询或筛选条件的限制
+
+global 阻断 上面的查询条件；如果多维度统计 有些需要过滤之后统计，有些不需要
+
+```json
+GET product/_search
+{
+  "size": 0,
+  "query": {"range": {
+    "price": {
+      "gte": 1000
+      }
+  }}, 
+  "aggs": {
+    "max": {
+      "max": {
+        "field": "price"
+      }
+    },
+    "min": {
+      "min": {
+        "field": "price"
+      }
+    },
+    "avg": {
+      "global": {}, 
+      "aggs": {
+        "price_avg": {
+          "avg": {
+            "field": "price"
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+不同的指标聚合 有的根据筛选聚合 有的全量数据聚合
+
+```json
+GET product/_search
+{
+  "size": 0,
+  "aggs": {
+    "max": {
+      "max": {
+        "field": "price"
+      }
+    },
+    "min": {
+      "min": {
+        "field": "price"
+      }
+    },
+    "avg": {
+      "filter": {
+        "range": {
+          "price": {
+            "gte": 1000
+          }
+        }
+      },
+      "aggs": {
+        "price_avg": {
+          "avg": {
+            "field": "price"
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+### 基于聚合结果的查询
+
+```json
+GET product/_search
+{
+  "post_filter": {
+    "term": {
+      "tags.keyword": "性价比"
+    }
+  },
+  "aggs": {
+    "lv": {
+      "terms": {
+        "field": "tags.keyword"
+      }
+    }
+  }
+}
+```
+
+### 基于聚合的排序
+
+按照count排序
+
+```json
+GET product/_search
+{
+  "size": 0,
+  "aggs": {
+    "tag_bucket":{
+      "terms": {
+        "field": "tags.keyword",
+        "size": 10,
+        "order": {
+          "_count": "asc"
+        }
+      }
+    }
+  }
+}
+```
+
+多级排序
+
+```json
+GET product/_search
+{
+  "size": 0,
+  "aggs": {
+    "type_first_order":{
+      "terms": {
+        "field": "type.keyword",
+        "order": {
+          "_term": "asc"
+        }
+      },
+      "aggs": {
+        "lv_second_order": {
+          "terms": {
+            "field": "lv.keyword",
+             "order": {
+              "_key": "asc"
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+多级聚合
+
+```json
+GET product/_search
+{
+  "size": 0,
+  "aggs": {
+    "type_stats_price": {
+      "terms": {
+        "field": "type.keyword",
+        "order": {
+          "aggs_price>stats.sum": "asc"
+        }
+      },
+      "aggs": {
+        "aggs_price": {
+          "filter": {
+            "terms": {
+              "type.keyword": ["耳机","手机","电视"]
+            }
+          },
+          "aggs": {
+            "stats": {
+              "stats": {
+                "field": "price"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+## 脚本查询
+
+### 索引备份
+
+```bash
+[elasticsearch@server01 elasticsearch]$ curl -X POST server01:9200/_reindex?pretty -H 'Content-Type: application/json' -d '{"source": {"index": "product"},"dest": {"index": "product2"}}'
+{
+  "took" : 845,
+  "timed_out" : false,
+  "total" : 11,
+  "updated" : 0,
+  "created" : 11,
+  "deleted" : 0,
+  "batches" : 1,
+  "version_conflicts" : 0,
+  "noops" : 0,
+  "retries" : {
+    "bulk" : 0,
+    "search" : 0
+  },
+  "throttled_millis" : 0,
+  "requests_per_second" : -1.0,
+  "throttled_until_millis" : 0,
+  "failures" : [ ]
+}
+```
+
+Scripting是es支持的一种专门**用于复杂场景**下**支持自定义编程**的强大的**脚本功能**。es5.0之后默认语言是painless
+
+```json
+// 语法：ctx._source.<field-name>    ctx可以理解为上下文
+// 将doc为2数据的price属性-1
+// 修改属性要使用post请求
+// POST product/_update/2
+{
+  "script": {
+    "source": "ctx._source.price-=1"
+  }
+}
+// GET product/_doc/2
+```
+
+### Scripting的CRUD
+
+新增
+
+```json
+// 将id为6数据的tags属性新增无线充电标签
+// POST product/_update/6
+{
+  "script": {
+    "lang": "painless",
+    "source": "ctx._source.tags.add('无线充电')"
+  }
+}
+```
+
+删除：
+
+```json
+// 将id为11的数据删除
+// POST product/_update/11
+{
+  "script": {
+    "lang": "painless",
+    "source": "ctx.op='delete'"
+  }
+}
+```
+
+upsert：
+
+```json
+// upsert 当需要修的数据存在时执行update操作，当数据不存在时执行insert操作
+// POST product/_update/15
+{
+  "script": {
+    "lang": "painless",
+    "source": "ctx._source.price+=100"
+  },
+  "upsert": {
+    "name" : "小米手机10",
+    "desc" : "充电贼快掉电更快，超级无敌望远镜，高刷电竞屏",
+    "price" : "1599"
+  }
+}
+```
+
+select:
+
+```json
+// GET product/_search
+{
+  "script_fields": {
+    "my_price": {
+      "script": {
+        "lang": "painless",
+        "source": "doc['price']*0.9"
+      }
+    }
+  }
+}
+```
+
+### 参数化脚本
+
+```json
+// POST product/_update/6
+{
+  "script": {
+    "lang": "painless",
+    "source": "ctx._source.tags.add(params.tag_name)",
+    "params": {
+      "tag_name":"无线秒充"
+    }
+  }
+}
+
+// GET product/_search
+{
+  "script_fields": {
+    "my_price": {
+      "script": {
+        "lang": "painless",
+        "source": "doc['price'].value * params.num",
+        "params": {
+          "num":9
+        }
+      }
+    }
+  }
+}
+
+// GET product/_search
+{
+  "script_fields": {
+    "price":{
+      "script": {
+        "lang": "painless",
+        "source": "doc['price'].value"
+      }
+    },
+    "discount_price": {
+      "script": {
+        "lang": "painless",
+        "source": "[doc['price'].value * params.discount_8,doc['price'].value * params.discount_7,doc['price'].value * params.discount_6,doc['price'].value * params.discount_5]",
+        "params": {
+          "discount_8":0.8,
+          "discount_7":0.7,
+          "discount_6":0.6,
+          "discount_5":0.5
+        }
+      }
+    }
+  }
+}
+```
+
+### Scripts模板
+
+```json
+// POST _scripts/calculate_discount
+{
+  "script": {
+    "lang": "painless",
+    "source": "doc.price.value * params.discount"
+  }
+}
+
+// GET _scripts/calculate_discount
+
+// GET product/_search
+{
+  "script_fields": {
+    "discount_fields": {
+      "script": {
+        "id": "calculate_discount",
+        "params": {
+          "discount":0.8
+        }
+      }
+    }
+  }
+}
+```
+
+### 函数式编程
+
+```json
+// """xxx"""相当于java中的{}
+// POST product/_update/1
+{
+  "script": {
+    "lang": "painless",
+    "source": """       
+          ctx._source.tags.add(params.tag_name);
+          ctx._source.price-=100;
+        """,
+    "params": {
+      "tag_name": "无线充电"
+    }
+  }
+}
+```
+
+统计所有价格小于1000的商品的tag的数量 不考虑重复的情况
+
+```json
+// GET product/_search
+{
+  "query": {
+    "constant_score": {
+      "filter": {
+        "range": {
+          "price": {
+            "lt": 1000
+          }
+        }
+      }
+    }
+  },
+  "aggs": {
+    "tag_agg": {
+      "sum": {
+        "script": {
+          "source": """
+            int total = 0;
+            for(int i=0;i<doc['tags.keyword'].length;i++){
+              total++;
+            }
+            return total;
+          """
+        }
+      }
+    }
+  }
+}
+```
+
+### 案例
+
+插入数据
+
+```json
+PUT test_index/_bulk?refresh
+{"index":{"_id":1}}
+{"ajbh": "12345","ajmc": "立案案件","lasj": "2020/05/21 13:25:23","jsbax_sjjh2_xz_ryjbxx_cleaning": [{"XM": "张三","NL": "30","SF": "男"},{"XM": "李四","NL": "31","SF": "男"},{"XM": "王五","NL": "30","SF": "女"},{"XM": "赵六","NL": 23,"SF": "男"}]}
+{"index":{"_id":2}}
+{"ajbh": "563245","ajmc": "结案案件","lasj": "2020/05/21 13:25:23","jsbax_sjjh2_xz_ryjbxx_cleaning": [{"XM": "张三2","NL": "30","SF": "男"},{"XM": "李四2","NL": "31","SF": "男"},{"XM": "王五2","NL": "30","SF": "女"},{"XM": "赵六2","NL": "23","SF": "女"}]}
+{"index":{"_id":3}}
+{"ajbh": "12345","ajmc": "立案案件","lasj": "2020/05/21 13:25:23","jsbax_sjjh2_xz_ryjbxx_cleaning": [{"XM": "张三3","NL": "30","SF": "男"},{"XM": "李四3","NL": "31","SF": "男"},{"XM": "王五3","NL": "30","SF": "女"},{"XM": "赵六3","NL": "23","SF": "男"}]}
+```
+
+统计男性嫌疑人的数量
+
+```json
+// GET test_index/_search
+{
+  "size": 0,
+  "aggs": {
+    "sum_persion": {
+      "sum": {
+        "script": {
+          "source": """
+          int total = 0;
+          for(int i=0;i<params['_source']['jsbax_sjjh2_xz_ryjbxx_cleaning'].length;i++){
+            if(params['_source']['jsbax_sjjh2_xz_ryjbxx_cleaning'][i]['SF']=="男"){
+              total+=1;
+            }
+          }
+          return total;
+          """
+        }
+      }
+    }
+  }
+}
+```
+
+>**注意：doc['field'].value和params['_source']['field']的区别**
+>
+>doc['field'].value只能用于简单类型不适用于复杂类型，如nested
+>
+>而params['_source']['field']适用于复杂类型
+
+## 索引的批量操作
+
+### 基于mget的批量查询
+
+```json
+// GET /_mget
+{
+  "docs":[
+    {
+      "_index":"product",
+      "_id":2
+    },
+    {
+      "_index":"product",
+      "_id":3
+    }
+  ]
+}
+```
+
+```json
+// GET product/_mget
+{
+  "docs":[
+    {
+      "_id":2
+    },
+    {
+      "_id":3
+    }
+  ]
+}
+```
+
+```json
+// GET product/_mget
+{
+  "ids":[2,3]
+}
+```
+
+```json
+// GET product/_mget
+{
+  "docs":[
+    {
+      "_id":2,
+      "_source":["name","price"]
+    },
+    {
+      "_id":3,
+      "_source":{
+        "include":["name","price"],
+        "exclude":["price","type"]
+      }
+    }
+  ]
+}
+```
+
+### 基于bulk的批量增删改
+
+文档的操作类型
+
+create：不存在则创建，存在则报错
+
+```json
+// PUT test_index2/_doc/1
+// 创建索引：test_index2并且新增id为1的doc
+{
+  "test_field":"test",
+  "test_title":"title"
+}
+// 再创建id为1的doc会报错
+// PUT test_index2/_doc/1/_create
+{
+  "test_field":"test",
+  "test_title":"title"
+}
+// 创建id为2的doc成功
+// PUT test_index2/_doc/2/_create
+{
+  "test_field":"test",
+  "test_title":"title"
+}
+// 创建id为3的doc成功
+PUT test_index2/_create/3
+{
+  "test_field":"test",
+  "test_title":"title"
+}
+// 使用POST的方式在创建doc的同时自动创建索引
+POST test_index2/_doc
+{
+  "test_field":"test",
+  "test_title":"title"
+}
+```
+
+delete：删除文档
+
+update：全量替换或部分更新
+
+index：索引（动词）
+
+```json
+// index可以创建也可以全量替换
+// id=2的数据存在执行的是全量替换
+// PUT /test_index2/_doc/2?op_type=index
+{
+  "test_field":"update test",
+  "test_title":"update title"
+}
+// id=4的数据不存在执行的是新增操作
+// PUT /test_index2/_doc/4?op_type=index
+{
+  "test_field":"insert test",
+  "test_title":"insert title"
+}
+
+```
+
+批量操作
+
+```json
+// POST _bulk?filter_path=items.*.error
+// id为2的doc存在所以新增会报错
+{"create":{"_index":"product","_id":2}}
+{"name":"_bulk create"}
+{"create":{"_index":"product","_id":12}}
+{"name":"_bulk create"}
+{"delete":{"_index":"product","_id":3}}
+{"delete":{"_index":"product","_id":13}}
+// id为3的doc不存在所以更新会报错
+{"update":{"_index":"product","_id":3}}
+{"doc":{"name":"_bulk delete"}}
+{"update":{"_index":"product","_id":4}}
+{"doc":{"name":"_bulk delete"}}
+```
+
+## 模糊查询
+
+### prefix：前缀搜索
+
+前缀搜索匹配的是term，而不是field，即前缀搜索是匹配doc中切词后的词典中有没有以关键字开头的词
+
+前缀搜索的性能很差
+
+前缀搜索没有缓存
+
+```json
+// PUT my_index
+{
+  "mappings" : {
+    "properties" : {
+      "text" : {
+        "analyzer": "ik_max_word", 
+        "type" : "text",
+        "fields" : {
+          "keyword" : {
+            "type" : "keyword",
+            "ignore_above" : 256
+          }
+        }
+      }
+    }
+  }
+}
+
+// POST /my_index/_bulk?filter_path=items.*.error
+{"index":{"_id":"1"}}
+{"text":"城管打电话喊商贩去摆摊摊"}
+{"index":{"_id":"2"}}
+{"text":"笑果文化回应商贩老农去摆摊"}
+{"index":{"_id":"3"}}
+{"text":"老农耗时17年种出椅子树"}
+{"index":{"_id":"4"}}
+{"text":"夫妻结婚30多年AA制,被城管抓"}
+{"index":{"_id":"5"}}
+{"text":"黑人见义勇为阻止抢劫反被铐住"}
+
+// GET my_index/_search
+{
+  "query": {
+    "prefix": {
+      "text": {
+        "value": "城管"
+      }                       
+    }
+  }
+}
+```
+
+### wildcard：通配符
+
+使用*匹配零个或多个字符，语法与prefix相同。同样也是匹配term分词后的数据，而不是直接匹配字段中的数据
+
+```json
+// POST /my_index/_bulk?filter_path=items.*.error
+{"index":{"_id":"1"}}
+{"text":"my english teacher"}
+{"index":{"_id":"2"}}
+{"text":"my chinese teacher"}
+{"index":{"_id":"3"}}
+{"text":"my japanese teacher"}
+{"index":{"_id":"4"}}
+{"text":"english is pool"}
+{"index":{"_id":"5"}}
+{"text":"this is english version"}
+
+// GET my_index/_search
+{
+  "query": {
+    "wildcard": {
+      "text": {
+        "value": "en*h"
+      }                       
+    }
+  }
+}
+```
+
+### regexp：正则表达式
+
+```json
+// GET my_index/_search
+{
+  "query": {
+    "regexp": {
+      "text": "[\\s\\S]*chinese[\\s\\S]*"
+    }
+  }
+}
+```
+
+### fuzzy：模糊查询
+
+fuzzy搜索关键字是不切词的
+
+混淆字符(box->fox)
+
+缺少字符(black->lack)
+
+多出字符(sic->sick)
+
+颠倒字符(act->cat)
+
+```json
+GET my_index/_search
+{
+  "query": {
+    "fuzzy": {
+      "text":{
+        "value": "engilsh",
+        "fuzziness":1
+      }
+    }
+  }
+}
+```
+
+value：关键字
+
+fuzziness：编辑距离，(0,1,2)并非越大越好，召回率高但结果不准确
+
+- 两段文本之间的Damerau-Levenshtein距离是使一个字符串与另一个字符串匹配所需的插入、删除、替换和调换的数量
+- 距离公式：Levenshtein是lucene的，es改进版：Damerau-Levenshtein，
+- 例如：axe=>aex，Levenshtein=2，Damerau-Levenshtein=1
+- 默认为auto，es会根据你的关键字的长度从1-20动态给值
+
+transpositions：指示编辑是否包含两个相邻字符的变位（ab->ba）。默认为true。如果设置为false相当于使用Levenshtein计算公式
+
+### match_phrase_prefix：短语前缀
+
+match_phrase_prefix与match_phrase相同,但是它多了一个特性,就是它允许在文本的最后一个词项(term)上的前缀匹配,如果 是一个单词,比如a,它会匹配文档字段所有以a开头的文档,如果是一个短语,比如 "this is ma" ,它先会在倒排索引中做以ma做前缀索引，然后在匹配到的doc中做match_phrase。
+
+```json
+// GET my_index/_search
+{
+  "query": {
+    "match_phrase_prefix": {
+      "text": "this is eng"
+    }
+  }
+}
+
+// GET my_index/_search
+{
+  "query": {
+    "match_phrase_prefix": {
+      "text": {
+        "query":"is this eng",
+        "slop":2
+      }
+    }
+  }
+}
+```
+
+max_expansions：最后一个term做前缀匹配时的最大拓展数，默认是50
+
+slop：与match_phrase的slop相同，允许term之间的最大间隔；即：slop告诉match_phrase查询词条相隔多远时仍然能将文档视为匹配，意思是需要移动一个词条多少次来让查询和文档匹配
+
+### ngram
+
+```json
+// DELETE my_index
+
+// PUT my_index
+{
+  "settings": {
+    "analysis": {
+      "filter": {
+        "2_3_ngram":{
+          "type":"ngram",
+          "min_gram":2,
+          "max_gram":3
+        }
+      }, 
+      "analyzer": {
+       "my_ngram":{
+         "type":"custom",
+         "tokenizer":"standard",
+         "filter":["2_3_ngram"]
+       } 
+      }
+    }
+  },
+  "mappings": {
+    "properties": {
+      "text":{
+        "type":"text",
+        "analyzer": "my_ngram",
+        "search_analyzer":"standard"
+      }
+    }
+  }
+}
+
+// GET my_index/_mapping
+
+// POST /my_index/_bulk
+{"index":{"_id":"1"}}
+{"text":"my english"}
+{"index":{"_id":"2"}}
+{"text":"my english is good"}
+{"index":{"_id":"3"}}
+{"text":"my chinese is good"}
+{"index":{"_id":"4"}}
+{"text":"my japanese is nice"}
+{"index":{"_id":"5"}}
+{"text":"my disk is full"}
+
+
+// GET my_index/_search
+
+// GET /my_index/_search
+{
+  "query": {
+    "match_phrase": {
+      "text": "my eng is goo"
+    }
+  }
+}
+```
+
+### edge_ngram
+
+```json
+// DELETE my_index
+
+// PUT my_index
+{
+  "settings": {
+    "analysis": {
+      "filter": {
+        "2_3_edge_ngram":{
+          "type":"edge_ngram",
+          "min_gram":2,
+          "max_gram":3
+        }
+      }, 
+      "analyzer": {
+       "my_ngram":{
+         "type":"custom",
+         "tokenizer":"standard",
+         "filter":["2_3_edge_ngram"]
+       } 
+      }
+    }
+  },
+  "mappings": {
+    "properties": {
+      "text":{
+        "type":"text",
+        "analyzer": "my_ngram",
+        "search_analyzer":"standard"
+      }
+    }
+  }
+}
+
+// GET my_index/_mapping
+
+// POST /my_index/_bulk
+{"index":{"_id":"1"}}
+{"text":"my english"}
+{"index":{"_id":"2"}}
+{"text":"my english is good"}
+{"index":{"_id":"3"}}
+{"text":"my chinese is good"}
+{"index":{"_id":"4"}}
+{"text":"my japanese is nice"}
+{"index":{"_id":"5"}}
+{"text":"my disk is full"}
+
+
+// GET my_index/_search
+
+// GET /my_index/_search
+{
+  "query": {
+    "match_phrase": {
+      "text": "my eng is goo"
+    }
+  }
+}
+
+// GET /my_index/_search
+{
+  "query": {
+    "match_phrase": {
+      "text": "my ng is goo"
+    }
+  }
+}
+```
+
+edge_ngram的分词器，就是从首字开始，按步长，逐字符分词，直至最终结尾文字；
+
+ngram呢，就不仅是从首字开始，而是逐字开始按步长，逐字符分词。
+
+如果必须首字匹配的情况，那么用edge_ngram自然是最佳选择，如果需要文中任意字符的匹配，ngram就更为合适了。
+
+## 搜索推荐
+
+### 概述
+
+搜索一般都会要求具有“搜索推荐”或者叫“搜索补全”的功能，即在用户输入搜索的过程中，进行自动补全或者纠错。以此来提高搜索文档的匹配精准度，进而提升用户的搜索体验，这就是Suggester
+
+### Term Suggester
+
+只基于tokenizer之后的单个term去匹配建议词，并不会考虑多个term之间的关系
+
+1. text : 要查询的text,可以全局设置可以局部设置
+2. field: 查找提示词使用的field,可以全局设置可以局部设置
+3. analyzer: 分词器用来分词suggest text。默认为suggest字段的搜索分词器。
+4. size: 每个suggest text token 将返回的最大更正数。
+5. sort: 定义如何按suggest text term对suggest进行排序。两个可能的值：
+   1. 分数score ：首先按分数排序，然后记录频次，然后是词条本身。
+   2. 频次frequency ：先按文档频次排序，然后按相似性得分排序，然后再按term本身排序。
+6. suggest_mode: suggest_mode控制要包括的suggest，或控制suggest的文本term和suggest的控制。可以指定三个可能的值：
+   1. missing：仅对未在索引中的suggest text term提供suggest。这是默认值。
+   2. popular：仅suggest哪些比原始suggest text term在更多的文档中出现的term。
+   3. always：根据suggest text中的term suggest任何匹配的suggest。
+
+```json
+// DELETE my_index
+
+// POST _bulk
+{"index":{"_index":"my_index","_id":1}}
+{"title":"baoqiang4"}
+{"index":{"_index":"my_index","_id":2}}
+{"title":"baoqiang4 baoqiang3"}
+{"index":{"_index":"my_index","_id":3}}
+{"title":"baoqiang4 baoqiang3 baoqiang2"}
+{"index":{"_index":"my_index","_id":4}}
+{"title":"baoqiang4 baoqiang3 baoqiang2 baoqiang"}
+
+// POST /my_index/_search
+{
+  "suggest": {
+    "first_suggest": {
+      "text": "baoqian baoqiang baoqiang2",
+      "term": {
+        "suggest_mode":"always",
+        "field": "title"
+      }
+    },
+    "second_suggest": {
+      "text": "baoqian baoqiang baoqiang2 baoqiang3",
+      "term": {
+        "suggest_mode":"popular",
+        "field": "title"
+      }
+    },
+    "thrid_suggest": {
+      "text": "baoqian baoqiang",
+      "term": {
+        "suggest_mode":"missing",
+        "field": "title"
+      }
+    }
+  }
+}
+```
+
+>Term Suggester中suggest_mode的含义跟官方给出的定义不一致：
+>
+>比如上面second_suggest的结果跟预期不符
+>
+>Term Suggester一般应用得比较少
+
+### Phrase suggester
+
+term suggester可以对单个term进行建议或者纠错，不会考虑多个term之间的关系，但是phrase suggester在term suggester的基础上，考虑多个term之间的关系，比如是否同时出现在一个索引原文中，相邻程度以及词频等。
+
+```json
+// DELETE my_index
+
+//PUT my_index
+{
+  "settings": {
+    "number_of_shards": 1, 
+    "number_of_replicas": 0,
+    "analysis": {
+      "filter": {
+        "shingle":{
+          "type":"shingle",
+          "min_shingle_size":2,
+          "max_shingle_size":3
+        }
+      }, 
+      "analyzer": {
+       "trigram":{
+         "type":"custom",
+         "tokenizer":"standard",
+         "filter":[
+           "lowercase",
+           "shingle"
+          ]
+       } 
+      }
+    }
+  },
+  "mappings": {
+    "properties": {
+      "title":{
+        "type":"text",
+        "fields": {
+          "trigram":{
+            "type":"text",
+            "analyzer":"trigram"
+          }
+        }
+      }
+    }
+  }
+}
+
+// POST _bulk
+{"index":{"_index":"my_index","_id":1}}
+{"title":"lucene and elasticsearch"}
+{"index":{"_index":"my_index","_id":2}}
+{"title":"lucene and elasticsearhc"}
+{"index":{"_index":"my_index","_id":3}}
+{"title":"luceen and elasticsearch"}
+
+// GET my_index/_analyze
+{
+  "analyzer": "trigram",
+  "text":"lucene and elastcsearch"
+}
+
+// POST my_index/_search
+{
+  "suggest": {
+    "text": "Luceen and elasticsearhc",
+    "simple_phrase":{
+      "phrase":{
+        "field":"title.trigram",
+        "max_errors":1,
+        "direct_generator":[
+          {
+            "field":"title.trigram",
+            "suggest_mode":"always"
+          }
+        ],
+        "highlight":{
+          "pre_tag":"<em>",
+          "post_tag":"</em>"
+        }
+      }
+    }
+  }
+}
+```
+
+### Completion suggester
+
+基于内存，性能高，需要结合特定的Completion类型，只适合前缀推荐
+
+```json
+// PUT my_index
+{
+  "mappings": {
+    "properties": {
+      "title":{
+        "type":"text",
+        "analyzer": "ik_max_word",
+        "fields": {
+          "suggest":{
+            "type":"completion",
+            "analyzer":"ik_max_word"
+          }
+        }
+      },
+      "content":{
+        "type":"text",
+        "analyzer":"ik_max_word"
+      }
+    }
+  }
+}
+
+// POST /my_index/_bulk
+{"index":{"_id":"1"}}
+{"title":"宝马X5 两万公里准新车","content":"这里是宝马X5图文描述"}
+{"index":{"_id":"2"}}
+{"title":"宝马5系列","content":"这里是奥迪A6图文描述"}
+{"index":{"_id":"3"}}
+{"title":"宝马3系列","content":"这里是奔驰图文描述"}
+{"index":{"_id":"4"}}
+{"title":"奥迪Q5 两万公里准新车","content":"这里是宝马X5图文描述"}
+{"index":{"_id":"5"}}
+{"title":"奥迪Q6 无敌车况","content":"这里是奥迪A6图文描述"}
+{"index":{"_id":"1"}}
+{"title":"宝马X5 两万公里准新车","content":"这里是宝马X5图文描述"}
+{"index":{"_id":"6"}}
+{"title":"奥迪双钻","content":"这里是奔驰图文描述"}
+{"index":{"_id":"7"}}
+{"title":"奔驰AMG 两万公里准新车","content":"这里是宝马X5图文描述"}
+{"index":{"_id":"8"}}
+{"title":"奔驰大G 无敌车况","content":"这里是奥迪A6图文描述"}
+{"index":{"_id":"9"}}
+{"title":"奔驰C260","content":"这里是奔驰图文描述"}
+{"index":{"_id":"10"}}
+{"title":"nir奔驰C260","content":"这里是奔驰图文描述"}
+
+
+// GET /my_index/_search
+{
+  "suggest": {
+    "car_suggest": {
+      "prefix":"奥迪",
+      "completion":{
+        "field":"title.suggest"
+      }
+    }
+  }
+}
+
+// GET /my_index/_search
+{
+  "suggest": {
+    "car_suggest": {
+      "prefix":"宝马5系",
+      "completion":{
+        "field":"title.suggest",
+        "skip_duplicates":true,
+        "fuzzy":{
+          "fuzziness":2
+        }
+      }
+    }
+  }
+}
+```
+
+### Context suggester
+
+completion suggester会考虑索引中的所有文档，但有些情况下希望在复合一定的过滤条件的范围内获得suggest。例如，想建立由某些艺术家的歌曲标题，或者要根据其类型来提升某些歌曲标题的权重。为了实现过滤或增强suggest，可以在配置completion字段的mapping时添加上context mappings。可以为completion字段定义多个上context mappings。每个context mappings都有唯一的name和type。有两种type：category 和 geo。上下文映射在字段映射中的contexts。
+
+```json
+// PUT place
+{
+  "mappings": {
+    "properties": {
+      "suggest": {
+        "type": "completion",
+        "contexts": [
+          {
+            "name": "place_type",
+            "type": "category"
+          },
+          {
+            "name": "location",
+            "type": "geo",
+            "precision": 4
+          }
+        ]
+      }
+    }
+  }
+}
+
+// PUT place/_doc/1
+{
+  "suggest": {
+    "input": [
+      "timmy's",
+      "starbucks",
+      "dunkin donuts"
+    ],
+    "contexts": {
+      "place_type": [
+        "cafe",
+        "food"
+      ]
+    }
+  }
+}
+
+// PUT place/_doc/2
+{
+  "suggest": {
+    "input": [
+      "monkey",
+      "timmy's",
+      "Lamborghini"
+    ],
+    "contexts": {
+      "place_type": [
+        "money"
+      ]
+    }
+  }
+}
+
+// POST place/_search?pretty
+{
+  "suggest": {
+    "place_suggestion": {
+      "prefix": "sta",
+      "completion": {
+        "field": "suggest",
+        "size": 10,
+        "contexts": {
+          "place_type": [
+            "cafe",
+            "restaurants"
+          ]
+        }
+      }
+    }
+  }
+}
+
+// POST place/_search?pretty
+{
+  "suggest": {
+    "place_suggestion": {
+      "prefix": "tim",
+      "completion": {
+        "field": "suggest",
+        "size": 10,
+        "contexts": {
+          "place_type": [
+            {"context":"cafe"},
+            {"context":"money","boost":2}
+          ]
+        }
+      }
+    }
+  }
+}
+
+PUT place/_doc/1
+{
+  "suggest": {
+    "input": "timmy's",
+    "contexts": {
+      "location": [
+        {
+          "lat": 43.6624803,
+          "lon": -79.3863353
+        },
+        {
+          "lat": 43.6624718,
+          "lon": -79.3873227
+        }
+      ]
+    }
+  }
+}
+
+POST place/_search
+{
+  "suggest": {
+    "place_suggestion": {
+      "prefix": "tim",
+      "completion": {
+        "field": "suggest",
+        "size": 10,
+        "contexts": {
+          "location": {
+            "lat": 43.662,
+            "lon": -79.38
+          }
+        }
+      }
+    }
+  }
+}
+
+// POST place/_search?pretty
+{
+  "suggest": {
+    "place_suggestion": {
+      "prefix": "tim",
+      "completion": {
+        "field": "suggest",
+        "size": 10,
+        "contexts": {
+          "location": [
+            {
+              "lat": 43.6624803,
+              "lon": -79.3863353,
+              "precision": 2
+            },
+            {
+              "context": {
+                "lat": 43.6624803,
+                "lon": -79.3863353
+              },
+              "boost": 2
+            }
+          ]
+        }
+      }
+    }
+  }
+}
+```
+
+## 数据建模
+
+### 嵌套类型查询：Nested
+
+#### 定义
+
+nested类型是object一种数据类型，允许对象数组以相互独立的方式进行索引，nested属于object类型的一种，是Elasticsearch中用于复杂类型对象数组的索引操作。Elasticsearch没有内部对象的概念，因此，ES在存储复杂类型的时候会把对象的复杂层次结果扁平化为一个键值对列表。
+
+#### 适用场景
+
+字段值为复杂类型的情况，即字段值为非基本数据类型。
+
+#### 案例
+
+场景：假如有如下order索引，包含订单的商品列表
+
+```json
+// PUT /order/_doc/1
+{
+  "order_name": "xiaomi order",
+  "desc": "shouji zhong de zhandouji",
+  "goods_count": 3,
+  "total_price": 12699,
+  "goods_list": [
+    {
+      "name": "xiaomi PRO MAX 5G",
+      "price": 4999
+    },
+    {
+      "name": "ganghuamo",
+      "price": 19
+    },
+    {
+      "name": "shoujike",
+      "price": 1999
+    }
+  ]
+}
+// PUT /order/_doc/2
+{
+  "order_name": "Cleaning robot order",
+  "desc": "shouji zhong de zhandouji",
+  "goods_count": 2,
+  "total_price": 12699,
+  "goods_list": [
+    {
+      "name": "xiaomi cleaning robot order",
+      "price": 1999
+    },
+    {
+      "name": "dishwasher",
+      "price": 4999
+    }
+  ]
+}
+```
+
+需求：查询订单商品中商品名称为dishwasher并且商品价格为1999的订单信息，尝试执行以下脚本
+
+```json
+// GET order/_search
+{
+  "query": {
+    "bool": {
+      "must": [
+        {
+          "match": {
+            "goods_list.name": "dishwasher"
+          }
+        },
+        {
+          "match": {
+            "goods_list.price": 1999
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+结果：按照bool中must的查询逻辑，两个条件都符合的数据并不存在，然而执行查询后发现返回以下结果
+
+```json
+{
+  "took" : 15,
+  "timed_out" : false,
+  "_shards" : {
+    "total" : 1,
+    "successful" : 1,
+    "skipped" : 0,
+    "failed" : 0
+  },
+  "hits" : {
+    "total" : {
+      "value" : 1,
+      "relation" : "eq"
+    },
+    "max_score" : 1.7199211,
+    "hits" : [
+      {
+        "_index" : "order",
+        "_type" : "_doc",
+        "_id" : "2",
+        "_score" : 1.7199211,
+        "_source" : {
+          "order_name" : "Cleaning robot order",
+          "desc" : "shouji zhong de zhandouji",
+          "goods_count" : 2,
+          "total_price" : 12699,
+          "goods_list" : [
+            {
+              "name" : "xiaomi cleaning robot order",
+              "price" : 1999
+            },
+            {
+              "name" : "dishwasher",
+              "price" : 4999
+            }
+          ]
+        }
+      }
+    ]
+  }
+}
+
+```
+
+原因分析
+
+可以看到上述结果元数据中出现了订单数据，这和预期结果不一致。分析原因如下：当字段值为复杂数据类型（Object、Geo-Point等）的时候，ES内部实际是以如下方式保存数据的：
+
+```json
+{
+  "order_name": "Cleaning robot order",
+  "desc": "shouji zhong de zhandouji",
+  "goods_count": 2,
+  "total_price": 12699,
+  "goods_list.name":[ "alice", "cleaning", "robot", "order", "dishwasher" ],
+  "goods_list.price":[ 1999, 4999 ]
+}
+```
+
+解决方案：使用Nested类型
+
+#### Nested用法
+
+上述问题解决办法即对复杂类型使用Nested类型。在ES中嵌套类型不止Nested一种，但是只有Nested是最常用的，因此其他的暂不需考虑
+
+```json
+// DELETE order
+
+// PUT order
+{
+  "mappings": {
+    "properties": {
+      "goods_list": {
+        "type": "nested",
+        "properties": {
+          "name": {
+            "type": "text"
+          }
+        }
+      }
+    }
+  }
+}
+
+// PUT /order/_doc/1
+{
+  "order_name": "xiaomi order",
+  "desc": "shouji zhong de zhandouji",
+  "goods_count": 3,
+  "total_price": 12699,
+  "goods_list": [
+    {
+      "name": "xiaomi PRO MAX 5G",
+      "price": 4999
+    },
+    {
+      "name": "ganghuamo",
+      "price": 19
+    },
+    {
+      "name": "shoujike",
+      "price": 1999
+    }
+  ]
+}
+
+// PUT /order/_doc/2
+{
+  "order_name": "Cleaning robot order",
+  "desc": "shouji zhong de zhandouji",
+  "goods_count": 2,
+  "total_price": 12699,
+  "goods_list": [
+    {
+      "name": "xiaomi cleaning robot order",
+      "price": 1999
+    },
+    {
+      "name": "dishwasher",
+      "price": 4999
+    }
+  ]
+}
+
+// GET /order/_search
+{
+  "query": {
+    "nested": {
+      "path": "goods_list", 
+      "query": {
+        "bool": {
+          "must": [
+            {
+              "match": {
+                "goods_list.name": "dishwasher"
+              }
+            },
+            {
+              "match": {
+                "goods_list.price": 1999
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}
+```
+
+### 父子级关系查询：Join
+
+连接数据类型是一个特殊字段，它在同一索引的文档中创建父子关系。关系部分在文档中定义了一组可能的关系，每个关系是一个父名和一个子名。
+
+```json
+// PUT msb_depart
+{
+  "mappings": {
+    "properties": {
+      "msb_join_field": {
+        "type": "join",
+        "relations": {
+          "depart": "employee"
+        }
+      },
+      "my_id": {
+        "type": "keyword"
+      }
+    }
+  }
+}
+// 部门
+// PUT msb_depart/_doc/1
+{
+  "my_id": 1,
+  "name":"教学部",
+  "msb_join_field":{
+    "name":"depart"
+  }
+}
+// PUT msb_depart/_doc/2
+{
+  "my_id": 2,
+  "name":"咨询部",
+  "msb_join_field":{
+    "name":"depart"
+  }
+}
+
+// 路由值是强制性的，因为父文档和子文档必须在同一个分片上建立索引
+// PUT msb_depart/_doc/3?routing=1&refresh
+{
+  "my_id": 3,
+  "name":"马老师",
+  "msb_join_field":{
+    "name":"employee",
+    "parent":1
+  }
+}
+// PUT msb_depart/_doc/4?routing=1&refresh
+{
+  "my_id": 4,
+  "name":"周老师",
+  "msb_join_field":{
+    "name":"employee",
+    "parent":1
+  }
+}
+// PUT msb_depart/_doc/5?routing=1&refresh
+{
+  "my_id": 5,
+  "name":"静静",
+  "msb_join_field":{
+    "name":"employee",
+    "parent":2
+  }
+}
+// PUT msb_depart/_doc/6?routing=1&refresh
+{
+  "my_id": 6,
+  "name":"球球",
+  "msb_join_field":{
+    "name":"employee",
+    "parent":2
+  }
+}
+// PUT msb_depart/_doc/7?routing=1&refresh
+{
+  "my_id": 7,
+  "name":"琪琪",
+  "msb_join_field":{
+    "name":"employee",
+    "parent":2
+  }
+}
+
+// has_child：有孩子说明是父亲，has_parent：有父亲说明是孩子
+// GET msb_depart/_search
+{
+  "query": {
+    "has_child": {
+      "type": "employee",
+      "query": {
+        "match_all": {}
+      }
+    }
+  }
+}
+
+// 搜索周老师所在的部门
+// GET msb_depart/_search
+{
+  "query": {
+    "has_child": {
+      "type": "employee",
+      "query": {
+        "match": {
+          "name.keyword": "周老师"
+        }
+      }
+    }
+  }
+}
+
+// 搜索咨询部的员工
+// GET msb_depart/_search
+{
+  "query": {
+    "has_parent": {
+      "parent_type": "depart",
+      "query": {
+        "match": {
+          "name.keyword": "咨询部"
+        }
+      }
+    }
+  }
+}
+
+// 搜索部门id为2的部门员工
+// GET msb_depart/_search
+{
+  "query": {
+    "parent_id":{
+      "type":"employee",
+      "id":2
+    }
+  }
+}
+```
+
+join类型不能像关系型数据库的表链接那样去用。无论是has_child或者是has_parent查询都会对索引的查询性能有严重的负面影响。并且会触发global ordinals
+
+join唯一合适的应用场景是：当索引的数据包含一对多的关系，并且其中一个实体的数量远远超过另一个的时候。
+
+注意：
+
+- 在索引父子级关系数据的时候必须传入routing参数，即指定把数据存入哪个分片，因为父文档和子文档必须在同一个分片上，因此，在获取、删除或更新子文档时需要提供相同的路由值。
+- 每个索引只允许一个join类型的字段映射
+- 一个元素可以有多个子元素但只有一个父元素
+- 可以向现有连接字段添加新关系
+- 也可以向现有元素添加子元素，但前提是该元素已经是父元素
+
+### Elasticsearch数据建模
+
+## ES客户端
+
+### Java API（TransportClient）
+
+#### 生命周期
+
+Java API使用的客户端名称叫TransportClient，从7.0.0开始，官方已经不建议使用TransportClient作为ES的Java客户端了，并且从8.0会被彻底删除。
+
+#### 注意事项
+
+- TransportClient 使用transport模块（9300端口）远程连接到 Elasticsearch 集群，客户端并不加入集群，而是通过获取单个或者多个transport地址来以轮询的方式与他们通信。
+- TransportClient使用transport协议与Elasticsearch节点通信，如果客户端的版本和与其通信的ES实例的版本不同，就会出现兼容性问题。而low-level REST使用的是HTTP协议，可以与任意版本ES集群通信。high-level REST是基于low-level REST的。
+
+#### Maven依赖
+
+```xml
+<dependency>
+    <groupId>org.elasticsearch.client</groupId>
+    <artifactId>transport</artifactId>
+    <version>7.12.1</version>
+</dependency>
+```
+
+#### 调用
+
+```java
+// 创建客户端连接
+TransportClient client = new PreBuiltTransportClient(Settings.EMPTY)
+        .addTransportAddress(new TransportAddress(InetAddress.getByName("host1"), 9300))
+        .addTransportAddress(new TransportAddress(InetAddress.getByName("host2"), 9300));
+// 关闭客户端
+client.close();
+```
+
+#### 嗅探器
+
+```java
+Settings settings = Settings.builder()
+        .put("client.transport.sniff", true).build();
+TransportClient client = new PreBuiltTransportClient(settings);
+```
+
+### Java REST Client
+
+RestClient是线程安全的，RestClient使用Elasticsearch的HTTP服务，默认为9200端口，这一点和transport client不同。
+
+#### Java Low-level REST client
+
+第一个5.0.0版Java REST客户端，之所以称为低级客户端，是因为它几乎没有帮助Java用户构建请求或解析响应。它处理请求的路径和查询字符串构造，但它将JSON请求和响应主体视为必须由用户处理的不透明字节数组。
+
+##### 生命周期
+
+ES 5.0.0-alpha4 ~ ES 7.15（ES 8.x中启用）
+
+##### 特点
+
+1. 与任何 Elasticsearch 版本兼容
+
+2. ES 5.0.0只是发布第一个Java Low-level REST client时的ES版本（2016年），不代表其向前只兼容到5.0，Java Low-level REST client基于Apache HTTP 客户端，它允许使用 HTTP 与任何版本的 Elasticsearch 集群进行通信。
+
+3. 最小化依赖
+
+4. 跨所有可用节点的负载平衡
+
+5. 在节点故障和特定响应代码的情况下进行故障转移
+
+6. 连接失败惩罚（是否重试失败的节点取决于它连续失败的次数；失败的尝试越多，客户端在再次尝试同一节点之前等待的时间就越长）
+
+7. 持久连接
+
+8. 请求和响应的跟踪记录
+
+9. 可选的集群节点自动发现（也称为嗅探）
+
+##### Maven依赖
+
+```xml
+<dependency>
+    <groupId>org.elasticsearch.client</groupId>
+    <artifactId>elasticsearch-rest-client</artifactId>
+    <version>7.10.1</version>
+</dependency>
+```
+
+##### 初始化
+
+```java
+RestClient restClient = RestClient.builder(
+    new HttpHost("localhost1", 9200, "http"),
+    new HttpHost("localhost2", 9200, "http")).build();
+```
+
+##### 资源释放
+
+```java
+restClient.close();
+```
+
+##### 嗅探器
+
+允许从正在运行的 Elasticsearch 集群中自动发现节点并将它们设置为现有 RestClient 实例的最小库
+
+##### Maven依赖
+
+```java
+<dependency>
+    <groupId>org.elasticsearch.client</groupId>
+    <artifactId>elasticsearch-rest-client-sniffer</artifactId>
+    <version>7.10.1</version>
+</dependency>
+```
+
+##### 代码
+
+```java
+// 默认每五分钟发现一次
+RestClient restClient = RestClient.builder(
+    new HttpHost("localhost", 9200, "http"))
+    .build();
+Sniffer sniffer = Sniffer.builder(restClient).build();
+```
+
+##### 资源释放
+
+```java
+sniffer.close();
+restClient.close();
+```
+
+##### 设置嗅探间隔
+
+```java
+RestClient restClient = RestClient.builder(
+    new HttpHost("localhost", 9200, "http"))
+    .build();
+// 设置嗅探间隔为60000毫秒
+Sniffer sniffer = Sniffer.builder(restClient)
+    .setSniffIntervalMillis(60000).build();
+```
+
+##### 失败时重启嗅探
+
+启用失败时嗅探，也就是在每次失败后，节点列表会立即更新，而不是在接下来的普通嗅探轮中更新。在这种情况下，首先需要创建一个 SniffOnFailureListener 并在 RestClient 创建时提供。此外，一旦稍后创建嗅探器，它需要与同一个 SniffOnFailureListener 实例相关联，它将在每次失败时收到通知，并使用嗅探器执行额外的嗅探轮
+```java
+SniffOnFailureListener sniffOnFailureListener =
+    new SniffOnFailureListener();
+RestClient restClient = RestClient.builder(
+    new HttpHost("localhost", 9200))
+    .setFailureListener(sniffOnFailureListener) //将失败侦听器设置为 RestClient 实例 
+    .build();
+Sniffer sniffer = Sniffer.builder(restClient)
+    .setSniffAfterFailureDelayMillis(30000) //在嗅探失败时，不仅节点在每次失败后都会更新，而且还会比平常更早安排额外的嗅探轮次，默认情况下是在失败后一分钟，假设事情会恢复正常并且我们想要检测尽快地。可以在 Sniffer 创建时通过 setSniffAfterFailureDelayMillis 方法自定义所述间隔。请注意，如果如上所述未启用故障嗅探，则最后一个配置参数无效。
+    .build();
+sniffOnFailureListener.setSniffer(sniffer); //将 Sniffer 实例设置为失败侦听器
+```
+
+#### Java High Level REST Client
+
+##### Maven依赖
+
+```xml
+<dependency>
+    <groupId>org.elasticsearch.client</groupId>
+    <artifactId>elasticsearch-rest-high-level-client</artifactId>
+    <version>7.10.1</version>
+</dependency>
+<dependency>
+    <groupId>com.google.code.gson</groupId>
+    <artifactId>gson</artifactId>
+    <version>2.8.5</version>
+</dependency>
+```
+
+##### 生命周期
+
+ES 5.0.0-alpha4~ ES 7.17（ES 8.x 弃用）
+
+Java高级REST客户端在Java低级REST客户端之上运行。它的主要目标是公开API特定的方法，接受请求对象作为参数并返回响应对象，以便请求编组和响应解组由客户端本身处理。要求Elasticsearch版本为2.0或者更高。
+
+##### 客户端优缺点及兼容性建议
+
+|        | Java API                         | Low Level Client                               | High Level Client                |
+| ------ | -------------------------------- | ---------------------------------------------- | -------------------------------- |
+| 优点   | 性能略好                         | 安全<br>易用<br>轻耦合<br>轻依赖<br>兼容性极好 | 功能全<br>松耦合<br>接口稳定     |
+| 缺点   | 重依赖<br>紧耦合<br>不安全       | 功能少                                         | 性能略逊于Java API<br>兼容性中等 |
+| 兼容性 | 主版本必须相同<br>次版本最好相同 | 兼容所有版本                                   | 主版本必须相同<br>次版本向后兼容 |
+
+### 总结
+
+#### Java API
+
+##### 优点
+
+- 性能略好：
+- 吞吐量大：Transport Client的批量索引吞吐量比HTTP 客户端大 4% 到 7%（实验室条件）
+
+##### 缺点
+
+- 重依赖：并非单独意义上的“客户端”，其依赖于lucene、log4j2等，可能会产生依赖冲突
+- 不安全：Java API通过传输层调用服务，不安全。
+- 重耦合：和ES核心服务有共同依赖，版本兼容性要求高。
+
+#### REST API
+
+##### 优点
+
+- 安全：REST API使用单一的集群入口点，可以通过 HTTPS 保障数据安全性，传输层只用于内部节点到节点的通信。
+- 易用：客户端只通过 REST 层而不是通过传输层调用服务，可以大大简化代码编写
+
+##### 缺点
+
+- 性能略逊于Java API，但是差距不大
+
+#### Low level Client
+
+##### 优点
+
+- 轻依赖：Apache HTTP 异步客户端及其传递依赖项（Apache HTTP 客户端、Apache HTTP Core、Apache HTTP Core NIO、Apache Commons Codec 和 Apache Commons Logging）
+- 兼容性强：兼容所有ES版本
+
+##### 缺点
+
+- 功能少：显而易见，轻量化带来的必然后果
+
+#### High level Client
+
+##### 优点
+
+- 功能强大：支持所有ES的API调用。
+- 松耦合：客户端和ES核心服务完全独立，无共同依赖。
+- 接口稳定：REST API 比与 Elasticsearch 版本完全匹配的Transport Client接口稳定得多。
+
+##### 缺点
+
+- 兼容性中等：基于Low Level Client，只向后兼容ES的大版本，比如6.0的客户端兼容6.x（即6.0之后的版本），但是6.1的客户端未必支持所有6.0ES的API，但是这并不是什么大问题，咱们使用相同版本的客户端和服务端即可，而且不会带来其他问题。
+
+### 嗅探器：Sniffer
+
+允许从正在运行的Elasticsearch集群中自动发现节点并将它们设置为现有RestClient实例的最小库。即：通过给定的集群名字及初始节点，将当前集群中所有的其他节点都找出来。
+
+#### Maven依赖
+
+```xml
+<dependency>
+    <groupId>org.elasticsearch.client</groupId>
+    <artifactId>elasticsearch-rest-client-sniffer</artifactId>
+    <version>${elasticsearch.sniffer.version}</version>
+</dependency>
+```
+
+## 分布式原理
+
+### 分片的创建策略
+
+#### 定义
+
+Shard即数据分片，是ES的数据载体。在ES中数据分为primary shard（主分片）和replica shard（副本分片），每一个primary承载单个索引的一部分数据，分布于各个节点，replica为某个primary的副本，即备份。分片分配的原则是尽量均匀的分配在集群中的各个节点，以最大程度降低部分shard在出现意外时对整个集群乃至服务造成的影响。每个分片就是一个Lucene的实例，具有完整的功能。
+
+#### 分片创建策略
+
+分片产生的目的是为了实现分布式，而分布式的好处之一就是实现“高可用性”（还包括高性能如提高吞吐量等），分片的分配策略极大程度上都是围绕如何提高可用性而来的，如分片分配感知、强制感知等。
+
+分片的数量分配也没有适用于所有场景的最佳值，创建分片策略的最佳方法是使用在生产中看到的相同查询和索引负载在生产硬件上对生产数据进行基准测试。分片的分配策略主要从两个指标来衡量：即数量和单个分片的大小。
+
+#### 分片分配的基本策略
+
+- ES使用数据分片（shard）来提高服务的可用性，将数据分散保存在不同的节点上以降低当单个节点发生故障时对数据完整性的影响，同时使用副本（repiica）来保证数据的完整性。关于分片的默认分配策略，在7.x之前，默认5个primary shard，每个primary shard默认分配一个replica，即5主1副，而7.x之后，默认1主1副
+- ES在分配单个索引的分片时会将每个分片尽可能分配到更多的节点上。但是，实际情况取决于集群拥有的分片和索引的数量以及它们的大小，不一定总是能均匀地分布。
+- Paimary只能在索引创建时配置数量，而replica可以在任何时间分配，并且primary支持读和写操作，而replica只支持客户端的读取操作，数据由es自动管理，从primary同步。
+- ES不允许Primary和它的Replica放在同一个节点中，并且同一个节点不接受完全相同的两个Replica
+- 同一个节点允许多个索引的分片同时存在。
+
+#### 分片的数量分配多少
+
+- 避免分片过多：大多数搜索会命中多个分片。每个分片在单个 CPU 线程上运行搜索。虽然分片可以运行多个并发搜索，但跨大量分片的搜索会耗尽节点的搜索线程池。这会导致低吞吐量和缓慢的搜索速度。
+- 分片越少越好：每个分片都使用内存和 CPU 资源。在大多数情况下，一小组大分片比许多小分片使用更少的资源。
+
+#### 分片的大小决策
+
+1. 分片的合理容量：10GB-50GB。虽然不是硬性限制，但 10GB 到 50GB 之间的分片往往效果很好。根据网络和用例，也许可以使用更大的分片。在索引的生命周期管理中，一般设置50GB为单个索引的最大阈值。
+2. 堆内存容量和分片数量的关联：小于20分片/每GB堆内存，一个节点可以容纳的分片数量与节点的堆内存成正比。例如，一个拥有 30GB 堆内存的节点最多应该有 600 个分片。如果节点超过每 GB 20 个分片，考虑添加另一个节点。
+
+```bash
+// 查询当前节点堆内存大小：
+[elasticsearch@server01 elasticsearch]$ curl -X GET -H "Content-type:application/json" server01:9200/_cat/nodes?v=true&h=heap.current
+[1] 1475
+[elasticsearch@server01 elasticsearch]$ ip             heap.percent ram.percent cpu load_1m load_5m load_15m node.role  master name
+192.168.56.112           15          22   3    2.05    0.70     0.25 cdhilmrstw -      node-3
+192.168.56.111           37          83   8    1.78    0.66     0.24 cdhilmrstw *      node-2
+192.168.56.110           12          97   8    1.83    0.71     0.26 cdhilmrstw -      node-1
+```
+
+### 配置
+
+#### 自定义属性
+
+```bash
+[elasticsearch@server01 elasticsearch]$ vim config/elasticsearch.yml
+# 在elasticsearch.yml中添加自定义属性
+node.attr.rack_id: rack1
+node.attr.hot_warm_cold: warm
+# 查看自定义属性
+[elasticsearch@server01 elasticsearch]$ curl -X GET -H "Content-type:application/json" server01:9200/_cat/nodeattrs?v
+node   host           ip             attr              value
+node-2 192.168.56.111 192.168.56.111 hot_warm_cold     warm
+node-2 192.168.56.111 192.168.56.111 rack_id           rack2
+node-2 192.168.56.111 192.168.56.111 ml.machine_memory 2097836032
+node-2 192.168.56.111 192.168.56.111 ml.max_open_jobs  20
+node-2 192.168.56.111 192.168.56.111 xpack.installed   true
+node-2 192.168.56.111 192.168.56.111 transform.node    true
+node-1 192.168.56.110 192.168.56.110 hot_warm_cold     warm
+node-1 192.168.56.110 192.168.56.110 rack_id           rack1
+node-1 192.168.56.110 192.168.56.110 ml.machine_memory 2097836032
+node-1 192.168.56.110 192.168.56.110 ml.max_open_jobs  20
+node-1 192.168.56.110 192.168.56.110 xpack.installed   true
+node-1 192.168.56.110 192.168.56.110 transform.node    true
+node-3 192.168.56.112 192.168.56.112 hot_warm_cold     warm
+node-3 192.168.56.112 192.168.56.112 rack_id           rack3
+node-3 192.168.56.112 192.168.56.112 ml.machine_memory 8202903552
+node-3 192.168.56.112 192.168.56.112 ml.max_open_jobs  20
+node-3 192.168.56.112 192.168.56.112 xpack.installed   true
+node-3 192.168.56.112 192.168.56.112 transform.node    true
+```
+
+#### 索引级配置
+
+- index.routing.allocation.include.{attribute}：表示索引可以分配在包含多个值中其中一个的节点上。
+- index.routing.allocation.require.{attribute}：表示索引要分配在包含索引指定值的节点上（通常一般设置一个值）。
+- index.routing.allocation.exclude.{attribute}：表示索引只能分配在不包含所有指定值的节点上。
+
+```json
+//索引创建之前执行
+PUT <index_name>
+{
+  "settings": {
+    "number_of_shards": 3,
+    "number_of_replicas": 1,
+    "index.routing.allocation.include._name": "node1"
+  }
+}
+```
+
+#### 集群级配置
+
+结合自定义属性启动分片感知策略
+
+transient 临时：这些设置在集群重启之前一直会生效。一旦整个集群重启，这些设置就会被清除。
+persistent 永久：这些设置永久保存，除非再次被手动修改。是将修改持久化到文件中，重启之后也不影响。
+
+```json
+PUT _cluster/settings
+{
+  "persistent": {
+    "cluster.routing.allocation.awareness.attributes": "rack_id"
+  }
+}
+```
+
+### 索引分片分配
+
+#### 分片均衡策略
+
+当集群在每个节点上具有相同数量的分片而没有集中在任何节点上的任何索引的分片时，集群是平衡的。Elasticsearch 运行一个称为rebalancing 的自动过程，它在集群中的节点之间移动分片以改善其平衡。重新平衡遵循所有其他分片分配规则，例如分配过滤和强制意识，这可能会阻止它完全平衡集群。在这种情况下，重新平衡会努力在您配置的规则内实现最平衡的集群。如果您使用数据层然后 Elasticsearch 会自动应用分配过滤规则将每个分片放置在适当的层中。这些规则意味着平衡器在每一层内独立工作。
+
+cluster.routing.rebalance.enable
+
+- all -（默认）允许对所有类型的分片进行分片平衡。
+- primaries - 只允许主分片的分片平衡。
+- replicas - 仅允许对副本分片进行分片平衡。
+- none - 任何索引都不允许进行任何类型的分片平衡。
+
+cluster.routing.allocation.allow_rebalance
+
+- always - 始终允许重新平衡。
+- indices_primaries_active - 仅当集群中的所有主节点都已分配时。
+- indices_all_active -（默认）仅当集群中的所有分片（主分片和副本）都被分配时。
+
+#### 延迟分配策略
+
+当节点出于任何原因（有意或无意）离开集群时，主节点会做出以下反应
+
+- 将副本分片提升为主分片以替换节点上的任何主分片。
+- 分配副本分片以替换丢失的副本（假设有足够的节点）。
+- 在其余节点之间均匀地重新平衡分片。
+
+这些操作旨在通过确保尽快完全复制每个分片来保护集群免受数据丢失。即使在节点级别和集群级别限制并发恢复 ，这种“分片洗牌”仍然会给集群带来很多额外的负载，如果丢失的节点可能很快就会返回，这可能是不必要的
+
+#### 分片过滤
+
+即（Shard allocation filtering，控制那个分片分配给哪个节点）
+
+- index.routing.allocation.include.{attribute}：表示索引可以分配在包含多个值中其中一个的至少节点上。
+- index.routing.allocation.require.{attribute}：表示索引要分配在包含索引指定值的节点上（通常一般设置一个值）。
+- index.routing.allocation.exclude.{attribute}：表示索引只能分配在不包含所有指定值的节点上。
+
+#### 分片分配感知策略
+
+Shard Allocation Awareness的设计初衷是为了提高服务的可用性，通过自定义节点属性作为感知属性，让 Elasticsearch 在分配分片时将物理硬件配置考虑在内。如果 Elasticsearch 知道哪些节点位于同一物理服务器上、同一机架中或同一区域中，则它可以分离主副本分片，以最大程度地降低在发生故障时丢失数据的风险。
+
+实验1
+
+首先配置server01、server02、server03的节点属性：
+
+server01：
+
+```yaml
+node.attr.rack_id: rack1
+node.attr.hot_warm_cold: warm
+```
+
+server02：
+
+```yaml
+node.attr.rack_id: rack2
+node.attr.hot_warm_cold: warm
+```
+
+server03：
+
+```yaml
+node.attr.rack_id: rack3
+node.attr.hot_warm_cold: warm
+```
+
+创建一个3分片2副本的节点：
+
+![image](assets\middleware-35.png)
+
+实验2
+
+首先配置server01、server02、server03的节点属性：
+
+server01：
+
+```yaml
+node.attr.rack_id: rack1
+node.attr.hot_warm_cold: warm
+```
+
+server02：
+
+```yaml
+node.attr.rack_id: rack1
+node.attr.hot_warm_cold: warm
+```
+
+server03：
+
+```yaml
+node.attr.rack_id: rack2
+node.attr.hot_warm_cold: warm
+```
+
+创建一个3分片2副本的节点：
+
+![image](assets\middleware-36.png)
+
+#### 强制感知策略
+
+Forced awareness，默认情况下，如果一个区域发生故障，Elasticsearch 会将所有故障的副本分片分配给其他区域。但是剩余区域可能没有足够的性能冗余来承载这些分片。为了防止在发生故障时单个位置过载，您可以设置为cluster.routing.allocation.awareness.force不分配副本，直到另一个位置的节点可用。设置强制感知策略，告诉主节点当前通过某个属性来划分区域，并且告知区域有哪些值。
+
+```yaml
+cluster.routing.allocation.awareness.attributes: rack_id
+cluster.routing.allocation.awareness.force.rack_id.values: rack1,rack2 
+```
+
+
+

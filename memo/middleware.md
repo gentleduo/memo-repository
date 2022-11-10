@@ -6693,3 +6693,62 @@ node.roles: [ remote_cluster_client, xxx ]
 ##### 多集群
 
 Elasticsearch是主从结构，主节点能管理的节点上线一般不超过一千个，如果继续增加节点，可能会导致active master不稳定，如果集群想突破集群规模带来的性能瓶颈，一般可配置多集群，利用跨集群搜索单个超大集群拆分成多个小集群（相对小，千节点级别）来完成对集群的性能扩展。
+
+### Master选举
+
+设计思路：所有分布式系统都需要解决数据的一致性问题，处理这类问题一般采取两种策略：
+
+- 避免数据不一致情况的发生
+- 定义数据不一致后的处理策略
+
+ES的选举算法：ES基于Bully和Paxos两种算法实现，而非就是两种算法或之一。 ES 7.x 基于以上算法，加入了基于Raft的优化。
+
+- Bully：Bully是Leader选举的基本算法之一，基本原理就是按照节点ID进行排序，任何时候当前Leader的节点ID都是集群中最高节点ID。该算法非常易于实现但是当Leader处于不稳定状态的时候，如因负载过重而假死，此时可能会触发选主，选出第二大ID的节点为新的Leader。ES通过推迟选举直到Master失效（Master放弃Active Master资格触发选举）来解决问题，但是会产生双主或多主（也就是脑裂）问题。
+- Paxos：Paxos非常强大，在选举方面的灵活性比Bully算法有很大的优势，但是其原理非常复杂。
+- Raft：Raft是一种使用较为广泛的分布式一致性的协议。
+
+有效选票：所有节点都会参与选举并参与投票，但是只有候选节点的投票才是有效投票。
+法定票数：即当选Master所需的最小票数，可通过：discovery.zen.minimum_master_nodes配置
+
+节点失效监测：FaultDetection类
+
+```markdown
+There are two fault detection processes running. The first is by the
+master, to ping all the other nodes in the cluster and verify that they
+are alive. And on the other end, each node pings to master to verify if
+its still alive or an election process needs to be initiated
+```
+
+1. NodesFaultDetection：即NodesFD，用于定期检查集群中的节点是否存活。
+
+2. MasterFaultDetection：即MasterFD，作用是定期检查Master节点是否存活。
+
+3. 选举临时Master
+
+### 脑裂问题
+
+#### 现象
+
+正常情况下，当主节点无法工作时，会从备选主节点中选举一个出来变成新主节点，原主节点回归后变成备选主节点。但有时因为网络抖动等原因，主节点没能及时响应，集群误以为主节点下线了，选举了一个新主节点，此时一个Elasticsearch集群中有了两个主节点，其他节点不知道该听谁的调度，这时就发生了"脑裂"现象，通俗点就是“精神分裂”。
+
+例如：比如有a b c d四个节点，master为a；若某个时刻由于网络原因c d 访问不到a ，b能访问到a；那么c d之间会重新选举一个master。那么整个es集群就会分裂为a b 和 b c 两个集群。 
+
+#### 产生原因
+
+网络抖动。
+
+由于是内网通信、网络通信等问题造成部分节点认为master node挂掉， 然后另选master node的情况可能性较小；可以通过检查Ganglia集群监控，没有发现异常的内网流量， 故此原因可以排除。而外网的网络出现问题的可能性更大，更有可能造成“脑裂”现象。
+
+节点负载。
+
+如果主节点同时承担数据节点的工作，可能会因为工作负载大而导致对应的Elasticsearch实例停止响应。此外，由于数据节点上的Elasticsearch进程占用的内存较大， 较大规模的内存回收操作（GC）也能造成Elasticsearch进程失去响应。所以，该原因出现“脑裂”现象的可能性更大。
+
+内存回收。
+由于数据节点上的Elasticsearch进程占用的内存较大，较大规模的内存回收操作也能造成Elasticsearch进程失去响应。
+
+#### 解决办法
+
+1. 不要把主节点同时设为数据节点，即node.master和node.data不要同时为true。
+2. 将节点响应超时discovery.zen.ping_timeout稍稍设置长一些（默认是3秒）。默认情况下， 一个节点会认为， 如果master节点在 3 秒之内没有应答， 那么这个节点就是挂掉了， 而增加这个值， 会增加节点等待响应的时间， 从一定程度上会减少误判。
+3. discovery.zen.minimum_master_nodes的默认值是1，该参数表示， 一个节点需要看到的具有master节点资格的最小数量， 然后才能在集群中做操作，即重新选举主节点。官方的推荐值是(N/2)+1，其中 N 是具有 master资格的节点的数量，即只有超过(N/2)+1个主节点同意，才能重新选举主节点。
+

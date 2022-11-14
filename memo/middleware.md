@@ -6752,3 +6752,2192 @@ its still alive or an election process needs to be initiated
 2. 将节点响应超时discovery.zen.ping_timeout稍稍设置长一些（默认是3秒）。默认情况下， 一个节点会认为， 如果master节点在 3 秒之内没有应答， 那么这个节点就是挂掉了， 而增加这个值， 会增加节点等待响应的时间， 从一定程度上会减少误判。
 3. discovery.zen.minimum_master_nodes的默认值是1，该参数表示， 一个节点需要看到的具有master节点资格的最小数量， 然后才能在集群中做操作，即重新选举主节点。官方的推荐值是(N/2)+1，其中 N 是具有 master资格的节点的数量，即只有超过(N/2)+1个主节点同意，才能重新选举主节点。
 
+## 深度分页
+
+### 什么是深度分页
+
+分页问题是Elasticsearch中最常见的查询场景之一，正常情况下分页代码如实下面这样的：
+
+```json
+GET order_2290w/_search
+{
+  "from": 0,
+  "size": 5
+}
+```
+
+![image](assets\middleware-37.png)
+
+很好理解，即查询第一页的5条数据。图中数字2即返回的五条文档数据。但是如果查询的数据页数特别大，达到什么程度呢？当from + size大于10000的时候，就会出现问题，如下图报错信息所示：
+
+![image](assets\middleware-38.png)
+
+报错信息的解释为当前查询的结果超过了10000的最大值。那么疑问就来了，明明只查询了5条数据，为什么它计算最大值要加上我from的数量呢？而且Elasticsearch不是号称PB及数据秒级查询，几十亿的数据都没问题，怎么还限制最大查询前10000条数据呢？这里有一个字很关键：“前”，前10000条意味着什么？意味着数据肯定是按照某种顺序排列的，ES中如果不人工指定排序字段，那么最终结果将按照相关度评分排序。
+
+### 案例解释什么是深分页
+
+从10万名高考生中查询成绩为的10001-10100位的100名考生的信息。看似简单的查询其实并不简单，来画图解释一下：
+
+![image](assets\middleware-39.png)
+
+假设10万名考生的考试信息被存放在一个exam_info索引中，由于索引数据在写入是并无法判断在执行业务查询时的具体排序规则，因此排序是随机的。而由于ES的分片和数据分配策略为了提高数据在检索时的准确度，会把数据尽可能均匀的分布在不同的分片。假设此时我们有五个分片，每个分片中承载2万条有效数据。按照需求我们需要去除成绩在10001到10100的一百名考生的信息，就要先按照成绩进行倒序排列。然后按照page_size: 100&page_index: 101进行查询。即查询按照成绩排序，第101页的100位学员信息。单机数据库的查询逻辑很简单，先按照把10万学生成绩排序，然后从前10100条数据数据中取出第10001-10100条。即按照100为一页的第101页数据。
+
+但是分布式数据库不同于单机数据库，学员成绩是被分散保存在每个分片中的，你无法保证要查询的这一百位学员的成绩一定都在某一个分片中，结果很有可能是存在于每个分片。换句话说，你从任意一个分片中取出的前10100位学员的成绩，都不一定是总成绩的前10100。更不幸的是，唯一的解决办法是从每个分片中取出当前分片的前10100名学员成绩，然后汇总成50500条数据再次排序，然后从排序后的这50500个成绩中查询前10100的成绩，此时才能保证一定是整个索引中的成绩的前10100名。
+
+如果还不理解，再举个例子用来类比：从保存了世界所有国家短跑运动员成绩的索引中查询短跑世界前三，每个国家类比为一个分片的数据，每个国家都会从国家内选出成绩最好的前三位参加最后的竞争，从每个国家选出的前三名放在一起再次选出前三名，此时才能保证是世界的前三名。
+
+### 深度分页会带来的问题
+
+从上面案例中不难看出，每次有序的查询都会在每个分片中执行单独的查询，然后进行数据的二次排序，而这个二次排序的过程是发生在heap中的，也就是说当你单次查询的数量越大，那么堆内存中汇总的数据也就越多，对内存的压力也就越大。这里的单次查询的数据量取决于你查询的是第几条数据而不是查询了几条数据，比如你希望查询的是第10001-10100这一百条数据，但是ES必须将前10100全部取出进行二次查询。因此，如果查询的数据排序越靠后，就越容易导致OOM（Out Of Memory）情况的发生，频繁的深分页查询会导致频繁的FGC。ES为了避免用户在不了解其内部原理的情况下而做出错误的操作，设置了一个阈值，即max_result_window，其默认值为10000，其作用是为了保护堆内存不被错误操作导致溢出。因此也就出现了上面例子所演示的问题。
+
+### max_result_window参数
+
+max_result_window是分页返回的最大数值，默认值为10000。max_result_window本身是对JVM的一种保护机制，通过设定一个合理的阈值，避免初学者分页查询时由于单页数据过大而导致OOM。在很多业务场景中经常需要查询10000条以后的数据，当遇到不能查询10000条以后的数据的问题之后，网上的很多答案会告诉你可以通过放开这个参数的限制，将其配置为100万，甚至1000万就行。但是如果仅仅放开这个参数就行，那么这个参数限制的意义有何在呢？如果你不知道这个参数的意义，很可能导致的后果就是频繁的发生OOM而且很难找到原因，设置一个合理的大小是需要通过你的各项指标参数来衡量确定的，比如你用户量、数据量、物理内存的大小、分片的数量等等。通过监控数据和分析各项指标从而确定一个最佳值，并非越大约好。
+
+### 避免使用深度分页
+
+目前人类对抗疾病最有效的手段：打疫苗。没错，能方式发生的问题总比发生之后再治理来的强。同样，解决深度分页问题最好的办法也是预防，也就是能避免最好是避免使用深度分页。可能有人会质疑怎么能要求用户去做什么、不做什么呢？用户想深度分页检索你凭什么不让呢？…带着这些质疑，先来看一看众多大型搜索引擎面对深度分页问题是如何处理的：首先是以百度和谷歌为代表的全文搜索引擎：
+
+![image](assets\middleware-40.png)
+
+![image](assets\middleware-41.png)
+
+谷歌、百度目前作为全球和国内做大的搜索引擎，不约而同的在分页条中删除了“跳页”功能，其目的就是为了避免用户使用深度分页检索。
+
+这里也许又双叒叕会有人不禁发问：难道删除“跳页”就能阻止用户查询很多页以后的数据了吗？直接狂点下一页不也是深度分页？好我暂时先不反驳这里的提问，但是也发出一个反问，至少删除跳页，可以阻挡哪些刻意去尝试深度分页的“恶意用户”，真正想通过搜索引擎来完成自己检索需求的用户，通常来说都会首先查看第一页数据，因为搜索引擎是按照“相关度评分”进行排名的，也就是说，第一页的数据很往往是最符合用户预期结果的（暂时不考虑广告、置顶等商业排序情况）。
+
+下面再看一下以中国最大电商平台“淘宝”为代表的垂直搜索引擎是怎么解决的：
+
+![image](assets\middleware-42.png)
+
+![image](assets\middleware-43.png)
+
+分别尝试搜索较大较为宽泛的商品种类，以使其召回结果足够多（这里以手机和衣服为例）。虽然这里没有删除“跳页”功能，但这里可以看到一个有趣的现象，不管搜索什么内容，只要商品结果足够多，返回的商品列表都是仅展示前100页的数据，不难发现，其实召回的商品被“截断”了，不管你有多少，都只允许你查询前100页，其实这本质和ES中的max_result_window作用是一样的，都是限制你去搜索更深页数的数据。
+
+手机端APP就更不用说了，直接是下拉加载更多，连分页条都没有，相当于你只能点击“下一页”。那么回到当初的问题，真的牺牲了用户体验了吗？不仅没有，而且用户体验大大提升了！
+
+- 首先那些直接输入很大的页码，直接点击跳页的用户，本身就是恶意用户，组织其行为是理所应当，因此删除“跳页”，功能并无不妥！
+- 其次，真正的通过搜索引擎来检索其意向数据的用户，只关心前几页数据，即便他通过分页条跳了几页，但这种搜索并不涉及深度分页，即便它不停的点下去，我们也有其它方案解决此问题。
+- 类似淘宝这种直接截断前100页数据的做法，看似暴力，其实是在补习生用户体验的前提下，极大的提升了搜索的性能，这也变相的为哪些“正常用户”，提升了搜索体验，何乐不为？
+
+### Scroll Search
+
+为了使用滚动，初始搜索请求应该scroll在查询字符串中指定参数，该 参数告诉 Elasticsearch 应该保持“搜索上下文”多长时间，例如?scroll=1m。
+
+```json
+// POST /my-index-000001/_search?scroll=1m
+{
+  "size": 100,
+  "query": {
+    "match": {
+      "message": "foo"
+    }
+  }
+}
+```
+
+ 上述请求的结果包括一个“_scroll_id”，它应该传递给“scroll”API，以便检索下一批结果。 
+
+```json
+// POST /_search/scroll                                                               
+{
+  "scroll" : "1m",                                                                 
+  "scroll_id" : "DXF1ZXJ5QW5kRmV0Y2gBAAAAAAAAAD4WYm9laVYtZndUQlNsdDcwakFMNjU1QQ==" 
+}
+```
+
+滚动参数（传递给搜索请求和每个滚动请求）告诉Elasticsearch应该将搜索上下文保持多长时间。其值（例如1m，请参见时间单位）不需要足够长以处理所有数据 — 它只需要足够长的时间来处理前一批结果。每个滚动请求（带有滚动参数）都会设置一个新的到期时间。
+
+Scroll Search可以解决深度分页的原因：
+
+ES的搜索是分2个阶段进行的，即Query阶段和Fetch阶段。 
+
+1. Query阶段比较轻量级，通过查询倒排索引，获取满足查询结果的文档ID列表。 
+
+2. Fetch阶段比较重，需要将每个shard的结果取回，在协调结点进行全局排序。  通过From+size这种方式分批获取数据的时候，随着from加大，需要全局排序并丢弃的结果数量随之上升，性能越来越差。
+
+而Scroll Search，第一次返回在初始搜索请求时与搜索匹配的所有文档（也就是将复合条件的所有doc id列表保留在一个上下文里），相当于保存一个当时的视图快照，之后只会基于该旧的视图快照提供数据搜索，如果这个期间数据变更，是不会让用户看到的。
+
+### Search After
+
+在旧版本中，ES为深度分页有scroll search 的方式，官方的建议并不是用于实时的请求，因为每一个 scroll_id 不仅会占用大量的资源（特别是排序的请求），而且是生成的历史快照，对于数据的变更不会反映到快照上。这种方式往往用于非实时处理大量数据的情况，比如要进行数据迁移或者索引变更之类的。那么在实时情况下如果处理深度分页的问题呢？es 给出了 search_after 的方式，这是在 >= 5.0 版本才提供的功能。
+
+```json
+// POST twitter/_search
+{
+    "size": 10,
+    "query": {
+        "match" : {
+            "title" : "es"
+        }
+    },
+    "sort": [
+        {"date": "asc"},
+        {"_id": "desc"}
+    ]
+}
+```
+
+返回出的结果信息 
+
+```json
+{
+	"took": 29,
+	"timed_out": false,
+	"_shards": {
+		"total": 1,
+		"successful": 1,
+		"skipped": 0,
+		"failed": 0
+	},
+	"hits": {
+		"total": {
+			"value": 5,
+			"relation": "eq"
+		},
+		"max_score": null,
+		"hits": [{
+			...
+		},
+		"sort": [...]
+	},
+	{
+		...
+	},
+	"sort": [124648691,
+	"624812"]
+}
+```
+
+上面的请求会为每一个文档返回一个包含sort排序值的数组。这些sort排序值可以被用于 search_after 参数里以便抓取下一页的数据。比如，我们可以使用最后的一个文档的sort排序值，将它传递给 search_after 参数：
+
+```json
+GET twitter/_search
+{
+    "size": 10,
+    "query": {
+        "match" : {
+            "title" : "es"
+        }
+    },
+    "search_after": [124648691, "624812"],
+    "sort": [
+        {"date": "asc"},
+        {"_id": "desc"}
+    ]
+}
+```
+
+注意：当我们使用search_after时，from值必须设置为0或者-1。
+
+search_after缺点是不能够随机跳转分页，只能是一页一页的向后翻，并且需要至少指定一个唯一不重复字段来排序。它与滚动API非常相似，但与它不同，search_after参数是无状态的，它始终针对最新版本的搜索器进行解析。因此，排序顺序可能会在步行期间发生变化，具体取决于索引的更新和删除。
+
+## 高级搜索
+
+### multi_match
+
+#### 语法
+
+```json
+// GET <index>/_search
+{
+  "query": {
+    "multi_match": {
+      "query": "<query keyword>",
+      "type": "<multi_match_type>",
+      "fields": [
+        "<field_a>",
+        "<field_b>"
+      ]
+    }
+  }
+}
+```
+
+#### multi_match和_source区别
+
+- multi_match：从哪些字段中检索，指的是查询条件
+- _source：查询的结果包含哪些字段，指的是元数据
+
+#### best_fields
+
+侧重于字段维度，单个字段的得分权重大，对于同一个query，单个field匹配更多的term，则优先排序。
+
+注意，best_fields是multi_match中type的默认值
+
+```json
+// GET product/_search
+{
+  "query": {
+    "multi_match" : {
+      "query":      "super charge",
+      "type":       "best_fields", // 默认
+      "fields":     [ "name^2", "desc" ],
+      "tie_breaker": 0.3
+    }
+  }
+}
+```
+
+tie_breaker参数
+
+在best_fields策略中给其他剩余字段设置的权重值，取值范围 [0,1]，其中 0 代表使用 dis_max 最佳匹配语句的普通逻辑，1表示所有匹配语句同等重要。最佳的精确值需要根据数据与查询调试得出，但是合理值应该与零接近（处于 0.1 - 0.4 之间），这样就不会颠覆 dis_max （Disjunction Max Query）最佳匹配性质的根本。
+
+#### most_fields
+
+侧重于查询维度，单个查询条件的得分权重大，如果一次请求中，对于同一个doc，匹配到某个term的field越多，则越优先排序。
+
+```json
+// GET product/_search
+{
+  "query": {
+    "multi_match": {
+      "query": "chiji shouji",
+      "type": "most_fields",
+      "fields": [
+        "name",
+        "desc"
+      ]
+    }
+  }
+}
+```
+
+#### cross_fields
+
+注意：理解cross_fields的概念之前，需要对ES的评分规则有基本的了解
+
+将任何与任一查询匹配的文档作为结果返回，但只将最佳匹配的评分作为查询的评分结果返回
+
+```json
+// 以下查询语义：
+// 吴 必须包含在 name.姓 或者 name.名 里
+// 或者  
+// 磊 必须包含在 name.姓 或者 name.名 里
+// GET teacher/_search
+{
+  "query": {
+    "multi_match" : {
+      "query":      "吴磊",
+      "type":       "cross_fields",
+      "fields":     [ "name.姓", "name.名" ],
+      "operator":   "or"
+    }
+  }
+}
+```
+
+假设有如下teacher索引，索引中包含了name字段，包含姓和名两个field（案例中使用中文为方便观察和理解，切勿在生产环境中使用中文命名，一定要遵循命名规范）。
+
+```json
+// POST /teacher/_bulk
+{ "index": { "_id": "1"} }
+{ "name" : {"姓" : "吴", "名" : "磊"} }
+{ "index": { "_id": "2"} }	
+{ "name" : {"姓" : "连", "名" : "鹏鹏"} }
+{ "index": { "_id": "3"} }
+{ "name" : { "姓" : "张","名" : "明明"} }
+{ "index": { "_id": "4"} }
+{ "name" : { "姓" : "周","名" : "志志"} }
+{ "index": { "_id": "5"} }
+{ "name" : {"姓" : "吴", "名" : "亦凡"} }
+{ "index": { "_id": "6"} }
+{ "name" : {"姓" : "吴", "名" : "京"} }
+{ "index": { "_id": "7"} }
+{ "name" : {"姓" : "吴", "名" : "彦祖"} }
+{ "index": { "_id": "8"} }
+{ "name" : {"姓" : "帅", "名" : "吴"} }
+{ "index": { "_id": "9"} }
+{ "name" : {"姓" : "连", "名" : "磊"} }
+{ "index": { "_id": "10"} }
+{ "name" : {"姓" : "周", "名" : "磊"} }
+{ "index": { "_id": "11"} }
+{ "name" : {"姓" : "张", "名" : "磊"} }
+{ "index": { "_id": "12"} }
+{ "name" : {"姓" : "马", "名" : "磊"} }
+// { "index": { "_id": "13"} }
+// { "name" : {"姓" : "诸葛", "名" : "吴磊"} }
+```
+
+执行以上代码创建teacher索引，并且执行以下查询语句
+
+```json
+// 语义： 默认分词器的对`吴磊`的分词结果为`吴`和`磊`
+// name.姓 中包含 `吴` 或者 `磊`  
+// OR  
+// name.名 中包含 `吴` 或者 `磊` 
+// 如果设置了"operator": "and"，则中间 OR 的关系变为 AND
+// GET teacher/_search
+{
+  "query": {
+    "multi_match": {
+      "query": "吴 磊",
+      "type": "most_fields",
+      "fields": [
+        "name.姓",
+        "name.名"
+      ]
+      // ,"operator": "and"
+    }
+  }
+}
+
+
+```
+
+根据上面查询的语义，期望的结果是：姓为吴并且名为磊的doc评分最高，然而结果却如下：
+
+```json
+{
+  "took" : 3,
+  "timed_out" : false,
+  "_shards" : {
+    "total" : 1,
+    "successful" : 1,
+    "skipped" : 0,
+    "failed" : 0
+  },
+  "hits" : {
+    "total" : {
+      "value" : 9,
+      "relation" : "eq"
+    },
+    "max_score" : 2.4548545,
+    "hits" : [
+      {
+        "_index" : "teacher",
+        "_type" : "_doc",
+        "_id" : "8",
+        "_score" : 2.4548545,
+        "_source" : {
+          "name" : {
+            "姓" : "帅",
+            "名" : "吴"
+          }
+        }
+      },
+      {
+        "_index" : "teacher",
+        "_type" : "_doc",
+        "_id" : "1",
+        "_score" : 2.03873,
+        "_source" : {
+          "name" : {
+            "姓" : "吴",
+            "名" : "磊"
+          }
+        }
+      },
+      {
+        "_index" : "teacher",
+        "_type" : "_doc",
+        "_id" : "5",
+        "_score" : 1.060872,
+        "_source" : {
+          "name" : {
+            "姓" : "吴",
+            "名" : "亦凡"
+          }
+        }
+      },
+      {
+        "_index" : "teacher",
+        "_type" : "_doc",
+        "_id" : "6",
+        "_score" : 1.060872,
+        "_source" : {
+          "name" : {
+            "姓" : "吴",
+            "名" : "京"
+          }
+        }
+      },
+      {
+        "_index" : "teacher",
+        "_type" : "_doc",
+        "_id" : "7",
+        "_score" : 1.060872,
+        "_source" : {
+          "name" : {
+            "姓" : "吴",
+            "名" : "彦祖"
+          }
+        }
+      },
+      {
+        "_index" : "teacher",
+        "_type" : "_doc",
+        "_id" : "9",
+        "_score" : 0.977858,
+        "_source" : {
+          "name" : {
+            "姓" : "连",
+            "名" : "磊"
+          }
+        }
+      },
+      {
+        "_index" : "teacher",
+        "_type" : "_doc",
+        "_id" : "10",
+        "_score" : 0.977858,
+        "_source" : {
+          "name" : {
+            "姓" : "周",
+            "名" : "磊"
+          }
+        }
+      },
+      {
+        "_index" : "teacher",
+        "_type" : "_doc",
+        "_id" : "11",
+        "_score" : 0.977858,
+        "_source" : {
+          "name" : {
+            "姓" : "张",
+            "名" : "磊"
+          }
+        }
+      },
+      {
+        "_index" : "teacher",
+        "_type" : "_doc",
+        "_id" : "12",
+        "_score" : 0.977858,
+        "_source" : {
+          "name" : {
+            "姓" : "马",
+            "名" : "磊"
+          }
+        }
+      }
+    ]
+  }
+}
+```
+
+上面结果显示，名叫帅磊的doc排在了最前面，即便使用best_fields策略结果也是帅磊评分最高，因为导致这个结果的原因和使用哪种搜索策略并无关系。这些然不是希望的结果。那么导致上述问题的原因是什么呢？看以下三条基本的评分规则：
+
+- 词频（TF term frequency ）：关键词在每个doc中出现的次数，词频越高，评分越高
+- 反词频（ IDF inverse doc frequency）：关键词在整个索引中出现的次数，反词频越高，评分越低
+- 每个doc的长度，越长相关度评分越低
+
+在上述案例中，吴磊作为预期结果，其中吴字作为姓氏是非常常见的，磊作为名也是非常常见的。反应在索引中，他们的IDF都是非常高的，而反词频越高则评分越低，因此吴磊在索引中的IDF评分则会很低。而帅磊中帅作为姓氏却是非常少见的，因此IDF的得分就很高。在词频相同的情况下就会导致以上不符合常理的搜索预期。
+
+为了避免某一个字段的词频或者反词频对结果产生巨大影响，需要把姓和名作为一个整体来查询，体现在代码上即：
+
+```json
+//  吴 必须包含在 name.姓 或者 name.名 里
+//  并且
+//  磊 必须包含在 name.姓 或者 name.名 里
+// GET teacher/_search
+{
+  "query": {
+    "multi_match" : {
+      "query":      "吴磊",
+      "type":       "cross_fields",
+      "fields":     [ "name.姓", "name.名" ],
+      "operator":   "and"
+    }
+  }
+}
+```
+
+# ClickHouse
+
+## ClickHouse与其特性
+
+![image](assets\middleware-44.png)
+
+批处理会将源业务系统中的数据通过数据抽取工具（例如Sqoop）将数据抽取到HDFS中，这个过程可以使用MapReduce、Spark、Flink技术对数据进行ETL清洗处理，也可以直接将数据抽取到Hive数仓中，一般可以将结构化的数据直接抽取到Hive数据仓库中，然后使用HiveSQL或者SparkSQL进行业务指标分析，如果涉及到的分析业务非常复杂，可以使用Hive的自定义函数或者Spark、Flink进行复杂分析，这就是通常说的数据指标分析。分析之后的结果可以保存到Hive、HBase、MySQL、Redis等，供后续查询使用。一般在数仓构建中，如果指标存入Hive中，可以使用Sqoop工具将结果导入到关系型数据库中供后续查询。HBase中更擅长存储原子性非聚合查询数据，如果有大量结果数据后期不需要聚合查询，也可以通过业务分析处理考虑存入HBase中。对于一些查询需求结果反馈非常快的场景可以考虑将结果存入Redis中。
+
+对于大多数企业构建数仓之后，会将结果存入到Hive中的DM层中。DM层数据存入的是与业务强相关的报表数据，DM层数据是由数仓中DWS层主题宽表聚合统计得到，这种报表层设计适合查询固定的场景。对于一些查询需求多变场景，也可以使用Impala来直接将主题宽表数据基于内存进行交互式查询，对Web或者数据分析做到交互式返回结果，使用Impala对内存开销非常大。还有另外一种方式是使用Kylin进行预计算，将结果提前计算好存入Hbase中，以供后续交互式查询结果，Kylin是使用空间换取时间的一种方式，预先将各种维度组合对应的度量计算出来存入HBase，用户写SQL交互式查询的是HBase中预计算好的结果数据。最后将数据分析结果可以直接对Web以接口服务提供使用或者公司内部使用可视化工具展示使用。
+
+以上无论批处理过程还是流处理过程，使用到的技术几乎离不开 Hadoop 生态圈。
+
+### ClickHouse
+
+ClickHouse是一个开源的，用于联机分析（OLAP）的列式数据库管理系统（DBMS-database manager system），它是面向列的，并允许使用SQL查询，实时生成分析报告。ClickHouse最初是一款名为Yandex Metrica的产品，主要用于WEB流量分析。ClickHouse的全称是ClickStream，Data WareHouse，简称ClickHouse。
+
+ClickHouse不是一个单一的数据库，它允许在运行时创建表和数据库，加载数据和运行查询，而无需重新配置和重新启动服务器。ClickHouse同时支持列式存储和数据压缩，这是对于一款高性能数据库来说是必不可少的特性。一个非常流行的观点认为，如果你想让查询变得更快，最简单且有效的方法是减少数据扫描范围和数据传输时的大小，而列式存储和数据压缩就可以帮助我们实现上述两点，列式存储和数据压缩通常是伴生的，因为一般来说列式存储是数据压缩的前提。
+
+### OLAP场景的特征
+
+- 绝大多数是读请求。
+
+- 数据以相当大的批次（> 1000行）更新，而不是单行更新，或者根本没有更新。
+
+- 已添加到数据库的数据不能修改。
+
+- 对于读取，从数据库中提取相当多的行，但只提取列的一小部分。
+
+- 宽表，即每个表包含着大量的列。
+
+- 查询相对较少，通常每台服务器每秒查询数百次或更少。
+
+- 对于简单查询，允许延迟大约50毫秒。
+
+- 列中的数据相对较小：数字和短字符串，例如，每个URL 60个字节。
+
+- 处理单个查询时需要高吞吐量，每台服务器每秒可达数十亿行。
+
+- 事务不是必须的。
+
+- 对数据一致性要求低。有副本情况下，写入一个即可，后台自动同步。
+
+- 每个查询有一个大表。除了他以外，其他的都很小。
+
+- 查询结果明显小于源数据。数据经过过滤或聚合，因此结果适合于单个服务器的RAM中。
+
+通过以上OLAP场景分析特点很容易可以看出，OLAP场景与其他通常业务场景（例如OLTP或K/V）有很大的不同，因此想要使用OLTP或Key-Value数据库去高效的处理分析查询场景，并不是非常完美的适用方案。例如，使用OLAP数据库去处理分析请求通常要优于使用MongoDB或Redis去处理分析请求。
+
+### 完备的DBMS功能
+
+ClickHouse是一个数据库管理系统，而不仅是一个数据库，作为数据库管理系统具备完备的管理功能：
+
+- DDL(Data Definition Language - 数据定义语言)：可以动态地创建、修改或删除数据库、表和视图，而无须重启服务。
+- DML(Data Manipulation Language)：可以动态查询、插入、修改或删除数据。
+- 分布式管理：提供集群模式，能够自动管理多个数据库节点。
+- 权限控制：可以按照用户粒度设置数据库或者表的操作权限，保障数据的安全性。
+- 数据备份与恢复：提供了数据备份导出与导入恢复机制，满足生产环境的要求。
+
+### 列式存储
+
+目前大数据存储有两种方案可以选择，行式存储(Row-Based)和列式存储(Column-Based)。
+
+![image](assets\middleware-45.png)
+
+- 行式存储在数据写入和修改上具有优势。行存储的写入是一次完成的，如果这种写入建立在操作系统的文件系统上，可以保证写入过程的成功或者失败，可以保证数据的完整性。列式存储需要把一行记录拆分成单列保存，写入次数明显比行存储多(因为磁头调度次数多，而磁头调度是需要时间的，一般在1ms~10ms)，再加上磁头需要在盘片上移动和定位花费的时间，实际消耗更大。数据修改实际上也是一次写入过程，不同的是，数据修改是对磁盘上的记录做删除标记。行存储是在指定位置写入一次，列存储是将磁盘定位到多个列上分别写入，这个过程仍是行存储的列数倍。所以，行式存储在数据写入和修改上具有很大优势。
+- 列式存储在数据读取和解析、分析数据上具有优势。数据读取时，行存储通常将一行数据完全读出，如果只需要其中几列数据的情况，就会存在冗余列，出于缩短处理时间的考量，消除冗余列的过程通常是在内存中进行的。列存储每次读取的数据是集合的一段或者全部，不存在冗余性问题。列式存储中的每一列数据类型是相同的，不存在二义性问题，例如，某列类型为整型，那么它的数据集合一定是整型数据，这种情况使数据解析变得十分容易。相比之下，行存储则要复杂得多，因为在一行记录中保存了多种类型的数据，数据解析需要在多种数据类型之间频繁转换，这个操作很消耗CPU，增加了解析的时间。所以，列式存储在数据读取和解析数据做数据分析上更具优势。
+
+综上所述，行存储的写入是一次性完成，消耗的时间比列存储少，并且能够保证数据的完整性，缺点是数据读取过程中会产生冗余数据，如果只有少量数据，此影响可以忽略，数量大可能会影响到数据的处理效率。列存储在写入效率、保证数据完整性上都不如行存储，它的优势是在读取过程，不会产生冗余数据，这对数据完整性要求不高的大数据处理领域比较重要。一般来说，一个 OLAP 类型的查询可能需要访问几百万或者几十亿行的数据，但是 OLAP 分析时只是获取少数的列，对于这种场景列式数据库只需要读取对应的列即可，行式数据库需要读取所有的数据列，因此这种场景更适合列式数据库，可以大大提高 OLAP 数据分析的效率。ClickHouse 就是一款使用列式存储的数据库，数据按列进行组织，属于同一列的数据会被保存在一起，列与列之间也会由不同的文件分别保存，在对 OLAP 场景分析时，效率很高。
+
+### 数据压缩
+
+为了使数据在传输上更小，处理起来更快，可以对数据进行压缩，ClickHouse 默认使用 LZ4 算法压缩，数据总体压缩比可达 8:1。ClickHouse 采用列式存储，列式存储相对于行式存储另一个优势就是对数据压缩的友好性。例如：有两个字符串 "'ABCDE"，"BCD"，现在对它们进行压缩：
+
+    压缩前：ABCDE_BCD
+    压缩后：ABCDE_(5,3)
+
+通过以上案例可以看到，压缩的本质是按照一定步长对数据进行匹配扫描，当发现重复部分的时候就进行编码转换。例如：(5,3) 代表从下划线往前数5个字节，会匹配上3个字节长度的重复项，即 "BCD"。当然，真实的压缩算法比以上举例更复杂，但压缩的本质就是如此，数据中重复性项越多，则压缩率越高，压缩率越高，则数据体量越小，而数据体量越小，则数据在网络中的传输越快，对网络带宽和磁盘IO的压力也就越小。列式存储中同一个列的数据由于它们拥有相同的数据类型和现实语义，可能具备重复项的可能性更高，更利于数据的压缩。所以 ClickHouse 在数据压缩上比例很大。
+
+### 向量化执行引擎
+
+![image](assets\middleware-46.png)
+
+在计算机系统的体系结构中，存储系统是一种层次结构，典型服务器计算机的存储层次结构如上图，上图表述了 CPU、CPU 三级缓存、内存、磁盘数据容量与数据读取速度对比，我们可以看出存储媒介距离 CPU 越近，则访问数据的速度越快。
+
+从内存读取数据速度比磁盘读取数据速度要快1000倍，从 CPU 缓存中读取数据的速度比从内存中读取数据的速度最快要快 100 倍，从 CPU 寄存器中读取数据的速度为300ps(1纳秒 = 1000皮秒)，比 CPU 缓存要快3倍还多。从寄存器中访问数据的速度，是从内存访问数据速度的300倍，是从磁盘中访问数据速度的30万倍。
+
+如果能从 CPU 寄存器中访问数据对程序的性能提升意义非凡，向量化执行就是在寄存器层面操作数据，为上层应用程序的性能带来了指数级的提升。
+
+向量化执行，可以简单地看作一项消除程序中循环的优化。
+
+为了实现向量化执行，需要利用 CPU 的 SIMD(Single Instruction Multiple Data) 指令，即用单条指令操作多条数据。现代计算机系统概念中，它是通过数据并行以提高性能的一种实现方式，其他的还有指令级并行和线程级并行，它的原理是在 CPU 寄存器层面实现数据的并行操作。
+
+ClickHouse 列式存储除了降低 IO 和存储的压力之外，还为向量化执行做好了铺垫，除了读取磁盘速度快之外，ClickHouse 还利用 SSE4.2 指令集实现向量化执行，为处理数据提升很大效率。
+
+### 关系模型与标准SQL查询
+
+相比HBase和Redis这类NoSQL数据库，ClickHouse使用关系模型描述数据并提供了传统数据库的概念(数据库、表、视图和函数等)。ClickHouse完全使用SQL作为查询语言(支持GROUPBY、ORDERBY、JOIN、IN等大部分标准SQL)，ClickHouse提供了标准协议的SQL查询接口，可以与第三方分析可视化系统无缝集成对接。在SQL解析方面，ClickHouse是大小写敏感，SELECTa与SELECTA所代表的语义不同。
+
+### 多样化的表引擎
+
+与MySQL类似，ClickHouse也将存储部分进行了抽象，把存储引擎作为一层独立的接口。ClickHouse拥有各种表引擎，每种表引擎决定不同的数据存储方式。其中每一种表引擎都有着各自的特点，用户可以根据实际业务场景的要求，选择合适的表引擎使用。将表引擎独立设计的好处是通过特定的表引擎支撑特定的场景，十分灵活，对于简单的场景，可直接使用简单的引擎降低成本，而复杂的场景也有合适的选择。
+
+### 多线程与分布式
+
+![image](assets\middleware-47.png)
+
+向量化执行是通过数据级并行的方式提升了性能，多线程处理是通过线程级并行的方式实现了性能的提升。相比基于底层硬件实现的向量化执行 SIMD，线程级并行通常由更高层次的软件层面控制，目前市面上的服务器都支持多核心多线程处理能力。由于SIMD不适合用于带有较多分支判断的场景，ClickHouse也大量使用了多线程技术以实现提速，以此和向量化执行形成互补。ClickHouse在数据存取方面，既支持分区(纵向扩展，利用多线程原理)，也支持分片(横向扩展，利用分布式原理)，可以说是将多线程和分布式的技术应用到了极致。
+
+### 多主架构
+
+HDFS、Spark、HBase 和ElasticSearch这类分布式系统，都采用了Master-Slave主从架构，由一个管控节点作为Leader统筹全局。而ClickHouse则采用Multi-Master多主架构，集群中的每个节点角色对等，客户端访问任意一个节点都能得到相同的效果。这种多主的架构有许多优势，例如对等的角色使系统架构变得更加简单，不用再区分主控节点、数据节点和计算节点，集群中的所有节点功能相同。所以它天然规避了单点故障的问题，非常适合用于多数据中心、异地多活的场景。
+
+### 交互式查询
+
+Hive、SparkSQL、HBase等都支持海量数据的查询场景，都拥有分布式架构，都支持列存、数据分片、计算下推等特性。ClickHouse在设计上吸取了以上技术的优势，例如：Hive、SparkSQL无法保证90%以上的查询在秒级内响应，在大数据量复杂查询下需要至少分钟级的响应时间，而HBase可以对海量数据做到交互式查询，由于不支持标准SQL在对数据做OLAP聚合分析时显得捉襟见肘。ClickHouse吸取以上各个技术的优势，在复杂查询的场景下，它也能够做到极快响应，且无须对数据进行任何预处理加工。
+
+### 数据分片与分布式查询
+
+数据分片是将数据进行横向切分，这是一种在面对海量数据的场景下，解决存储和查询瓶颈的有效手段，是一种分治思想的体现。ClickHouse 支持分片，而分片则依赖集群。每个集群由一到多个分片组成，而每个分片则对应了ClickHouse的一个服务节点。分片的数量上限取决于节点数量：一个分片只能对应一个服务节点。
+
+ClickHouse拥有高度自动化的分片功能。ClickHouse提供了LocalTable本地表与DistributedTable分布式表的概念。一张本地表等同于一份数据的分片。而分布式表本身不存储任何数据，它是本地表的访问代理，其作用类似分库中间件。借助分布式表，能够代理访问多个数据分片，从而实现分布式查询。
+
+这种设计类似数据库的分库和分表，十分灵活。例如在业务系统上线的初期，数据体量并不高，此时数据表并不需要多个分片。所以使用单个节点的本地表（单个数据分片）即可满足业务需求，待到业务增长、数据量增大的时候，再通过新增数据分片的方式分流数据，并通过分布式表实现分布式查询。
+
+## 安装部署
+
+### 基础设施
+
+目前ClickHouse仅支持Linux系统，且cpu必须支持SSE4.2指令集，可以通过以下命令查询Linux是否支持：
+
+```bash
+[root@server01 ~]# more /proc/cpuinfo | grep sse4_2
+flags           : fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 syscall nx rdtscp lm constant_tsc rep_good nopl xtopology nonstop_tsc pni pclmulqdq monitor ssse3 cx16 pcid sse4_1 sse4_2 x2apic movbe popcnt aes xsave avx rdrand hypervisor lahf_lm abm 3dnowprefetch fsgsbase avx2 invpcid rdseed clflushopt
+[root@server01 ~]# grep -q sse4_2 /proc/cpuinfo && echo "SSE 4.2 supported" || echo "SSE 4.2 not supported"
+SSE 4.2 supported
+```
+
+如果服务器不支持SSE4.2指令集，则不能下载预编译安装包，需要通过源码编译特定版本进行安装。
+
+### YUM 安装
+
+```bash
+[root@server01 ~]# yum -y install yum-utils
+[root@server01 ~]# rpm --import https://repo.clickhouse.tech/CLICKHOUSE-KEY.GPG
+[root@server01 ~]# yum-config-manager --add-repo https://repo.clickhouse.tech/rpm/clickhouse.repo
+[root@server01 ~]# yum install clickhouse-server clickhouse-client
+
+```
+
+### RPM 安装
+
+```bash
+[root@server01 ~]# wget --content-disposition https://packagecloud.io/Altinity/clickhouse/packages/el/7/clickhouse-common-static-20.8.3.18-1.el7.x86_64.rpm/download.rpm
+[root@server01 ~]# wget --content-disposition https://packagecloud.io/Altinity/clickhouse/packages/el/7/clickhouse-server-common-20.8.3.18-1.el7.x86_64.rpm/download.rpm
+[root@server01 ~]# wget --content-disposition https://packagecloud.io/Altinity/clickhouse/packages/el/7/clickhouse-server-20.8.3.18-1.el7.x86_64.rpm/download.rpm
+[root@server01 ~]# wget --content-disposition https://packagecloud.io/Altinity/clickhouse/packages/el/7/clickhouse-client-20.8.3.18-1.el7.x86_64.rpm/download.rpm
+
+# 可独立安装 安装顺序无要求
+[root@server01 ~]# rpm -ivh clickhouse-common-static-20.8.3.18-1.el7.x86_64.rpm
+[root@server01 ~]# rpm -ivh clickhouse-server-common-20.8.3.18-1.el7.x86_64.rpm
+[root@server01 ~]# rpm -ivh clickhouse-server-20.8.3.18-1.el7.x86_64.rpm
+[root@server01 ~]# rpm -ivh clickhouse-client-20.8.3.18-1.el7.x86_64.rpm
+
+# 或者批量安装
+[root@server01 ~]# rpm -ivh ./clickhouse-*.rpm
+```
+
+### 服务管理
+
+```bash
+# 启动服务
+[root@server01 ~]# systemctl start clickhouse-server
+# 停止服务
+[root@server01 ~]# systemctl stop clickhouse-server
+# 进入 CLI 客户端
+[root@server01 ~]# clickhouse-client
+[root@server01 ~]# clickhouse-client --host localhost --port 9000
+```
+
+### 集群配置
+
+vim /etc/clickhouse-server/config.xml
+
+```xml
+<!-- 取消 listen_host 注释 -->
+<!-- 允许所有网络接口访问服务 -->
+<listen_host>::</listen_host>
+```
+
+配置 metrika.xml
+
+vim /etc/metrika.xml
+
+```xml
+<yandex>
+
+    <!--  -->
+    <!-- clickhouse_remote_servers：集群配置标签，固定写法。 -->
+    <clickhouse_remote_servers>
+    	<!-- clickhouse_cluster 为集群名称 可自由指定 -->
+        <clickhouse_cluster>
+            <!-- 分片，一个集群可以分多个分片，每个分片可以存储数据。分片是指包含部分数据的服务器，要读取所有的数据，必须访问所有的分片。分片可以理解为 ClickHouse 机器中的每个节点。这里可以配置一个或者任意多个分片，在每个分片中可以配置一个或任意多个副本，不同分片可配置不同数量的副本。如果只是配置一个分片，这种情况下查询操作应该称为远程查询，而不是分布式查询。 -->
+            <shard>
+                <!-- 默认为 false，写数据操作会将数据写入所有的副本，设置为 true，写操作只会选择一个正常的副本写入数据，副本间数据同步在后台自动进行。 -->
+                <internal_replication>true</internal_replication>
+                <!-- 每个分片的副本，默认每个分片配置了一个副本。副本是指存储分片备份数据的服务器，要读取所有的数据，访问任意副本上的数据即可。也可以配置多个。如果配置了副本，读取操作可以从每个分片里选择一个可用的副本。如果副本不可用，会依次选择下个副本进行连接。该机制利于系统的可用性。 -->
+                <replica>
+                    <host>server01</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+            <shard>
+                <internal_replication>true</internal_replication>
+                <replica>
+                    <host>server02</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+            <shard>
+                <internal_replication>true</internal_replication>
+                <replica>
+                    <host>server03</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+        </clickhouse_cluster>
+    </clickhouse_remote_servers>
+
+    <!-- zookeeper-servers：ZK 集群配置。 -->
+    <zookeeper-servers>
+        <node index="1">
+            <host>server01</host>
+            <port>2181</port>
+        </node>
+        <node index="2">
+            <host>server02</host>
+            <port>2181</port>
+        </node>
+        <node index="3">
+            <host>server03</host>
+            <port>2181</port>
+        </node>
+    </zookeeper-servers>
+
+    <!-- 区分每台clickhouse节点的宏配置，每台clickhouse需要配置不同的名称。 -->
+    <macros>
+        <replica>01</replica>
+    </macros>
+
+    <!-- networks：这里配置 IP 为 ::/0 代表任意 IP 可以访问，包含 IPv4 和 IPv6。注意：允许外网访问还需配置 /etc/clickhouse-server/config.xml。 -->
+    <networks>
+        <ip>::/0</ip>
+    </networks>
+
+    <!-- clickhouse_compression：MergeTree 引擎表的数据压缩设置。  -->
+    <clickhouse_compression>
+        <case>
+            <!-- min_part_size：代表数据部分最小大小。 -->
+            <min_part_size>10000000000</min_part_size>
+            <!-- min_part_size_ratio：数据部分大小与表大小的比率。 -->
+            <min_part_size_ratio>0.01</min_part_size_ratio>
+            <!-- method：数据压缩格式。 -->
+            <method>lz4</method>
+        </case>
+    </clickhouse_compression>
+
+</yandex>
+```
+
+注意：需要在每台 ClickHouse 节点上配置 `metrika.xml` 文件，并且修改每个节点的 `macros` 配置名称。
+
+检查集群状态
+
+```bash
+[root@server01 zookeeper]# clickhouse-client 
+ClickHouse client version 20.8.3.18.
+Connecting to localhost:9000 as user default.
+Connected to ClickHouse server version 20.8.3 revision 54438.
+
+server01 :) select * from system.clusters;
+```
+
+相关目录
+
+1. /etc/clickhouse-server：服务端的配置文件目录，包括全局配置 config.xml 和用户配置 users.xml。
+
+2. /var/lib/clickhouse：默认数据存储目录，通常会修改，将数据保存到大容量磁盘路径中。
+
+3. /var/log/cilckhouse-server：默认日志目录，通常会修改，将数据保存到大容量磁盘路径中。
+
+4. /usr/bin：可执行文件。
+
+   - clickhouse：主程序可执行文件。
+
+   - clickhouse-server：一个指向 clickhouse可执行文件的软连接，供服务端启动使用。
+
+   - clickhouse-client：一个指向 clickhouse可执行文件的软连接，供客户端启动使用。
+
+配置文件检查
+
+clickhouse-extract-from-config 是用来获取配置项的，检查配置只是附带的：
+
+```bash
+[root@server01 zookeeper]# clickhouse-extract-from-config --config-file=/etc/clickhouse-server/config.xml --key=mark_cache_size
+```
+
+## CLI命令
+
+--host, -h：服务端的 host 名称，默认是 localhost。可以选择使用 host 名称或者 IPv4 或 IPv6 地址。需要 config.xml 中开启 <listen_host>::</listen_host> 配置，代表可以任意ip可访问。
+
+--port：连接的端口，默认值：9000。
+
+--user, -u：用户名。 默认值：default。
+
+--password：密码。
+
+--query，-q：使用非交互模式查询。
+
+```bash
+[root@server01 zookeeper]# clickhouse-client -q "show databases" 
+_temporary_and_external_tables
+default
+system
+```
+
+--database, -d：默认当前操作的数据库. 默认值：服务端默认的配置（默认是 default）。
+
+--multiline, -m：如果指定，允许多行语句查询（Enter仅代表换行，不代表查询语句完结）。
+
+```bash
+[root@server01 zookeeper]# clickhouse-client -m
+ClickHouse client version 20.8.3.18.
+Connecting to localhost:9000 as user default.
+Connected to ClickHouse server version 20.8.3 revision 54438.
+
+server01 :) show
+:-] databases
+:-] ;
+
+SHOW DATABASES
+
+┌─name───────────────────────────┐
+│ _temporary_and_external_tables │
+│ default                        │
+│ system                         │
+└────────────────────────────────┘
+
+3 rows in set. Elapsed: 0.002 sec. 
+
+server01 :) 
+```
+
+--time, -t：如果指定，非交互模式下会打印查询执行的时间到 stderr 中。
+
+--stacktrace：如果指定，如果出现异常，会打印堆栈跟踪信息。
+
+--config-file：配置文件的名称。
+
+--multiquery，-n：使用非交互模式查询数据时，可以分号隔开多个sql语句。
+
+```bash
+[root@server01 zookeeper]# clickhouse-client -n -q "use system;show tables;"
+```
+
+## 数据类型
+
+ClickHouse提供了许多数据类型，它们可以划分为基础类型、复合类型和特殊类型。可以在system.data_type_families表中检查数据类型名称以及是否区分大小写。这个表中存储了ClickHouse支持的所有数据类型。ClickHouse与Mysql、Hive中常用数据类型的对比如下：
+
+| MySQL     | Hive      | ClickHouse |
+| --------- | --------- | ---------- |
+| byte      | TINYINT   | Int8       |
+| short     | SMALLINT  | Int16      |
+| int       | INT       | Int32      |
+| long      | BIGINT    | Int64      |
+| varchar   | STRING    | String     |
+| timestamp | TIMESTAMP | DateTime   |
+| float     | FLOAT     | Float32    |
+| double    | DOUBLE    | Float64    |
+| boolean   | BOOLEAN   |            |
+
+可通过toTypeName(field)函数获取字段数据类型。
+
+### 整型
+
+ClickHouse中整形分为Int8、Int16、Int32、Int64来表示整数不同的取值范围，整形又包含有符号整形和无符号整形。
+
+| 类型   | 字节空间 | 取值范围                                     |
+| ------ | -------- | -------------------------------------------- |
+| Int8   | 1        | [-128 : 127]                                 |
+| Int16  | 2        | [-32768 : 32767]                             |
+| In32   | 4        | [-2147483648 : 2147483647]                   |
+| Int64  | 8        | [-9223372036854775808 : 9223372036854775807] |
+| UInt8  | 1        | [0 : 255]                                    |
+| UInt16 | 2        | [0 : 65535]                                  |
+| UInt32 | 4        | [0 : 4294967295]                             |
+| UInt64 | 8        | [0 : 18446744073709551615]                   |
+
+### 浮点型
+
+建议使用整数方式来存储数据，因为浮点类型数据计算可能导致精度误差。浮点类型包含单精度浮点数和双精度浮点数。
+
+| 类型    | 字节空间 | 有效精度位数 | 说明                             |
+| ------- | -------- | ------------ | -------------------------------- |
+| Float32 | 4        | 7            | 小数点后第8位起会发生数据溢出。  |
+| Float64 | 8        | 16           | 小数点后第17位起会发生数据溢出。 |
+
+相关函数：
+
+- toFloat32(value) 用来将字符串转换成 Float32 类型的函数。
+- toFloat64(value)用来将字符串转换成 Float64 类型的函数。
+
+### Decimal
+
+Decimal 有符号的定点数，可在加、减和乘法运算过程中保持精度。ClickHouse提供了 Decimal32、Decimal64、Decimal128、Decimal256 几种精度的定点数。
+
+Decimal(P,S)：原生写法
+
+其中，P 代表精度，决定总位数（整数部分+小数部分），取值范围是 [ 1 - 76 ]。S 代表规模，决定小数位数，取值范围是 [ 0 - P ]。
+
+根据P值的范围可以有如下对等写法，这里以小数点后2位举例：
+
+| P取值     | 原生写法示例   | 等同于        |
+| --------- | -------------- | ------------- |
+| [1 : 9]   | Decimal(9, 2)  | Decimal32(2)  |
+| [10 : 18] | Decimal(18, 2) | Decimal64(2)  |
+| [19 : 38] | Decimal(38, 2) | Decimal128(2) |
+| [39 : 76] | Decimal(76, 2) | Decimal256(2) |
+
+Decimal 数据在进行四则运算时，精度（总位数）和规模（小数点位数）会发生变化，具体规则如下：
+
+1. 精度（总位数）对应规则：两个不同精度的数据进行四则运算时，结果数据的精度以最大精度为准。
+
+2. 规模（小数点位数）对应规则：
+
+   - 加法|减法：`S = max(S1, S2)`，以两个数据中小数点位数最多的为准。
+
+   - 乘法：`S = S1 + S2`，以两个数据的小数位相加为准。
+
+   - 除法：规模以被除数的小数位为准。两数相除，被除数的小数位数不能小于除数的小数位数，也就是触发的规模可以理解为与两个数据中小数点位数大的为准。
+
+   - 举例：A/B ，A 是被除数，与 A 的规模保持一致。
+
+相关函数：
+
+- `toDecimal32(value, S)` 函数可将字符串 `value` 转换为 `Decimal32` 类型,小数点后有 S 位。
+- `toDecimal64(value, S)` 函数可将字符串 `value` 转换为 `Decimal64` 类型,小数点后有 S 位。
+- `toDecimal128(value, S)` 函数可将字符串 `value` 转换为 `Decimal128` 类型,小数点后有 S 位。
+- `toDecimal256(value, S)` 函数可将字符串 `value` 转换为 `Decimal256` 类型,小数点后有 S 位。
+
+### String
+
+字符串 String 可以是任意长度的。它可以包含任意的字节集，包含空字节。因此，字符串类型可以代替其他 DBMS 中的 VARCHAR、BLOB、CLOB 等类型。
+
+相关函数：
+
+- `toString(value)`：将数据转换为字符串类型。
+
+### FixedString
+
+FixedString 固定长度 N 的字符串，N 必须是严格的正自然数，一般在明确字符串长度的场景下使用，可以使用下面的语法对列声明为 FixedString 类型：
+
+```sql
+<column_name>  FixedString(N)
+```
+
+当向 ClickHouse 中插入数据时,如果字符串包含的字节数少于 N ,将对字符串末尾进行空字节填充。如果字符串包含的字节数大于 N,将抛出 `Too large value for FixedString(N)` 异常。当做数据查询时，ClickHouse 不会删除字符串末尾的空字节。 如果使用 WHERE 子句，则须要手动添加空字节以匹配 FixedString 的值，新版本后期不需要手动添加。
+
+相关函数：
+
+- `toFixedString(value, N)`：将数据转换为 N 位长度，N 不能小于 `value` 字符串实际长度。
+- `length(field)`：查询字符串字节数，中文所占用字节数与编码相关。
+
+### UUID
+
+UUID 是一种数据库常见的主键类型，在 ClickHouse 中直接把它作为一种数据类型。UUID 共有32位，它的格式为 8-4-4-4-12，如果在插入新记录时未指定 UUID 列值，则UUID 值将用0来填充：00000000-0000-0000-0000-000000000000。UUID 类型不支持算术运算及聚合函数。
+
+相关函数：
+
+- `generateUUIDv4()`：随机生成32位 UUID。
+
+### 日期/时间类型
+
+#### Date
+
+Date 只能精确到天，用2字节存储，表示从 1970-01-01（无符号）到当前的日期值。日期中没有存储时区信息，不能指定时区。
+
+```sql
+server01 :) CREATE TABLE t_date (x Date) ENGINE = Memory;
+server01 :) INSERT INTO t_date (x) VALUES ('2021-06-01'), ('2021-07-01');
+server01 :) SELECT x, toTypeName(x) FROM t_date;
+server01 :) SELECT now(), toDate(now()) as d, toTypeName(d);
+```
+
+#### DateTime
+
+DateTime精确到秒，可以指定时区。用4字节（无符号）存储Unix时间戳。允许存储与日期类型相同的范围内的值。最小值为0000-00-0000:00:00，时间戳类型值精确到秒。时区使用启动客户端或服务器时的系统时区。默认情况下，客户端连接到服务的时候会使用服务端时区，可以通过启用客户端命令行选项--use_client_time_zone来设置使用客户端时区。
+
+```sql
+server01 :) CREATE TABLE t_datetime(ts DateTime) ENGINE = Memory;
+server01 :) INSERT INTO t_datetime VALUES ('2021-06-01 08:00:00');
+server01 :) SELECT ts, toTypeName(ts) AS t FROM t_datetime;
+server01 :) SELECT toDateTime(ts, 'Asia/Shanghai') AS tz, toTypeName(tz) AS tzt  FROM t_datetime;
+```
+
+#### DateTime64 
+
+DateTime64 精确到毫秒和微秒，可以指定时区。在内部，此类型以 Int64 类型将数据存储。时间刻度的分辨率由 `precision` 参数确定。此外，DateTime64 类型可以像存储其他数据列一样存储时区信息，时区会影响 DateTime64 类型的值如何以文本格式显示，以及如何解析以字符串形式指定的时间数据 (`2020-01-01 05:00:01.000`)。时区信息不存储在表的行中，而是存储在列的元数据中。
+
+```sql
+server01 :) CREATE TABLE t_datetime64(dt64 DateTime64(3, 'Europe/Moscow'), event_id UInt8) ENGINE = Memory;
+server01 :) INSERT INTO t_datetime64 Values (1546300800000, 1), ('2019-01-01 00:00:00', 2), (1546300812345, 3);
+server01 :) SELECT toDateTime64(dt64, 4) as t1, toDateTime64(dt64, 4, 'Europe/London') as t2, event_id from t_datetime64;
+```
+
+相关函数：
+
+- `now()`：获取当前时间，返回格式：`yyyy-MM-dd HH:mm:ss`。
+- `toDate(value)`：将字符串转成 Date 类型，只支持 `yyyy-MM-dd` 格式。
+- `toDateTime(value, [TimeZone])`：将字符串转成 DateTime，支持将数据转换为对应时区时间，只支持 `yyyy-MM-dd HH:mm:ss` 格式。
+- `toDateTime64(value, precision, [TimeZone])`：将字符串转成 DateTime64，精度为 `precision`。支持 `yyyy-MM-dd HH:mm:ss.SSS` 时间格式。
+
+### 枚举型
+
+枚举类型通常在定义常量时使用，ClickHouse 提供 Enum8 和 Enum16 两种枚举类型。Enum 保存 'string' = integer 的对应关系。在 ClickHouse 中，尽管用户使用的是字符串常量，但所有含有 Enum 数据类型的操作都是按照包含整数的值来执行。这在性能方面比使用 String 数据类型更有效。
+
+Enum8 和 Enum16 分别对应 'String' = Int8 和 'String' = Int16，Enum8 类型的每个值范围是 -128 ~ 127，Enum16 类型的每个值范围是 -32768 ~ 32767，所有的字符串或者数字都必须是不一样的，允许存在空字符串，Enum 类型中数字可以是任意顺序，顺序并不重要。
+
+向 Enum 字段中插入值时，可以插入枚举的字符串值也可以插入枚举对应的 Integer 值，建议插入对应的字符串值，这样避免插入对应的 Integer 值不在 Enum 枚举集合中再次查询表时报错。定义了枚举类型值之后，不能写入其他值的数据，写入的值不在枚举集合中就会抛出异常。
+
+```sql
+server01 :) CREATE TABLE t_enum(x Enum8('hello' = 1, 'world' = 2)) ENGINE = Memory;
+server01 :) INSERT INTO t_enum VALUES ('hello'), (2);
+```
+
+### Boolean
+
+ClickHouse 中没有单独的类型来存储布尔值。可以使用 Enum8 类型，取值限制为 0 或 1。
+
+```sql
+server01 :) CREATE TABLE t_boolean(bl Enum8('true' = 1, 'false' = 0)) ENGINE = Memory;
+server01 :) INSERT INTO t_boolean VALUES (0), (1);
+```
+
+### Nullable
+
+Nullable类型只能与基础数据类型搭配使用，表示某个类型的值可以为NULL，Nullable(Int8)表示可以存储Int8类型的值，没有值时存NULL。使用Nullable需要注意：Nullable类型的字段不能作为索引字段，尽量避免使用Nullable类型，因为字段被定义为Nullable类型后会额外生成[Column].null.bin文件保存NULL值，增加开销，比普通列消耗更多的存储空间。
+
+```sql
+server01 :) CREATE TABLE t_nullable(x Int8, y Nullable(Int8)) ENGINE Memory;
+server01 :) INSERT INTO t_nullable VALUES (1, NULL), (2, 3);
+server01 :) SELECT * FROM t_nullable;
+
+SELECT *
+FROM t_nullable
+
+┌─x─┬────y─┐
+│ 1 │ ᴺᵁᴸᴸ │
+│ 2 │    3 │
+└───┴──────┘
+
+2 rows in set. Elapsed: 0.002 sec. 
+
+server01 :) SELECT x + y FROM t_nullable;
+
+SELECT x + y
+FROM t_nullable
+
+┌─plus(x, y)─┐
+│       ᴺᵁᴸᴸ │
+│          5 │
+└────────────┘
+
+2 rows in set. Elapsed: 0.002 sec. 
+```
+
+### Array
+
+Array(T) 由 T 类型元素组成的数组。T 可以是任意类型，包含数组类型。但不推荐使用多维数组，ClickHouse 对多维数组的支持有限。例如，不能在 MergeTree 表中存储多维数组。数组的定义方式有两种：Array(T) 或 [1,2,3,...]，数组类型里面的元素必须具有相同的数据类型，否则将引发异常。另外，需要注意的是，数组元素中如果存在 NULL 值，则元素类型将变为 Nullable。从数组中查询获取值使用 field[1|2|...]，直接使用中括号获取值，下标从1开始。
+
+```sql
+# array 必须为小写
+server01 :) SELECT array(1, 2) AS x, toTypeName(x) AS xt, ['a','b','c'] as y, toTypeName(y) AS yt;
+
+SELECT 
+    [1, 2] AS x,
+    toTypeName(x) AS xt,
+    ['a', 'b', 'c'] AS y,
+    toTypeName(y) AS yt
+
+┌─x─────┬─xt───────────┬─y─────────────┬─yt────────────┐
+│ [1,2] │ Array(UInt8) │ ['a','b','c'] │ Array(String) │
+└───────┴──────────────┴───────────────┴───────────────┘
+
+server01 :) CREATE TABLE t_array(id UInt32,name String, score Array(UInt32)) ENGINE = Memory;
+server01 :) INSERT INTO t_array VALUES (1, 'zs', array(10,20,30)), (2, 'ls', [100,200,300]);
+server01 :)  SELECT id, name, score[1] AS score_1 FROM t_array;
+
+SELECT 
+    id,
+    name,
+    score[1] AS score_1
+FROM t_array
+
+┌─id─┬─name─┬─score_1─┐
+│  1 │ zs   │      10 │
+│  2 │ ls   │     100 │
+└────┴──────┴─────────┘
+```
+
+### tuple
+
+元组类型有 1-N 个元素组成，每个元素允许设置不同的数据类型，且彼此之间不要求兼容。元组支持两种定义方式：`tuple(1, 'hello', 12.34)` 或 `(1, 'hello', 45.67)`。元组中可以存储多种数据类型，但是要注意数据类型顺序。
+
+```sql
+server01 :) SELECT tuple(1, 'a') AS x, toTypeName(x) AS xt, (1,'b','hello') AS y, toTypeName(y) AS yt;
+
+SELECT 
+    (1, 'a') AS x,
+    toTypeName(x) AS xt,
+    (1, 'b', 'hello') AS y,
+    toTypeName(y) AS yt
+
+┌─x───────┬─xt───────────────────┬─y───────────────┬─yt───────────────────────────┐
+│ (1,'a') │ Tuple(UInt8, String) │ (1,'b','hello') │ Tuple(UInt8, String, String) │
+└─────────┴──────────────────────┴─────────────────┴──────────────────────────────┘
+server01 :) CREATE TABLE t_tuple(id UInt8, name String, info Tuple(String,UInt8)) engine = Memory;
+server01 :) INSERT INTO t_tuple VALUES (1, 'zs', tuple('cls1', 100)), (2, 'ls', ('cls2', 200));
+server01 :) SELECT * FROM t_tuple;
+
+SELECT *
+FROM t_tuple
+
+┌─id─┬─name─┬─info─────────┐
+│  1 │ zs   │ ('cls1',100) │
+│  2 │ ls   │ ('cls2',200) │
+└────┴──────┴──────────────┘
+```
+
+### Nested
+
+ClickHouse 支持嵌套数据类型 Nested，可以为表定义一个或多个嵌套数据类型字段，但是每个嵌套字段只支持一级嵌套，即嵌套字段内不能继续使用嵌套类型。嵌套一般用来表示简单的级联关系。嵌套本质上是多维数组，嵌套类型中的每个数组的长度必须相同。目前，Nested 类型支持很局限，MergeTree 引擎中不支持 Nested 类型。
+
+```sql
+server01 :) CREATE TABLE t_nested (id UInt8,name String,dept Nested(id UInt8,name String)) engine = Memory;
+server01 :) DESC t_nested;
+
+DESCRIBE TABLE t_nested
+
+┌─name──────┬─type──────────┬─default_type─┬─default_expression─┬─comment─┬─codec_expression─┬─ttl_expression─┐
+│ id        │ UInt8         │              │                    │         │                  │                │
+│ name      │ String        │              │                    │         │                  │                │
+│ dept.id   │ Array(UInt8)  │              │                    │         │                  │                │
+│ dept.name │ Array(String) │              │                    │         │                  │                │
+└───────────┴───────────────┴──────────────┴────────────────────┴─────────┴──────────────────┴────────────────┘
+server01 :) INSERT INTO t_nested VALUES (1, 'zs', [10, 11, 12], ['dp1', 'dp2', 'dp3']), (2, 'ls', [100, 101], ['dp4', 'dp5']);
+server01 :) SELECT * FROM t_nested;
+
+SELECT *
+FROM t_nested
+
+┌─id─┬─name─┬─dept.id────┬─dept.name───────────┐
+│  1 │ zs   │ [10,11,12] │ ['dp1','dp2','dp3'] │
+│  2 │ ls   │ [100,101]  │ ['dp4','dp5']       │
+└────┴──────┴────────────┴─────────────────────┘
+
+server01 :) SELECT id, name, dept.name[1] AS first_dept FROM t_nested;
+
+SELECT 
+    id,
+    name,
+    dept.name[1] AS first_dept
+FROM t_nested
+
+┌─id─┬─name─┬─first_dept─┐
+│  1 │ zs   │ dp1        │
+│  2 │ ls   │ dp4        │
+└────┴──────┴────────────┘
+```
+
+### Domain
+
+Domain类型是特定实现的类型，目前支持IPv4和IPv6，本质上是对整形和字符串的进一步封装，IPv4基于UInt32封装，IPv6基于FixedString(16)封装。
+
+出于便捷性的考量，IPv4支持格式检查，格式错误的IP无法被写入。出于性能的考量，IPv4和IPv6相对于String更加紧凑，占用的空间更小，查询性能更快。
+
+在使用Domain时需要注意，虽然表面看来与String一样，但Domain类型并不是字符串，也不支持隐式自动转换成字符串，如果需要返回IP的字符串形式，需要调用函数显式实现。
+
+```sql
+server01 :) CREATE TABLE t_domain(url String, `from` IPv4) ENGINE = Memory;
+server01 :) INSERT INTO t_domain(url, `from`) VALUES ('https://wikipedia.org', '116.253.40.133') ('https://clickhouse.tech', '183.247.232.58') ('https://clickhouse.tech/docs/en/', '116.106.34.242');
+server01 :) SELECT * FROM t_domain;
+server01 :) SELECT `from`, toTypeName(`from`) as ft, IPv4NumToString(`from`) as s, toTypeName(s) as st FROM t_domain;
+```
+
+相关函数
+
+- `IPv4NumToString(field)`：IPv4 类型字段转化为 String。
+- `IPv6NumToString(field)`：IPv6 类型字段转化为 String。
+
+## 数据库引擎
+
+ClickHouse 中支持在创建数据库时指定引擎，目前比较常用的两种引擎为默认引擎和 MySQL 数据库引擎。
+
+### Ordinary
+
+Ordinary 是 ClickHouse 中默认引擎，在这种数据库引擎下可以使用任意表引擎。
+
+```sql
+server01 :) CREATE DATABASE test ENGINE = Ordinary;
+# 查看建库信息
+server01 :) SHOW CREATE DATABASE test;
+
+SHOW CREATE DATABASE test
+
+┌─statement─────────────────────────────┐
+│ CREATE DATABASE test
+ENGINE = Ordinary │
+└───────────────────────────────────────┘
+```
+
+### MySQL
+
+MySQL引擎用于将远程MySQL服务器中数据库映射到ClickHouse中，并允许对表进行INSERT插入和SELECT查询，方便在ClickHouse与MySQL之间进行数据交换。但不会将MySQL的数据同步到ClickHouse中，仅将MySQL的表映射为ClickHouse表，在MySQL中进行CRUD操作，可以同时映射到ClickHouse中。MySQL数据库引擎会将对其的查询转换为MySQL语法并发送到MySQL服务器，因此可以执行诸如SHOWTABLES或SHOWCREATETABLE之类的操作，但是不允许创建表、修改表、删除数据、重命名操作。建库语法如下：
+
+```sql
+CREATE DATABASE [IF NOT EXISTS] {database_name} [ON CLUSTER cluster]
+    ENGINE = MySQL('{host}:{port}', ['{database}' | database], '{user}', '{password}');
+```
+
+### 创建分布式数据库
+
+```sql
+#创建分布式数据库
+server01 :) create database test on cluster clickhouse_cluster
+
+CREATE DATABASE test ON CLUSTER clickhouse_cluster
+
+┌─host─────┬─port─┬─status─┬─error─┬─num_hosts_remaining─┬─num_hosts_active─┐
+│ server01 │ 9000 │      0 │       │                   2 │                0 │
+│ server03 │ 9000 │      0 │       │                   1 │                0 │
+│ server02 │ 9000 │      0 │       │                   0 │                0 │
+└──────────┴──────┴────────┴───────┴─────────────────────┴──────────────────┘
+
+#删除分布式数据库
+server01 :) drop database test on cluster clickhouse_cluster
+
+DROP DATABASE test ON CLUSTER clickhouse_cluster
+
+┌─host─────┬─port─┬─status─┬─error─┬─num_hosts_remaining─┬─num_hosts_active─┐
+│ server02 │ 9000 │      0 │       │                   2 │                2 │
+└──────────┴──────┴────────┴───────┴─────────────────────┴──────────────────┘
+┌─host─────┬─port─┬─status─┬─error─┬─num_hosts_remaining─┬─num_hosts_active─┐
+│ server01 │ 9000 │      0 │       │                   1 │                0 │
+│ server03 │ 9000 │      0 │       │                   0 │                0 │
+└──────────┴──────┴────────┴───────┴─────────────────────┴──────────────────┘
+
+3 rows in set. Elapsed: 0.134 sec.
+```
+
+## 表引擎
+
+表引擎在ClickHouse中的作用十分关键，直接决定了数据如何存储和读取、是否支持并发读写、是否支持Index索引、支持的Query种类、是否支持主备复制等。
+
+ClickHouse提供了大约28种表引擎，比如Log系列用来做小表数据分析，MergeTree系列用来做大数据量分析，而Integration系列则多用于外表数据集成，以及复制表Replicated系列，分布式表Distributed等，纷繁复杂。
+
+ClickHouse表引擎一共分为四个系列，分别是Log系列、MergeTree系列、Integration系列、Special系列。其中包含了两种特殊的表引擎Replicated、Distributed，功能上与其他表引擎正交，根据场景组合使用。
+
+### Log 系列
+
+Log系列表引擎功能相对简单，主要用于快速写入小表（1百万行左右的表），然后全部读出的场景，即一次写入，多次查询。Log系列表引擎包含：TinyLog、StripeLog、Log三种引擎。Log表引擎的共性：
+
+- 数据被顺序append写入本地磁盘。
+- 不支持delete、update修改数据。
+- 不支持index索引。
+- 不支持原子性写。如果某些操作(异常的服务器关闭)中断了写操作，则可能会获得带有损坏数据的表。
+- insert会阻塞select操作。当向表中写入数据时，针对这张表的查询会被阻塞，直至写入动作结束。
+
+Log表引擎区别：
+
+- TinyLog：不支持并发读取数据文件，查询性能较差；格式简单，适合用来暂存中间数据。
+- StripLog：支持并发读取数据文件，查询性能比TinyLog好；将所有列存储在同一个大文件中，减少了文件个数。
+- Log：支持并发读取数据文件，查询性能比TinyLog好；每个列会单独存储在一个独立文件中。
+
+#### TinyLog
+
+TinyLog是Log系列引擎中功能简单、性能较低的引擎。它的存储结构由数据文件和元数据两部分组成。其中，数据文件按列独立存储，每一个列字段对应一个文件。由于TinyLog数据存储不分块，所以不支持并发数据读取，该引擎适合一次写入，多次读取的场景，对于处理小批量中间表的数据可以使用该引擎，这种引擎会有大量小文件，性能会低。
+
+```sql
+server01 :) CREATE TABLE t_tinylog(id UInt8, name String, age UInt8) engine = TinyLog;
+server01 :) INSERT INTO t_tinylog VALUES (1, 'zs', 18), (2, 'ls', 19), (3, 'ww', 20);
+server01 :) SELECT * FROM t_tinylog;
+# TinyLog 引擎不支持删除数据 删除数据将引发异常
+server01 :) ALTER TABLE t_tinylog DELETE WHERE id = 1;
+
+ALTER TABLE t_tinylog
+    DELETE WHERE id = 1
+
+
+
+Received exception from server (version 20.8.3):
+Code: 48. DB::Exception: Received from localhost:9000. DB::Exception: Mutations are not supported by storage TinyLog. 
+
+0 rows in set. Elapsed: 0.002 sec. 
+```
+
+TinyLog引擎表中的每个列单独对应一个bin文件，同时还有一个sizes.json文件存储元数据，记录了每个bin文件中数据大小。
+
+```bash
+[root@server01 ~]# cd /var/lib/clickhouse/data/test/t_tinylog/ && ls -lhat
+总用量 16K
+drwxr-x--- 2 clickhouse clickhouse 69 11月 14 10:11 .
+-rw-r----- 1 clickhouse clickhouse 29 11月 14 10:11 age.bin
+-rw-r----- 1 clickhouse clickhouse 29 11月 14 10:11 id.bin
+-rw-r----- 1 clickhouse clickhouse 35 11月 14 10:11 name.bin
+-rw-r----- 1 clickhouse clickhouse 90 11月 14 10:11 sizes.json
+drwxr-x--- 3 clickhouse clickhouse 23 11月 14 10:11 ..
+```
+
+#### StripeLog
+
+相比TinyLog而言，StripeLog数据存储会划分块，每次插入对应一个数据块，拥有更高的查询性能（拥有.mrk标记文件，支持并行查询）。StripeLog引擎将所有列存储在一个文件中，使用了更少的文件描述符。对每一次insert请求，ClickHouse将数据块追加在表文件的末尾，逐列写入。StripeLog引擎不支持ALTER UPDATE和ALTER DELETE操作。
+
+```sql
+server01 :) CREATE TABLE t_stripelog(id UInt8, name String, age UInt8) engine = StripeLog;
+# 多次插入会将数据插入不同数据块中
+server01 :) INSERT INTO t_stripelog VALUES (1, 'zs', 18);
+server01 :) INSERT INTO t_stripelog VALUES (2, 'ls', 19), (3, 'ww', 20);
+# ClickHouse在查询数据时使用多线程。每个线程读取单独的数据块并在完成后独立的返回结果行。这样的结果是，大多数情况下，输出中块的顺序和输入时相应块的顺序可能不一样。
+server01 :) SELECT * FROM t_stripelog;
+
+SELECT *
+FROM t_stripelog
+
+┌─id─┬─name─┬─age─┐
+│  1 │ zs   │  18 │
+└────┴──────┴─────┘
+┌─id─┬─name─┬─age─┐
+│  2 │ ls   │  19 │
+│  3 │ ww   │  20 │
+└────┴──────┴─────┘
+
+3 rows in set. Elapsed: 0.003 sec. 
+
+server01 :) 
+```
+
+StripeLog 引擎表文件如下：
+
+```bash
+[root@server01 t_tinylog]# cd /var/lib/clickhouse/data/test/t_stripelog/ && ls -lhat        
+总用量 12K
+drwxr-x--- 2 clickhouse clickhouse  57 11月 14 10:15 .
+-rw-r----- 1 clickhouse clickhouse 291 11月 14 10:15 data.bin
+-rw-r----- 1 clickhouse clickhouse 150 11月 14 10:15 index.mrk
+-rw-r----- 1 clickhouse clickhouse  69 11月 14 10:15 sizes.json
+drwxr-x--- 4 clickhouse clickhouse  42 11月 14 10:15 ..
+```
+
+- data.bin：数据文件，所有列字段都写入该文件中。
+
+- index.mrk：数据标记文件，保存了数据在 data.bin 文件中的位置信息，即每个插入数据列的 offset 信息。利用数据标记能够使用多个线程，并行读取 data.bin 压缩数据，提升查询性能。
+
+- sizes.json：元数据文件，记录了 data.bin 和 index.mrk 大小信息。
+
+#### Log
+
+Log引擎表适用于临时数据，一次性写入、测试场景。Log引擎结合了TinyLog表引擎和StripeLog表引擎的长处，是Log系列引擎中性能最高的表引擎。Log表引擎会将每一列都存在一个文件中，对于每一次的insert操作，会生成数据块，经测试，数据块个数与当前节点的CPU核心数一致。
+
+```sql
+server01 :) CREATE TABLE t_log(id UInt8, name String, age UInt8) engine = Log;
+server01 :) INSERT INTO t_log VALUES (1,'zs',18);
+server01 :) INSERT INTO t_log VALUES (2,'ls',19);
+server01 :) INSERT INTO t_log VALUES (3,'ww',20);
+server01 :) INSERT INTO t_log VALUES (4,'ml',21); 
+server01 :) INSERT INTO t_log VALUES (5,'tq',22);
+server01 :) select * from t_log;
+
+SELECT *
+FROM t_log
+
+┌─id─┬─name─┬─age─┐
+│  1 │ zs   │  18 │
+│  2 │ ls   │  19 │
+│  3 │ ww   │  20 │
+│  4 │ ml   │  21 │
+│  5 │ tq   │  22 │
+└────┴──────┴─────┘
+
+6 rows in set. Elapsed: 0.002 sec. 
+```
+
+- `__marks.mrk`：数据标记，保存了每个列文件中的数据位置信息，利用数据标记能够使用多个线程，并行读取data.bin压缩数据，提升查询性能。
+- sizes.json：记录了bin和`__mark.mrk`大小信息。
+
+### Special 系列
+
+#### Memory 
+
+Memory表引擎直接将数据保存在内存中，ClickHouse中的Memory表引擎具有以下特点：
+
+- Memory引擎以未压缩的形式将数据存储在RAM中，数据完全以读取时获得的形式存储。
+- 并发数据访问是同步的，锁范围小，读写操作不会相互阻塞。
+- 不支持索引。
+- 查询是并行化的，在简单查询上达到最大速率，超过10GB/秒，在相对较少的行（最多约100,000,000行）上有高性能的查询。
+- 没有磁盘读取，不需要解压缩或反序列化数据，速度更快，在某些情况下，与MergeTree引擎的性能几乎一样高。
+- 重新启动服务器时，表存在，但是表中数据全部清空。
+- Memory引擎多用于测试。
+
+```sql
+server01 :) CREATE TABLE t_memory(id UInt8, name String, age UInt8) engine = Memory;
+server01 :) INSERT INTO t_memory VALUES (1, 'zs', 18), (2, 'ls', 19), (3, 'ww', 20);
+server01 :) SELECT * FROM t_memory;
+```
+
+#### Merge 
+
+Merge引擎本身不存储数据，但可用于同时从任意多个其他的表中读取数据，这里需要多个表的结构相同，并且创建的Merge引擎表的结构也需要和这些表结构相同才能读取。读是自动并行的，不支持写入。读取时，被真正读取到数据的表如果设置了索引，索引也会被使用。Merge引擎参数：数据库名和用于匹配表名的正则表达式。
+
+注意：当选择需要读取的表时，会匹配正则表达式匹配命中的表，如果当前Merge表的名称也符合正则表达式匹配规则，Merge表本身会自动排除，以避免进入递归死循环，当然也可以创建两个相互无限递归读取对方数据的Merge表，但这并没有什么意义。
+
+注意：Merge引擎表不会在对应的库路径下产生对应的目录结构。
+
+```sql
+server01 :) CREATE TABLE m_t1 (id UInt8, name String, age UInt8) engine = TinyLog;
+server01 :) INSERT INTO m_t1 VALUES (1, 'zs', 18), (2, 'ls', 19);
+
+server01 :) CREATE TABLE m_t2 (id UInt8, name String, age UInt8) engine = TinyLog;
+server01 :) INSERT INTO m_t2 VALUES (3, 'ww', 20), (4, 'ml', 21);
+
+server01 :) CREATE TABLE m_t3 (id UInt8, name String, age UInt8) engine = TinyLog;
+server01 :) INSERT INTO m_t3 VALUES (5, 'tq', 22), (6, 'zb', 23);
+
+# Merge 语法：Merge(${database}, '${regex}')
+server01 :) CREATE TABLE t_merge (id UInt8, name String, age UInt8) engine = Merge(test, '^m_t');
+
+server01 :) SELECT * FROM t_merge;
+
+SELECT *
+FROM t_merge
+
+┌─id─┬─name─┬─age─┐
+│  1 │ zs   │  18 │
+│  2 │ ls   │  19 │
+└────┴──────┴─────┘
+┌─id─┬─name─┬─age─┐
+│  3 │ ww   │  20 │
+│  4 │ ml   │  21 │
+└────┴──────┴─────┘
+┌─id─┬─name─┬─age─┐
+│  5 │ tq   │  22 │
+│  6 │ zb   │  23 │
+└────┴──────┴─────┘
+
+6 rows in set. Elapsed: 0.003 sec.
+
+```
+
+#### Distributed 
+
+Distributed是ClickHouse中分布式引擎，使用分布式引擎声明的表才可以在其他节点访问与操作。Distributed引擎和Merge引擎类似，本身不存放数据，功能是在不同节点把多张相同结构的物理表合并为一张逻辑表。
+
+分布式表引擎语法：Distributed(cluster_name, database_name, table_name[, sharding_key])。
+
+- cluster_name：映射 metrika.xml 配置文件中 clickhouse_remote_servers 标签下配置集群名称。
+- database_name：数据库名称。
+- table_name：表名称。
+- sharding_key：可选项，用于分片的 KEY 值，在数据写入的过程中，分布式表会依据分片 KEY 的规则，将数据分布到各个节点的本地表。
+
+注意：创建分布式表是读时检查机制，对创建分布式表和本地表的顺序并没有强制要求。
+
+```sql
+#在server01、server02、server03节点上启动ClickHouse 服务
+# ssh server01 'systemctl start clickhouse-server'
+# ssh server02 'systemctl start clickhouse-server'
+# ssh server03 'systemctl start clickhouse-server'
+
+# ssh server01
+# clickhouse-client
+server01 :) CREATE TABLE test_local (id UInt8, name String) engine= TinyLog;
+server01 :) INSERT INTO test_local VALUES (1, 'zs'), (2, 'ls');
+
+# ssh server02
+# clickhouse-client
+server02 :) CREATE TABLE test_local (id UInt8, name String) engine= TinyLog;
+server02 :) INSERT INTO test_local VALUES (3, 'ww'), (4, 'ml');
+
+# ssh server03
+# clickhouse-client
+server03 :) CREATE TABLE test_local (id UInt8, name String) engine= TinyLog;
+server03 :) INSERT INTO test_local VALUES (5, 'tq'), (6, 'zb');
+
+# 在 server01 节点创建分布式表 t_distributed 表引擎使用 Distributed 引擎
+# ssh server01
+# clickhouse-client
+server01 :) CREATE TABLE t_distributed(id UInt8, name String) engine = Distributed(clickhouse_cluster, default, test_local, id);
+# 以上分布式表 t_distributed 只存在于 server01 节点 ClickHouse 中
+
+server01 :) SELECT * FROM t_distributed;
+┌─id─┬─name─┐
+│  1 │ zs   │
+│  2 │ ls   │
+└────┴──────┘
+┌─id─┬─name─┐
+│  5 │ tq   │
+│  6 │ zb   │
+└────┴──────┘
+┌─id─┬─name─┐
+│  3 │ ww   │
+│  4 │ ml   │
+└────┴──────┘
+6 rows in set. Elapsed: 0.010 sec. 
+
+# 向分布式表中插入数据 将分布式存储在不同节点
+server01 :) INSERT INTO t_distributed VALUES (7, 'dzs'), (8, 'dls'), (9, 'dww'), (10, 'dml'), (11, 'dtq'), (12, 'dzb');
+
+# ssh server01
+server01 :) SELECT * FROM test_local;
+┌─id─┬─name─┐
+│  1 │ zs   │
+│  2 │ ls   │
+│  9 │ dww  │
+│ 12 │ dzb  │
+└────┴──────┘
+4 rows in set. Elapsed: 0.004 sec. 
+
+# ssh server02
+server02 :) SELECT * FROM test_local;
+┌─id─┬─name─┐
+│  3 │ ww   │
+│  4 │ ml   │
+│  7 │ dzs  │
+│ 10 │ dml  │
+└────┴──────┘
+4 rows in set. Elapsed: 0.004 sec. 
+
+# ssh server03
+server03 :) SELECT * FROM test_local;
+┌─id─┬─name─┐
+│  5 │ tq   │
+│  6 │ zb   │
+│  8 │ dls  │
+│ 11 │ dtq  │
+└────┴──────┘
+4 rows in set. Elapsed: 0.005 sec. 
+```
+
+以上在server01节点创建的分布式表t_distributed虽然数据是分布式存储在每个ClickHouse集群节点，但只能在server01节点查询t_distributed表，其他ClickHouse节点查询不到此分布式表。如需每台ClickHouse节点上都能访问分布式表，可以指定集群，创建该表：
+
+```sql
+# 删除数据库
+server01 :) drop database test ON cluster clickhouse_cluster;
+
+DROP DATABASE test ON CLUSTER clickhouse_cluster
+
+┌─host─────┬─port─┬─status─┬─error─┬─num_hosts_remaining─┬─num_hosts_active─┐
+│ server01 │ 9000 │      0 │       │                   2 │                0 │
+│ server03 │ 9000 │      0 │       │                   1 │                0 │
+│ server02 │ 9000 │      0 │       │                   0 │                0 │
+└──────────┴──────┴────────┴───────┴─────────────────────┴──────────────────┘
+# 创建数据库
+server01 :) create database test ON cluster clickhouse_cluster;
+
+CREATE DATABASE test ON CLUSTER clickhouse_cluster
+
+┌─host─────┬─port─┬─status─┬─error─┬─num_hosts_remaining─┬─num_hosts_active─┐
+│ server01 │ 9000 │      0 │       │                   2 │                0 │
+│ server03 │ 9000 │      0 │       │                   1 │                0 │
+│ server02 │ 9000 │      0 │       │                   0 │                0 │
+└──────────┴──────┴────────┴───────┴─────────────────────┴──────────────────┘
+# 创建本地表
+server01 :) CREATE TABLE test_local ON cluster clickhouse_cluster (id UInt8, name String, birthday Date) engine= MergeTree() ORDER BY id PARTITION by toYYYYMM(birthday);
+# 创建分布式表 t_cluster ,引擎使用Distributed 引擎
+server01 :) CREATE TABLE t_cluster ON cluster clickhouse_cluster (id UInt8, name String, birthday Date) engine =  Distributed(clickhouse_cluster, test, test_local, id);
+# 插入数据
+server01 :) INSERT INTO t_cluster VALUES (1, 'zs', '2021-06-01'), (2, 'ls', '2021-02-10'), (3, 'ww', '2021-06-01'), (4, 'zl',  '2021-06-18'), (5, 'sq', '2021-07-09'), (6, 'zb', '2021-07-29');
+```
+
+上面的语句中使用了 ON CLUSTER 分布式 DDL，意味着在集群的每个分片节点，都会创建一张 Distributed 表，这样便可以从其中任意一端发起对所有分片的读、写请求。
+
+### MergeTree 系列
+
+MergeTree 在写入一批数据时，数据总会以数据片段的形式写入磁盘，且数据片段在磁盘上不可修改。为了避免片段过多，ClickHouse 会通过后台线程，定期合并这些数据片段，属于相同分区的数据片段会被合成一个新的片段。这种数据片段往复合并的特点，也正是合并树名称的由来。MergeTree 作为家族系列最基础的表引擎，主要有以下特点：
+
+- 存储的数据按照主键排序：创建稀疏索引加快数据查询速度。
+- 支持数据分区，可以通过 PARTITION BY 语句指定分区字段。
+- 支持数据副本。
+- 支持数据采样。
+
+建表语句
+
+```sql
+CREATE TABLE [IF NOT EXISTS] [db.]table_name [ON CLUSTER cluster]
+(
+    name1 [type1] [DEFAULT|MATERIALIZED|ALIAS expr1] [TTL expr1],
+    name2 [type2] [DEFAULT|MATERIALIZED|ALIAS expr2] [TTL expr2],
+    ...
+    INDEX index_name1 expr1 TYPE type1(...) GRANULARITY value1,
+    INDEX index_name2 expr2 TYPE type2(...) GRANULARITY value2
+) ENGINE = MergeTree()
+ORDER BY expr
+[PARTITION BY expr]
+[PRIMARY KEY expr]
+[SAMPLE BY expr]
+[TTL expr [DELETE|TO DISK 'xxx'|TO VOLUME 'xxx'], ...]
+[SETTINGS name=value, ...]
+```
+
+1. `ENGINE`：ENGINE = MergeTree()，MergeTree 引擎没有参数。
+2. `ORDER BY`：必选项，排序字段。比如 `ORDER BY (Col1, Col2)`，值得注意的是，如果没有使用 `PRIMARY KEY` 显式的指定主键 `ORDER BY` 排序字段自动作为主键。如果不需要排序，则可以使用 `ORDER BY tuple()` 语法，创建的表也就不包含主键。这种情况下，ClickHouse 会按照插入的顺序存储数据。
+3. `PARTITION BY`：可选项，分区字段，例如要按月分区，可以使用表达式 `toYYYYMM(date_column)`，分区名格式为 `YYYYMM`。
+4. `PRIMARY KEY`：可选项，指定主键，如果排序字段与主键不一致，可以单独指定主键字段，否则默认主键是排序字段。另外，如果指定了 `PRIMARY KEY` 与排序字段不一致，要保证 `PRIMARY KEY` 指定的主键是 `ORDER BY` 指定字段的前缀，这种强制约束保障了即便在两者定义不同的情况下，主键仍然是排序键的前缀，不会出现索引与数据顺序混乱的问题。大部分情况下不需要专门指定一个 `PRIMARY KEY` 子句。注意：在 MergeTree 中主键并不用于去重，而是用于索引，加快查询速度。
+   - `ORDER BY (A,B,C) PRIMARY KEY A`：允许。
+   - `ORDER BY (A,B,C) PRIMARY KEY B`：禁止：DB::Exception: Primary key must be a prefix of the sorting key。
+5. `SAMPLE BY`：可选项，采样字段。如果指定了该字段，那么主键中也必须包含该字段。
+6. `TTL`：可选项，数据存活时间。在 MergeTree 中，可以为某个列字段或整张表设置 `TTL`。当时间到达时，如果是列字段级别的 `TTL`，则会删除这一列的数据；如果是表级别的 `TTL`，则会删除整张表的数据。
+7. `SETTINGS`：可选项。额外的参数配置。
+
+#### 数据分区
+
+```sql
+# 创建表
+server01 :) CREATE TABLE t_mt(id UInt8,name String,age UInt8,birthday Date,location String) engine = MergeTree() ORDER BY (id,age) PARTITION by toYYYYMM(birthday);
+# 插入数据
+server01 :) INSERT INTO t_mt VALUES (1, 'zs', 18, '2021-06-01', 'sh'), (2, 'ls', 19, '2021-02-10', 'bj'), (3, 'ww', 12, '2021-06-01', 'tj'), (1, 'ml', 10, '2021-06-18', 'sh'), (5, 'tq', 22, '2021-02-09', 'gz');
+server01 :) select * from t_mt;
+# 继续插入数据
+server01 :) INSERT INTO t_mt VALUES (1, 'zb', 11, '2021-06-08', 'bj'), (2, 'lj', 19, '2021-02-10', 'tj'), (3, 'zs', 12, '2021-07-01', 'bj');
+server01 :) SELECT * FROM t_mt;
+
+SELECT *
+FROM t_mt
+
+┌─id─┬─name─┬─age─┬───birthday─┬─location─┐
+│  2 │ ls   │  19 │ 2021-02-10 │ bj       │
+│  5 │ tq   │  22 │ 2021-02-09 │ gz       │
+└────┴──────┴─────┴────────────┴──────────┘
+┌─id─┬─name─┬─age─┬───birthday─┬─location─┐
+│  2 │ lj   │  19 │ 2021-02-10 │ tj       │
+└────┴──────┴─────┴────────────┴──────────┘
+┌─id─┬─name─┬─age─┬───birthday─┬─location─┐
+│  1 │ ml   │  10 │ 2021-06-18 │ sh       │
+│  1 │ zs   │  18 │ 2021-06-01 │ sh       │
+│  3 │ ww   │  12 │ 2021-06-01 │ tj       │
+└────┴──────┴─────┴────────────┴──────────┘
+┌─id─┬─name─┬─age─┬───birthday─┬─location─┐
+│  1 │ zb   │  11 │ 2021-06-08 │ bj       │
+└────┴──────┴─────┴────────────┴──────────┘
+┌─id─┬─name─┬─age─┬───birthday─┬─location─┐
+│  3 │ zs   │  12 │ 2021-07-01 │ bj       │
+└────┴──────┴─────┴────────────┴──────────┘
+
+```
+
+可以看到新插入的数据生成了新数据块，实际上这里在底层对应新的分区文件片段，MergeTree引擎会在插入数据15分钟左右，将同一个分区的各个分区文件片段合并成一整个分区文件。也可以手动执行 OPTIMIZE 语句手动触发合并。
+
+```sql
+server01 :) OPTIMIZE TABLE t_mt PARTITION '202102';
+server01 :) OPTIMIZE TABLE t_mt PARTITION '202106'; 
+server01 :) SELECT * FROM t_mt;
+
+SELECT *
+FROM t_mt
+
+┌─id─┬─name─┬─age─┬───birthday─┬─location─┐
+│  2 │ ls   │  19 │ 2021-02-10 │ bj       │
+│  2 │ lj   │  19 │ 2021-02-10 │ tj       │
+│  5 │ tq   │  22 │ 2021-02-09 │ gz       │
+└────┴──────┴─────┴────────────┴──────────┘
+┌─id─┬─name─┬─age─┬───birthday─┬─location─┐
+│  1 │ ml   │  10 │ 2021-06-18 │ sh       │
+│  1 │ zb   │  11 │ 2021-06-08 │ bj       │
+│  1 │ zs   │  18 │ 2021-06-01 │ sh       │
+│  3 │ ww   │  12 │ 2021-06-01 │ tj       │
+└────┴──────┴─────┴────────────┴──────────┘
+┌─id─┬─name─┬─age─┬───birthday─┬─location─┐
+│  3 │ zs   │  12 │ 2021-07-01 │ bj       │
+└────┴──────┴─────┴────────────┴──────────┘
+```
+
+- `OPTIMIZE TABLE t_mt PARTITION 'value'`：合并指定分区，如果有多个分区，需要执行多次。
+- `OPTIMIZE TABLE t_mt`：合并一个分区，如果有多个分区，需要执行多次。
+
+- `OPTIMIZE TABLE t_mt FINAL`：合并所有分区。
+
+#### 数据文件目录解析
+
+在创建表，并插入数据后，表目录如下：
+
+```bash
+[root@server01 t_mt]# cd /var/lib/clickhouse/data/test/t_mt/ && ll
+总用量 4
+drwxr-x--- 2 clickhouse clickhouse 305 11月 14 19:02 202102_2_2_0
+drwxr-x--- 2 clickhouse clickhouse 305 11月 14 19:05 202102_2_4_1
+drwxr-x--- 2 clickhouse clickhouse 305 11月 14 19:04 202102_4_4_0
+drwxr-x--- 2 clickhouse clickhouse 305 11月 14 19:02 202106_1_1_0
+drwxr-x--- 2 clickhouse clickhouse 305 11月 14 19:05 202106_1_3_1
+drwxr-x--- 2 clickhouse clickhouse 305 11月 14 19:04 202106_3_3_0
+drwxr-x--- 2 clickhouse clickhouse 305 11月 14 19:04 202107_5_5_0
+drwxr-x--- 2 clickhouse clickhouse   6 11月 14 19:02 detached
+-rw-r----- 1 clickhouse clickhouse   1 11月 14 19:02 format_version.txt
+```
+
+`202102_2_2_0` 及 `202106_1_1_0` 为分区目录。该分区目录可在 `system.parts` 表中查询：
+
+```sql
+server01 :) SELECT table, partition, name, active FROM system.parts WHERE table = 't_mt';
+
+SELECT 
+    table,
+    partition,
+    name,
+    active
+FROM system.parts
+WHERE table = 't_mt'
+
+┌─table─┬─partition─┬─name─────────┬─active─┐
+│ t_mt  │ 202102    │ 202102_2_2_0 │      0 │
+│ t_mt  │ 202102    │ 202102_2_4_1 │      1 │
+│ t_mt  │ 202102    │ 202102_4_4_0 │      0 │
+│ t_mt  │ 202106    │ 202106_1_1_0 │      0 │
+│ t_mt  │ 202106    │ 202106_1_3_1 │      1 │
+│ t_mt  │ 202106    │ 202106_3_3_0 │      0 │
+│ t_mt  │ 202107    │ 202107_5_5_0 │      1 │
+└───────┴───────────┴──────────────┴────────┘
+```
+
+- `table`：归属表。
+- `partition`：分区名称。
+- `name`：对应磁盘数据所在的分区目录片段，格式为 `{分区名称}_{数据块最小编号}_{数据块最大编号}_{合并次数}`。
+- `active`：分区片段状态：1代表激活状态，0代表非激活状态。
+
+非激活片段是那些在合并到较大片段之后剩余的源数据片段，损坏的数据片段也表示为非活动状态。非激活片段会在合并后的10分钟左右被删除。
+
+分区片段目录结构如下：
+
+```bash
+[root@server01 t_mt]# cd /var/lib/clickhouse/data/test/t_mt/202107_5_5_0 && ll                                 
+总用量 64
+-rw-r----- 1 clickhouse clickhouse  27 11月 14 19:04 age.bin
+-rw-r----- 1 clickhouse clickhouse  48 11月 14 19:04 age.mrk2
+-rw-r----- 1 clickhouse clickhouse  28 11月 14 19:04 birthday.bin
+-rw-r----- 1 clickhouse clickhouse  48 11月 14 19:04 birthday.mrk2
+-rw-r----- 1 clickhouse clickhouse 493 11月 14 19:04 checksums.txt
+-rw-r----- 1 clickhouse clickhouse 108 11月 14 19:04 columns.txt
+-rw-r----- 1 clickhouse clickhouse   1 11月 14 19:04 count.txt
+-rw-r----- 1 clickhouse clickhouse  27 11月 14 19:04 id.bin
+-rw-r----- 1 clickhouse clickhouse  48 11月 14 19:04 id.mrk2
+-rw-r----- 1 clickhouse clickhouse  29 11月 14 19:04 location.bin
+-rw-r----- 1 clickhouse clickhouse  48 11月 14 19:04 location.mrk2
+-rw-r----- 1 clickhouse clickhouse   4 11月 14 19:04 minmax_birthday.idx
+-rw-r----- 1 clickhouse clickhouse  29 11月 14 19:04 name.bin
+-rw-r----- 1 clickhouse clickhouse  48 11月 14 19:04 name.mrk2
+-rw-r----- 1 clickhouse clickhouse   4 11月 14 19:04 partition.dat
+-rw-r----- 1 clickhouse clickhouse   4 11月 14 19:04 primary.idx
+```
+
+- `checksums.txt`：校验和文件，使用二进制格式存储，保存余下各类文件(`primary. idx`、`count.txt`等)的 `size` 大小及 `size` 哈希值，用于快速校验文件的完整性和正确性。
+- `columns.txt`：存储当前分区所有列信息。使用明文格式存储。
+- `count.txt`：计数文件，使用明文格式存储。用于记录当前数据分区目录下数据的总行数。
+- `primary.idx`：一级索引文件，使用二进制格式存储。用于存放稀疏索引，一张 MergeTree 表只能声明一次一级索引，即通过 `ORDER BY` 或者 `PRIMARY KEY` 指定字段。借助稀疏索引，在数据查询的时能够排除主键条件范围之外的数据文件，从而有效减少数据扫描范围，加速查询速度。
+- `*.bin`：数据文件，使用压缩格式存储，默认为 LZ4 压缩格式，用于存储某一列的数据。
+- `*.mrk2`：列字段标记文件，使用二进制格式存储。标记文件中保存了 `bin` 文件中数据的偏移量信息。
+- `partition.dat` & `minmax_[Column].idx`：如果指定了分区键，则会额外生成 `partition.dat` 与 `minmax` 索引文件，它们均使用二进制格式存储。`partition.dat` 用于保存当前分区下分区表达式最终生成的值，即分区字段值；而 `minmax` 索引用于记录当前分区下分区字段对应原始数据的最小和最大值。
+
+ClickHouse MergeTree 引擎表支持分区，索引，修改，并发查询数据，当查询 MergeTree 表数据时，首先通过 `primary.idx` 文件获取对应索引，根据索引找到 `[column].mrk2` 文件获取对应的数据块偏移量，之后再根据偏移量从 `[column].bin` 文件中读取块数据。
+
+#### 分区合并规则
+
+为表设置分区可以在查询过程中跳过不需要的数据目录，提升查询效率。在 ClickHouse 中并不是所有的表都支持分区，目前只有 MergeTree 家族系列的表引擎才支持数据分区。向 MergeTree 分区表中插入数据时，每次都会生成对应的分区片段，不会立刻合并相同分区的数据，需要等待15分钟左右，ClickHouse 会自动合并相同的分区片段，并删除合并之前的源数据片段，当然也可以手动执行 `OPTIMIZE` 语句手动触发合并分区表中的分区片段。
+
+![image](assets\middleware-48.png)
+
+表设置分区字段时，分区健不仅可以指定为时间列，也可以是表中任意列或者列的表达式。如果按照字符串字段来进行分区，在底层 `/var/lib/clickhouse/data/{database}/` 目录下对应的表中的分区片段名称是使用字符串的 `hashcode + 编码` 的形式来命名。
+
+#### ReplacingMergeTree
+
+MergeTree 不能对相同主键的数据进行去重，ClickHouse 提供了 ReplacingMergeTree 引擎，可以针对同分区内相同主键的数据进行去重，它能够在合并分区时删除重复的数据。值得注意的是，ReplacingMergeTree 只是在一定程度上解决了数据重复问题，由于自动分区合并机制在后台定时执行，所以并不能完全保障数据不重复 。ReplacingMergeTree 适用于在后台清除重复的数据以节省空间。
+
+```sql
+CREATE TABLE [IF NOT EXISTS] [db.]table_name [ON CLUSTER cluster]
+(
+    name1 [type1] [DEFAULT|MATERIALIZED|ALIAS expr1],
+    name2 [type2] [DEFAULT|MATERIALIZED|ALIAS expr2],
+    ...
+) ENGINE = ReplacingMergeTree([ver])
+[PARTITION BY expr]
+[ORDER BY expr]
+[SAMPLE BY expr]
+[SETTINGS name=value, ...]
+```
+
+- `ver`：可选参数，指定列的版本，可以是 `UInt*`、`Date` 或 `DateTime` 类型的字段作为版本号。该参数决定了数据去重的方式。当没有指定 `ver` 时，保留最后插入的数据，也就是最新的数据。如果指定了具体的 `ver` 列，则保留最大版本数据。
+
+**注意事项**
+
+- 数据重复判断：ReplacingMergeTree 在去除重复数据时，是以 `ORDER BY` 排序键为基准的，而不是 `PRIMARY KEY`。
+- 删除重复数据时机：在执行分区合并时，会触发删除重复数据。`OPTIMIZE` 合并操作是在后台执行的，无法预测具体执行时间点，除非手动执行。
+- 不同分区的重复数据不会被去重：ReplacingMergeTree 是以分区为单位删除重复数据的。只有在相同的数据分区内重复的数据才可以被删除，而不同数据分区之间的重复数据依然不能被剔除。
+- 数据去重策略：如果没有设置 `ver` 版本号，则保留同一组重复数据中最新插入的数据；如果设置了 `ver` 版本号，则保留同一组重复数据中 `ver` 字段取值最大的一行。
+- `OPTIMIZE` 命令使用：一般在数据量比较大的情况，尽量不要使用该命令。因为在海量数据场景下，执行 `OPTIMIZE` 要消耗大量时间。
+
+#### SummingMergeTree
+
+该引擎继承了MergeTree引擎，当合并 SummingMergeTree 表的数据片段时，ClickHouse 会把所有具有相同主键的行合并为一行，该行包含了被合并的行中具有数值数据类型的列的汇总值，即如果存在重复的数据，会对对这些重复的数据进行合并成一条数据，类似于 `GROUP BY` 的效果，可以显著减少存储空间并加快数据查询速度。如果只需要查询数据的汇总结果，不关心明细数据，并且数据的汇总条件是预先明确的，即 `GROUP BY` 的分组字段是确定的，可以使用该表引擎。
+
+```sql
+CREATE TABLE [IF NOT EXISTS] [db.]table_name [ON CLUSTER cluster]
+(
+    name1 [type1] [DEFAULT|MATERIALIZED|ALIAS expr1],
+    name2 [type2] [DEFAULT|MATERIALIZED|ALIAS expr2],
+    ...
+) ENGINE = SummingMergeTree([columns])
+[PARTITION BY expr]
+[ORDER BY expr]
+[SAMPLE BY expr]
+[SETTINGS name=value, ...]
+```
+
+- `columns`：可选参数。将要被汇总的列，或者多个列，多个列需要写在元组中 `SummingMergeTree((columns_1, column_2))`。所选的列必须是数值类型，并且不可位于主键中。如果未指定 `columns`，ClickHouse 会把所有不在主键中的数值类型的列都进行汇总。
+
+**注意事项**
+
+- 合并规则：通过 `ORBER BY` 排序键作为聚合数据的条件 Key。即如果排序 Key 是相同的，则会合并成一条数据，并对指定的合并字段进行聚合。
+- 仅对分区内相同排序 Key 的数据行进行聚合合并：以数据分区为单位来聚合数据。当分区合并时，同一数据分区内聚合 Key 相同的数据会被合并汇总，而不同分区之间的数据则不会被汇总。
+- 未指定聚合字段聚合规则：如果未指定聚合字段，则会按照非主键的数值类型字段进行聚合。
+- 非汇总聚合字段合并规则：如果两行数据除了排序字段相同，其他的非聚合字段不相同，那么在聚合发生时，会保留最初的那条数据，新插入的数据对应的那个字段值会被舍弃。
+
+#### AggregatingMergeTree
+
+该表引擎继承自 MergeTree，可以使用 AggregatingMergeTree 表来做增量数据统计聚合。如果要按一组规则来合并减少行数，则使用 AggregatingMergeTree 是合适的。AggregatingMergeTree 是通过预先定义的聚合函数计算数据并通过二进制的格式存入表内。与 SummingMergeTree 的区别在于：SummingMergeTree 对非主键列进行 `sum` 聚合，而 AggregatingMergeTree 则可以指定各种聚合函数。对某些字段需要进行聚合时，需要在创建表字段时指定成 AggregateFunction 类型。
+
+```sql
+CREATE TABLE [IF NOT EXISTS] [db.]table_name [ON CLUSTER cluster]
+(
+    name1 [type1] [DEFAULT|MATERIALIZED|ALIAS expr1],
+    name2 [type2] [DEFAULT|MATERIALIZED|ALIAS expr2],
+    ...
+    aggName1 AggregateFunction(function, type),
+    ...
+) ENGINE = AggregatingMergeTree()
+[PARTITION BY expr]
+[ORDER BY expr]
+[SAMPLE BY expr]
+[TTL expr]
+[SETTINGS name=value, ...]
+```
+
+对于 AggregateFunction 类型列字段，在进行数据的写入和查询时与其他的表引擎有很大区别，在写入数据时，需要调用 `*State()` 函数；而在查询数据时，则需要调用相应的 `*Merge()` 函数。
+
+```sql
+server01 :) INSERT INTO table_name SELECT 1, 'value', ... , sumState(toDecimal32(value, 2));
+
+-- 使用 *Merge() 函数查询 AggregatingMergeTree 表中数据 必须指定 GROUP BY 子句
+server01 :) SELECT name1, name2, sumMerge(aggName1) FROM table_name GROUP BY name1, name2;
+
+```
+
+**合并规则**：向表中插入排序字段相同的数据进行分区聚合时，数据按建表指定的聚合字段进行合并，其他的非聚合字段会保留最初的数据，新插入的数据对应的字段值将被舍弃。
+
+通常情况下使用 AggregatingMergeTree 表引擎较为不便，更多情况下，将 AggregatingMergeTree 作为物化视图的表引擎与 MergeeTree 配合使用。
+
+```sql
+-- 创建表 t_merge_base 表，使用 MergeTree 引擎
+server01 :) CREATE TABLE t_merge_base(id UInt8,name String,age UInt8,location String,dept String,workdays UInt8,salary Decimal32(2)) ENGINE = MergeTree() ORDER BY (id, age) PRIMARY KEY id PARTITION BY location;
+
+-- 创建物化视图 view_aggregating 使用 AggregatingMergeTree 引擎
+server01 :)  CREATE MATERIALIZED VIEW view_aggregating ENGINE = AggregatingMergeTree() ORDER BY id AS SELECT id, name, sumState(salary) as total FROM t_merge_base GROUP BY id, name;
+
+-- 向表 t_merge_base 中插入数据
+server01 :) INSERT INTO t_merge_base VALUES (1, 'zs', 18, 'bj', 'dsj', 24, 10000), (2, 'ls', 19, 'sh', 'java', 22, 8000), (3, 'ww', 20, 'bj', 'java', 26, 12000);
+
+-- 查看 view_aggregating 物化视图数据
+server01 :) SELECT id, name, sumMerge(total) AS sum_total FROM view_aggregating GROUP BY id, name, total;
+
+-- 继续向表 t_merge_base 中插入排序键相同的数据
+server01 :) INSERT INTO t_merge_base VALUES (1, 'zsx', 18, 'bj', 'qd', 22, 5000);
+
+-- 手动执行 OPTIMIZE 命令 合并物化视图 view_aggregating 相同分区数据
+server01 :) OPTIMIZE TABLE view_aggregating;
+
+-- 查询视图 view_aggregating 数据
+server01 :) SELECT id, name, sumMerge(total) AS sum_total FROM view_aggregating GROUP BY id, name, total;
+```
+
+注意：通过普通 MergeTree 表与 AggregatingMergeTree 物化视图结合使用，MergeTree 中存放原子数据，物化视图中存入聚合结果数据，可以提升数据查询效率。
+
+`SimpleAggregateFunction(name, types_of_arguments…)` 数据类型存储字面值，而不将其存储为 `AggregateFunction` 类型，因此该类型列的插入和查询不需要通过`*State()` 和 `*Merge()` 函数进行转换。`SimpleAggregateFunction` 支持以下聚合函数：
+
+- `any`：用于获取某列聚合结果的任意值，该函数的结果是不确定的。要获得确定的结果，可以使用 `min` 或 `max` 函数代替。
+- `anyLast`：用于获取某列聚合结果的最后一个值。结果与 `any` 函数一样不确定。
+- `min`：获取最小值。
+- `max`：获取最大值。
+- `sum`：获取汇总值。
+- `sumWithOverflow`：使用指定的类型存储聚合结果，如果聚合结果溢出，则根据具体类型的溢出状态存储最终结果，有一定风险。
+- `groupBitAnd`：被聚合的数据集合进行按位与运算，返回 `UInt*` 类型值。
+- `groupBitOr`：被聚合的数据集合进行按位或运算，返回 `UInt*` 类型值。
+- `groupBitXor`：被聚合的数据集合进行按位异或运算，返回 `UInt*` 类型值。
+- `groupArray`：语法：`groupArray(x)` 或 `groupArray(max_size)(x)`。创建一个数组，将聚合后该列数据集合存储在该数组中，`max_size` 可指定数组最大宽度。如果设置为1，该函数等同于 `any` 函数。
+- `groupUniqArray`：语法：`groupUniqArray(x)` 或 `groupUniqArray(max_size)(x)`。与 `groupArray` 类似，只是仅存储去重后值。
+- `sumMap`：语法：`sumMap(key, value)` 或 `sumMap(Tuple(key, value))`。返回 `Tuple(key, value)` 数组，数组中数据按 `key` 分组聚合 `value` 值。
+- `minMap`：语法及结果形式上与 `sumMap` 一致，只是 `value` 仅存储最小值。
+- `maxMap`：语法及结果形式上与 `sumMap` 一致，只是 `value` 仅存储最大值。
+- `argMin`：语法：`argMin(arg, val)` 或 `argMin(Tuple(arg, val))`。返回 `arg` 最小值数据行中 `val` 列的值。
+- `argMax`：语法：`argMax(arg, val)` 或 `argMax(Tuple(arg, val))`。返回 `arg` 最大值数据行中 `val` 列的值。
+
+#### CollapsingMergeTree
+
+CollapsingMergeTree 通过以增代删的思路，支持行级数据修改和删除的表引擎。它通过定义一个 `sign` 标记位字段，记录数据行的状态。如果 `sign` 标记为1，则表示这是一行有效的数据；如果 `sign` 标记为-1，则表示这行数据需要被删除。当 CollapsingMergeTree 分区合并时，同一数据分区内，sign标记为1和-1的一组数据会被抵消删除。每次需要新增数据时，写入一行sign标记为1的数据；需要删除数据时，则写入一行sign标记为-1的数据。此外，只有相同分区内的数据才有可能被折叠。
+
+```sql
+CREATE TABLE [IF NOT EXISTS] [db.]table_name [ON CLUSTER cluster]
+(
+    name1 [type1] [DEFAULT|MATERIALIZED|ALIAS expr1],
+    name2 [type2] [DEFAULT|MATERIALIZED|ALIAS expr2],
+    ...
+    sign Int8
+) ENGINE = CollapsingMergeTree(sign)
+[PARTITION BY expr]
+[ORDER BY expr]
+[SAMPLE BY expr]
+[SETTINGS name=value, ...]
+
+```
+
+CollapsingMergeTree 对于写入数据的顺序有着严格要求，否则导致无法正常折叠。
+
+**数据折叠保留规则**
+
+同一分区内 `ORDER BY` 字段相同的数据存在多条，且 `sign` 值不同，数据保留规则如下：
+
+- 如果 `sign = 1` 和 `sign = -1` 的行数相同并且最后一行数据 `sign = 1`，则保留第一行 `sign = -1` 的行和最后一行 `sign = 1` 的行。
+- 如果 `sign = 1` 的行比 `sign = -1` 的行多，则保留最后一条 `sign = 1` 的行。
+- 如果 `sign = -1` 的行比 `sign = 1` 的行多，则保留第一条 `sign = -1` 的行。
+- 其他情况，不保留数据。
+
+```sql
+-- 创建表 t_collapsing 使用CollapsingMergeTree
+server01 :) CREATE TABLE t_collapsing(id UInt8,name String,loc String,login_time UInt8,total_dur UInt8,sign Int8) ENGINE = CollapsingMergeTree(sign) ORDER BY (id, total_dur) PRIMARY KEY id PARTITION BY loc;
+
+-- 向表 t_collapsing 中插入数据
+server01 :) INSERT INTO t_collapsing VALUES(1, 'zs', 'bj', 1, 30, 1), (2, 'ls', 'sh', 1, 40, 1);
+
+-- 查看表 t_collapsing 中数据
+server01 :) SELECT * FROM t_collapsing;
+
+-- 向表 t_collapsing 中继续插入一条数据，删除 id = 1 的数据
+server01 :) INSERT INTO t_collapsing VALUES(1, 'zs', 'bj', 1, 30, -1);
+
+-- 查询表 t_collapsing_mt 中的数据 
+server01 :) SELECT * FROM t_collapsing;
+
+-- 手动触发 OPTIMIZE 合并相同分区数据
+server01 :) OPTIMIZE TABLE t_collapsing FINAL;
+
+-- sign = 1 和 sign = -1 的数据被抵消了
+server01 :) SELECT * FROM t_collapsing;
+
+-- 插入以下两条数据
+server01 :) INSERT INTO t_collapsing VALUES(2, 'ls', 'sh', 1, 40, -1), (2, 'ls', 'sh', 2, 100, 1);
+
+-- 查询表 t_collapsing 中数据
+server01 :) SELECT * FROM t_collapsing;
+
+-- 手动触发 OPTIMIZE 合并相同分区数据
+server01 :) OPTIMIZE TABLE t_collapsing FINAL;
+
+-- 查询表 t_collapsing 中数据
+server01 :) SELECT * FROM t_collapsing;
+```
+
+注意：当数据插入到表中的顺序标记如果不是 `1, -1` 这种顺序时，合并相同分区内的数据不能达到修改和更新效果。
+
+```sql
+server01 :) INSERT INTO t_collapsing VALUES(1, 'zs', 'bj', 1, 30, -1), (1, 'zs', 'bj', 1, 30, 1), (2, 'ls', 'sh', 1, 40, 1);
+
+-- 查询表 t_collapsing 中数据
+server01 :) SELECT * FROM t_collapsing;
+
+-- 手动执行 OPTIMIZE 命令 合并相同分区数据
+server01 :) OPTIMIZE TABLE t_collapsing;
+
+-- 查询表 t_collapsing 表中的数据，数据没有变化
+server01 :) SELECT * FROM t_collapsing;
+```
+
+#### VersionedCollapsing
+
+VersionedCollapsingMergeTree：CollapsingMergeTree 表引擎对于数据写入乱序的情况下，不能够实现数据折叠的效果。VersionedCollapsingMergeTree 表引擎的作用与 CollapsingMergeTree 完全相同，它们的不同之处在于，VersionedCollapsingMergeTree 对数据的写入顺序没有要求，在同一个分区内，任意顺序的数据都能够完成折叠操作。VersionedCollapsingMergeTree 使用 `version` 列来实现乱序情况下的数据折叠，该引擎除了需要指定一个sign标识之外，还需要指定一个 `UInt*` 类型的 `version` 版本号。
+
+```sql
+CREATE TABLE [IF NOT EXISTS] [db.]table_name [ON CLUSTER cluster]
+(
+    name1 [type1] [DEFAULT|MATERIALIZED|ALIAS expr1],
+    name2 [type2] [DEFAULT|MATERIALIZED|ALIAS expr2],
+    ...
+    sign Int8,
+    version UInt8
+) ENGINE = VersionedCollapsingMergeTree(sign, version)
+[PARTITION BY expr]
+[ORDER BY expr]
+[SAMPLE BY expr]
+[SETTINGS name=value, ...]
+
+```
+
+合并规则：无论 `sign = -1` 在前，还是 `sign = -1` 在前，版本相同的邻近数据会被折叠。
+
+```sql
+-- 创建表 t_version_collapsing 使用 VersionedCollapsingMergeTree 引擎
+server01 :) CREATE TABLE t_version_collapsing(id UInt8,name String,loc String,login_times UInt8,total_dur UInt8,sign Int8,version UInt8) ENGINE = VersionedCollapsingMergeTree(sign, version) ORDER BY (id, total_dur) PRIMARY KEY id PARTITION BY loc;
+
+-- 向表 t_version_collapsing 中插入数据
+server01 :) INSERT INTO TABLE t_version_collapsing VALUES(1, 'zs', 'bj', 1, 30, -1, 1), (2, 'ls', 'sh', 1, 40, 1, 2);
+
+-- 查询表 t_version_collapsing_mt 中的数据
+server01 :) SELECT * FROM t_version_collapsing;
+
+-- 向表 t_version_collapsing 中插入以下数据 删除'zs'信息 更新'ls'信息
+server01 :) INSERT INTO TABLE t_version_collapsing VALUES(1, 'zs', 'bj', 1, 30, 1, 1), (2, 'ls', 'sh', 1, 40, -1, 2), (2, 'ls', 'sh', 2, 100, 1, 2);
+
+-- 查询表 t_version_collapsing 中数据
+server01 :) SELECT * FROM t_version_collapsing;
+
+-- 手动执行 OPTIMIZE 命令合并相同分区的数据
+server01 :) OPTIMIZE TABLE t_version_collapsing FINAL;
+
+-- 查询表 t_version_collapsing 中数据
+server01 :) SELECT * FROM t_version_collapsing;
+```
+
+### Integration系列表引擎
+
+ClickHouse提供了许多与外部系统集成的方法，包括一些表引擎。这些表引擎与其他类型的表引擎类似，可以用于将外部数据导入到ClickHouse中，或者在ClickHouse中直接操作外部数据源。
+
+#### HDFS
+
+HDFS引擎支持ClickHouse直接读取HDFS中特定格式的数据文件，目前文件格式支持Json、Csv文件等，ClickHouse通过HDFS引擎建立的表，不会在ClickHouse中产生数据，读取的是HDFS中的数据，将HDFS中的数据映射成ClickHouse中的一张表，这样就可以使用SQL操作HDFS中的数据。ClickHouse并不能够删除HDFS上的数据，当我们在ClickHouse客户端中删除了对应的表，只是删除了表结构，HDFS上的文件并没有被删除，这一点与Hive的外部表十分相似。
+
+```sql
+ENGINE = HDFS(URI, format)
+```
+
+注意：URI是HDFS文件路径，format指定文件格式。HDFS文件路径中文件为多个时，URI可以指定为some_file_?。当数据映射是HDFS多个文件夹下数据时，可以指定somepath/*来指定URI。
+
+服务配置
+
+由于HDFS配置HA模式，有集群名称，所以URI使用HDFS集群名称时，ClickHouse无法识别，这时需要做以下配置：
+
+- 将 Hadoop 路径下 `$HADOOP_HOME/etc/hadoop/hdfs-site.xml` 配置文件复制到 `/etc/clickhouse-server` 目录中。
+- 修改 `/etc/init.d/clickhouse-server` 文件，加入一行：`export LIBHDFS3_CONF=/etc/clickhouse-server/hdfs-site.xml`。
+- 重启 clickhouse-server 服务：`systemctl restart clickhouse-server`。
+
+当然，也可以不做以上配置，在写 HDFS URI 时，直接写成对应的节点+端口即可。
+
+读写模式
+
+ClickHouse HDFS 引擎表使用 wildcard URI 时，该表为只读，不允许写入。因为 ClickHouse 无法确认数据具体写入哪个文件。
+
+```sql
+-- t_hdfs_readonly 表仅可查询 不可修改
+server01 :) CREATE TABLE t_hdfs_readonly(id UInt8, name String, age UInt8) ENGINE = HDFS('hdfs://hadoop-cluster/ch/*.csv', 'CSV');
+server01 :) SELECT * FROM t_hdfs_readonly;
+┌─id─┬─name─┬─age─┐
+│  3 │  zs  │  21 │
+│  4 │  ml  │  22 │
+└────┴──────┴─────┘
+┌─id─┬─name─┬─age─┐
+│  1 │  zs  │  19 │
+│  2 │  ls  │  20 │
+└────┴──────┴─────┘
+
+-- t_hdfs_readwrite 表可查询 也可写入数据
+server01 :) CREATE TABLE t_hdfs_readwrite(id UInt8, name String, age UInt8) ENGINE = HDFS('hdfs://mycluster/chdata.csv', 'CSV');
+server01 :) INSERT INTO t_hdfs_readwrite VALUES(5, 'tq', 23), (6, 'zb', 24);
+server01 :) SELECT * FROM t_hdfs_readwrite;
+┌─id─┬─name─┬─age─┐
+│  5 │  tq  │  23 │
+│  6 │  zb  │  24 │
+└────┴──────┴─────┘
+```
+
+#### MySQL
+
+ClickHouse MySQL 数据库引擎可以将 MySQL 某个库下的表映射到 ClickHouse 中，使用 ClickHouse 对数据进行操作。ClickHouse 同样支持 MySQL 表引擎，即映射一张 MySQL 中的表到 ClickHouse 中，使用 ClickHouse 进行数据操作，与 MySQL 数据库引擎一样，这里映射的表只能做查询和插入操作，不支持删除和更新操作。
+
+```sql
+CREATE TABLE [IF NOT EXISTS] [db.]table_name [ON CLUSTER cluster]
+(
+    name1 [type1] [DEFAULT|MATERIALIZED|ALIAS expr1] [TTL expr1],
+    name2 [type2] [DEFAULT|MATERIALIZED|ALIAS expr2] [TTL expr2],
+    ...
+) ENGINE = MySQL('host:port', 'database', 'table', 'user', 'password'[, replace_query, 'on_duplicate_clause']);
+```
+
+- `host:port`：MySQL 服务器名称和端口。
+- `database`：MySQL 数据库。
+- `table`：映射的 MySQL 中的表。
+- `user` & `password`：MySQL 账户/密码。
+- `replace_query`：是否使用 `REPLACE INTO` 插入数据，默认为0，使用 `INSERT INTO`。
+- `on_duplicate_clause`：默认不使用，可设置为 `ON DUPLICATE KEY` 后面的语句 ，设置该参数，需要 `replace_query` 设置为0。
+
+```sql
+server01 :) CREATE TABLE t_mysql_engine (id UInt8,name String,age UInt8) ENGINE = MySQL('server01:3306', 'test', 't_ch', 'root', '123456', 0, 'UPDATE age = VALUES(age)');
+```
+
+#### Kafka
+
+ClickHouse中还可以创建表指定为Kafka为表引擎，这样创建出的表可以查询到Kafka中的流数据。对应创建的表不会将数据存入ClickHouse中，这张Kafka引擎表相当于Consumer，消费Kafka中的数据，数据被查询之后，就不会再次被查询到。
+
+```sql
+CREATE TABLE [IF NOT EXISTS] [db.]table_name [ON CLUSTER cluster]
+(
+    name1 [type1] [DEFAULT|MATERIALIZED|ALIAS expr1],
+    name2 [type2] [DEFAULT|MATERIALIZED|ALIAS expr2],
+    ...
+) ENGINE = Kafka()
+SETTINGS
+    kafka_broker_list = 'host:port',
+    kafka_topic_list = 'topic1,topic2,...',
+    kafka_group_name = 'group_name',
+    kafka_format = 'data_format'[,]
+    [kafka_row_delimiter = 'delimiter_symbol',]
+    [kafka_schema = '',]
+    [kafka_num_consumers = N,]
+    [kafka_max_block_size = 0,]
+    [kafka_skip_broken_messages = N,]
+    [kafka_commit_every_batch = 0,]
+    [kafka_thread_per_consumer = 0]
+```
+
+`kafka_broker_list`：以 `,` 分隔的 Kafka Broker 节点列表。
+
+`kafka_topic_list`：Topic 列表。
+
+`kafka_group_name`：Kafka 消费者组名称。
+
+`kafka_format`：Kafka 中消息的格式，例如 JSONEachRow、CSV 等等，具体参照 [ClickHouse Formats](https://links.jianshu.com/go?to=https%3A%2F%2Fclickhouse.tech%2Fdocs%2Fen%2Finterfaces%2Fformats%2F) 。
+
+在ClickHouse中创建的Kafka引擎表只是一个数据管道，当查询这张表时就是消费Kafka中的数据，数据被消费完成之后，不能再次被读取到。如果想将Kafka中的数据持久化到ClickHouse中，可以通过物化视图方式访问Kafka中的数据，可以通过以下三个步骤完成将Kafka中数据持久化到ClickHouse中：
+
+- 创建 Kafka 引擎表，消费 kafka 中的数据。
+- 再创建一张 ClickHouse 中普通引擎表，这张表面向终端用户查询使用。这里生产环境中经常创建 MergeTree 家族引擎表。
+- 创建物化视图，将 Kafka 引擎表数据实时同步到终端用户查询表中。
+
+```sql
+-- 在 ClickHouse 中创建 t_kafka_consumer 表，使用 Kafka 引擎
+server01 :) CREATE TABLE t_kafka_consumer (id UInt8,name String,age UInt8) ENGINE = Kafka() SETTINGS kafka_broker_list = 'server01:9092,server02:9092,server03:9092',kafka_topic_list = 'ch-topic',kafka_group_name = 'ch-consumer',kafka_format = 'JSONEachRow';
+
+-- 在 ClickHouse 中创建一张终端用户查询使用的表 使用 MergeTree 引擎
+server01 :) CREATE TABLE t_kafka_mt (id UInt8,name String,age UInt8) ENGINE = MergeTree() ORDER BY id;
+
+-- 创建物化视图 同步表 t_kafka_consumer 数据到 t_kafka_mt 中
+server01 :) CREATE MATERIALIZED VIEW  view_consumer TO t_kafka_mt AS SELECT id, name, age FROM t_kafka_consumer;
+-- 注意：物化视图在 ClickHouse 中也是存储数据的
+-- CREATE MATERIALIZED VIEW  view_consumer TO t_kafka_mt 语句是将物化视图 view_consumer 中的数据存储到到对应的 t_kafka_mt 表中
+-- 这样同步的目的是如果不想继续同步kafka中的数据 可以直接删除物化视图即可
+
+-- 生产数据
+_> kafka-console-producer.sh --broker-list server01:9092,server02:9092,server03:9092 --topic ch-topic
+{"id":1,"name":"zs","age":18}
+{"id":2,"name":"ls","age":19}
+{"id":3,"name":"ww","age":20}
+{"id":4,"name":"ml","age":21}
+{"id":5,"name":"tq","age":22}
+
+
+-- 查询表 t_kafka_mt 中数据 数据同步完成
+server01 :) SELECT * FROM t_kafka_mt;
+┌─id─┬─name─┬─age─┐
+│  1 │ zs   │  18 │
+│  2 │ ls   │  19 │
+│  3 │ ww   │  20 │
+│  4 │ ml   │  21 │
+│  5 │ tq   │  22 │
+└────┴──────┴─────┘
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+DBeaver
+
+https://dbeaver.io/download
+

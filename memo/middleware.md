@@ -8921,6 +8921,639 @@ server01 :) SELECT * FROM t_kafka_mt;
 └────┴──────┴─────┘
 ```
 
+## DDL
+
+在ClickHouse中，DDL语言中修改表结构仅支持Merge表引擎、Distributed表引擎及MergeTree家族的表引擎,SQL中的库、表、字段严格区分大小写。
+
+### 数据库操作
+
+建库：在创建数据库时，在/var/lib/clickhouse/metadata/目录下会有对应的库目录和*.sql文件，库目录中会存入在当前库下建表的信息，*.sql文件中存放建库信息。当删除数据库时，/var/lib/clickhouse/metadata/目录下对应的库目录和xx.sql文件也会被清空。
+
+```sql
+server01 :) CREATE DATABASE [IF NOT EXISTS] db_name [ON CLUSTER cluster] [ENGINE = engine(...)];
+```
+
+查看数据库列表
+
+```sql
+server01 :) SHOW DATABASES;
+```
+
+查看当前数据库
+
+```sql
+server01 :) SELECT database();
+server01 :) SELECT currentDatabase();
+```
+
+切换数据库
+
+```sql
+server01 :) USE db_name;
+```
+
+删除数据库
+
+```sql
+server01 :) DROP DATABASE [IF EXISTS] db_name [ON CLUSTER cluster];
+```
+
+### 表操作
+
+创建表
+
+```sql
+-- 直接创建表
+CREATE TABLE [IF NOT EXISTS] [db.]table_name [ON CLUSTER cluster]
+(
+    name1 [type1] [DEFAULT|MATERIALIZED|ALIAS expr1],
+    name2 [type2] [DEFAULT|MATERIALIZED|ALIAS expr2],
+    ...
+) ENGINE = engine;
+
+-- 创建与other_db.other_table_name相同结构的表
+-- 如果不指定ENGINE 默认与other_db.other_table_name表引擎一致
+-- 不会将表other_db.other_table_name中数据填充到新表
+CREATE TABLE [IF NOT EXISTS] [db.]table_name AS [other_db.]other_table_name [ENGINE = engine];
+
+-- 指定引擎创建与SELECT子句结果相同结构的表 并将SELECT子句的结果填充至新表
+CREATE TABLE [IF NOT EXISTS] [db.]table_name ENGINE = engine AS SELECT ...;
+```
+
+查看表列表
+
+```sql
+server01 :) SHOW TABLES;
+server01:) SHOW TABLES IN default;
+```
+
+查看表定义
+
+```sql
+server01 :) SHOW CREATE TABLE table_name;
+```
+
+查看表字段
+
+```sql
+server01 :) DESC table_name;
+```
+
+删除表
+
+```sql
+server01 :) DROP [TEMPORARY] TABLE [IF EXISTS] [db.]table_name [ON CLUSTER cluster];
+```
+
+修改表 - 添加列
+
+```sql
+server01 :) ALTER TABLE [db].table_name [ON CLUSTER cluster] ADD COLUMN column_name UInt8;
+```
+
+修改表 - 删除列
+
+```sql
+server01 :) ALTER TABLE [db].table_name [ON CLUSTER cluster] DROP COLUMN column_name;
+```
+
+修改表 - 清空列：不能清空排序、主键、分区字段。
+
+```sql
+-- 清空所有分区列
+server01 :) ALTER TABLE [db].table_name [ON CLUSTER cluster] CLEAR COLUMN column_name;
+
+-- 清空指定分区列
+server01 :) ALTER TABLE [db].table_name [ON CLUSTER cluster] CLEAR COLUMN column_name IN PARTITION 'partition';
+```
+
+修改表 - 修改列注释
+
+```sql
+server01 :) ALTER TABLE [db].table_name [ON CLUSTER cluster] COMMENT COLUMN column_name 'comments';
+```
+
+修改表 - 修改列类型
+
+```sql
+server01 :) ALTER TABLE [db].table_name [ON CLUSTER cluster] MODIFY COLUMN column_name UInt8;
+```
+
+表重命名：可以作用于任意表引擎。
+
+```sql
+-- 如果表数据库命名发生变动 将物理移动表到新数据库
+server01 :) RENAME TABLE [db_1.]table_name_1 TO [db_2.]table_name_2, [db_3.]table_name_3 TO [db_4.]table_name_4, ... [ON CLUSTER cluster];
+```
+
+### 分区表操作
+
+ClickHouse中只有MergeTree Family引擎下的表才能分区，因此分区表就是MergeTree Family表引擎对应的分区表。
+
+查看分区信息
+
+```sql
+server01 :) SELECT database, table, name, partition FROM system.parts WHERE TABLE = 'table_name';
+```
+
+也可以在ClickHouse节点上查看分区信息，路径为：/var/lib/clickhouse/data/{database}/{table_name}/。
+
+卸载分区：将指定分区的数据移动到detached目录。服务器会忽略被分离的数据分区。只有当使用ATTACH时，服务器才会知晓这部分数据。当执行操作以后，可以对detached目录的数据进行任意操作，例如删除文件，或者放着不管。
+
+```sql
+server01 :) ALTER TABLE table_name DETACH PARTITION partition_expr;
+```
+
+装载分区：可以将已经卸载的分区重新装载到对应的表分区中，将detached目录中的数据重新移动到对应的表数据目录下。也可以将卸载的分区数据加载到其他表中，但是这个表需要与原来的表具有相同的表结构及相同的分区字段。
+
+```sql
+server01 :) ALTER TABLE table_name ATTACH PARTITION partition_expr;
+```
+
+删除分区：可以针对分区表删除某个分区，之后再导入当前分区的数据，以达到数据更新的目的。执行删除分区命令是直接将对应分区数据删除，不会放入detached目录。该操作会将分区标记为不活跃的，之后在大约10分钟内删除全部数据。
+
+```sql
+server01 :) ALTER TABLE table_name DROP PARTITION partition_expr;
+```
+
+替换分区：替换分区支持将A表的分区数据复制到B表，并替换B表的已有分区。A表中分区数据不会被删除，A和B表必须要有相同的表结构且分区字段相同。此操作经常用作数据备份、表数据同步操作。
+
+```sql
+server01 :) ALTER TABLE table_name_2 REPLACE PARTITION partition_expr FROM table_name_1;
+```
+
+移动分区：该操作将A表的数据分区移动到B表，并删除A表的数据。
+
+```sql
+server01 :) ALTER TABLE table_source MOVE PARTITION partition_expr TO TABLE table_dest;
+```
+
+重置分区列：重置指定分区的特定列的值，就是将指定分区下某列的数据清空，如果建表时使用了DEFAULT语句，该操作会将列的值重置为该默认值。
+
+```sql
+server01 :) ALTER TABLE table_name CLEAR COLUMN column_name IN PARTITION partition_expr;
+```
+
+### 临时表
+
+ClickHouse支持临时表，临时表具备以下特征：
+
+- 当会话结束或者链接中断时，临时表将随会话一起消失。
+
+- 临时表仅能够使用Memory表引擎，创建临时表时不需要指定表引擎。
+
+- 无法为临时表指定数据库。它是在数据库之外创建的，与会话绑定。
+
+- 如果临时表与另一个表名称相同，那么当在查询时没有显式的指定 database 的情况下，将优先使用临时表。
+
+- 对于分布式处理，查询中使用的临时表将被传递到远程服务器。
+
+```sql
+CREATE TEMPORARY TABLE [IF NOT EXISTS] table_name [ON CLUSTER cluster]
+(
+    name1 [type1] [DEFAULT|MATERIALIZED|ALIAS expr1],
+    name2 [type2] [DEFAULT|MATERIALIZED|ALIAS expr2],
+    ...
+)
+```
+
+在大多数情况下，临时表不是手动创建的，而是在使用外部数据进行查询或分布式时创建的，可以使用 ENGINE = Memory 表代替临时表。
+
+### 视图
+
+视图不存储数据，只是一层查询映射，类似于表的别名或者同义词，能简化查询，对原有表的查询性能没有增强的作用，具体性能依赖视图定义的语句，当从视图中查询时，视图只是替换了映射的查询语句。视图当基表删除后不可用。
+
+创建视图
+
+```sql
+server01 :) CREATE [OR REPLACE] VIEW [IF NOT EXISTS] [db.]view_name [ON CLUSTER] AS SELECT ...;
+```
+
+删除视图
+
+```sql
+server01 :) DROP VIEW view_name;
+server01 :) DROP TABLE view_name;
+```
+
+### 物化视图
+
+物化视图是查询结果集的一份持久化存储，所以它与普通视图完全不同，而非常趋近于表。“查询结果集”的范围很宽泛，可以是基础表中部分数据的一份简单拷贝，也可以是多表join之后产生的结果或其子集，或者原始数据的聚合指标等。
+
+物化视图创建之后，若源表被写入新数据则物化视图也会同步更新，POPULATE关键字决定了物化视图的更新策略。若有POPULATE则在创建视图的过程会将源表已经存在的数据一并导入，类似于CREATETABLE...AS。若无POPULATE则物化视图在创建之后没有数据，只会同步创建之后写入源表的数据。ClickHouse官方并不推荐使用populated，因为在创建物化视图的过程中同时写入的数据不能被插入物化视图。
+
+物化视图是种特殊的数据表，创建时需要指定引擎，可以用SHOWTABLES查看。另外，物化视图不支持ALTER操作。
+
+产生物化视图的过程叫做物化（Materialization），广义地讲，物化视图是数据库中的预计算逻辑+显式缓存，典型的空间换时间思路，如果使用得当，可以避免对基础表的频繁查询并复用结果，从而显著提升查询的性能。
+
+```sql
+server01 :) CREATE MATERIALIZED VIEW [IF NOT EXISTS] [db.]view_name [ON CLUSTER] [TO[db.]name] [ENGINE = engine] ORDER BY column [POPULATE] AS SELECT ...;
+```
+
+删除物化视图
+
+```sql
+server01 :) DROP TABLE view_name;
+```
+
+当创建好物化视图后，可以进入/var/lib/clickhouse/data/{database}/目录下看到对应目录，当物化视图中同步基表数据时，目录中有对应的列文件和元数据记录文件，与普通创建表一样，有目录结构。源表的删除或修改操作，不会触发物化视图数据的修改。
+
+## DML
+
+ClickHouse中DML语言包含插入、更新、删除数据操作，DML操作仅适用MergeTree引擎，不能针对主键、分区键、排序键进行DML操作。DML操作不支持事务，一旦执行成功会立刻生效。
+
+### Insert
+
+```sql
+server01 :) INSERT INTO [db.]table_name [(c1, c2, c3)] VALUES (v11, v12, v13), (v21, v22, v23), ...;
+
+-- 使用 SELECT INSERT 需要保证结果集于目标表结构一致
+server01 :) INSERT INTO [db.]table_name SELECT ...;
+```
+
+### Update
+
+由于ClickHouse针对的是OLAP业务分析，Update操作在ClickHouse中不会经常使用。这种更新效率低下。
+
+```sql
+server01 :) ALTER TABLE [db.]table_name UPDATE column1 = expr1 [, ...] WHERE filter_expr;
+```
+
+### Delete
+
+由于ClickHouse针对的是OLAP业务分析，Delete操作与Update操作一样在ClickHouse中不会经常使用。这种删除效率低下。
+
+```sql
+server01 :) ALTER TABLE [db.]table_name [ON CLUSTER cluster] DELETE WHERE filter_expr;
+```
+
+### 导入导出
+
+ClickHouse中支持多种数据格式数据导入和导出，支持格式有ORC、Parquet、Avro、Protobuf、Xml、Json、CSV等。具体操作参照官网：[https://clickhouse.tech/docs/en/sql-reference/statements/alter/update/]
+
+**导入 CSV**
+
+```bash
+[root@server01 t_mt]# clickhouse-client --format_csv_delimiter="," --query="INSERT INTO db.table_name FORMAT CSV" < /opt/file.csv
+```
+
+**导出 CSV**
+
+```bash
+[root@server01 t_mt]# clickhouse-client --format_csv_delimiter="|" --query="SELECT * FROM db.table_name FORMAT CSV" > /opt/file.csv
+```
+
+## 框架整合
+
+pom.xml
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <parent>
+        <artifactId>middleware</artifactId>
+        <groupId>org.duo</groupId>
+        <version>1.0</version>
+    </parent>
+    <modelVersion>4.0.0</modelVersion>
+
+    <artifactId>clickhouse</artifactId>
+
+    <properties>
+        <maven.compiler.source>8</maven.compiler.source>
+        <maven.compiler.target>8</maven.compiler.target>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.apache.spark</groupId>
+            <artifactId>spark-core_2.11</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.spark</groupId>
+            <artifactId>spark-sql_2.11</artifactId>
+        </dependency>
+
+        <!--<dependency>
+            <groupId>org.apache.flink</groupId>
+            <artifactId>flink-table-planner-blink_2.11</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.flink</groupId>
+            <artifactId>flink-table-api-scala-bridge_2.11</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.flink</groupId>
+            <artifactId>flink-table-common</artifactId>
+        </dependency>
+        &lt;!&ndash;添加 Flink JDBC 以及 Clickhouse JDBC Driver 相关的依赖 &ndash;&gt;
+        <dependency>
+            <groupId>org.apache.flink</groupId>
+            <artifactId>flink-jdbc_2.11</artifactId>
+        </dependency>-->
+
+        <dependency>
+            <groupId>org.apache.flink</groupId>
+            <artifactId>flink-clients_2.11</artifactId>
+        </dependency>
+        <!--添加 Flink Table API 相关的依赖 -->
+        <dependency>
+            <groupId>org.apache.flink</groupId>
+            <artifactId>flink-table-planner-blink_2.11</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.flink</groupId>
+            <artifactId>flink-table-api-scala-bridge_2.11</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.flink</groupId>
+            <artifactId>flink-table-common</artifactId>
+        </dependency>
+        <!--添加 Flink JDBC Connector 以及 Clickhouse JDBC Driver 相关的依赖 -->
+        <dependency>
+            <groupId>org.apache.flink</groupId>
+            <artifactId>flink-connector-jdbc_2.11</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>ru.yandex.clickhouse</groupId>
+            <artifactId>clickhouse-jdbc</artifactId>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <sourceDirectory>src/main/scala</sourceDirectory>
+        <!--<testSourceDirectory>src/test/scala</testSourceDirectory>-->
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.1</version>
+                <configuration>
+                    <source>${maven.compiler.source}</source>
+                    <target>${maven.compiler.target}</target>
+                    <encoding>${project.build.sourceEncoding}</encoding>
+                    <!--    <verbal>true</verbal>-->
+                </configuration>
+            </plugin>
+
+            <!--maven-jar-plugin，默认的打包插件，用来打普通的project JAR包，它只是编译src/main/java和下的java文件src/main/resources/.它不包含依赖项JAR文件.-->
+            <!--maven-shade-plugin，用来打可执行JAR包，也就是所谓的fat JAR包；-->
+            <!--maven-assembly-plugin，支持自定义的打包结构，也可以定制依赖项等。-->
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>2.4.3</version>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                        <configuration>
+                            <filters>
+                                <filter>
+                                    <artifact>*:*</artifact>
+                                    <excludes>
+                                        <!--
+                                        zip -d learn_spark.jar META-INF/*.RSA META-INF/*.DSA META-INF/*.SF
+                                        -->
+                                        <exclude>META-INF/*.SF</exclude>
+                                        <exclude>META-INF/*.DSA</exclude>
+                                        <exclude>META-INF/*.RSA</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
+                            <transformers>
+                                <transformer
+                                        implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                                    <mainClass>org.duo.env.BatchRemoteEnv</mainClass>
+                                </transformer>
+                            </transformers>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+        </plugins>
+    </build>
+</project>
+```
+
+java
+
+```java
+package org.duo.choperator.java;
+
+import ru.yandex.clickhouse.BalancedClickhouseDataSource;
+import ru.yandex.clickhouse.ClickHouseConnection;
+import ru.yandex.clickhouse.ClickHouseStatement;
+import ru.yandex.clickhouse.settings.ClickHouseProperties;
+
+import java.sql.ResultSet;
+
+public class JavaOperator {
+
+    public static void main(String[] args) throws Exception {
+        ClickHouseProperties props = new ClickHouseProperties();
+        props.setUser("");
+        props.setPassword("");
+        BalancedClickhouseDataSource dataSource = new BalancedClickhouseDataSource("jdbc:clickhouse://server01:8123,server02:8123,server03:8123/test", props);
+        ClickHouseConnection conn = dataSource.getConnection();
+        ClickHouseStatement statement = conn.createStatement();
+        ResultSet rs = statement.executeQuery("select id, name from t_java");
+        while (rs.next()) {
+            int id = rs.getInt("id");
+            String name = rs.getString("name");
+            System.out.println("id = " + id + ",name = " + name);
+        }
+        rs.close();
+        statement.close();
+        conn.close();
+    }
+}
+```
+
+spark
+
+```scala
+package org.duo.choperator.spark
+
+import org.apache.spark.sql.execution.datasources.jdbc.JDBCOptions
+import org.apache.spark.sql.{DataFrame, Dataset, SaveMode, SparkSession}
+
+import java.util.Properties
+
+object sparkOperator {
+
+  def main(args: Array[String]): Unit = {
+
+    val session: SparkSession = SparkSession.builder().master("local").appName("test").getOrCreate()
+    val jsonList: Seq[String] = List[String](
+      "{\"id\":1,\"name\":\"张三\",\"age\":18}",
+      "{\"id\":2,\"name\":\"李四\",\"age\":19}",
+      "{\"id\":3,\"name\":\"王五\",\"age\":20}"
+    )
+
+    //将jsonList数据转换成DataSet
+    import session.implicits._
+    val ds: Dataset[String] = jsonList.toDS()
+
+    val df: DataFrame = session.read.json(ds)
+    df.show()
+
+    //将结果写往ClickHouse
+    val url = "jdbc:clickhouse://server01:8123/test"
+    val table = "t_java"
+
+    val properties = new Properties()
+    properties.put("driver", "ru.yandex.clickhouse.ClickHouseDriver")
+    properties.put("user", "default")
+    properties.put("password", "")
+    properties.put("socket_timeout", "300000")
+
+    df.write.mode(SaveMode.Append).option(JDBCOptions.JDBC_BATCH_INSERT_SIZE, 100000).jdbc(url, table, properties)
+
+  }
+
+}
+```
+
+flink
+
+```scala
+package org.duo.choperator.flink
+
+import org.apache.flink.connector.jdbc.{JdbcConnectionOptions, JdbcExecutionOptions, JdbcSink, JdbcStatementBuilder}
+import org.apache.flink.streaming.api.functions.sink.SinkFunction
+import org.apache.flink.streaming.api.scala.StreamExecutionEnvironment
+
+import java.sql.PreparedStatement
+
+
+//import org.apache.flink.api.common.typeinfo.Types
+//import org.apache.flink.api.java.io.jdbc.JDBCAppendTableSink
+//import org.apache.flink.streaming.api.scala.StreamExecutionEnvironment
+//import org.apache.flink.table.api.{EnvironmentSettings, Table}
+//import org.apache.flink.table.api.scala.StreamTableEnvironment
+
+
+/**
+ * 通过 flink-jdbc API 将 Flink 数据结果写入到ClickHouse中，只支持Table API
+ *
+ * 注意：
+ * 1.由于 ClickHouse 单次插入的延迟比较高，我们需要设置 BatchSize 来批量插入数据，提高性能。
+ * 2.在 JDBCAppendTableSink 的实现中，若最后一批数据的数目不足 BatchSize，则不会插入剩余数据。
+ */
+
+case class PersonInfo(id: Int, name: String, age: Int)
+
+object flinkOperator {
+
+  def main(args: Array[String]): Unit = {
+
+    // flink 1.10.x 及之前版本
+    /*    val env: StreamExecutionEnvironment = StreamExecutionEnvironment.getExecutionEnvironment
+        //设置并行度为1，后期每个并行度满批次需要的条数时，会插入click中
+        env.setParallelism(1)
+        val settings: EnvironmentSettings = EnvironmentSettings.newInstance().inStreamingMode().useBlinkPlanner().build()
+        val tableEnv: StreamTableEnvironment = StreamTableEnvironment.create(env, settings)
+
+        //导入隐式转换
+        import org.apache.flink.streaming.api.scala._
+
+        //读取Socket中的数据
+        val sourceDS: DataStream[String] = env.socketTextStream("server01", 9999)
+        val ds: DataStream[PersonInfo] = sourceDS.map(line => {
+          val arr: Array[String] = line.split(",")
+          PersonInfo(arr(0).toInt, arr(1), arr(2).toInt)
+        })
+
+        //将 ds 转换成 table 对象
+        import org.apache.flink.table.api.scala._
+        val table: Table = tableEnv.fromDataStream(ds, 'id, 'name, 'age)
+
+        //将table 对象写入ClickHouse中
+        //需要在ClickHouse中创建表:create table flink_result(id Int,name String,age Int) engine = MergeTree() order by id;
+        val insertIntoCkSql = "insert into t_java (id,name,age) values (?,?,?)"
+
+        //准备ClickHouse table sink
+        val sink: JDBCAppendTableSink = JDBCAppendTableSink.builder()
+          .setDrivername("ru.yandex.clickhouse.ClickHouseDriver")
+          .setDBUrl("jdbc:clickhouse://server01:8123/test")
+          .setUsername("default")
+          .setPassword("")
+          .setQuery(insertIntoCkSql)
+          .setBatchSize(2) //设置批次量,默认5000条
+          .setParameterTypes(Types.INT, Types.STRING, Types.INT)
+          .build()
+
+        //注册ClickHouse table Sink，设置sink 数据的字段及Schema信息
+        tableEnv.registerTableSink("ck-sink",
+          sink.configure(Array("id", "name", "age"), Array(Types.INT, Types.STRING, Types.INT)))
+
+        //将数据插入到 ClickHouse Sink 中
+        tableEnv.insertInto(table, "ck-sink")
+
+        //触发以上执行
+        env.execute("Flink Table API to ClickHouse Example")*/
+
+    //flink 1.11.x 及之后版本
+    val env: StreamExecutionEnvironment = StreamExecutionEnvironment.getExecutionEnvironment
+    //设置并行度为1
+    env.setParallelism(1)
+    import org.apache.flink.streaming.api.scala._
+
+    val ds: DataStream[String] = env.socketTextStream("server01", 9999)
+
+    val result: DataStream[(Int, String, Int)] = ds.map(line => {
+      val arr: Array[String] = line.split(",")
+      (arr(0).toInt, arr(1), arr(2).toInt)
+    })
+
+    //准备向ClickHouse中插入数据的sql
+    val insetIntoCkSql = "insert into t_java (id,name,age) values (?,?,?)"
+
+    //设置ClickHouse Sink
+    val ckSink: SinkFunction[(Int, String, Int)] = JdbcSink.sink(
+      //插入数据SQL
+      insetIntoCkSql,
+
+      //设置插入ClickHouse数据的参数
+      new JdbcStatementBuilder[(Int, String, Int)] {
+        override def accept(ps: PreparedStatement, tp: (Int, String, Int)): Unit = {
+          ps.setInt(1, tp._1)
+          ps.setString(2, tp._2)
+          ps.setInt(3, tp._3)
+        }
+      },
+      //设置批次插入数据
+      new JdbcExecutionOptions.Builder().withBatchSize(2).build(),
+
+      //设置连接ClickHouse的配置
+      new JdbcConnectionOptions.JdbcConnectionOptionsBuilder()
+        .withDriverName("ru.yandex.clickhouse.ClickHouseDriver")
+        .withUrl("jdbc:clickhouse://server01:8123/test")
+        .withUsername("default")
+        .withUsername("")
+        .build()
+    )
+
+    //针对数据加入sink
+    result.addSink(ckSink)
+
+    env.execute("Flink DataStream to ClickHouse Example")
+  }
+}
+```
+
+
+
+
+
 
 
 

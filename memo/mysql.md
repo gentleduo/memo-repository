@@ -1636,7 +1636,74 @@ for(select * from A){
 
 3、EXISTS子查询往往也可以用JOIN来代替，何种最优需要具体问题具体分析
 
+### exists的用法
 
+例如：存在两张表：
+
+班级表（A_CLASS）
+
+![image](assets\mysql-8.png)
+
+学生表( STUDENT)
+
+![image](assets\mysql-9.png)
+
+注：学生表(STUDENT)的classId关联班级表（A_CLASS）的主键ID
+
+执行：
+
+```sql
+select * from STUDENT s WHERE exists (select 1 from A_ClASS c where s.CLASS_ID=c.ID)
+```
+
+结果：
+
+![image](assets\mysql-10.png)
+
+exists语句的执行顺序如下：
+
+1.首先会执行外循环（select * from student）
+
+2.外循环返回的结果每一行都会拿着去内层循环执行（此时注意，内层也是循环查询的）
+
+第一次：select* from A_CLASS where c1=c1,第二次：select* from A_CLASS where c1=c2,
+
+第三次：select* from A_CLASS where c1=c1,第四次：select* from A_CLASS where c1=c2,
+
+第五次：select* from A_CLASS where c2=c1,第六次：select* from A_CLASS where c2=c2,
+
+第七次：select* from A_CLASS where c3=c1,第八次：select* from A_CLASS where c3=c2,
+
+**注意：此时的内层子查询如果为true，则直接返回不会再继续执行本次循环;**
+
+综上所述：第二次和第四次是不会被执行的; 第一次和第三次还有第六次是符合条件的;所以 STUDENT表中CLASS_ID字段为（c1,c2）的数据都会被查询出来;
+
+如果将上述语句中的"="换成"!="将会是如下的效果：
+
+```sql
+select * from STUDENT s WHERE exists (select 1 from A_ClASS c where s.CLASS_ID！=c.ID)
+```
+
+结果：
+
+![image](assets\mysql-11.png)
+
+具体分析一下：此时的执行应该和第一次一模一样也是循环8次分别为：
+
+第一次：select* from A_CLASS where c1！=c1,第二次：select* from A_CLASS where c1！=c2,
+
+第三次：select* from A_CLASS where c1！=c1,第四次：select* from A_CLASS where c1！=c2,
+
+第五次：select* from A_CLASS where c2！=c1,第六次：select* from A_CLASS where c2！=c2,
+
+第七次：select* from A_CLASS where c3！=c1,第八次：select* from A_CLASS where c3！=c2,
+
+但是"="换成了"!="；这次是第六次和第八次没有被执行，其余的全被执行，s.CLASS_ID涉及到（c1,c2,c3）并且语句都返回了true;所以STUDENT表中CLASS_ID字段为（c1,c2，c3）的数据都会被查询出来;
+
+总结：
+
+1. exists执行外循环后，会拿着外循环的值，去内层查询，如果查询到就直接返回true，并且终止本次循环，如果是false，则会一直执行，直至循环完成还为false，则本次内循环不符合条件;
+2. 内层的判断条件不要写！=;查询的结果会不尽人意;
 
 ## 12、count(*)查询优化
 

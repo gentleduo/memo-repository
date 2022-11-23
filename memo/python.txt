@@ -750,6 +750,118 @@ while True:
 Traceback (most recent call last):
   File "<stdin>", line 1, in <module>
 StopIteration
+
+
+I、理解yield，第一步需要理解yield和return的区别
+print('yield:')
+def _testyield():
+    for i in range(5):
+        yield i*i
+#这里产生生成器对象,跟java对象意思相同
+generator = _testyield()
+
+for i in range(5):
+    print(next(generator))
+#-----------------------------------------------------------#
+
+print('return:')
+def _return(n):
+    # 这里res是一个list[],得出的结果是[1,2,3,4,5]
+    res = [i*i for i in range(n)]    
+    return res
+
+for i in _return(5):
+    print(i)
+	
+上面yield和return生成的结果相同：
+yield:
+0
+1
+4
+9
+16
+return:
+0
+1
+4
+9
+16
+但是这里面的区别在于：return返回的是一个list列表，而yield每次调用只返回一个数值，毫无疑问，使用return空间开销比较大，尤其是操作巨量数据的时候，操作一个大列表时间开销也会得不偿失
+
+II、yield执行方式
+def foo():
+    print("starting...")
+    while True:
+        res = yield 4
+        print("res:",res)
+
+
+g = foo()
+#此时未打印出任何信息，说明只是生成了generator对象，并未执行函数
+
+print('-'*30)
+print('g_1',next(g))
+#调用next，开始执行函数，并且到达yield这一步时，返回生成的4
+
+print("*"*20)
+print('g_2',next(g))
+#res：none，说明是接着上一步开始执行，并且第二次循环到达yield这一步
+
+print("#"*30)
+print('g_3',next(g))
+
+打印结果如下：
+------------------------------
+starting...
+g_1 4
+********************
+res: None
+g_2 4
+##############################
+res: None
+g_3 4
+
+说明：
+1、调用包含yield函数时，并不会执行函数，而是产生并返回一个生成器对象
+2、第一次next取出一个值时，会将函数执行到第一个yield，停止
+3、后面next时，会从上一个yield开始，接着执行，循环到下一个yield
+后面均参照第三行。
+
+III、继续深挖yield
+def foo():
+    print("starting...")
+    for i in range(6):
+        res = yield 4
+        print("res:",res)
+
+    #当我们添加新的yield
+    for i in range(6):
+        res = yield 5
+        print("res",res)
+        
+g = foo()
+#此时未打印出任何信息，说明只是生成了generator对象，并未执行函数
+
+for i in range(7):
+    print(next(g))
+	
+结果是：
+starting...
+4
+res: None
+4
+res: None
+4
+res: None
+4
+res: None
+4
+res: None
+4
+res: None
+5
+上述结果5最后出现，说明yield会按照正常顺序进行执行，不会重新加载函数
+
 *************************************************python常用api*************************************************
 
 *****************************************************************python日志*****************************************************************

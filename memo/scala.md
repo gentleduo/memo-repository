@@ -3376,6 +3376,43 @@ val x :: y :: tail = list
 println(x, y)
 ```
 
+## 模式匹配中的@操作符
+
+当需要处理匹配的对象本身时就可以用@将匹配对象绑定到一个变量上
+
+```scala
+package org.duo.syntax
+
+object _28PatternMatchingDemo {
+
+  // 1. 创建两个样例类
+  case class Person(name: String, age: Int)
+
+  def main(args: Array[String]): Unit = {
+
+    val zhangsan: Any = Person("张三", 20)
+
+    // p表示匹配的对象本身，当需要使用匹配中的对象时，就需要用@了
+    zhangsan match {
+      case p@Person(_, age) => println(s"name:${p.name}, age: $age")
+      case _ => println("Not a person")
+    }
+
+    // 还有一种用法，和上面的@用法很相似，不过是常见的类型匹配，这里的p也是一个匹配上的对象，和上面的区别是，这里p需要定义类型，而上面@的用法是个对象，对象中的age变量，是可以直接用的。
+    zhangsan match {
+      case p: Person => println(s"name:${p.name}, age: ${p.age}")
+      case _ => println("Not a person")
+    }
+
+    // 在看下这种用法，这种是不带@或:的，匹配成功后，可以使用name、age变量，但是无法引用匹配的对象本身。
+    zhangsan match {
+      case Person(name, age) => println(s"name:$name, age: $age")
+      case _ => println("Not a person")
+    }
+  }
+}
+```
+
 # Option类型
 
 使用Option类型，可以用来有效避免空引用(null)异常。也就是说，将来返回某些数据时，可以返回一个Option类型来替代。
@@ -3640,12 +3677,18 @@ package org.duo.oop
 object _03RegExDemo {
 
   // 使用括号表示一个分组
-  val regex = """.+@(.+)\..+""".r
+  val regex = """.+@(.+)\..+""".r // 使用".r"方法可使任意字符串变成一个Regex实例
 
   val emlList =
     List("38123845@qq.com", "a1da88123f@gmail.com", "zhansan@163.com", "123afadff.com")
 
   val emlCmpList = emlList.map {
+    // company为第一个分组结果，可以匹配多个分组，
+    // 如果要实现匹配多个分组的话：
+    // 1.首先在定义正则表示式的地方，增加一个分组
+    // val regex = """.+@(.+)\.(.+)""".r
+    // 2.在模式匹配的地方定义两个变量
+    // case x@regex(company, net) => s"${x} => ${company} => ${net}"
     case x @ regex(company) => s"${x} => ${company}"
     case x => x + "=>未知"
   }

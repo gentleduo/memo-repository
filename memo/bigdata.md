@@ -12873,6 +12873,19 @@ hbase-site.xml
                 <name>hbase.zookeeper.property.dataDir</name>
                 <value>/opt/zookeeper/data</value>
         </property>
+        <!--Compaction触发时机-->
+        <!--MemStore Flush：Compaction的根源就在于Flush，MemStore达到一定阈值或触发条件就会执行Flush操作，在磁盘上生成HFile文件，正是因为HFile文件越来越多才需要Compact。HBase每次Flush之后，都会判断是否要进行Compaction，一旦满足Minor Compaction或Major Compaction的条件便会触发执行。-->
+    	<!--后台线程周期性检查：后台线程CompactionChecker会定期检查是否需要执行Compaction，检查周期为hbase.server.thread.wakefrequency*hbase.server.compactchecker.interval.multiplier，这里主要考虑的是一段时间内没有写入仍然需要做Compact检查。其中参数hbase.server.thread.wakefrequency默认值10000即10s，是HBase服务端线程唤醒时间间隔，用于LogRoller、MemStoreFlusher等的周期性检查；参数hbase.server.compactchecker.interval.multiplier默认值1000，是Compaction操作周期性检查乘数因子，10*1000 s时间上约等于2hrs,46mins,40sec。-->
+        <!--
+    	<property>
+    			<name>hbase.server.thread.wakefrequency</name>
+            	<value>1</value>
+    	</property>
+    	<property>
+    			<name>hbase.server.compactchecker.interval.multiplier</name>
+            	<value>1</value>
+    	</property>
+		-->
 </configuration>
 ```
 
@@ -12994,6 +13007,26 @@ HBase本身的设计目标是支持稀疏表，而稀疏表通常会有很多列
 ### Column
 
 列族下面的具体列，属于某一个ColumnFamily,类似于mysql当中创建的具体的列。列是插入数据的时候动态指定的。
+
+### in memory
+
+hbase在LRU缓存基础之上采用了分层设计，整个blockcache分成了三个部分，分别是single，multi和inMemory。三者的区别如下：
+
+single：如果一个block第一次被访问，放在该优先队列中；
+
+multi：如果一个block被多次方位，则从single队列转移到multi队列
+
+inMemory：优先级最高。常驻cache，因此一般只有hbase系统的元数据，如meta表之类的才会放到inMemory队列中。
+
+即hbase中的缓存满了之后在清理的过程中，优先淘汰single中的block、然后是multi、最后是inMemory。
+
+### Max Version
+
+创建表的时候，可以通过ColumnFamilyDescriptorBuilder.setMaxVersions(int maxVersions)设置表中数据的最大版本，如果只需要保存最新版本的数据，那么可设置setMaxVersions(1)，保留更多的版本信新会占用更多的存储空间。
+
+### Time to Live
+
+创建表的时候，可以通过ColumnFamilyDescriptorBuilder.setTimeToLive(int timeToLive)设置表中数据的存储生命期，过期数据将自动删除，例如如果只需要存储最近两天的数据，那么可设置setTimeToLive(2 * 24 * 60 *60)。默认为：FOREVER
 
 ### 时间戳
 
@@ -13973,6 +14006,16 @@ WAL的持久化等级分为如下四个等级：
 
 5. USER_DEFAULT：默认如果用户没有指定持久化等级，HBase使用SYNC_WAL等级持久化数据。
 
+WAL优化方案：
+
+Utilize Flash storage for WAL(HBASE-12848):
+
+这个特性意味着可以将WAL单独置于SSD上，这样即使在默认情况下（WALSync），写性能也会有很大的提升，需要注意的是，该特性建立在HDFS2.6.0+的基础上，HDFS以前版本不支持该特性。具体可以参考官方jira:https://issues.apache.org/jira/browse/HBASE-12484
+
+Mutiple WALs(HBASE-14457)：
+
+该特性也是对WAL进行改造，当前WAL设计为一个RegionServer上所有Region共享一个WAL，可以想象在写入吞吐量较高的时候必然存在资源竞争，降低整体性能。针对这个问题，社区小伙伴提出Multiple WALs机制，管理员可以为每个Namespace下的所有表设置一个共享WAL，通过这种方式，写性能大约可以提升20%～40%左右。具体可以参考官方jira：https://issues.apache.org/jira/browse/HBASE-14457
+
 ### 总结
 
 1. 在HBase中每个表一开始只有一个region，随着数据不断插入表，region不断增大，当增大到一个阀值的时候，Hregion就会等分会两个新的Hregion。新插入的数据会存储在新的Hregion中，所以HBase底层不是列式存储，不同行的相同列不一定存储在一起。
@@ -13985,6 +14028,120 @@ WAL的持久化等级分为如下四个等级：
 1. 首先通过zookeeper获取一张特殊表：meta表的位置信息，meta表中保存了包含所有创建的表的位置信息；
 2. 从meta表中获取要访问的表所在的HRegionServer；
 3. 访问对应的HRegionServer，然后扫描所在HRegionServer的Memstore和Storefile来查询数据。
+
+读优化：
+
+#### scan缓存是否设置合理？
+
+优化原理：
+
+在解释这个问题之前，首先需要解释什么是scan缓存，通常来讲一次scan会返回大量数据，因此客户端发起一次scan请求，实际并不会一次就将所有数据加载到本地，而是分成多次RPC请求进行加载，这样设计一方面是因为大量数据请求可能会导致网络带宽严重消耗进而影响其他业务，另一方面也有可能因为数据量太大导致本地客户端发生OOM。在这样的设计体系下用户会首先加载一部分数据到本地，然后遍历处理，再加载下一部分数据到本地处理，如此往复，直至所有数据都加载完成。数据加载到本地就存放在scan缓存中，默认100条数据大小。
+
+通常情况下，默认的scan缓存设置就可以正常工作的。但是在一些大scan（一次scan可能需要查询几万甚至几十万行数据）来说，每次请求100条数据意味着一次scan需要几百甚至几千次RPC请求，这种交互的代价无疑是很大的。因此可以考虑将scan缓存设置增大，比如设为500或者1000就可能更加合适。笔者之前做过一次试验，在一次scan扫描10w+条数据量的条件下，将scan缓存从100增加到1000，可以有效降低scan请求的总体延迟，延迟基本降低了25%左右。
+
+优化建议：
+
+大scan场景下将scan缓存从100增大到500或者1000，用以减少RPC次数
+
+#### get请求是否可以使用批量请求？
+
+优化原理：
+
+HBase分别提供了单条get以及批量get的API接口，使用批量get接口可以减少客户端到RegionServer之间的RPC连接数，提高读取性能。另外需要注意的是，批量get请求要么成功返回所有请求数据，要么抛出异常。
+
+优化建议：
+
+使用批量get进行读取请求
+
+#### 请求是否可以显示指定列族或者列？
+
+优化原理：
+
+HBase是典型的列族数据库，意味着同一列族的数据存储在一起，不同列族的数据分开存储在不同的目录下。如果一个表有多个列族，只是根据Rowkey而不指定列族进行检索的话不同列族的数据需要独立进行检索，性能必然会比指定列族的查询差很多，很多情况下甚至会有2倍～3倍的性能损失。
+
+优化建议：
+
+可以指定列族或者列进行精确查找的尽量指定查找
+
+#### 离线批量读取请求是否设置禁止缓存？
+
+优化原理：
+
+通常离线批量读取数据会进行一次性全表扫描，一方面数据量很大，另一方面请求只会执行一次。这种场景下如果使用scan默认设置，就会将数据从HDFS加载出来之后放到缓存。可想而知，大量数据进入缓存必将其他实时业务热点数据挤出，其他业务不得不从HDFS加载，进而会造成明显的读延迟
+
+优化建议：
+
+离线批量读取请求设置禁用缓存，scan.setBlockCache(false)
+
+#### 读请求是否均衡？
+
+优化原理：
+
+极端情况下假如所有的读请求都落在一台RegionServer的某几个Region上，这一方面不能发挥整个集群的并发处理能力，另一方面势必造成此台RegionServer资源严重消耗（比如IO耗尽、handler耗尽等），落在该台RegionServer上的其他业务会因此受到很大的波及。可见，读请求不均衡不仅会造成本身业务性能很差，还会严重影响其他业务。当然，写请求不均衡也会造成类似的问题，可见负载不均衡是HBase的大忌。
+
+观察确认：
+
+观察所有RegionServer的读请求QPS曲线，确认是否存在读请求不均衡现象
+
+优化建议：
+
+RowKey必须进行散列化处理（比如MD5散列），同时建表必须进行预分区处理
+
+#### BlockCache是否设置合理？
+
+优化原理：
+
+BlockCache作为读缓存，对于读性能来说至关重要。默认情况下BlockCache和Memstore的配置相对比较均衡（各占40%），可以根据集群业务进行修正，比如读多写少业务可以将BlockCache占比调大。另一方面，BlockCache的策略选择也很重要，不同策略对读性能来说影响并不是很大，但是对GC的影响却相当显著，尤其BucketCache的offheap模式下GC表现很优越。另外，HBase 2.0对offheap的改造（HBASE-11425）将会使HBase的读性能得到2～4倍的提升，同时GC表现会更好！
+
+观察确认：
+
+观察所有RegionServer的缓存未命中率、配置文件相关配置项一级GC日志，确认BlockCache是否可以优化
+
+优化建议：
+
+JVM内存配置量 < 20G，BlockCache策略选择LRUBlockCache；否则选择BucketCache策略的offheap模式；
+
+#### HFile文件是否太多？
+
+优化原理：
+
+HBase读取数据通常首先会到Memstore和BlockCache中检索（读取最近写入数据&热点数据），如果查找不到就会到文件中检索。HBase的类LSM结构会导致每个store包含多数HFile文件，文件越多，检索所需的IO次数必然越多，读取延迟也就越高。文件数量通常取决于Compaction的执行策略，一般和两个配置参数有关：hbase.hstore.compaction.min和hbase.hstore.compaction.max.size，前者表示一个store中的文件数超过多少就应该进行合并，后者表示参数合并的文件大小最大是多少，超过此大小的文件不能参与合并。这两个参数不能设置太’松’（前者不能设置太大，后者不能设置太小），导致Compaction合并文件的实际效果不明显，进而很多文件得不到合并。这样就会导致HFile文件数变多。
+
+观察确认：
+
+观察RegionServer级别以及Region级别的storefile数，确认HFile文件是否过多
+
+优化建议：
+
+hbase.hstore.compaction.min设置不能太大，默认是3个；设置需要根据Region大小确定，通常可以简单的认为hbase.hstore.compaction.max.size = RegionSize / hbase.hstore.compaction.min
+
+#### Compaction是否消耗系统资源过多？
+
+优化原理：
+
+Compaction是将小文件合并为大文件，提高后续业务随机读性能，但是也会带来IO放大以及带宽消耗问题（数据远程读取以及三副本写入都会消耗系统带宽）。正常配置情况下Minor Compaction并不会带来很大的系统资源消耗，除非因为配置不合理导致Minor Compaction太过频繁，或者Region设置太大情况下发生Major Compaction。
+
+观察确认：
+
+观察系统IO资源以及带宽资源使用情况，再观察Compaction队列长度，确认是否由于Compaction导致系统资源消耗过多
+
+优化建议：
+
+（1）Minor Compaction设置：hbase.hstore.compaction.min设置不能太小，又不能设置太大，因此建议设置为5～6；hbase.hstore.compaction.max.size = RegionSize / hbase.hstore.compaction.min
+
+（2）Major Compaction设置：大Region读延迟敏感业务（ 100G以上）通常不建议开启自动Major Compaction，手动低峰期触发。小Region或者延迟不敏感业务可以开启Major Compaction，但建议限制流量；
+
+#### 数据本地率是否太低？
+
+数据本地率：HDFS数据通常存储三份，假如当前RegionA处于Node1上，数据a写入的时候三副本为(Node1,Node2,Node3)，数据b写入三副本是(Node1,Node4,Node5)，数据c写入三副本(Node1,Node3,Node5)，可以看出来所有数据写入本地Node1肯定会写一份，数据都在本地可以读到，因此数据本地率是100%。现在假设RegionA被迁移到了Node2上，只有数据a在该节点上，其他数据（b和c）读取只能远程跨节点读，本地率就为33%（假设a，b和c的数据大小相同）。
+
+优化原理：
+
+数据本地率太低很显然会产生大量的跨网络IO请求，必然会导致读请求延迟较高，因此提高数据本地率可以有效优化随机读性能。数据本地率低的原因一般是因为Region迁移（自动balance开启、RegionServer宕机迁移、手动迁移等）,因此一方面可以通过避免Region无故迁移来保持数据本地率，另一方面如果数据本地率很低，也可以通过执行major_compact提升数据本地率到100%。
+
+优化建议：
+
+避免Region无故迁移，比如关闭自动balance、RS宕机及时拉起并迁回飘走的Region等；在业务低峰期执行major_compact提升数据本地率
 
 ### 写请求
 
@@ -14019,6 +14176,11 @@ hbase的数据是存储在hdfs中的，hdfs是一个适合一次写入，多次�
 1. 首先，没有所谓的插入、修改和删除的区别，增删改都是带着版本号的追加操作；
 2. 其次，当HLog和Memstore均写入成功，则返回写入成功，即：并没有真正写入hdfs中，而HLog是顺序写所以很快，可以理解为将一次随机写转化为了一次顺序写加一次内存写；
 3. 当一个Store中的StoreFile的个数达到一定的阈值后会进行一次compact，在compact的过程中会按照rowkey进行合并。
+
+写优化：
+
+1. 使用批量put进行写入请求
+2. 在业务可以接受的情况下开启异步批量提交(在某些情况下客户端异常的情况下缓存数据有可能丢失):setAutoFlush(false)
 
 ## 增删查改
 
@@ -14106,7 +14268,106 @@ master启动进行以下步骤：
 
 ### compact机制
 
-把小的storeFile文件合并成大的Storefile文件。清理过期的数据，包括删除的数据，将数据的版本号保存为3个。
+在HBase中，数据在更新时首先写入WAL 日志(HLog)和内存(MemStore)中，MemStore中的数据是排序的，当MemStore累计到一定阈值时，就会创建一个新的MemStore，并且将老的MemStore添加到flush队列，由单独的线程flush到磁盘上，成为一个StoreFile。于此同时， 系统会在zookeeper中记录一个redo point，表示这个时刻之前的变更已经持久化了(minor compact)。
+
+StoreFile是只读的，一旦创建后就不可以再修改。因此Hbase的更新其实是不断追加的操作。当一个Store中的StoreFile达到一定的阈值后，就会进行一次合并(major compact)，将对同一个key的修改合并到一起，形成一个大的StoreFile，当StoreFile的大小达到一定阈值后，又会对 StoreFile进行分割(split)，等分为两个StoreFile。
+
+由于对表的更新是不断追加的，处理读请求时，需要访问Store中全部的StoreFile和MemStore，将它们按照row key进行合并，由于StoreFile和MemStore都是经过排序的，并且StoreFile带有内存中索引，通常合并过程还是比较快的。
+
+实际应用中，可以考虑必要时手动进行major compact，将同一个row key的修改进行合并形成一个大的StoreFile。同时，可以将StoreFile设置大些，减少split的发生。
+
+hbase为了防止小文件（被刷到磁盘的menstore）过多，以保证保证查询效率，hbase需要在必要的时候将这些小的store file合并成相对较大的store file，这个过程就称之为compaction。在hbase中，主要存在两种类型的compaction：minor compaction和major compaction。
+
+1、minor compaction:的是较小、很少文件的合并。
+
+```markdown
+minor compaction的运行机制要复杂一些，它由一下几个参数共同决定：
+hbase.hstore.compaction.min //默认值为 3，表示至少需要三个满足条件的store file时，minor compaction才会启动
+hbase.hstore.compaction.max //默认值为10，表示一次minor compaction中最多选取10个store file
+hbase.hstore.compaction.min.size //表示文件大小小于该值的store file 一定会加入到minor compaction的store file中
+hbase.hstore.compaction.max.size //表示文件大小大于该值的store file 一定不会被添加到minor compaction
+hbase.hstore.compaction.ratio //将 StoreFile 按照文件年龄排序，minor compaction 总是从 older store file 开始选择，如果该文件的 size 小于后面 hbase.hstore.compaction.max 个 store file size 之和乘以 ratio 的值，那么该 store file 将加入到 minor compaction 中。如果满足 minor compaction 条件的文件数量大于 hbase.hstore.compaction.min，才会启动。
+```
+
+2、major compaction 的功能是将所有的store file合并成一个（生产环境中一般会关掉这个功能），触发major compaction的可能条件有：
+
+```markdown
+1、major_compact 命令、
+2、majorCompact() API、
+3、region server自动运行
+（1）hbase.hregion.majorcompaction 默认为24 小时
+（2）hbase.hregion.majorcompaction.jetter 默认值为0.2 防止region server 在同一时间进行major compaction）。
+hbase.hregion.majorcompaction.jetter参数的作用是：对参数hbase.hregion.majorcompaction 规定的值起到浮动的作用，
+假如两个参数都为默认值24和0,2，那么major compact最终使用的数值为：19.2~28.8 这个范围。
+```
+
+示例：
+
+hbase-site.xml
+
+```xml
+<!-- 修改后台CompactionChecker线程的检查周期 -->
+<!-- CompactionChecker线程的作用：定期检查对应的Store是否需要执行Compaction -->
+<property>
+    <name>hbase.server.thread.wakefrequency</name>
+    <value>1</value>
+</property>
+<property>
+    <name>hbase.server.compactchecker.interval.multiplier</name>
+    <value>1</value>
+</property>
+```
+
+```bash
+#创建表后会在hdfs中生产相应的表目录
+2.6.0 :010 > create 'user', 'info'
+Created table user
+[root@server01 ~]# hdfs dfs -ls  /hbase/data/default/user/688bcc555ee6656ffd6e4d60af46a031      
+Found 3 items
+-rw-r--r--   2 root supergroup         39 2022-11-26 14:18 /hbase/data/default/user/688bcc555ee6656ffd6e4d60af46a031/.regioninfo
+drwxr-xr-x   - root supergroup          0 2022-11-26 14:18 /hbase/data/default/user/688bcc555ee6656ffd6e4d60af46a031/info
+drwxr-xr-x   - root supergroup          0 2022-11-26 14:18 /hbase/data/default/user/688bcc555ee6656ffd6e4d60af46a031/recovered.edits
+
+# 追加一条记录并进行强制flush，会在相应的表的列族下生成一个文件
+2.6.0 :011 > put 'user', '1', 'info:name', 'zhangsan'
+Took 0.6279 seconds  
+2.6.0 :013 > flush 'user'
+Took 1.5449 seconds 
+[root@server01 ~]# hdfs dfs -ls  /hbase/data/default/user/688bcc555ee6656ffd6e4d60af46a031/info
+Found 1 items
+-rw-r--r--   2 root supergroup       4840 2022-11-26 14:27 /hbase/data/default/user/688bcc555ee6656ffd6e4d60af46a031/info/7eb0dd9b55354c58baa31b4705034208
+
+# 追加第二条记录并进行强制flush，会在相应的表的列族下再生成一个文件
+2.6.0 :014 > put 'user', '2', 'info:name', 'lisi'
+Took 0.1132 seconds                                                                    
+2.6.0 :015 > flush 'user'
+Took 1.0731 seconds
+[root@server01 ~]# hdfs dfs -ls  /hbase/data/default/user/688bcc555ee6656ffd6e4d60af46a031/info
+Found 2 items
+-rw-r--r--   2 root supergroup       4840 2022-11-26 14:27 /hbase/data/default/user/688bcc555ee6656ffd6e4d60af46a031/info/7eb0dd9b55354c58baa31b4705034208
+-rw-r--r--   2 root supergroup       4836 2022-11-26 14:29 /hbase/data/default/user/688bcc555ee6656ffd6e4d60af46a031/info/ec088e90d5e04ecfbacf4f01dd4285af
+
+# 当追加第三条记录并进行强制flush后，由于生成的小文件已经到达3个，所以会触发合并。
+# 而且可以通过hbase hfile -p -f命名查看合并后的内容
+2.6.0 :016 > put 'user', '3', 'info:name', 'wangwu'
+Took 0.1466 seconds                                                                       
+2.6.0 :017 > flush 'user'
+Took 1.0352 seconds  
+[root@server01 ~]# hdfs dfs -ls  /hbase/data/default/user/688bcc555ee6656ffd6e4d60af46a031/info                  Found 1 items
+-rw-r--r--   2 root supergroup       4916 2022-11-26 14:35 /hbase/data/default/user/688bcc555ee6656ffd6e4d60af46a031/info/fa1fe5501be242188d9fe9c9a114b9b3
+[root@server01 ~]# hbase hfile -p -f /hbase/data/default/user/688bcc555ee6656ffd6e4d60af46a031/info/fa1fe5501be242188d9fe9c9a114b9b3
+SLF4J: Class path contains multiple SLF4J bindings.
+SLF4J: Found binding in [jar:file:/usr/local/hbase-2.0.0/lib/slf4j-log4j12-1.7.25.jar!/org/slf4j/impl/StaticLoggerBinder.class]
+SLF4J: Found binding in [jar:file:/usr/local/hadoop-2.7.5/share/hadoop/common/lib/slf4j-log4j12-1.7.10.jar!/org/slf4j/impl/StaticLoggerBinder.class]
+SLF4J: See http://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J: Actual binding is of type [org.slf4j.impl.Log4jLoggerFactory]
+2022-11-26 14:37:25,096 INFO  [main] hfile.CacheConfig: Created cacheConfig: CacheConfig:disabled
+2022-11-26 14:37:29,245 INFO  [main] metrics.MetricRegistries: Loaded MetricRegistries class org.apache.hadoop.hbase.metrics.impl.MetricRegistriesImpl
+K: 1/info:name/1669443999872/Put/vlen=8/seqid=4 V: zhangsan
+K: 2/info:name/1669444160028/Put/vlen=4/seqid=8 V: lisi
+K: 3/info:name/1669444304547/Put/vlen=6/seqid=12 V: wangwu
+Scanned kv count -> 3
+```
 
 ### split机制
 
@@ -14684,7 +14945,7 @@ select * from hbase2hive;
 
 ## 预分区
 
-HBase在创建表的时候默认不进行分区的，即：所有的region都会放在一台RegionServer上；
+Pre-Creating Regions 默认情况下，在创建HBase表的时候会自动创建一个region分区，当导入数据的时候，所有的HBase客户端都向这一个region写数据，直到这个region足够大了才进行切分。一种可以加快批量写入速度的方法是通过预先创建一些空的regions，这样当数据写入HBase时，会按照region分区情况，在集群内做数据的负载均衡。
 
 可通过访问：http://server01:16010/master-status ==> Table Details ==> myuser ==> 勾选：Ascending和ShowDetailName&Start/End Key然后按Reorder按钮，查看分区情况
 
@@ -14760,7 +15021,7 @@ rowkey是一个二进制码流，可以是任意字符串，最大长度64kb，�
 
 ### 散列原则
 
-如果rowkey按照时间戳的方式递增，不要将时间放在二进制码的前面，建议将rowkey的高位作为散列字段，由程序随机生成，低位放时间字段，这样将提高数据均衡分布在每个RegionServer，以实现负载均衡的几率。如果没有散列字段，首字段直接是时间信息，所有的数据都会集中在一个RegionServer上，这样在数据检索的时候负载会集中在个别的RegionServer上，造成热点问题，会降低查询效率。
+如果rowkey按照时间戳的方式递增，不要将时间放在二进制码的前面，建议将rowkey的高位作为散列字段，由程序随机生成，低位放时间字段，这样将提高数据均衡分布在每个RegionServer，以实现负载均衡的几率。如果没有散列字段，首字段直接是时间信息，将产生所有的新数据都会集中在一个RegionServer上堆积的热点现象，这样在数据检索的时候负载会集中在个别的RegionServer上，会降低查询效率。
 
 ### 唯一原则
 

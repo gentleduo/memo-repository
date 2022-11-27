@@ -13754,7 +13754,7 @@ public class HBaseOperate {
 
 ### 介绍
 
-HBase的核心数据结构是LSM-tree：日志结构的合并树（LSM-tree）是一种分层的、有序的、基于硬盘的数据结构，它的核心思路其实非常简单，首先写入数据到内存中，不需要每次有数据更新就必须将数据写入到磁盘中，等到积累到一定阈值之后，再使用归并排序的方式将内存中的数据合并追加到磁盘队尾(因为所有待排序的树都是有序的，可以通过合并排序的方式快速合并到一起)。LSM-tree基于2006年Google发表的论文BigTable。BigTable和GFS、MapReduce并称为谷歌技术"三宝"
+LSM树，即日志结构合并树(Log-Structured Merge-Tree)。其实它并不属于一个具体的数据结构，它更多是一种数据结构的设计思想。大多NoSQL数据库核心思想都是基于LSM来做的，只是具体的实现不同。时序性数据库、leveldb、hbase、tidb底层都在用LSM。它的核心思路其实非常简单，首先写入数据到内存中，不需要每次有数据更新就必须将数据写入到磁盘中，等到积累到一定阈值之后，再使用归并排序的方式将内存中的数据合并追加到磁盘队尾(因为所有待排序的树都是有序的，可以通过合并排序的方式快速合并到一起)。LSM-tree基于2006年Google发表的论文BigTable。BigTable和GFS、MapReduce并称为谷歌技术"三宝"
 
 - GFS, 2003, 存储大量数据
 - MapReduce, 2004, 使得大量数据可以被计算
@@ -13768,39 +13768,26 @@ HBase的核心数据结构是LSM-tree：日志结构的合并树（LSM-tree）�
 
 并且mysql是行存储，有一些行中有空值，但是 Schema 已经定义了, 对应的列是有数据类型的, 为了对齐, 所以即使这个地方没有数据, 也依然需要占用对应数据类型的空间
 
+LSM数的设计思想非常简单：将对数据的修改增量保持在内存中，达到指定的大小限制后将这些修改操作批量写入磁盘，不过读取的时候稍微麻烦，需要合并磁盘中历史数据和内存中最近修改操作，所以写入性能大大提升，读取时可能需要先看是否命中内存，否则需要访问较多的磁盘文件，极端的说，基于LSM树实现的HBase的写性能比MySQL高了一个数量级，读性能低了一个数量级。
+
 ### 特点
 
-解决问题: 插入效率低
+LSM树由两个或以上的存储结构组成，比如在论文中为了方便说明使用了最简单的两个存储结构。
 
-- 多颗小树
+原理：
 
-- 不写磁盘, 内存效率更高
+1. 一个存储结构常驻内存中，称为C0 tree，具体可以是任何方便健值查找的数据结构，比如红黑树、map之类，甚至可以是跳表。
 
-- 把树分级，Level 0：缓存，Level 1、Level 2磁盘
+2. 另外一个存储结构常驻在硬盘中，称为C1 tree，具体结构类似B树。C1所有节点都是100%满的，节点的大小为磁盘块大小。
+3. C0 tree及C1 tree的排序不是简单按照RowKey，而是按照一个封装好的KeyVal对象。具体的排序规则为：KeyValue中的Key由RowKey，ColumnFamily，Qualifier，TimeStamp，KeyType等5部分组成，HBase设定Key大小首先比较RowKey，RowKey越小Key就越小；RowKey如果相同就看CF，CF越小Key越小；CF如果相同看Qualifier，Qualifier越小Key越小；Qualifier如果相同再看TimeStamp，TimeStamp越大表示时间越新，对应的Key越小。如果TimeStamp还相同，就看KeyType，KeyType按照DeleteFamily -> DeleteColumn -> Delete -> Put顺序依次对应的Key越来越大。
 
-- 使用查找树, 这样树的节点之间是有序的
+![image](assets\bigdata-94.png)
 
--  Level 0 级别的树达到容量阈值的时候, Flush 到 Level 1 的树；在特定的时间合并Level 1的这些小树，两颗有序的树可以使用归并排序, 时间复杂度很低。
+插入步骤：
 
-  ![image](assets\bigdata-31.png)
+大体思路是：插入一条新纪录时，（首先在日志文件中插入操作日志，以便后面恢复使用，日志是以append形式插入，所以速度非常快）；将新纪录的索引插入到C0中，这里在内存中完成，不涉及磁盘IO操作；当C0大小达到某一阈值时或者每隔一段时间，将C0中记录滚动合并到磁盘C1中；对于多个存储结构的情况，当C1体量越来越大就向C2合并，以此类推，一直往上合并Ck。
 
-- HBase中每一颗小树都类似于 B树
-
-- 插入性能及其优良, 大概比 B+树 快几十倍
-
-- 查询性能比较差, 因为要扫描三个级别的存储, 比 B+树 要慢几十倍
-
-- HBase 的一个表有多个 Region 分布在多个 RegionServer 上, 一个 RegionServer 有多个 Region
-
-  ![image](assets\bigdata-32.png)
-
-- 每个 Region 又分为 Memstore 和 DiskStore, 其实就是 LSM树，注意：每个列族会对应一个Memstore，所以为了提高查询性能，一个表不宜有太多的列族
-
-  ![image](assets\bigdata-33.png)
-
-- HBase 的存储结构是 Key-Value，虽然 HBase 对外提供的看起来好像一种表, 但其实在 Region 中, 数据以 KV 的形式存在
-
-  ![image](assets\bigdata-34.png)
+![image](assets\bigdata-95.png)
 
 ### 布隆过滤器
 
@@ -14028,6 +14015,10 @@ Mutiple WALs(HBASE-14457)：
 1. 首先通过zookeeper获取一张特殊表：meta表的位置信息，meta表中保存了包含所有创建的表的位置信息；
 2. 从meta表中获取要访问的表所在的HRegionServer；
 3. 访问对应的HRegionServer，然后扫描所在HRegionServer的Memstore和Storefile来查询数据。
+4. 首先从memstore中读取数据，如果读取到了那么直接将数据返回，如果没有，则去blockcache读取数据
+5. 如果blockcache中读取到数据，则直接返回数据给客户端，如果读取不到，则遍历storefile文件，查找数据
+6. 如果从storefile中读取不到数据，则返回空，如果读取到数据，那么需要将数据先缓存到blockcache(方便下一次读取)，然后再将数据返回给客户端
+7. blockcache是内存空间，如果缓存的数据比较多，满了之后会采用LRU策略，将比较老的数据进行删除。
 
 读优化：
 

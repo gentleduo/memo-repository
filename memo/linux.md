@@ -3866,6 +3866,16 @@ iotop是一个用来监视磁盘I/O使用状况的top类工具，可以监测到
 
 iotop默认显示的是线程信息：TID，如果想要其显示进程信息可以直接按p键，或者通过iotop -P启动；在监控过程中按o键，可以实时监控有io的进程；
 
+### 磁盘读写速度查询
+
+```bash
+# 通过往磁盘中写入8GB数据来测试磁盘的读写速度
+[root@server03 ~]# dd if=/dev/zero of=$PWD/1.img bs=1G count=8 oflag=dsync
+8+0 records in
+8+0 records out
+8589934592 bytes (8.6 GB) copied, 123.37 s, 69.6 MB/s
+```
+
 ## 网络性能评估
 
 ### ping
@@ -4036,6 +4046,82 @@ ack:表示确认包
 RST=RESET:异常关闭连接
 
 .:表示没有任何标志
+
+## dstat 
+
+dstat 可以监测CPU、磁盘、网络流量、IO、内存等，是一个全能的系统信息统计工具。可以替代 vmstat、iostat、netstat、nfsstat 、ifstat 等命令。如果系统没有安装，可以通过sudo yum install dstat来安装。
+
+dstat 支持即时刷新，有着彩色的界面，数据指标更加直观明了。
+
+### 默认
+
+默认情况将输出CPU、磁盘、网络、IO、内存 等统计信息。
+
+```bash
+[root@server02 ~]# dstat
+You did not select any stats, using -cdngy by default.
+----total-cpu-usage---- -dsk/total- -net/total- ---paging-- ---system--
+usr sys idl wai hiq siq| read  writ| recv  send|  in   out | int   csw 
+  2   2  95   1   0   0| 948k  377k|   0     0 |   0     0 | 234   626 
+  0   0 100   0   0   0|   0     0 | 864B 1722B|   0     0 | 155   186 
+  0   0 100   0   0   0|   0     0 | 864B 1194B|   0     0 | 110   157 
+  0   1  99   0   0   0|   0     0 | 864B 1194B|   0     0 | 105   142 
+  0   0 100   0   0   0|   0    96k| 864B 1194B|   0     0 | 134   165 
+  0   1  99   0   0   0|   0     0 | 864B 1194B|   0     0 | 126   157 
+  1   0  99   0   0   0|   0     0 | 864B 1194B|   0     0 | 116   155 
+  0   0 100   0   0   0|   0     0 | 864B 1194B|   0     0 | 115   158 
+```
+
+### 查看CPU
+
+usr用户占比，sys系统占比，idl空闲占比，wai等待次数；hiq硬中断次数，siq软中断次数。
+
+```bash
+[root@server02 ~]# dstat -c
+----total-cpu-usage----
+usr sys idl wai hiq siq
+  2   2  95   1   0   0
+  0   0 100   0   0   0
+  0   0  99   0   0   1
+```
+
+### 查看磁盘I/O
+
+```bash
+[root@server02 ~]# dstat -d
+-dsk/total-
+ read  writ
+ 829k  357k
+   0   232k
+   0     0 
+   0     0 
+   0     0 
+```
+
+### 查看CPU平均负载
+
+```bash
+[root@server02 ~]# dstat -l
+---load-avg---
+ 1m   5m  15m 
+0.02 0.05 0.05
+0.02 0.05 0.05
+0.02 0.05 0.05
+0.02 0.05 0.05
+```
+
+### 查看网卡流量
+
+```bash
+[root@server02 ~]# dstat -n
+-net/total-
+ recv  send
+   0     0 
+ 864B 1050B
+ 924B 1062B
+ 864B 1002B
+ 924B 1062B
+```
 
 # Linux虚拟内存管理
 

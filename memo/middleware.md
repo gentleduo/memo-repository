@@ -8310,6 +8310,66 @@ iii. Spatial Relations(空间关系)
 
 ## 深入聚合查询
 
+### 正排索引
+
+### 三角选择原则
+
+CAP定理(CAP theorem)，又被称作为布鲁尔定理(Brewer's theorem)，是分布式系统中的一个基本定理。它指出任何分布式系统(Distributed System)中，最多具有一致性、可用性、分区容错这三个特征中的两个。也就是说，三个特征无法兼顾，必须有所取舍。
+
+三角选择原则：在大数据领域，精确度、实时性、大数据三个特征最多只能同时满足两个，通常来说必须舍弃其中一个以换取另外两个指标的生产要求。即：精准度、实时性、大数据，三选其二
+
+1. 精准+实时: msysql，没有大数据，数据量很小，那么一般就是单击跑，随便你则么玩儿就可以
+2. 精准+大数据：hadoop，批处理，非实时，可以处理海量数据，保证精准，可能会跑几个小时
+3. 大数据+实时：es，不精准，近似估计，可能会有百分之几的错误率
+
+### Cardinality
+
+#### 易并行算法
+
+在数据库中找一个最大值，只需要两步
+
+1. 各个node都返回最大值给coordinary node
+2. coordinary node 根据各个node返回的值计算出最大值返回给应用程序 
+
+这两步在es中都是容易执行的（不会在coordinary node中占用大量内存，也不会在coordinary node占用大量cpu) 
+
+#### 不易并行算法
+
+现在假设要计算count(distinct)。也就是说找出所有唯一值的总和，要执行这个算法es会执行以下几步
+
+1. 各个node找到当前node的唯一值（比如有100万条）返回给coordinary node。
+2. coordinary node接收到各个node所返回的唯一值后，再进行去重处理，然后根据去重后的结果求和，再返回给应用程序。 
+
+在这个过程中coordinary node会至少保留300万条（假设只有3个node)数据，并要对这300万条数据做处理，这样对coordinary node，不管是内存还是cpu的压力都很大，这就是不易并行聚合算法。
+
+#### 高基数与低基数聚合
+
+高基数：手机；
+
+低基数：国家、地区、性别
+
+在ES中Cardinality函数的作用就相当于count(distinct)，由于无法在不同分片中保证数据是否重合，因此将消耗更多的内存用于数据汇总进行基数聚合，尤其是高基聚合。
+
+ES在执行Cardinality聚合的时候，通过precision_threshold参数以内存换精度，默认3000，最大值40000，设置再大的值，实际也最高只能是4W，当小于precision_threshold设置的时候，精度接近100%，当大于此设置的时候，即时数据量有几百万，误差也只是1-6%。注意：precision_threshold设置较高阀值对低基数聚合有显著效果，但是对高基数聚合并无显著效果，反而会占用大量的资源，适得其反。
+
+内存精度换算单位
+
+内存消耗<=>precision_threshold * 8个Byte，比如precision_threshold=1000，内存消耗8KB
+
+#### HyperLogLog
+
+HyperLogLog算法是依赖于field value计算hash，在做cardinality运算的时候，ES会动态为每个field value计算hash用于提升聚合性能。
+
+#### 低基聚合优化方案
+
+maper-murmur3
+
+作用：提升低基聚合的查询性能，副作用是消耗较大磁盘空间。
+
+原理：maper-murmur3提升低基聚合的原理就是通过预先为字段值计算hash，在做cardinality计算的时候，使用提前准备好的hash值参与计算，避免了动态运算从而节省性能，建议在字段基数较大并且可能会有大量重复值的时候使用，这样可能会产生显著的性能提升，不然可能不但不会带来显著的性能提升，而且会增加磁盘消耗。
+
+安装：/usr/local/elasticsearch/elasticsearch-plugin install mapper-murmur3
+
 ## 读写原理及调优
 
 ### 写入原理

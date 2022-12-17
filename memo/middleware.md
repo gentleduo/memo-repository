@@ -8370,6 +8370,391 @@ maper-murmur3
 
 安装：/usr/local/elasticsearch/elasticsearch-plugin install mapper-murmur3
 
+## 评分和排序
+
+### 相关度评分
+
+相关性指的是召回结果和用户搜索关键词的匹配程度，也就是用户搜索的预期值的匹配程度
+
+相关度评分用于对搜索结果排序，评分越高则认为其结果和搜索的预期值相关度越高，即越符合搜索预期值。在7.X之前相关度评分默认使用TF/IDF算法计算，7.X之后默认为BM25
+
+Similarity
+
+Classic 也就是TF-IDF，在7.X中已弃用，在7.X之前是Elasticsearch和Lucene中的默认算法
+
+BM25 Okapi BM25算法，在7.X之后为Elasticsearch和Lucene中默认使用的算法
+
+Boolean 一个简单的布尔相似度，当不需要全文排序并且分数应该只基于查询词是否匹配时使用。
+
+### TF-IDF算法
+
+#### 词频(TF term frequency)
+
+关键词在doc中出现的次数，词频越高，评分越高。
+
+term的词频：该词在文档中出现次数的平方根
+
+```json
+//PUT product_tf
+{
+  "mappings": {
+    "properties": {
+      "name":{
+        "type":"text",
+        "analyzer": "ik_max_word",
+        "fields": {
+          "keyword":{
+            "type":"keyword",
+            "ignore_above":256
+          }
+        }
+      }
+    }
+  }
+}
+
+//PUT /product_tf/_doc/1
+{
+  "name":"小米 大米 紫米 青米 红米 黑米 豌豆 大米"
+}
+
+//PUT /product_tf/_doc/2
+{
+  "name":"小米 大米 紫米 青米 红米 黑米 豌豆 小米"
+}
+
+//GET product_tf/_search
+{
+  "query": {
+    "match": {
+      "name": "小米"
+    }
+  }
+}
+
+//GET product_tf/_search
+{
+  "query": {
+    "match": {
+      "name": "大米"
+    }
+  }
+}
+```
+
+#### 反词频(IDF inverse doc frequency)
+
+关键词在整个索引中出现的次数，反词频越高，权重越低，评分越低
+
+term的逆向文档频率：索引中文档数量除以所有包含该词的文档数（因为有可能索引中文档数及包含该词的文档数都有可能为零，所以为了避免这种异常所以在实际计算过程中分子和分母都会加一后再相除），然后求其对数
+
+```json
+// PUT product_idf
+{
+  "mappings": {
+    "properties": {
+      "name":{
+        "type": "text",
+        "analyzer": "ik_max_word",
+        "fields": {
+          "keyword":{
+            "type":"keyword",
+            "ignore_above":256
+          }
+        }
+      }
+    }
+  }
+}
+
+// PUT /product_idf/_doc/1
+{
+  "name":"小米 大米 紫米 青米 红米 黑米 豌豆"
+}
+// PUT /product_idf/_doc/2
+{
+  "name":"小米 大米 紫米 青米 红米 黑米 花生"
+}
+
+// GET product_idf/_search
+{
+  "query": {
+    "match": {
+      "name": "小米 豌豆"
+    }
+  }
+}
+// GET product_idf/_search
+{
+  "query": {
+    "match": {
+      "name": "小米 花生"
+    }
+  }
+}
+```
+
+#### 文档长度规约(field-length norm)
+
+字段长度越短，字段搜索权重越高，相关度评分越高。比如：检索词出现在一个短的title要比同样的词出现在一个长的content字段权重更大。
+
+字段长度归一值：字段中词数平方根的倒数
+
+```json
+// PUT product_doc
+{
+  "mappings": {
+    "properties": {
+      "name":{
+        "type": "text",
+        "analyzer": "ik_max_word",
+        "fields": {
+          "keyword":{
+            "type":"keyword",
+            "ignore_above":256
+          }
+        }
+      }
+    }
+  }
+}
+
+// PUT /product_doc/_doc/1
+{
+  "name":"小米 大米 紫米 青米 红米 黑米 duo"
+}
+// PUT /product_doc/_doc/2
+{
+  "name":"小米 大米 紫米 青米 红米 黑米"
+}
+
+// GET product_doc/_search
+{
+  "query": {
+    "match": {
+      "name": "小米"
+    }
+  }
+}
+// GET product_doc/_search
+{
+  "query": {
+    "match": {
+      "name": "黑米"
+    }
+  }
+}
+```
+
+#### Explain API
+
+explain API 来调试相似度评分函数的计算
+
+```json
+// GET product_tf/_explain/1/
+{
+  "query": {
+    "match": {
+      "name": "大米"
+    }
+  }
+}
+```
+
+### BM25算法
+
+BM25（全称：OKapi BM25）其中BM指的Best Matching的缩写，是搜索引擎常用的一种相关度评分函数。和TF-IDF一样，BM25也是基于词频和文档频率问文档长度相关性计算相关度，但是规则有所不同。
+
+### Shard Local IDF
+
+问题现象：
+
+先创建索引及数据
+
+```json
+// PUT shard_local_idf
+{
+  "settings": {
+    "number_of_shards": 2,
+    "number_of_replicas": 0
+  }
+}
+// PUT shard_local_idf/_bulk?routing=1&refresh=true
+{"index":{"_id":1,"_type":"_doc"}}
+{"title":"xiaomi shouji"}
+{"index":{"_id":2,"_type":"_doc"}}
+{"title":"huawei shouji"}
+{"index":{"_id":3,"_type":"_doc"}}
+{"title":"pingguo shouji"}
+{"index":{"_id":4,"_type":"_doc"}}
+{"title":"zhongxing shouji"}
+{"index":{"_id":5,"_type":"_doc"}}
+{"title":"sanxing shouji"}
+{"index":{"_id":6,"_type":"_doc"}}
+{"title":"bodao shouji"}
+{"index":{"_id":7,"_type":"_doc"}}
+{"title":"oppo shouji"}
+{"index":{"_id":8,"_type":"_doc"}}
+{"title":"lg shouji"}
+{"index":{"_id":9,"_type":"_doc"}}
+{"title":"vivo shouji"}
+{"index":{"_id":10,"_type":"_doc"}}
+{"title":"xiaomi tv"}
+// PUT shard_local_idf/_bulk?routing=0&refresh=true
+{"index":{"_id":11,"_type":"_doc"}}
+{"title":"xiaomi tv"}
+{"index":{"_id":12,"_type":"_doc"}}
+{"title":"huawei 12"}
+{"index":{"_id":3,"_type":"_doc"}}
+{"title":"pingguo 13"}
+{"index":{"_id":14,"_type":"_doc"}}
+{"title":"zhongxing 14"}
+{"index":{"_id":15,"_type":"_doc"}}
+{"title":"sanxing 51"}
+{"index":{"_id":16,"_type":"_doc"}}
+{"title":"bodao 16"}
+{"index":{"_id":17,"_type":"_doc"}}
+{"title":"oppo 17"}
+{"index":{"_id":18,"_type":"_doc"}}
+{"title":"lg 18"}
+{"index":{"_id":19,"_type":"_doc"}}
+{"title":"vivo 19"}
+{"index":{"_id":20,"_type":"_doc"}}
+{"title":"meizu 20"}
+```
+
+指定条件"xiaomi shouji"进行查询
+
+```json
+// GET shard_local_idf/_search
+{
+  "query": {
+    "match": {
+      "title": "xiaomi shouji"
+    }
+  }
+}
+```
+
+召回结果如下：
+
+```json
+"hits" : [
+      {
+        "_index" : "shard_local_idf",
+        "_type" : "_doc",
+        "_id" : "11",
+        "_score" : 1.9924302,
+        "_routing" : "0",
+        "_source" : {
+          "title" : "xiaomi tv"
+        }
+      },
+      {
+        "_index" : "shard_local_idf",
+        "_type" : "_doc",
+        "_id" : "1",
+        "_score" : 1.6282079,
+        "_routing" : "1",
+        "_source" : {
+          "title" : "xiaomi shouji"
+        }
+      },
+      {
+        "_index" : "shard_local_idf",
+        "_type" : "_doc",
+        "_id" : "10",
+        "_score" : 1.4816045,
+        "_routing" : "1",
+        "_source" : {
+          "title" : "xiaomi tv"
+        }
+      }
+      ...
+    ]
+  
+
+```
+
+明显不符合我们的预期，检索结果中xiaomi tv排在xiaomi shouji的前面
+
+原因分析：
+
+词频得分（TF）相关性：对于`_doc1`和`_doc11`，两个文档词频都是1，他们在同一个索引，所以反词频一定相同，所以单就TF得分而言，这两个词得分肯定相同。因此，对于上述问题，TF得分为常量，不是问题产生的主要原因。
+
+所以问题可能出在反词频得分（IDF）相关性上，通过 explain 计算以下得分，如下：
+
+```json
+GET shard_local_idf/_search
+{
+  "explain": true, 
+  "query": {
+    "match": {
+      "title": "xiaomi shouji"
+    }
+  }
+}
+```
+
+对于 query：xiaomi shouji 查询结果如下：
+
+    _doc1：总分：1.4816045（term：xiaomi） + 0.14660348（term：shouji） = 1.6282079
+        xiaomi：2.2 * 1.4816046 * 0.45454544 = 1.4816045
+            boost：2.2（ k 1 k_1 k1+1）
+            idf：1.4816046
+                n：2
+                N：10
+            tf：0.45454544
+        shouji：2.2 * 0.14660348 * 0.45454544 = 0.14660348
+            boost：2.2（ k 1 k_1 k1+1）
+            idf：0.14660348
+            tf：0.45454544
+    
+    _doc11：总分：1.9924302（term：xiaomi） = 1.9924302
+    
+        xiaomi：2.2 * 1.9924302 * 0.45454544 = 1.9924302
+            boost：2.2（ k 1 k_1 k1+1）
+            idf：1.9924302
+                n：1
+                N：10
+            tf：0.45454544
+    
+        tv：0
+可以看到xiaomi在两个query中的n的值不相同，造成这现象的原因是：在生成数据的时候讲id为1到10的数据强行route在shard0，而id为11到20的数据被route到了shard1，而在计算idf的分值的时候，在本分片中进行的，即：包含xiaomi的doc数在两个分片中不一样，所以造成idf值会不一致
+
+解决方案：
+
+开发和灰度环境或数据量不大的情况
+
+search_type
+
+dfs_query_then_fetch：使用从运行搜索的所有分片收集的信息，全局计算分布式词频。虽然此选项提高了评分的准确性，但它增加了每个分片的往返行程，这可能会导致搜索速度变慢。
+query_then_fetch：（默认）为每个运行搜索的分片本地计算分布式词频。我们建议使用此选项进行更快的搜索，但评分可能不太准确。
+
+测试环境设置：search_type = dfs_query_then_fetch 即表示在计算idf的分值的时候，对全局进行计算，而不是 local_shard 。会牺牲一部分性能，换取准确性。这种方式适合于本地开发环境或者测试环境，或者生产环境中数据不对的情况下。
+
+```json
+// GET shard_local_idf/_search?search_type=dfs_query_then_fetch
+{
+  "explain": true, 
+  "query": {
+    "match": {
+      "title": "xiaomi shouji"
+    }
+  }
+}
+```
+
+对于生产环境
+
+对于生产环境，一般分布式数据库数据都不会太少，既然设计了多个分片，必然要考虑海量数据的情况。一般来说用 query_then_fetch 不太合适，会影响检索速度，牺牲用户体验。生产环境真正的做法是避免分片不均衡，包括分片的大小、节点分片的分配数量、文档的均衡分配等。ES本身通过shard reblance实现分片自动均衡策略，但是如果人工通过routing的方式分配数据，务必要保证数据按照某种机制，如分布式哈希表来控制数据的均衡分配，以避免这种情况的产生。
+
+总结：在不了解分布式文档路由原理的前提下，不要随意使用 routing 来指定文档的分配机制。
+
+### Relevance Score
+
+### 精准控制评分和干预排序
+
 ## 读写原理及调优
 
 ### 写入原理

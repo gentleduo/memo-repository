@@ -1924,20 +1924,21 @@ fi
 cluster.name: es-prod
 # 设置节点名称，集群内节点名称必须唯一,且不可重复
 node.name: node-1
+# node.roles配置项如果没有显示的配置，那么当前节点拥有所有角色(master,data,ingest,ml,remote_cluster_client,transform)。在早期的版本中通过node.master:true或者node.data:true来配置是否是master或data角色
+# node.roles:[data,master,voting_only]
 # 数据存储目录的路径(用逗号分隔多个位置):
 path.data: /usr/local/elasticsearch/data
 # 日志存储路径:
 path.logs: /usr/local/elasticsearch/logs
-# 启动时锁定内存,内存不足2G请勿开启
+# 禁止使用swap分区，swapping对性能和节点稳定性非常不利。在分布式系统中，使用swap还不如让操作系统kill节点效果更好。设置bootstrap.memory_lock:true的作用是禁止使用swap
 bootstrap.memory_lock: true
-# 将绑定地址设置为特定的IP（IPv4或IPv6
+# 绑定内网IP（IPv4或IPv6），另外一个参数network.publish_host绑定的是公网IP，比如当集群位于云服务器的时候，各个节点不可能在同一个内网中，而节点之间的通信就必须通过公网的IP。
 network.host: 192.168.56.110
 # 为HTTP设置自定义端口
 http.port: 9200
-# 在启动此节点时，传递主机的初始列表以执行发现.主机的默认列表是: ["127.0.0.1", "[::1]"]
-# 写入候选主节点的设备地址，在开启服务后可以被选为主节点
+# 在默认情况下，Elasticsearch无需任何网络配置，开箱即用。因为Elasticsearch在启动的时候，会自动搜索本机9300到9305端口服务，并尝试连接组成集群。如果要与其他主机上的节点组成集群，则必须设置discovery.seed_hosts，提供集群中其他主机的列表。此设置通常应包含群集中所有符合主机条件的节点的地址，是主机地址数组或逗号分隔的字符串。每个值都采用host:port或者host形式（其中port默认设置为transport.profiles.default.port，如果未设置则返回transport.port）。注意，IPV6主机放在方括号里。默认值是：127.0.0.1,[::1]
 discovery.seed_hosts: ["192.168.56.110", "192.168.56.111", "192.168.56.112"]
-# 初始化一个新的集群时需要此配置来选举master
+# 首次启动全新的Elasticsearch集群时，会出现集群选举情况，该步骤确定了在第一次选举中符合主机资格的节点的集合。而在开发模式中，如果没有discovery相关配置，那么这个步骤就会由Elasticsearch自己自动执行，而这种自动执行模式本身又是不安全的，所以在生产模式下启动新集群时，必须显式列出所有有资格成为master的节点，这些节点的投票应该在第一次选举中被计算。重启集群或向现有集群添加新节点时，不要使用该设置。
 cluster.initial_master_nodes: ["192.168.56.110", "192.168.56.111", "192.168.56.112"]
 ```
 
@@ -6798,10 +6799,10 @@ cluster.routing.allocation.awareness.force.rack_id.values: rack1,rack2
 
 主节点必须遵循以下分配原则
 
-- 避免重负载任务：主节点负责轻量级集群范围的操作，例如创建或删除索引、跟踪哪些节点是集群的一部分以及决定将哪些分片分配给哪些节点。拥有一个稳定的主节点对于集群健康很重要。当选的主节点拥有履行其职责所需的资源，这对于集群的健康非常重要。如果所选的主节点承载了其他任务，比如数据的增删改查等资源密集型人物，会对集群的稳定运行造成较大影响。避免主节点负载过重的最可靠方法是把所有配置了master角色的节点配置为专用主节点（或者称之为专用候选节点），使它们能够专注于管理集群。
+- 避免重负载任务：主节点主要负责集群方面的轻量级的操作，例如创建或删除索引、跟踪哪些节点是集群的一部分以及决定将哪些分片分配给哪些节点。拥有一个稳定的主节点对于集群健康很重要。当选的主节点拥有履行其职责所需的资源，这对于集群的健康非常重要。如果所选的主节点承载了其他任务，比如数据的增删改查等资源密集型人物，会对集群的稳定运行造成较大影响。避免主节点负载过重的最可靠方法是把所有配置了master角色的节点配置为专用主节点（或者称之为专用候选节点），使它们能够专注于管理集群。
 - 负载均衡器：专用master节点仍将充当协调节点，也就是集群中的负载均衡器，将请求从客户端路由到集群中的其他节点，但是不要以负载均衡器的目的而设置候选节点。另外负载均衡节点
 - 任何不是 voting-only的 master-eligible节点都可以被选举为 active master。
-- 主节点必须有一个 path.data目录，其内容在重启后仍然存在，就像数据节点一样，因为这是存储集群元数据的地方。集群元数据描述了如何读取存储在数据节点上的数据，因此如果丢失，则无法读取存储在数据节点上的数据。
+- 主节点必须有一个path.data目录，其内容在重启后仍然存在，就像数据节点一样，因为这是存储集群元数据的地方。集群元数据描述了如何读取存储在数据节点上的数据，因此如果丢失，则无法读取存储在数据节点上的数据。
 - 高可用性 (HA) 集群需要至少三个候选节点，其中至少两个不是仅投票节点。这样即使其中一个节点发生故障，也可以保证剩下的节点能够选举出一个主节点。
 
 ##### 候选节点
@@ -8755,9 +8756,187 @@ query_then_fetch：（默认）为每个运行搜索的分片本地计算分布�
 
 ### 精准控制评分和干预排序
 
+#### boost
+
+```json
+// 在创建索引时指定权重，但是这种方法在ES8.X已经被废弃
+// PUT test_index
+{
+  "mappings": {
+    "properties": {
+      "title":{
+        "type": "text",
+        "boost": 2
+      },
+      "content":{
+        "type": "text"
+      }
+    }
+  }
+}
+
+// PUT test_index/_doc/1
+{
+  "title":"abc 123",
+  "content":"efg 123"
+}
+// PUT test_index/_doc/2
+{
+  "title":"efg 456",
+  "content":"abc 456"
+}
+
+// GET test_index/_search
+{
+  "query": {
+    "multi_match": {
+      "query": "abc",
+      "type": "most_fields", 
+      "fields": [
+        "title",
+        "content"
+      ]
+    }
+  }
+}
+
+// 在查询时指定权重
+// GET test_index/_search
+{
+  "query": {
+    "bool": {
+      "should": [
+        {
+          "match": {
+            "title": {
+              "query": "abc",
+              "boost": 10
+            }
+          }
+        },
+        {
+          "match": {
+            "content": "abc"
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+不推荐在创建索引时定义权重，因为如果不重建索引，无法修改设置的索引权重值。
+
+#### boosting query
+
+有时需要将某些搜索结果降级，但又不想完全从搜索结果中剔除它们，那么可以使用boosting query对其降低权重。例如：下面的搜索表示从title匹配abc efg的搜索结果中，对content包含456的结果权重降低为原来的0.1
+
+```json
+// GET test_index/_search
+{
+  "query": {
+    "boosting": {
+      "positive": {
+        "match": {
+          "title": "abc efg"
+        }
+      },
+      "negative": {
+        "match": {
+          "content": "456"
+        }
+      },
+      "negative_boost": 0.1
+    }
+  }
+}
+```
+
+positive(必须，查询对象)：必须满足的查询条件
+
+negative(必须，查询对象)：需要降低评分权重的过滤器
+
+negative_boost(必须，float)：权重降低因子，值设置多少negative中匹配的文档权重就是原来的多少倍
+
+#### function_score
+
+和boosting query相反，有些时候希望提升某些查询的权重，就需要利用function score。
+
+```json
+// GET test_index/_search
+{
+  "query": {
+    "function_score": {
+      "query": {
+        "match": {
+          "title": "abc efg"
+        }
+      },
+      "functions": [
+        {
+          "filter": {
+            "match":{
+              "content":"efg"
+            }
+          },
+          "weight": 10
+        }
+      ]
+    }
+  }
+}
+```
+
+#### constant_score
+
+如果需要直接指定某些查询结果的评分为具体数值而不是设置其权重，可通过constant_score来实现，如：以下代码表示title字段中匹配abc的结果，其评分为1.3
+
+```json
+// GET test_index/_search
+{
+  "query": {
+    "constant_score": {
+      "filter": {
+        "match":{
+          "title":"abc"
+        }
+      },
+      "boost": 1.3
+    }
+  }
+}
+
+```
+
 ## 读写原理及调优
 
+### ES并发控制
+
+#### 悲观锁
+
+#### 乐观锁
+
+`_version`：每个索引文档都有一个版本号，默认情况下，使用从1开始的内部版本控制，每次更新都会增加，包括删除。版本号可以设置为外部值。要启用此功能，version_type应设置为external。提供的值必须是大于或等于0且小于9.2e+18左右的数字长整型值。使用外部版本类型时，系统会检查传递给索引请求的版本号是否大于当前存储文档的版本。如果为真，文档将使用新的版本号。如果提供的值小于或等于存储文档的版本号。则会发生版本冲突，索引操作将失败。`_version`的有效范围为当前文档。
+
+external或者external_gt：仅当给定版本严格高于存储文档的版本或不存在现有文档时才索引文档。给定版本将用作新版本，并将与新文档一起存储。提供的版本必须是非负长整数。
+
+external_gte：仅当给定版本等于或高于存储文档的版本时才索引文档。如果没有现有文档，则操作会成功。给定版本将用作新版本，并将与新文档一起存储。提供的版本必须是非负长整数。external_gte需要谨慎使用，否则可能会丢失数据。
+
+使用if_seq_no和if_primary_term进行版本控制
+
+if_seq_no和if_primary_term是用来并发控制的，和`_version`属于当前文档不同`_seq_no`属于整个index
+
+`_seq_no`：索引级别的版本号，索引中所有文档共享一个`_seq_no`
+
+`_primary_term`：`_primary_term`是一个整数，每当primary_shard发生重新分配时，比如节点重启，primary选举或重新分配等，`_primary_term`会递增1。主要作用是用来恢复数据时处理多个文档的`_seq_no`一样时的冲突，避免primary shard上的数据写入被覆盖。
+
 ### 写入原理
+
+ES的任意节点都可以作为协调节点(coordinating)接受请求，当协调节点接受到请求后进行一系列处理，然后通过_routing字段找到对应的primary shard，并将请求转发给primary shard。ES中的数据写入均发生在Primary Shard，当数据在Primary写入完成之后会同步到相应的Replica Shard。
+
+写一致性策略
+
+ES 5.x 之后，一致性策略由 `wait_for_active_shards` 参数控制，默认为 wait_for_active_shards = 1，即只需要主分片写入成功即返回成功，设置为 all或任何正整数，最大值为索引中的分片总数 ( number_of_replicas + 1 )。如果当前 active 状态的副本没有达到设定阈值，写操作必须等待并且重试，默认等待时间30秒，直到 active 状态的副本数量超过设定的阈值或者超时返回失败为止。执行索引操作时，分配给执行索引操作的主分片可能不可用。造成这种情况的原因可能是主分片当前正在从网关恢复或正在进行重定位。默认情况下，索引操作将在主分片上等待最多 1 分钟，然后才会失败并返回错误。
 
 ![image](assets\middleware-60.png)
 
@@ -8788,7 +8967,7 @@ es宕机是否丢失数据主要看translog是否丢失数据， translog在写�
 
 3. 协调节点根据各个分片返回的docid和排序字段进行排序，筛选出需要返回给客户端的文档docid使用docid去对应分片上拉取文档真实数据，返回给客户端
 
-   > 过程排序，数据若能完全在内存中，则使用快速排序（logn ~ n）， 若内存放不下所有数据，就要借助文件进行排序，使用归并排序算法(nlogn)
+   > 排序过程，数据若能完全在内存中，则使用快速排序（logn ~ n）， 若内存放不下所有数据，就要借助文件进行排序，使用归并排序算法(nlogn)
 
 es二阶段查询
 

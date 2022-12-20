@@ -8974,6 +8974,339 @@ es二阶段查询
 1. query阶段， 2,3,4为query阶段
 2. fetch阶段， 5,6为fetch阶段
 
+## 运维调优
+
+### 冷热集群架构部署
+
+#### 通过节点角色控制
+
+官网地址：https://www.elastic.co/guide/en/elasticsearch/reference/current/modules-node.html
+
+You define a node’s roles by setting `node.roles` in `elasticsearch.yml`. If you set `node.roles`, the node is only assigned the roles you specify. If you don’t set `node.roles`, the node is assigned the following roles（可以通过在 elasticsearch.yml 中设置 node.roles 来定义节点的角色。如果您设置 `node.roles`，则节点只会分配您指定的角色。如果您不设置 `node.roles`，节点将被分配以下角色：）:
+
+- `master`
+- `data`
+- `data_content`
+- `data_hot`
+- `data_warm`
+- `data_cold`
+- `data_frozen`
+- `ingest`
+- `ml`
+- `remote_cluster_client`
+- `transform`
+
+If you set `node.roles`, ensure you specify every node role your cluster needs. Every cluster requires the following node roles（如果设置 node.roles，请确保指定集群所需的每个节点角色。每个集群都需要以下节点角色）:
+
+- `master`
+- `data_content` and `data_hot`OR`data`
+
+Some Elastic Stack features also require specific node roles:
+
+- Cross-cluster search and cross-cluster replication require the `remote_cluster_client` role.
+- Stack Monitoring and ingest pipelines require the `ingest` role.
+- Fleet, the Elastic Security app, and transforms require the `transform` role. The `remote_cluster_client` role is also required to use cross-cluster search with these features.
+- Machine learning features, such as anomaly detection, require the `ml` role.
+
+```json
+// PUT index_c
+{
+    "settings":{
+        "index.routing.allocation.require._tier": "data_hot"
+    }
+}
+```
+
+#### 通过自定义属性来控制
+
+通过自定义属性标记当前节点
+
+```yaml
+# 名称可以自定义
+node.attr.hot_warm_cold: hot
+```
+
+告诉集群通过哪个自定义属性来指定allocation.awareness规则
+
+```json
+// PUT _cluster/settings
+{
+    "persistent":{
+		"cluster.routing.allocation.awareness.attributes": "hot_warm_cold"
+    }
+}
+```
+
+新建索引，数据写入hot节点
+
+```json
+// PUT index_a
+{
+    "settings":{
+        "index.routing.allocation.require.hot_warm_cold": "hot"
+    }
+}
+```
+
+将数据从hot节点移到warm节点
+
+```json
+// PUT index_a/_settings
+{
+    "number_of_replicas": 0,
+    "index.routing.allocation.require.hot_warm_cold": "warm"
+}
+```
+
+### 索引管理
+
+#### cat api
+
+```json
+# 查看节点分配情况
+GET _cat/nodes?v
+# 查看节点属性
+GET _cat/nodeattrs?v
+# 查看分片分配情况
+GET _cat/shards?v
+# 查看节点的硬盘占用和剩余
+GET _cat/allocation?v
+# 查看索引的文档数量，可以用_count替代
+GET _cat/count/product_tf?v
+GET product_tf/_count
+# 查看集群健康状态
+GET _cat/health?v
+# 查看集群中索引的分片数，文档数等信息，常用于查看集群中包含哪些索引。
+GET _cat/indices?v
+# 查看集群中安装了哪些插件
+GET _cat/plugins?v
+# 查看集群中包含了哪些索引模板
+GET _cat/templates?v
+
+# 查看索引的分配执行计划，常用于查看索引为什么没有分配或者为什么分配到当前节点
+GET _cluster/allocation/explain
+# 查看集群的健康状态
+GET _cluster/health
+# 查看集群状态的元数据
+GET _cluster/state
+# 查看集群统计信息，相当于对cat api信息的一些汇总
+GET _cluster/stats
+```
+
+#### 索引压缩
+
+并非在原有索引上压缩，而是生成一个新的索引。
+
+前提条件：
+
+要压缩的索引必须是只读
+
+target index的所有shard必须位于同一节点
+
+索引的健康状态必须为green
+
+target index不能已存在
+
+target index分片数量必须为source index的约数。比如source index的shard为12，那么target index的shard只能是6 4 3 2 1。
+
+整个索引的doc数量不能超过2 147 483 519个（因为doc的id是整型），因为可能将这个索引压缩成一个分片。
+
+目标节点所在服务器必须有足够大的磁盘空间
+
+操作步骤：
+
+备份数据：不做强制要求
+
+```json
+// 创建源索引
+// PUT source_index/_doc/1
+{
+  "name":"zhangsan",
+  "age":18,
+  "sex": "male"
+}
+
+// PUT source_index/_doc/2
+{
+  "name": "lisi",
+  "age": 19,
+  "sex": "female"
+}
+// 数据备份
+POST _reindex
+{
+  "source": {
+    "index": "source_index"
+  },
+  "dest": {
+    "index": "bak_index"
+  }
+}
+```
+
+删除副本
+
+```json
+// GET _cat/nodeattrs?v
+// 设置副本为零、设置当前索引为只读、并且将source_index中的所有分片都迁移到node-3节点上
+// PUT source_index/_settings
+{
+  "settings": {
+    "number_of_replicas": 0,
+    "index.blocks.write": true,
+    "index.routing.allocation.require._name": "node-3"
+  }
+}
+```
+
+1. index.blocks.read_only: true 设置为使索引和元数据只读
+2. index.blocks.read:true            禁止索引读操作
+3. index.blocks.write:true           禁止写索引
+
+执行压缩命令
+
+```json
+// 执行索引压缩 _shrink
+// POST /source_index/_shrink/target_index
+{
+  "settings":{
+    "index.number_of_replicas": 1,
+    "index.number_of_shards": 3,
+    "index.codec": "best_compression"
+  }
+}
+```
+
+恢复索引
+
+```json
+// PUT target_index/_settings
+{
+  "index.routing.allocation.require._name": null,
+  "index.blocks.write": false
+}
+
+```
+
+工作原理及过程
+
+创建一个新的目标索引，其定义与源索引相同，但分片数量较少。
+
+将段从源索引硬链接到目标索引。跨节点无法完成硬链接操作，所以只能先将目标索引都移动到一个节点中。如果文件系统不支持硬链接，则将所有segment file都复制到新索引中，复制过程很耗时。
+
+shard recovery操作，恢复目标索引。
+
+#### 判断索引是否存在
+
+```json
+HEAD target_index
+```
+
+#### 打开和关闭索引
+
+关闭的索引被阻止进行读/写操作
+
+关闭索引
+
+```json
+POST target_index/_close
+```
+
+打开索引
+
+```json
+POST target_index/_open
+```
+
+#### 索引别名
+
+查看当前索引绑定的别名
+
+```json
+// GET .kibana_task_manager_1/_alias
+```
+
+绑定别名
+
+```json
+// PUT /_bulk
+{"index":{"_index":"product","_id":"1"}}
+{"name":"小米手机","desc":"手机中的战斗机"}
+
+// POST _aliases
+{
+  "actions": [
+    {
+      "add": {
+        "index": "product",
+        "alias": "product_temp"
+      }
+    }
+  ]
+}
+```
+
+删除别名后重新绑定
+
+```json
+// POST _aliases
+{
+  "actions": [
+    {
+      "remove": {
+        "index": "product",
+        "alias": "product_temp"
+      }
+    },
+    {
+      "add": {
+        "index": "product",
+        "alias": "product_real"
+      }
+    }
+  ]
+}
+
+// GET product_real/_search
+```
+
+创建索引同时指定别名
+
+```json
+// PUT test
+// 别名1：alias_1不带过滤条件，所以通过别名1可以检索到所有的数据
+// 别名2：alias_2带过滤条件，所以通过别名2查询时只能查到key为123456的数据
+{
+ "mappings": {},
+ "settings": {},
+ "aliases": {
+   "alias_1": {},
+   "alias_2": {
+     "filter": {
+       "term": {
+         "key": "123456"
+       }
+     }
+   }
+ }
+}
+
+// PUT test/_doc/1
+{
+  "key":"123456"
+}
+// PUT test/_doc/2
+{
+  "key":"456789"
+}
+// GET alias_1/_search
+// GET alias_2/_search
+```
+
+一个索引可以绑定多个别名，一个别名也可以绑定多个索引
+
+别名不能和索引名相同
+
 # ClickHouse
 
 ## ClickHouse与其特性

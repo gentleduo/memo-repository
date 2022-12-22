@@ -8999,7 +8999,7 @@ You define a node’s roles by setting `node.roles` in `elasticsearch.yml`. If y
 If you set `node.roles`, ensure you specify every node role your cluster needs. Every cluster requires the following node roles（如果设置 node.roles，请确保指定集群所需的每个节点角色。每个集群都需要以下节点角色）:
 
 - `master`
-- `data_content` and `data_hot`OR`data`
+- `data_content` and `data_hot`OR`data`；首先在使用冷热集群的时候才在节点配置中使用data_content + data_hot或data_warm或data_cold或data_frozen的形式；另外在使用索引生命周期管理的时候，只需要将hot节点配置data_content + data_hot即可，其他的节点分别配置：data_warm、data_cold、data_frozen.....。而在数据流中则将所有的节点都配置data_content也是没有问题的。
 
 Some Elastic Stack features also require specific node roles:
 
@@ -9306,6 +9306,340 @@ POST target_index/_open
 一个索引可以绑定多个别名，一个别名也可以绑定多个索引
 
 别名不能和索引名相同
+
+#### 滚动索引
+
+触发条件
+
+max_age：时间阀值
+
+max_docs：文档数阀值
+
+max_size：空间阀值
+
+创建带别名的索引
+
+滚动索引的命名有要求：必须以6位数字或者日期结尾
+
+```json
+// PUT /my_logs-000001
+{
+  "mappings": {
+    "properties": {
+      "title":{
+        "type":"text",
+        "analyzer": "english"
+      }
+    }
+  },
+  "aliases": {
+    "logs_write": {}
+  }
+}
+```
+
+使索引满足触发条件
+
+```json
+// PUT logs_write/_bulk
+{"index":{}}
+{"title":"test data 1"}
+{"index":{}}
+{"title":"test data 2"}
+```
+
+ES的写入默认有延迟，可执行手动刷新
+
+```json
+// POST logs_write/_refresh
+```
+
+执行滚动索引
+
+将自动创建新的索引：my_logs-000002，并且将别名：logs_write自动绑定到新创建的索引上
+
+注意底层是通过reindex重新创建的索引，所以不会将mapping信息带入新的索引中
+
+```json
+// POST /logs_write/_rollover
+{
+  "conditions": {
+    "max_age": "7d",
+    "max_docs": 2,
+    "max_size": "5gb"
+  }
+}
+```
+
+绑定后的结果
+
+```json
+{
+  "acknowledged" : true,
+  "shards_acknowledged" : true,
+  "old_index" : "my_logs-000001",
+  "new_index" : "my_logs-000002",
+  "rolled_over" : true,
+  "dry_run" : false,
+  "conditions" : {
+    "[max_size: 5gb]" : false,
+    "[max_docs: 2]" : true,
+    "[max_age: 7d]" : false
+  }
+}
+
+```
+
+#### 索引模板
+
+索引模板: 就是把已经创建好的某个索引的参数设置(settings)和索引映射(mapping)保存下来作为模板, 在创建新索引时, 指定要使用的模板名, 就可以直接重用已经定义好的模板中的设置和映射。
+
+索引模板一般用在时间序列相关的索引中，也就是说, 如果你需要每间隔一定的时间就建立一次索引, 你只需要配置好索引模板, 以后就可以直接使用这个模板中的设置, 不用每次都设置settings和mappings.
+
+```json
+// 由于滚动索引在创建的过程中使用的是reindex，所以新的索引和老索引的mapping是不一致的
+// GET my_logs-000001/_mapping
+// GET my_logs-000002/_mapping
+
+// 可以使用索引模板解决上述问题
+// PUT _template/my_template
+{
+  "index_patterns": [
+    "my_logs-*"
+  ],
+  "mappings": {
+    "properties": {
+      "title": {
+        "type": "text",
+        "analyzer": "english"
+      }
+    }
+  }
+}
+
+// 在执行完索引模板后，可以再次触发滚动索引创建的条件
+// PUT logs_write/_bulk
+{"index":{}}
+{"title":"test data 1"}
+{"index":{}}
+{"title":"test data 2"}
+
+// POST /logs_write/_rollover
+{
+  "conditions": {
+    "max_age": "7d",
+    "max_docs": 2,
+    "max_size": "5gb"
+  }
+}
+
+// 此时my_logs-000001和my_logs-000003的mapping就一致了
+// GET my_logs-000001/_mapping
+// GET my_logs-000003/_mapping
+```
+
+
+
+#### 索引的生命周期管理
+
+索引生命周期管理（ILM）是一种可以让我们随着时间推移自动化的管理索引的一种方式。我们可以根据性能，索引文档数量、大小等弹性要求，文档的保留需求等方面来自定义索引生命周期管理策略，可以使用ILM实现如下需求：
+
+- 当索引达到一定的大小或者一定的文档数量时生成一个新的索引
+- 每天、每周或者每个月创建一个新索引、并把之前的索引归档
+
+- 删除历史索引、按照数据保留标准执行是否保留索引
+
+ILM将索引生命周期定义为5个阶段：
+
+- Hot 热阶段，正在更新和查询的索引
+- Warm 暖阶段，不再更新，但仍在查询的索引
+- Cold 冷阶段，索引不再更新，并且不经常查询。信息仍需要可搜索，但是查询比较慢也没关系。
+- Frozen 冻结阶段，索引不再更新，很少被查询。信息仍需要搜索，但是查询非常慢也没关系。
+- Delete 删除阶段，索引不再需要，可以安全地删除。
+
+索引的生命周期策略（Index lifecycle policies）指定适用于哪些阶段，在每个阶段执行哪些操作，以及在阶段之间转换的时间。
+
+阶段转变 phase transitions
+
+ILM 根据索引的年龄在生命周期中移动索引。为了控制这些转换的时间，可以为每个阶段设置最小年龄。要使索引进入下一阶段，当前阶段的所有操作都必须完成，并且索引的年龄必须大于下一阶段的最小年龄。规定的最低年龄必须在以后各阶段之间增加，例如，最低年龄为10天的”暖”阶段之后只能是最低年龄未设定或大于10天的”冷”阶段。
+
+索引生命周期阶段的转变主要是根据索引的年龄。
+
+阶段执行 phase execution
+
+ILM 控制一个阶段中的动作执行的顺序，以及执行哪些步骤以对每个动作执行必要的索引操作。
+
+当索引进入一个阶段时，ILM 将阶段定义缓存到索引元数据中。这可以确保策略更新不会将索引置于它永远不能退出阶段的状态。如果可以安全地应用更改，ILM 将更新缓存的阶段定义。如果不能，则使用缓存的定义继续阶段执行。
+
+ILM 定期运行，检查索引是否满足策略标准，并执行所需的任何步骤。为了避免竞态条件，ILM 可能需要运行多次以执行完成操作所需的所有步骤。例如，如果 ILM 确定某个索引已经满足滚动条件，它将开始执行完成滚动动作所需的步骤。
+
+阶段行动 phase actions
+
+ILM 在每个阶段支持以下操作。
+
+Hot阶段
+
+- 设置优先级 Set Priority
+- 取消跟随 Unfollow
+- 滚动 Rollover
+- 只读 Read-Only
+- 分片压缩 Shrink
+- 强制合并 Force Merge
+- 可搜索快照 Searchable Snapshot
+
+Warm阶段
+
+- 设置优先级 Set Priority
+- 取消跟随 Unfollow
+- 只读 Read-Only
+- 分配 Allocate
+- 迁移 Migrate
+- 分片压缩 Shrink
+- 强制合并 Force Merge
+
+Cold阶段
+
+- 设置优先级 Set Priority
+- 取消跟随 Unfollow
+- 只读 Read-Only
+- 可搜索快照 Searchable Snapshot
+- 分配 Allocate
+- 迁移 Migrate
+- 强制合并 Force Merge
+
+Frozen阶段
+
+- 可搜索快照 Searchable Snapshot
+
+Delete阶段
+
+- 等待快照 Wait For Snapshot
+- 删除 Delete
+
+创建ILM
+
+```json
+// 可以在kibana里面配置生成：
+// Stack Management ==> Index Lifecycle Policies ==> Create policy
+// PUT _ilm/policy/test_ilm
+{
+  "policy": {
+    "phases": {
+      "hot": {
+        "min_age": "5ms",
+        "actions": {
+          "rollover": {
+            "max_size": "50gb",
+            "max_age": "30d",
+            "max_docs": 2
+          },
+          "set_priority": {
+            "priority": 100
+          }
+        }
+      },
+      "warm": {
+        "min_age": "10s",
+        "actions": {
+          "allocate": {
+            "include": {},
+            "exclude": {},
+            "require": {
+              "hot_warm_cold": "warm"
+            }
+          },
+          "set_priority": {
+            "priority": 50
+          }
+        }
+      },
+      "cold": {
+        "min_age": "15s",
+        "actions": {
+          "allocate": {
+            "include": {},
+            "exclude": {},
+            "require": {
+              "hot_warm_cold": "cold"
+            }
+          }
+        }
+      },
+      "delete": {
+        "min_age": "20s",
+        "actions": {
+          "delete": {
+            "delete_searchable_snapshot": true
+          }
+        }
+      }
+    }
+  }
+}
+
+// 如果在执行过程过有问题，可以通过查看执行计划定位问题
+// GET /_cluster/allocation/explain
+{
+  "index": "test_ilm_index-000001",
+  "shard": 0,
+  "primary": true
+}
+```
+
+创建索引模板 引用ILM
+
+```json
+// PUT _template/my_template
+{
+  "index_patterns": [
+    "test_ilm_index-*"
+  ],
+  "settings": {
+    "number_of_shards": 1,
+    "number_of_replicas": 0,
+    "index.lifecycle.name": "test_ilm",
+    "index.lifecycle.rollover_alias":"test-alias",
+    "index.routing.allocation.require.hot_warm_cold": "hot"
+  }
+}
+```
+
+使用索引模板创建索引
+
+```json
+// PUT test_ilm_index-000001
+{
+  "aliases": {
+    "test-alias": {
+      "is_write_index": true
+    }
+  }
+}
+```
+
+插入数据，触发滚动创建索引
+
+```json
+// PUT test-alias/_bulk
+{"index":{"_id":1}}
+{"title":"test data 1"}
+{"index":{"_id":2}}
+{"title":"test data 2"}
+{"index":{"_id":3}}
+{"title":"test data 3"}
+
+// POST test-alias/_refresh
+
+// 设置刷新频率
+// 索引生命周期管理检查符合policy策略标准的索引的频率，本质上是检查是否满足rollover的周期频率值。
+// poll_interval默认10分钟，也就是每间隔10分钟检查一次。
+// PUT _cluster/settings
+{
+  "transient": {
+    "indices.lifecycle.poll_interval": "1s" 
+  }
+}
+```
 
 # ClickHouse
 

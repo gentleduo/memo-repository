@@ -1,51 +1,85 @@
+# 定义
+
+Maven是Apache一款开源的项目管理工具。Maven使用项目对象模型(POM-Project Object Model,项目对象模型)的概念，可以通过一小段描述信息来管理项目的构建、报告和文档的软件项目管理工具。在maven中每个项目都相当于一个对象，对象（项目）和对象（项目）之间是有关系的，关系包含了：依赖、继承、聚合，实现Maven项目可以更加方便实现导jar包、拆分项目等效果。
+
+## maven软件坐标
+
+groupId：项目ID，项目所属的组织
+
+artifactId：组件ID，具体项目的唯一标志
+
+version：版本号，迭代开发时标志的产品版本信息
+
+> 标本号的组成：软件名称.主版本号.小版本号.阶段版本号.字母版本号
+>
+> 主版本号：软件有重大功能的新增和修改
+>
+> 小版本号：子版本号，小功能的新增和修改
+>
+> 阶段版本号：BUG修复
+>
+> 字母版本号：里程碑意义的变动
+>
+> ALPHA：表示软件正式开启开发，正在实现主要功能，表示内测版本
+>
+> BETA：表示已经实现了基本功能，消除了一些严重错误，但是依然存在一些bug，表示的是软件开发的公测标本
+>
+> RC：候选版本，项目已经基本成熟，即将发行
+>
+> Stable：正在发行的稳定版本
+>
+> RELEASE / R / GA：正在发行的稳定版本
+>
+> FINAL：最终版本，也是正式版本中的一种表示方式
+
 # 基础组件
 
 ## 仓库 Repository
 
 D:/apache/apache-maven-3.6.3/conf/settings.xml
 
-- ### 远程仓库/中央仓库
+### 远程仓库/中央仓库
 
-  ```xml
-  <mirrors>
-    <mirror>
-        <id>alimaven</id>
-        <name>aliyun maven</name>
-        <url>http://maven.aliyun.com/nexus/content/groups/public/</url>
-        <mirrorOf>central</mirrorOf>
-    </mirror> 
-  </mirrors>
-  ```
+```xml
+<mirrors>
+  <mirror>
+      <id>alimaven</id>
+      <name>aliyun maven</name>
+      <url>http://maven.aliyun.com/nexus/content/groups/public/</url>
+      <mirrorOf>central</mirrorOf>
+  </mirror> 
+</mirrors>
+```
 
-- ### 本地仓库
+### 本地仓库
 
-  ```xml
-  <localRepository>D:/apache/apache-maven-3.6.3/usrlibs</localRepository>
-  ```
+```xml
+<localRepository>D:/apache/apache-maven-3.6.3/usrlibs</localRepository>
+```
 
-  将本地jar导入本地仓库
+将本地jar导入本地仓库
 
-  1. 打开cmd或者shell
+1. 打开cmd或者shell
 
-  2. 使用maven命令将本地jar包安装到maven的本地repository中:
+2. 使用maven命令将本地jar包安装到maven的本地repository中:
 
-     ```shell
-     mvn install:install-file -Dfile=D:\apache\driver\tgdb-bolt-driver-3.2.0-20210630203418.jar -DgroupId=com.tgdb -DartifactId=tgdb-bolt-driver -Dversion=3.2.0-20210630203418 -Dpackaging=jar
-     ```
+   ```shell
+   mvn install:install-file -Dfile=D:\apache\driver\tgdb-bolt-driver-3.2.0-20210630203418.jar -DgroupId=com.tgdb -DartifactId=tgdb-bolt-driver -Dversion=3.2.0-20210630203418 -Dpackaging=jar
+   ```
 
-  3. 在项目的pom.xml文件中中加入相应的依赖maven
+3. 在项目的pom.xml文件中中加入相应的依赖maven
 
-     ```xml
-     <dependency>
-     	<groupId>com.tgdb</groupId>
-     	<artifactId>tgdb-bolt-driver</artifactId>
-     	<version>3.2.0-20210630203418</version>
-     </dependency>
-     ```
+   ```xml
+   <dependency>
+   	<groupId>com.tgdb</groupId>
+   	<artifactId>tgdb-bolt-driver</artifactId>
+   	<version>3.2.0-20210630203418</version>
+   </dependency>
+   ```
 
-  4. 注意2和3中的groupId、artifactId、version保持一致
+4. 注意2和3中的groupId、artifactId、version保持一致
 
-- ### 私有服务器
+### 私有服务器
 
 ## 配置
 
@@ -285,6 +319,7 @@ pom.xml
 ### 项目构建命令
 
 ```shell
+# 使用命令通过模板构建maven项目，maven-archetype-quickstart就是通过idea构建maven项目时选择的archetype
 mvn archetype:generate -DgroupId=org.duo -DartifactId=trains-01 -DpackageName=org.duo -DarchetypeArtifactId=maven-archetype-quickstart
 #编译生成class文件
 mvn compile
@@ -302,6 +337,8 @@ mvn clean
 mvn compile
 #构建war包或者jar包
 mvn package
+#将项目安装到本地仓库中
+mvn install
 ```
 
 ### 项目运行/测试/发布
@@ -322,21 +359,23 @@ archetype项目骨架加载慢的问题：
 
 1. 下载对应版本的archetype-catalog.xml
 
+   https://repo.maven.apache.org/maven2/archetype-catalog.xml
+
 2. 将配置文件放入本地仓库对应的目录中：
 
-   D:\apache\apache-maven-3.6.3\usrlibs\org\apache\maven\archetype\archetype-catalog
+   D:\apache\maven\repository\org\apache\maven\archetype\archetype-catalog\3.2.1
 
 3. 修改Intellij-IDEA
 
-   Build==>Build Tools==>Maven==>Runner==>VM Options:-DarchetypeCatalog=local
+   File==>Settings=>Build==>Build Tools==>Maven==>Runner==>VM Options:-DarchetypeCatalog=local
 
-自定义archetype：
+将项目定义成archetype：
 
 1. 进入自定义的maven项目中
-2. 执行：mvn archetype:create-from-project，表示通过项目来构建骨架
+2. 执行：mvn archetype:create-from-project，表示通过已存在的项目来构建骨架
 3. 在构建过程中如果报mvn.bat找不到，就在MAVEN_HOME的bin目录下复制一份mvn.cmd重命名成mvn.bat
 4. 添加到本地仓库：mvn clean install
-5. 添加到自定义骨架：Intellij-IDEA==>File==>Maven==>选中Create from archetype==>Add  Archetype
+5. 添加到自定义骨架：Intellij-IDEA==>File==>New Project==>Maven==>Create from archetype==>Add  Archetype(输入：groupId、artifactId、version)
 
 # 项目管理
 
@@ -367,6 +406,10 @@ archetype项目骨架加载慢的问题：
        <relativePath>../springcloud/pom.xml</relativePath>
    </parent>
    <!--继承关系中，子项目会自动继承父项目的groupId-->
+   <!--因此子项目只需要定义artifactId、version和name即可-->
+   <artifactId>Sub-Web</artifactId>
+   <version>1.0-SNAPSHOT</version>
+   <name>Sub-Web</name>
    ```
 
 优点：合理有效的复用依赖jar包，子项目互相独立，更加便于敏捷开发和独立管理。

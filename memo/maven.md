@@ -236,7 +236,21 @@ pom.xml
             <layout></layout>
         </repository>
     </repositories>
-
+    <!-- 项目发布仓库管理 -->
+    <distributionManagement>
+      <!-- 稳定版本仓库地址 -->
+      <repository>
+        <id>release-rep</id>
+        <name></name>
+        <url></url>
+      </repository>
+      <!-- 快照版本仓库地址 -->
+      <snapshotRepository>
+        <id>snapshot-rep</id>
+        <name></name>
+        <url></url>
+      </snapshotRepository>
+    </distributionManagement>
     <!-- 4、项目依赖管理配置 -->
 	<!-- maven继承机制， -->
 	<!-- 如果配置了parent节点，子模块的依赖从父模块得到了继承，即使在子模块中不配置<dependencies>节点，子模块也引入了它的依赖。 -->
@@ -350,6 +364,7 @@ mvn site
 mvn dependency:tree
 #将项目安装到本地仓库中
 mvn install
+#将项目发布到远程仓库，即在pom.xml中配置的distributionManagement中的仓库地址，如果该远程仓库需要验证身份新的话则需要在settings.xml的<servers>增加一个<server>并根据在distributionManagement设置的id来设置远程仓库的身份认证信息
 mvn deploy
 ```
 

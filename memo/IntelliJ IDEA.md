@@ -360,3 +360,85 @@ inn或者.nn：判断不等于null
 prsf：private static final
 
 psf：public static final
+
+## 自定义代码模板
+
+File==>Settings==>Editor==>Live Templates==>+==>Template Group
+
+### 示例1：
+
+Abbreviation:test
+
+Description:创建一个测试方法
+
+Template text:
+
+```java
+public void test$var1${
+$END$
+}
+```
+
+Define:java
+
+在template中$$中的内容其实就是在定义光标的位置，定义多个$$相当于多个光标并且光标可以切换，用回车切换
+
+### 示例2：
+
+Abbreviation:pri
+
+Description:生成一个私有的int类型的变量
+
+Template text:
+
+```java
+private int $var1$ ; // $var2$
+```
+
+Define:java
+
+### 示例3：
+
+Abbreviation:/**
+
+Description:方法前的多行注释
+
+Template text:
+
+```java
+/**
+ *功能描述：
+ *@param:$param$
+ *@return:$return$
+ *@auther:$user$
+ *@date:$date$ $time$
+ */
+```
+
+Define:java
+
+# 断点调试
+
+File==>Settings==>Build, Execution, Deployment==>Debugger==>Java==>Transport
+
+在windows环境下一般将次选项设置成：Shared memory
+
+## 常用快捷键
+
+F8：一步一步执行，不会进入任何方法
+
+F7：一步一步执行，不会进入系统类库中的方法，但是会进入自定义的方法
+
+Alt + Shift + F7：一步一步执行，会进入系统类库中的方法，也会进入自定义的方法
+
+Shift + F8：跳出方法
+
+Alt + F8：查看表达式的值
+
+F9：进入到一个断点，如果没有下一个断点，就直接运行到程序结束
+
+## 条件判断
+
+![image](assets\IntelliJ-IDEA-11.png)
+
+## 

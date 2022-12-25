@@ -2484,6 +2484,12 @@ public class DynamicProxyPerformanceTest {
 }
 ```
 
+# Java SPI
+
+SPI全称为：Service Provider Interface，是JDK内置的一种服务提供发现机制。SPI是一种动态替换发现的机制，比如有个接口，需要运行时动态的给它添加实现，经常遇到的就是java.sql.Driver接口，不同厂商可以针对同一接口做出不同的实现，mysql和postgresql都有不同的实现提供给用户，而Java的SPI机制可以为某个接口寻找服务实现。SPI接口的定义在调用方，在概念上更依赖调用方；组织上位于调用方所在的包中，实现位于独立的包中。
+
+当服务的提供者提供了一种接口的实现之后，需要在classpath下的META-INF/services/目录里创建一个以服务接口命名的文件，这个文件里的内容就是这个接口的具体的实现类。当其他的程序需要这个服务的时候，就可以通过查找这个jar包（一般都是以jar包做依赖）的META-INF/services/中的配置文件，配置文件中有接口的具体实现类名，可以根据这个类名进行加载实例化后便可以使用该服务了。JDK中查找服务实现的工具类是：java.util.ServiceLoader
+
 # 虚引用
 
 虚引用需要java.lang.ref.PhantomReference类来实现，虚引用顾名思义，就是形同虚设，与其他几种引用都不同，虚引用并不会决定对象的生命周期。如果一个对象被虚引用持有，那么它就像没有没有被任何引用一样，在任何时候都可能被垃圾回收器回收。虚引用不能单独使用也不能通过它访问对象，虚引用必须和引用队列（ReferenceQueue）联合使用。

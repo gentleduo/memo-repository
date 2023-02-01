@@ -2,10 +2,10 @@
 
 ## GCC
 
-1. 全称为GNU CC ，GNU项目中符合ANSI C标准的编译系统；
-2. 编译如C、C++、Object C、Java、Fortran、Pascal、Modula-3和Ada等多种语言；
-3. GCC是可以在多种硬体平台上编译出可执行程序的超级编译器，其执行效率与一般的编译器相比平均效率要高20%~30%；
-4. 一个交叉平台编译器 ，适合在嵌入式领域的开发编译
+1. GNU Compiler Collection，GNU编译器套件 ，是由GNU开发的编程语言编译器；
+2. GNU是一个操作系统，GCC的初衷是为GNU操作系统专门编写的一款编译器，GNU系统是彻底的自由软件。此处，“自由”的含义是它尊重用户的自由；
+3. GCC是以GPL许可证所发行的自由软件，也是GNU计划的关键部分。GCC的初衷是为GNU操作系统专门编写一款编译器，现已被大多数类Unix操作系统（如Linux、BSD、MacOS X等）采纳为标准的编译器，甚至在微软的Windows上也可以使用GCC。GCC支持多种计算机体系结构芯片，如x86、ARM、MIPS等，并已被移植到其他多种硬件平台；
+4. GCC原名为GNU C语言编译器（GNU C Compiler），只能处理C语言。但其很快扩展，变得可处理C++，后来又扩展为能够支持更多编程语言，如Fortran、Pascal、Objective -C、Java、Ada、Go以及各类处理器架构上的汇编语言等，所以改名GNU编译器套件（GNU Compiler Collection）
 
 gcc所支持后缀名解释 
 
@@ -70,7 +70,7 @@ gcc -S test.c -o test.s
 
 ### 汇编(Assembling)
 
-生成目标代码
+生成目标代码：把汇编代码翻译成二进制指令
 
 ```sh
 #方法一，用gcc直接从C源代码中生成目标代码
@@ -81,10 +81,13 @@ as test.s -o test.o
 
 ### 链接(Linking)
 
-生成可执行程序；将目标程序链接库资源，生成可执行程序
+生成可执行程序：把若干个文件目标文件、库文件合并成可执行文件
 
 ```sh
-gcc  test.s -o test
+# 默认会生成a.out可执行文件，也可以使用-o指定可执行文件的名
+gcc test.o
+# 也可以使用-o指定可执行文件的名
+gcc test.o -o test
 ```
 
 ## GDB调试工具
@@ -190,31 +193,171 @@ GDB设置线程锁 set scheduler-locking on/off  (on：其他线程会暂停。�
    }
    ```
 
-## 标准库
+## 库与系统调用
 
 ### libc
 
-（C standard library，缩写：libc）。标准函数库通常会随附在编译器上。windows系统和Linux系统下都可以尽情使用。是最基本的C函数库，也叫 ANSI C 函数库。总而言之，几乎在任何平台上的 C 语言 (包括非 UNIX 平台) 都支持此标准。
-
-### POSIX
-
-Portable Operating System Interface(可移植操作系统接口) 的缩写，X表示UNIX，它是 ISO C 的延伸，明定了一个可移植的操作系统所应具备的种种条件，其范围不只有系统函数库而已。POSIX库 就是C POSIX library。C POSIX library是C语言的POSIX系统下的标准库。包含了一些在C语言标准库之外的函数。为了OS(比如windows 和 linux)之间的可移植性，POSIX标准规定了一些标准的API。而这些API标准的集合就是POSIX库。
+libc是Stantard C Library的简称，它是符合ANSI C标准的一个标准函数库。libc库提供C语言中所使用的宏，类型的定义，字符串操作符，数学计算函数以及输入输出函数等。正如ANSI C是C语言的标准一样，libc只是一个函数库标准，每个操作系统都会按照该标准对标准库进行具体实现。通常所说的libc是特指某个操作系统的标准库，比如：在Linux操作系统下所说的libc即glibc。glibc是类Unix操作系统中使用最广泛的libc库，它的全称是GNU C Library.
 
 ### glibc
 
-GNU C Library，常简称为glibc,是一种按照LGPL许可协议发布的，自由的，公开源代码的函数库。既包含C标准库，也包含POSIX库。glibc和libc都是Linux下的C函数库，libc是Linux下的ANSI C的函数库；glibc是Linux下的GUN C的函数库；GNU C是一种ANSI C的扩展实现。glibc本身是GNU旗下的C标准库，后来逐渐成为了Linux的标准c库，而Linux下原来的标准c库Linux libc逐渐不再被维护。Linux下面的标准c库不仅有这一个，如uclibc、klibc，以及上面被提到的Linux libc，但是glibc无疑是用得最多的。glibc在/lib目录下的.so文件为libc.so.6
+类Unix操作系统通常将libc库作为操作系统的一部分，它被视为操作系统与用户程序的接口。libc库不仅实现标准C语言中的函数，而且也包含自己所属的函数接口。比如：在glibc库中，既包含标准C中的fopen(),又包含类Unix系统中的open()。在类Unix操作系统中，如果缺失了标准库，那么整个操作系统将不能正常运转。
 
-### pthreads
+### 系统调用
 
-POSIX Threads 简称 Pthread，是线程的 POSIX 标准，被定义在 POSIX.1c, Threads extensions (IEEE Std1003.1c-1995)标准里，该标准定义了一套 C 程序语言的类型、函数和常量，定义在 pthread.h 头文件和一个线程库里，内容包括线程管理、互斥锁、条件变量、读写锁和屏障。POSIX 信号量（semaphore）和 Pthreads 一起使用，但不是 Pthreads 标准定义的一部分，被定义在 POSIX.1b, Real-time extensions (IEEE Std1003.1b-1993)标准里。因此信号量相关函数的前缀是 “sem_” 而不是“pthread_”。消息队列（Message queue）和信号量一样，和 Pthreads 一起使用，也不是 Pthreads 标准定义的一部分，被定义在 IEEE Std 1003.1-2001 标准里。消息队列相关函数的前缀是 “mq_”。
+#### 系统调用的意义
 
-### uClibc
+用户进程不能直接访问硬件设备（e.g. CPU、磁盘）与内核资源（e.g. 内核函数），而是需要通过操作系统提供的一组接口来获得内核提供的服务，这组接口就是系统调用。在应用程序和操作系统之间设置这样一组接口的优点如下：
 
-是一个面向嵌入式Linux系统的小型的C标准库。最初uClibc是为了支持uClinux而开发，这是一个不需要内存管理单元（MMU）的Linux版本。uClibc比一般用于Linux发行版的C库GNU C Library (glibc)要小得多， uClibc专注于嵌入式Linux。很多功能可以根据空间需求进行取舍。
+1. 提供硬件的抽象接口：应用程序无需了解硬件操作的细节
 
-### Newlib
+2. 提高系统的安全性：内核可以在响应某个请求之前在接口级检查请求的正确性
 
-Newlib是一个面向嵌入式系统的C运行库。最初是由Cygnus Solutions收集组装的一个源代码集合，取名为newlib，现在由Red Hat维护，目前的最新的版本是2.1.0。对于与GNU兼容的嵌入式C运行库，Newlib并不是唯一的选择，但是从成熟度来讲，newlib是最优秀的。newlib可移植性强，具有可重入特性、功能完备等特点，已广泛应用于各种嵌入式系统中。Cygwin目前使用Newlib来作为它的C标准库。
+3. 提高应用程序的可移植性：只要不同操作系统提供的这组接口相同，那么在这些操作系统之上就可以正确地编译和执行相同的程序（即可实现源代码级可移植）
+
+tips：第3点就体现了POSIX标准的意义
+
+#### 系统调用服务例程
+
+系统调用是由操作系统内核提供的，在实现上就是一组内核函数，可以称之为系统调用的服务例程；以read系统调用为例，在fs/read_write.c中定义如下：
+
+![image](assets\c-1.png)
+
+在SYSCALL_DEFINE3宏的帮助下，会在内核中定义如下形式的read系统调用服务例程，
+
+```c
+long sys_read(unsigned int fd, char __user *buf, size_t count);
+```
+
+#### 系统调用封装例程
+
+有了内核提供的系统调用服务例程，操作系统就具备了提供某种服务的能力，但是应用程序是无法直接调用内核函数的。所以还需要系统调用封装例程，封装例程特点如下：
+
+1. 本身是用户态函数
+
+2. 是用户进程进入内核的接口层，而进入内核的方式就是通过软中断（X86架构为int 0x80中断 / ARM架构为SWI中断）
+
+
+系统调用封装例程与系统调用服务例程的调用关系如下图所示：
+
+![image](assets\c-2.png)
+
+**说明1：封装例程与服务例程一一对应**
+
+UNIX为每个系统调用在标准C库中均设置了一个具有相同名字的函数，man 2手册中说明的就是这类函数；这就是通常所谓的系统调用，其实严格意义上说是系统调用的封装例程，但是在不产生混淆的情况下，仍可称其为系统调用。
+
+**说明2：内核提供哪些系统调用**
+
+系统调用中，服务例程是根本，所以应用程序可使用的系统调用依赖于他所运行的操作系统内核版本；在内核中有2处维护系统调用的数据结构，
+
+系统调用号
+
+X86平台的arch/x86/include/asm/unistd_32.h中标识了当前版本支持的系统调用编号，在封装例程中，在触发软中断之前也需要将对应的系统调用编号设定到指定寄存器中
+
+![image](assets\c-3.png)
+
+系统调用表
+
+X86平台的arch/x86/kernel/syscall_table_32.S中定义了系统调用表，系统调用表将系统调用号和对应的服务例程关联起来。系统调用表本质上是一个函数指针数组，每个函数指针指向对应的系统调用服务例程
+
+![image](assets\c-4.png)
+
+**说明3：如何调用没有封装例程的系统调用**
+
+如果向内核中新增了系统调用，在应用程序中使用时就需要提供相应的封装例程，如果不想提供相应的封装例程，可以使用syscall函数直接指定要调用的系统调用编号
+
+| 操作       | 说明                                                         |
+| ---------- | ------------------------------------------------------------ |
+| 所需头文件 | #include <unistd.h>                                          |
+| 函数原型   | long syscall(long number, ...);                              |
+| 函数参数   | number：系统调用编号之后的可变参数列表为该系统调用所需参数   |
+| 函数返回值 | 由调用的系统调用决定，一般情况下，若成功，返回0；否则，返回-1并设置errno |
+
+以下示例分别通过封装例程和syscall调用getpid系统调用
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <syscall.h>
+#include <unistd.h>
+#include <sys/types.h>
+ 
+int main(void)
+{
+	long pid1 = 0;
+	long pid2 = 0;
+ 
+	pid1 = syscall(SYS_getpid);
+	printf("syscall(SYS_getpid) = %ld\n", pid1);
+ 
+	pid2 = getpid();
+	printf("getpid() = %ld\n", pid2);
+ 
+	return 0;
+}
+```
+
+其中SYS_getpid指定的系统调用编号在syscall.h头文件中定义
+
+**说明4：系统调用封装例程ABI**
+
+系统调用封装例程ABI用于指定在触发操作系统软中断之前，如何向内核传递系统调用编号以及该系统调用所需参数，在man 2 syscall中有相关说明：
+
+![image](assets\c-5.png)
+
+![image](assets\c-6.png)
+
+#### 整体流程
+
+以open()为例，系统调用的执行过程如下：
+
+![image](assets\c-7.png)
+
+在内核中，系统调用表由系统调用号和系统调用方法的入口地址组成
+
+1. 应用程序去执行open的时候，就会产生中断，当前的这个应用程序无法继续往下执行
+2. 内核要开始处理这个中断，open执行以后，会将这个open对应的系统调用号5写到寄存器Eax中
+3. 接下来应用程序产生中断，应用程序就被换下去了，并进行现场保护，把当前的应用程序在CPU中运行的各个寄存器上的信息存在内核栈上
+4. 内核上来执行，操作系统从Eax寄存器中把系统调用号5读出来，在系统调用表查，查出来是sys_open，然后找到它对应的实现方法，然后就去打开一个文件，在内核中会创建一些数据结构，来表征这个打开的文件，再把open的返回值，也就是文件描述符写入到Eax寄存器中，相当于把刚才引发的中断处理完成
+5. 恢复应用程序的执行，恢复以后，首先第一时间从Eax寄存器把结果3读出来，赋给fd，然后应用程序继续向下执行。
+
+### 系统调用 / API / POSIX标准的关系
+
+#### API接口
+
+应用程序编程时既可以调用系统调用（man 2手册说明）也可以调用库函数（man 3手册说明），在应用程序开发者的角度，二者使用方法相似，但是从实现者的角度看，二者有根本的区别，主要在于：
+
+1. 库函数不是系统调用入口点
+
+2. 库函数可以不调用 / 调用一个 / 调用多个系统调用
+
+库函数与系统调用的关系如下图所示：
+
+![image](assets\c-8.png)
+
+可以认为：API = 系统调用封装例程 + C库函数
+
+#### POSIX标准针对API
+
+POSIX标准的目的是提升应用程序在各种UNIX系统环境之间的可移植性，而且POSIX标准说明了一种接口（interface）而不是一种实现（implementation），所以并不区分系统调用和库函数
+
+所以POSIX标准针对的是API而不是针对系统调用，或者说POSIX标准只是规定了操作系统应该通过怎样一组接口提供怎样一组服务，而不关心这些服务的实现形式
+
+tips：Linux操作系统的API就遵循POSIX标准，所以在设计系统调用时就考虑了POSIX标准的要求
+
+#### LIBC库与API
+
+##### LIBC
+
+1. libc是Standard C Library的简称，即符合ANSI C标准的标准函数库，每个操作系统都会按照标准实现该函数库
+
+2. 通常所说的libc库是特指某个操作系统的标准库，Linux操作系统下的libc即glibc，glibc是类Unix操作系统中使用最广泛的libc库，全称为GNU C Library
+
+##### GLIBC
+
+1. 类Unix操作系统通常将glibc库作为操作系统的一部分，他被视为操作系统与应用程序的接口
+2. glibc库不仅实现了符合ANSI C标准的标准C库（是C语言标准的一部分），也实现了POSIX标准的API接口
+3. glibc库中既包含标准C中的fopen函数，也包含POSIX标准的open函数
 
 ## 静态与动态链接库
 

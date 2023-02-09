@@ -1448,7 +1448,49 @@ int main(int argc, const char *argv[])
 
 在C语言中，允许使用关键字typedef定义新的数据类型。typedef   <已有数据类型>   <新数据类型>；
 
-如：typedef  int INTEGER; 这里新定义了数据类型INTEGER, 其等价于int；INTEGER i;  <==> int  i；typedef  int为数据类型，INTEGER为别名。
+```c
+typedef int INTEGER;
+INTEGER a, b;
+a = 1;
+b = 2;
+// INTEGER a, b;等效于int a, b;
+```
+
+typedef 还可以给数组、指针、结构体等类型定义别名。
+
+为数组定义别名：
+
+```c
+typedef char ARRAY20[20]; // 表示ARRAY20是类型char [20]的别名。它是一个长度为20的数组类型。
+ARRAY20 a1, a2, s1, s2;
+//它等价于：
+char a1[20], a2[20], s1[20], s2[20];
+```
+
+为结构体类型定义别名：
+
+```c
+typedef struct stu{
+    char name[20];
+    int age;
+    char sex;
+} STU;
+// STU是struct stu的别名，可以用STU定义结构体变量： 
+STU body1,body2;
+// 它等价于： 
+struct stu body1, body2;
+```
+
+为指针类型定义别名：
+
+```c
+typedef int (*PTR_TO_ARR)[4];
+// 表示PTR_TO_ARR是类型int * [4]的别名，它是一个二维数组指针类型。接着可以使用 PTR_TO_ARR 定义二维数组指针： 
+PTR_TO_ARR p1, p2;
+// 按照类似的写法，还可以为函数指针类型定义别名： 
+typedef int (*PTR_TO_FUNC)(int, int);
+PTR_TO_FUNC pfunc;
+```
 
 # 内存管理
 
@@ -8556,7 +8598,7 @@ exit_group(0)                           = ?
 1. 首先，大多数LWP的操作，如建立、析构以及同步，都需要进行系统调用。系统调用的代价相对较高：需要在user mode和kernel mode中切换。
 2. 其次，每个LWP都需要有一个内核线程支持，因此LWP要消耗内核资源（内核线程的栈空间）。因此一个系统不能支持大量的LWP。
 
-![image][2]
+![image](assets\linux-62.jpg)
 
 #### 用户线程
 
@@ -8568,15 +8610,15 @@ exit_group(0)                           = ?
 
 LWP虽然本质上属于用户线程，但LWP线程库是建立在内核之上的，LWP的许多操作都要进行系统调用，因此效率不高。而这里的用户线程指的是完全建立在用户空间的线程库，用户线程的建立，同步，销毁，调度完全在用户空间完成，不需要内核的帮助。因此这种线程的操作是极其快速的且低消耗的。
 
-![image][3]
+![image](assets\linux-61.jpg)
 
 上图是最初的一个用户线程模型，从中可以看出，进程中包含线程，用户线程在用户空间中实现，内核并没有直接对用户线程进程调度，内核的调度对象和传统进程一样，还是进程本身，内核并不知道用户线程的存在。用户线程之间的调度由在用户空间实现的线程库实现。这种模型的缺点是一个用户线程如果阻塞在系统调用中，则整个进程都将会阻塞。
 
-##### 加强版的用户线程
+#### 组合方式
 
 用户线程库还是完全建立在用户空间中，因此用户线程的操作还是很廉价，因此可以建立任意多需要的用户线程。操作系统提供了LWP作为用户线程和内核线程之间的桥梁。LWP还是和前面提到的一样，具有内核线程支持，是内核的调度单元，并且用户线程的系统调用要通过LWP，因此进程中某个用户线程的阻塞不会影响整个进程的执行。用户线程库将建立的用户线程关联到LWP上，LWP与用户线程的数量不一定一致。当内核调度到某个LWP上时，此时与该LWP关联的用户线程就被执行。
 
-![image][4]
+![image](assets\linux-63.jpg)
 
 ### Linux使用的线程库
 
@@ -8609,7 +8651,7 @@ clone函数功能强大，带了众多参数，clone可以让你有选择性的�
 1. 只能用于具有亲缘关系的进程之间的通信
 2. 单工的通信模式，具有固定的读端和写端
 3. 无名管道创建时会返回两个文件描述符，分别用于读写管道
-4. 通一个进程同时读写也是不允许的
+4. 同一个进程同时读写也是不允许的
 5. 管道可以用于大于2个进程共享
 
 \#include <unistd.h>
@@ -8844,8 +8886,6 @@ int main(){
 }
 ```
 
-
-
 #### 映射的种类
 
 1. 映射的种类：基于文件的映射
@@ -9030,7 +9070,7 @@ pid: 	> 0:发送信号给指定进程
 			= 0：发送信号给跟调用kill函数的那个进程处于同一进程组的进程。
 			< -1: 取绝对值，发送信号给该绝对值所对应的进程组的所有组员。
 			= -1：发送信号给，有权限发送的所有进程。
-		    signum：待发送的信号
+signum：待发送的信号
 
 int  raise(int sig)：给自己发信号，等价于kill(getpid(), signo);
 
@@ -9242,7 +9282,7 @@ int main(){
 
 #### 信号SIGCHLD的使用
 
-使用信号实现父进程不阻塞回收子继承
+SIGCHLD，在一个进程终止或者停止时，将SIGCHLD信号发送给其父进程，按系统默认将忽略此信号，如果父进程希望被告知其子系统的这种状态，则应捕捉此信号。
 
 ```c
 #include <stdio.h>
@@ -9253,7 +9293,7 @@ int main(){
 
 void handle(int sig){
 
-        wait(NULL);
+        //wait(NULL);
         printf("Get sig =%d\n",sig);
 }
 
@@ -9352,7 +9392,8 @@ int main(){
         sigaddset(&set,SIGINT);
         // 设定信号集内的信号的处理方式为阻塞
         sigprocmask(SIG_BLOCK,&set,NULL);
-        // 5秒后再设置信号集内的信号的处理方式为不阻塞，那么5秒之后又能处理由ctrl+c产生的终止信号了
+        // 5秒后再设置信号集内的信号的处理方式为不阻塞，那么5秒之后又能处理由ctrl+c产生的终止信号了;
+        // 在恢复非阻塞状态之前产生的ctrl+c信号被缓存了起来，在恢复非阻塞之后会被重新处理。
         sleep(5);
         sigprocmask(SIG_UNBLOCK,&set,NULL);
 
@@ -9799,7 +9840,7 @@ u_short ntohs (u_short short);
 
 3. inet_ntop( )
 
-   将32位网络字节序二进制地址转换成点分十进制的字符串。
+   将32位网络字节序二进制地址转换成点分十进制的字符串，如：202.38.64.10。
 
    const char *inet_ntop(int af, const void *src, char *dst, socklen_t size);
 

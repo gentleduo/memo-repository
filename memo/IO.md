@@ -1785,7 +1785,7 @@ public class SocketMultiplexingSingleThread {
 
             /*
             java会优先选择epoll，但是可以通过设置-D进行修正
-            如果在epoll模型下，open相当于调用内核的epoll_create创建了一个新的文件描述符FD5(之后注册在该selector中的fd实际上是放在fd5中)
+            如果在epoll模型下，open相当于调用内核的epoll_create创建了一个selector文件描述符FD5(之后注册在该selector中的fd实际上是放在fd5中)
              */
             selector = Selector.open(); //
             /*
@@ -2041,7 +2041,7 @@ public class SocketMultiplexingSingleThread {
 
             /*
             java会优先选择epoll，但是可以通过设置-D进行修正
-            如果在epoll模型下，open相当于调用内核的epoll_create创建了一个新的文件描述符FD5(之后注册在该selector中的fd实际上是放在fd5中)
+            如果在epoll模型下，open相当于调用内核的epoll_create创建了一个selector文件描述符FD5(之后注册在该selector中的fd实际上是放在fd5中)
              */
             selector = Selector.open(); //
             /*
@@ -2319,7 +2319,7 @@ public class SocketMultiplexingMultiThread {
 
             /*
             java会优先选择epoll，但是可以通过设置-D进行修正
-            如果在epoll模型下，open相当于调用内核的epoll_create创建了一个新的文件描述符FD5(之后注册在该selector中的fd实际上是放在fd5中)
+            如果在epoll模型下，open相当于调用内核的epoll_create创建了一个selector文件描述符FD5(之后注册在该selector中的fd实际上是放在fd5中)
              */
             selector = Selector.open(); //
             /*

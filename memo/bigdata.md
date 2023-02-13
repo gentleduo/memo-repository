@@ -3898,7 +3898,7 @@ col_name data_type [comment '字段描述信息'])
 [sorted by (col_name [asc|desc],...) into num_buckets buckets]
 [row format row_format]
 [storted as ....]
-[location '指定表的路径']
+[location '指定表的数据存储路径']
 ```
 
 #### 说明
@@ -3968,7 +3968,7 @@ map keys terminated by ':';
            System.out.println(b);
            // 将数值大于9的数赋值给字符会报错，因为char类型的变量只能存储单字节字符，'64'包含两个字节，所以char无法存储
            //char c = '64';
-           // 将数值大于9的数赋值转义后赋值给字符，相当于将八进制的ascii码赋值给字符，此时的64表示的是八进制为64的ascii码代表的字符
+           // 将数值大于9的数加转义符后赋值给字符，相当于将八进制的ascii码赋值给字符，此时的64表示的是八进制为64的ascii码代表的字符
            // 由于此时转义符后面只能跟八进制，所以 c = '\18', c = '\91'都是非法的(八进制中不存在8，和9的数字)
            char c = '\64';
            System.out.println(c);
@@ -4408,7 +4408,7 @@ Time taken: 0.104 seconds
 
 ##### 进行表的修复
 
-建立表与数据文件之间的一个关系映射。
+建立表与数据文件之间的一个关系映射。当hdfs目录中存在数据，并且符合分区的格式，此时创建外部表的时候，一定要先修复分区才可以查询到对应的结果。
 
 ```hive
 hive> msck repair table score3;
@@ -4450,6 +4450,89 @@ OK
 07      02      89
 07      03      98
 Time taken: 0.084 seconds, Fetched: 18 row(s)
+```
+
+### Hive Serde
+
+#### 目的
+
+Hive Serde用来做序列化和反序列化，构建在数据存储和执行引擎之间，对两者实现解耦。
+
+#### 应用场景
+
+hive主要用来存储结构化数据，如果结构化数据存储的格式嵌套比较复杂的时候，可以使用serde的方式，利用正则表达式匹配的方法来读取数据，例如，表字段如下：id,name,map<string,array<map<string,string>>>
+
+当读取数据的时候，数据的某些特殊格式不希望显示在数据中，如：
+
+```markdown
+192.168.57.4 - - [29/Feb/2019:18:14:35 +0800] "GET /bg-upper.png HTTP/1.1" 304 -
+```
+
+不希望数据显示的时候包含[]或者"",此时可以考虑使用serde的方式
+
+#### 语法规则
+
+```sql
+row_format
+: DELIMITED 
+  [FIELDS TERMINATED BY char [ESCAPED BY char]] 
+  [COLLECTION ITEMS TERMINATED BY char] 
+  [MAP KEYS TERMINATED BY char] 
+  [LINES TERMINATED BY char] 
+: SERDE serde_name [WITH SERDEPROPERTIES (property_name=property_value, 										            property_name=property_value, ...)]
+```
+
+#### 应用案例
+
+数据文件：
+
+```markdown
+192.168.57.4 - - [29/Feb/2019:18:14:35 +0800] "GET /bg-upper.png HTTP/1.1" 304 -
+192.168.57.4 - - [29/Feb/2019:18:14:35 +0800] "GET /bg-nav.png HTTP/1.1" 304 -
+192.168.57.4 - - [29/Feb/2019:18:14:35 +0800] "GET /asf-logo.png HTTP/1.1" 304 -
+192.168.57.4 - - [29/Feb/2019:18:14:35 +0800] "GET /bg-button.png HTTP/1.1" 304 -
+192.168.57.4 - - [29/Feb/2019:18:14:35 +0800] "GET /bg-middle.png HTTP/1.1" 304 -
+192.168.57.4 - - [29/Feb/2019:18:14:36 +0800] "GET / HTTP/1.1" 200 11217
+192.168.57.4 - - [29/Feb/2019:18:14:36 +0800] "GET / HTTP/1.1" 200 11217
+192.168.57.4 - - [29/Feb/2019:18:14:36 +0800] "GET /tomcat.css HTTP/1.1" 304 -
+192.168.57.4 - - [29/Feb/2019:18:14:36 +0800] "GET /tomcat.png HTTP/1.1" 304 -
+192.168.57.4 - - [29/Feb/2019:18:14:36 +0800] "GET /asf-logo.png HTTP/1.1" 304 -
+192.168.57.4 - - [29/Feb/2019:18:14:36 +0800] "GET /bg-middle.png HTTP/1.1" 304 -
+192.168.57.4 - - [29/Feb/2019:18:14:36 +0800] "GET /bg-button.png HTTP/1.1" 304 -
+192.168.57.4 - - [29/Feb/2019:18:14:36 +0800] "GET /bg-nav.png HTTP/1.1" 304 -
+192.168.57.4 - - [29/Feb/2019:18:14:36 +0800] "GET /bg-upper.png HTTP/1.1" 304 -
+192.168.57.4 - - [29/Feb/2019:18:14:36 +0800] "GET / HTTP/1.1" 200 11217
+192.168.57.4 - - [29/Feb/2019:18:14:36 +0800] "GET /tomcat.css HTTP/1.1" 304 -
+192.168.57.4 - - [29/Feb/2019:18:14:36 +0800] "GET /tomcat.png HTTP/1.1" 304 -
+192.168.57.4 - - [29/Feb/2019:18:14:36 +0800] "GET / HTTP/1.1" 200 11217
+192.168.57.4 - - [29/Feb/2019:18:14:36 +0800] "GET /tomcat.css HTTP/1.1" 304 -
+192.168.57.4 - - [29/Feb/2019:18:14:36 +0800] "GET /tomcat.png HTTP/1.1" 304 -
+192.168.57.4 - - [29/Feb/2019:18:14:36 +0800] "GET /bg-button.png HTTP/1.1" 304 -
+192.168.57.4 - - [29/Feb/2019:18:14:36 +0800] "GET /bg-upper.png HTTP/1.1" 304 -
+```
+
+基本操作：
+
+```sql
+--创建表
+create table logtbl(
+host string,
+identity string,
+t_user string,
+time string,
+request string,
+referer string,
+agent string
+)
+row format serde 'org.apache.hadoop.hive.serde2.RegexSerDe'
+with serdeproperties (
+"input.regex" = "([^ ]*) ([^ ]*) ([^ ]*) \\[(.*)\\] \"(.*)\" (-|[0-9]*) (-|[0-9]*)"
+)
+stored as textfile;
+--加载数据
+load data local inpath '/opt/bigdata/hive' overwrite into table logtbl;
+--查询操作
+select * from logtbl;
 ```
 
 ### 分桶表操作

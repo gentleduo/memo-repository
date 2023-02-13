@@ -3010,15 +3010,17 @@ other_node是其他节点进程在该节点上分配的次数
 ###############################################CentOS7 sysctl###############################################
 
 ###############################################修改yum源为国内镜像###############################################
-centos7 修改yum源为阿里源
+centos7 修改yum源
 首先是到yum源设置文件夹里
-1. 查看yum源信息:
+1、查看yum源信息:
     yum repolist
-2. 定位到base reop源位置
+2、定位到base reop源位置
      cd /etc/yum.repos.d
-3. 接着备份旧的配置文件
+3、接着备份旧的配置文件
    sudo mv CentOS-Base.repo CentOS-Base.repo.bak
-4. 下载阿里源的文件
+4、打开镜像网站下载源文件
+ mirrors.aliyun.com
+ mirrors.163.com
  sudo wget -O CentOS-Base.repo http://mirrors.aliyun.com/repo/Centos-7.repo
 ---------------------------红帽版本一样的安装------------------------------
 # 安装epel repo源：
@@ -3029,11 +3031,11 @@ epel(RHEL 6) 红帽6
 epel(RHEL 5) 红帽5
     wget -O /etc/yum.repos.d/epel.repo http://mirrors.aliyun.com/repo/epel-5.repo
 ------------------------------------------------------------------------------    
-5.清理缓存
+5、清理缓存
     yum clean all
-6.重新生成缓存
+6、重新生成缓存
     yum makecache
-7. 再次查看yum源信息
+7、再次查看yum源信息
    yum repolist
 ###############################################修改yum源为国内镜像###############################################
 

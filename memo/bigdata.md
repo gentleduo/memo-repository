@@ -3597,7 +3597,7 @@ graph LR
   B[Hive处理转换成MapReduce]-->|提交任务到Hadoop|C(MapReduce运行)
 ```
 
-## 安装
+## 安装及部署
 
 下载地址：
 
@@ -3607,7 +3607,21 @@ http://archive.apache.org/dist/hive/
 
 ### 安装mysql
 
-### 修改hive的配置文件
+### hive部署的3种模式
+
+hive部署有内嵌模式、本地模式、远程模式等3种，客户端连接metastore元数据服务，metastore再去连接MySQL数据库进行元数据存取。
+
+#### 内嵌模式
+
+该模式使用内置的Derby数据库来存储元数据，不需要额外起Metastore服务，数据库和Metastore服务都嵌入在主Hive Server进程中。这个是默认的方式，解压hive安装包，执行bin/hive启动即可使用，但是一次只能一个客户端连接，不同路径启动hive，每一个hive拥有一套自己的元数据，无法共享，仅适用于实验环境。
+
+![image](assets\bigdata-99.png)
+
+#### 本地模式
+
+该模式采用外部数据库来存储元数据，支持MySQL、Postgres、Oracle、MS SQL Server等数据库。不需要单独起metastore服务，用的是跟hive在同一个进程里的metastore服务，hive根据hive.metastore.uris 参数值为空来判断本地模式。缺点是，每启动一次hive服务，都默认内置启动了一个metastore。
+
+![image](assets\bigdata-100.png)
 
 hive-env.sh
 
@@ -3686,6 +3700,69 @@ $HIVE_CONF_DIR目录下只有hive-default.xml.template文件，用户如果没�
   <property>
     <name>mapreduce.output.fileoutputformat.compress.type</name>
     <value>BLOCK</value>
+  </property>
+</configuration>
+```
+
+#### 远程模式
+
+该模式需要配置hive.metastore.uris 参数，指定metastore服务运行的机器ip和端口，并且单独启动metastore服务，每个客户端都连接到该metastore，metastore服务和hive运行在不同的进程里。hiveserver2是Hive的server端服务，客户端可以使用JDBC协议，通过IP+ Port的方式对其进行访问，达到并发访问的目的。
+
+![image](assets\bigdata-101.png)
+
+metastore服务端的配置
+
+```xml
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+<configuration>
+
+  <property>
+      <name>hive.metastore.warehouse.dir</name>
+      <value>/user/hive/warehouse</value>
+  </property>
+  <property>
+      <name>javax.jdo.option.ConnectionURL</name>
+      <value>jdbc:mysql://server01:3306/hive?createDatabaseIfNotExist=true&amp;useSSL=false</value>
+  </property>
+  <property>
+      <name>javax.jdo.option.ConnectionDriverName</name>
+      <value>com.mysql.jdbc.Driver</value>
+  </property>
+  <property>
+      <name>javax.jdo.option.ConnectionUserName</name>
+      <value>root</value>
+  </property>
+  <property>
+      <name>javax.jdo.option.ConnectionPassword</name>
+      <value>123456</value>
+  </property>
+  <!--启动了不同版本的集群，hive的元数据库启动报错，可以通过在mysql中个修改元数据版本或者关闭版本验证来解决-->
+  <!--关闭版本验证 -->
+  <property>
+      <name>hive.metastore.schema.verification</name>
+      <value>false</value>
+  </property>
+</configuration>
+```
+
+启动metastore服务
+
+```bash
+[root@server01 bin]# nohup /usr/local/hive/bin/hive --service metastore 2>&1 >> /var/log.log &
+```
+
+metastore客户端配置
+
+```xml
+<configuration>
+  <property>
+      <name>hive.metastore.warehouse.dir</name>
+      <value>/user/hive/warehouse</value>
+  </property>
+  <property>
+      <name>hive.metastore.uris</name>
+      <value>thrift://server02:9083</value>
   </property>
 </configuration>
 ```
@@ -3853,6 +3930,22 @@ col_name data_type [comment '字段描述信息'])
 ##### row format
 
 指定表文件字段分隔符，hive默认的分隔符为：'\001'；
+
+在hive的数据类型可以允许collection和map，所以也可以为collection和map指定分隔符：
+
+```sql
+create table pan
+{
+id int,
+name string,
+likes array<string>,
+address map<string,string>
+}
+row format delimited
+fields terminated by ','
+collection items terminated by '-'
+map keys terminated by ':';
+```
 
 注意：在java中定义字符时，
 

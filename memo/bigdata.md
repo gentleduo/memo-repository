@@ -3710,7 +3710,7 @@ $HIVE_CONF_DIR目录下只有hive-default.xml.template文件，用户如果没�
 
 ![image](assets\bigdata-101.png)
 
-metastore服务端的配置
+metastore服务端:server02的配置
 
 ```xml
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
@@ -3752,7 +3752,7 @@ metastore服务端的配置
 [root@server01 bin]# nohup /usr/local/hive/bin/hive --service metastore 2>&1 >> /var/log.log &
 ```
 
-metastore客户端配置
+metastore客户端:server01配置
 
 ```xml
 <configuration>
@@ -3788,7 +3788,19 @@ hive> show databases;
 OK
 default
 Time taken: 1.373 seconds, Fetched: 1 row(s)
-hive>
+--可以执行dfs命令
+hive> dfs -ls /user/hive/warehouse;
+Found 5 items
+drwxr-xr-x   - root supergroup          0 2022-09-16 11:32 /user/hive/warehouse/course.db
+drwxr-xr-x   - root supergroup          0 2023-02-13 19:17 /user/hive/warehouse/logtbl
+drwxr-xr-x   - root supergroup          0 2022-11-01 21:51 /user/hive/warehouse/myhive.db
+drwxr-xr-x   - root supergroup          0 2022-08-30 16:38 /user/hive/warehouse/mytest.db
+drwxr-xr-x   - root supergroup          0 2022-09-10 23:45 /user/hive/warehouse/weblog.db
+--可以执行linux命令
+hive> ! ls /opt/bigdata/hive;
+localhost_access_log.txt
+--执行外部文件；注意这个sql文件必须放在当前用的目录下，比如root用户的话，那么sql文件必须放在/root目录下
+hive> source sql;
 ```
 
 ### 使用sql语句或者sql脚本进行交互
@@ -3829,6 +3841,64 @@ OK
 Time taken: 0.037 seconds
 OK
 Time taken: 0.627 seconds
+```
+
+### HiveServer
+
+启动hiveserver 
+
+```bash
+#启动hiveserver的两种方式：
+#第一种：
+#在server02中kill掉metastore服务，然后直接运行hiveserver2
+[root@server02 bin]# hive --service hiveserver2
+
+#第二种：
+#保证server02中metastore处于运行状态
+#在server01中启动hiveserver2
+[root@server01 ~]# hive --service hiveserver2
+
+#在server01的另一个窗口中启动beeline（相当于hiveserver的客户端）
+[root@server01 ~]# beeline
+Beeline version 2.1.1 by Apache Hive
+```
+
+修改hadoop配置文件
+
+在beeline中直接连接hiveserver2的会报如下的错误：org.apache.hadoop.ipc.RemoteException(org.apache.hadoop.security.authorize.AuthorizationException): User: root is not allowed to impersonate -n (state=08S01,code=0)
+
+原因
+
+hadoop引入了一个安全伪装机制，使得hadoop 不允许上层系统直接将实际用户传递到hadoop层，而是将实际用户传递给一个超级代理，由此代理在hadoop上执行操作，避免任意客户端随意操作hadoop。所以需要修改如下两个配置：
+
+```xml
+<property>
+        <name>hadoop.proxyuser.root.groups</name>
+        <value>*</value>
+</property>
+<property>
+        <name>hadoop.proxyuser.root.hosts</name>
+        <value>*</value>
+</property>
+```
+
+配置中的root代表的是一个用户，你异常中User后面的用户写的是哪个，你在这里就配置哪个。
+hadoop.proxyuser.root.hosts 配置成*的意义，表示任意节点使用 hadoop 集群的代理用户 root 都能访问 hdfs 集群，hadoop.proxyuser.root.groups 表示代理用户的组所属
+
+在所有的namenode中执行如下命令，刷新配置信息
+
+``` bash
+[root@server01 hadoop]# hdfs dfsadmin -fs hdfs://server01:8020 -refreshSuperUserGroupsConfiguration
+```
+
+连接hiveserver2
+
+```hive
+--连接hiveserver2
+--hiveserver2默认不进行认证，所以url后面跟的root和123456其实没用
+beeline> ! connect jdbc:hive2://server01:10000/default root 123456
+--执行sql
+0: jdbc:hive2://server02:10000/default> select * from logtbl;
 ```
 
 ## 基本操作
@@ -4199,6 +4269,7 @@ Time taken: 0.173 seconds
 #### 创建分区表
 
 ```hive
+--Hive分区是在创建表的时候用Partitioned by 关键字定义的，Partitioned by子句中定义的列是表中正式的列。
 hive> create table score(s_id string,c_id string, s_score int) partitioned by (month string) row format delimited fields terminated by '\t';
 OK
 Time taken: 0.234 seconds
@@ -4384,6 +4455,130 @@ OK
 Time taken: 0.326 seconds
 ```
 
+#### 静态分区和动态分区
+
+静态分区
+
+```markdown
+1       zhangsan        insert  2022	08	03
+2       lisi    delete  2022	08	03
+3       wangwu  update  2022	08	03
+4       zhaoliu insert  2022	08	03
+```
+
+```hive
+--创建多分区表
+create table if not exists day_log(
+  uid bigint,
+  uname string,
+  action string
+) comment '用户动作流水记录'
+partitioned by(year string,month string,day string)
+row format delimited fields terminated by '\t';
+--加载数据
+load data local inpath '/opt/bigdata/hive/day_log.txt' into table day_log partition(year='2022',month='08',day='02');
+```
+
+动态分区
+
+```markdown
+1       10001   110001  2022    08      03
+2       20001   220001  2022    08      03
+3       30001   330001  2022    08      03
+4       40001   440001  2022    08      03
+```
+
+```hive
+--创建临时表
+create table if not exists tmp (
+  uid int,
+  commentid bigint,
+  recommentid bigint,
+  year int,
+  month int,
+  day int
+)
+row format delimited fields terminated by '\t';
+
+--加载数据
+load data local inpath '/opt/bigdata/hive/dp.txt' overwrite into table tmp;
+
+-- 创建动态分区表
+create table if not exists dp_tmp(
+  uid int,
+  commentid bigint,
+  recommentid bigint
+)
+partitioned by(year string,month string,day string)
+row format delimited fields terminated by '\t';
+
+--开启动态分区
+set hive.exec.dynamic.partition=true;
+-- 更改动态分区模式为非严格模式
+-- 默认是strict，也就是严格模式，表示必须指定至少一个分区为静态分区
+-- nonstrict模式，即非严格模式，表示允许所有的分区字段都可以使用动态分区
+set hive.exec.dynamic.partition.mode=nonstrict;
+insert overwrite table dp_tmp partition(year,month,day) select * from tmp;
+```
+
+区别
+
+|          | 静态分区(Static Partitioning)                                | 动态分区（Dynamic Partitioning）                 |
+| -------- | ------------------------------------------------------------ | ------------------------------------------------ |
+| 分区创建 | 数据插入分区之前，需要手动指定创建每个分区                   | 根据表的输入数据动态创建分区                     |
+| 适用场景 | 需要提前知道所有分区。适用于分区定义得早且数量少的用例，常见为插入某一个指定分区 | 有很多分区，无法提前预估新分区，动态分区是合适的 |
+
+另外动态分区的值是MapReduce任务在reduce运行阶段确定的，也就是所有的记录都会distribute by，相同字段(分区字段)的map输出会发到同一个reduce节点去处理，如果数据量大，这是一个很弱的运行性能。而静态分区在编译阶段就确定了，不需要reduce任务处理。所以如果实际业务场景静态分区能解决的，尽量使用静态分区即可。
+
+hive分区参数及作用
+
+1. hive表中的分区作用主要是使数据按照分区目录存储在hdfs上，查询只要针对指定的目录集合进行查询，避免全局查找，这样提高了查询性能。
+2. hive的分区需要合理使用，过多的分区目录和文件对于集群Namenode服务是有性能压力的，Namenode需要将大量的元数据信息保存在内存中。如果报错，会造成Namenode不可用。
+3. 一次查询表里有太多分区，会使得查询文件过大，也会造成Metastore服务出现OOM报错，报错信息显示Metastore不可用。
+4. hive为了避免因为异常产生大量分区，导致上述问题，本身是默认动态分区关闭，同时对生成动态分区的数量也做了一定限制。
+
+通过手动参数设置可以改变系统默认值，具体hive默认参数以及SQL执行配置参数（不同版本默认参数有一定差异）如下:
+
+```hive
+-- Hive默认配置值
+-- 开启或关闭动态分区
+hive.exec.dynamic.partition=false;
+-- 设置为nonstrict模式，让所有分区都动态配置，否则至少需要指定一个分区值
+hive.exec.dynamic.partition.mode=strict;
+-- 能被mapper或reducer创建的最大动态分区数，超出而报错
+hive.exec.max.dynamic.partitions.pernode=100;
+-- 一条带有动态分区SQL语句所能创建的最大动态分区总数，超过则报错
+hive.exec.max.dynamic.partitions=1000;
+-- 全局能被创建文件数目的最大值，通过Hadoop计数器跟踪，若超过则报错
+hive.exec.max.created.files=100000;
+
+-- 根据个人需要配置
+-- 设置动态分区开启
+set hive.exec.dynamic.partition=true;  
+-- 设置为非严格模式
+set hive.exec.dynamic.partition.mode=nonstrict;
+-- 设置每个节点创建最大分区数
+set hive.exec.max.dynamic.partitions.pernode=1000;
+-- 设置执行SQL创建最大分区数
+set hive.exec.max.dynamic.partitions=10000;
+-- 设置全局被创建文件最大值
+set hive.exec.max.created.files=1000000;
+```
+
+分区常见注意事项
+
+1. 尽量不要使用动态分区，因为动态分区的时候，将会为每一个分区分配reducer数量，当分区数量多的时候，reducer数量将会增加，对服务器是一种灾难。
+2. 动态分区和静态分区的区别，静态分区不管有没有数据都会创建指定分区，动态分区是有结果集将创建，否则不创建。
+3. hive动态分区的严格模式和hive严格模式是不同的。
+
+>hive提供的严格模式，是为了阻止用户不小心提交恶意SQL，如果该模式值为strict，将会阻止一下三种查询：
+>
+>1、对分区表查询，where条件中过滤字段没有分区字段；
+>
+>2、笛卡尔积join查询，join查询语句中不带on条件或者where条件；
+>
+>3、对order by查询，有order by的查询不带limit语句。
+
 #### 综合练习
 
 在有一个文件score.csv文件，存放在集群的这个目录下/scoredatas/month=20220801，这个文件每天都会生成，存放到对应的日期文件夹下面去，文件别人也需要公用，不能移动。需求，创建hive对应的表，并将数据加载到表中，进行数据统计分析，且删除表之后，数据不能删除
@@ -4539,89 +4734,65 @@ select * from logtbl;
 
 分桶，就是将数据按照指定的字段进行划分到多个文件当中去,分桶就是MapReduce中的分区.
 
-#### 开启Hive的分桶功能
+开启Hive的分桶功能
 
 ```hive
 hive> set hive.enforce.bucketing=true;
+--默认为false；设置为true之后，mr运行时会根据bucket的个数自动分配reduce task个数。（用户也可以通过mapred.reduce.tasks(hadoop2之后改名为：mapreduce.job.reduces)自己设置reduce任务个数，但分桶时不推荐使用）
+--一次作业产生的桶（文件数量）和reduce task个数一致。
 ```
 
-#### 设置Reduce个数
+数据
 
-```hive
-hive> set mapreduce.job.reduces=3;
+```markdown
+1,tom,11
+2,cat,22
+3,dog,33
+4,hive,44
+5,hbase,55
+6,mr,66
+7,alice,77
+8,scala,88
 ```
 
-#### 查看设置reduce个数
-
 ```hive
-hive> set mapreduce.job.reduces;
-mapreduce.job.reduces=3
-```
+create table tmp1 (id int,name string,age int)
+row format delimited fields terminated by ',';
 
-#### 创建分桶表
+load data local inpath '/opt/bigdata/hive/bucket' into table tmp1;
 
-```hive
-hive> create table course (c_id string,c_name string,t_id string) clustered by(c_id) into 3 buckets row format delimited fields terminated by '\t';
-OK
-Time taken: 0.137 seconds
-```
+create table buckettest (id int,name string,age int) clustered by (age) into 4 buckets
+row format delimited fields terminated by ',';
 
-由于分桶表的数据加载需要通过mapreduce，所以通过hdfs dfs -put文件或者通过load data都不行，只能通过insert overwrite，创建普通表，并通过insert overwriter的方式将普通表的数据通过查询的方式加载到分桶表当中去。
-
-#### 创建普通表
-
-```hive
-hive> create table course_common (c_id string,c_name string,t_id string) row format delimited fields terminated by '\t';
-OK
-Time taken: 0.134 seconds
-```
-
-#### 普通表中加载数据
-
-```hive
-hive> load data local inpath '/opt/bigdata/hive/course.csv' into table course_common;
-Loading data to table myhive.course_common
-OK
-Time taken: 0.314 seconds
-```
-
-#### 通过insert overwrite给桶表中加载数据
-
-```hive
-hive> insert overwrite table course select * from course_common cluster by(c_id);
+hive> insert overwrite table buckettest select * from tmp1;
 WARNING: Hive-on-MR is deprecated in Hive 2 and may not be available in the future versions. Consider using a different execution engine (i.e. spark, tez) or using Hive 1.X releases.
-Query ID = root_20220831142835_0e879fe0-e237-47d9-b636-4ef502ab4445
-Total jobs = 2
-Launching Job 1 out of 2
-Number of reduce tasks not specified. Defaulting to jobconf value of: 3
+Query ID = root_20230214194757_6a8029f0-38eb-4179-930a-292b8c31f3f3
+Total jobs = 1
+Launching Job 1 out of 1
+Number of reduce tasks determined at compile time: 4
 In order to change the average load for a reducer (in bytes):
   set hive.exec.reducers.bytes.per.reducer=<number>
 In order to limit the maximum number of reducers:
   set hive.exec.reducers.max=<number>
 In order to set a constant number of reducers:
   set mapreduce.job.reduces=<number>
-Job running in-process (local Hadoop)
-2022-08-31 14:28:37,391 Stage-1 map = 100%,  reduce = 100%
-Ended Job = job_local1299401726_0002
-Launching Job 2 out of 2
-Number of reduce tasks determined at compile time: 3
-In order to change the average load for a reducer (in bytes):
-  set hive.exec.reducers.bytes.per.reducer=<number>
-In order to limit the maximum number of reducers:
-  set hive.exec.reducers.max=<number>
-In order to set a constant number of reducers:
-  set mapreduce.job.reduces=<number>
-Job running in-process (local Hadoop)
-2022-08-31 14:28:39,918 Stage-2 map = 100%,  reduce = 67%
-2022-08-31 14:28:40,969 Stage-2 map = 100%,  reduce = 100%
-Ended Job = job_local123090463_0003
-Loading data to table myhive.course
-MapReduce Jobs Launched:
-Stage-Stage-1:  HDFS Read: 8516 HDFS Write: 3700 SUCCESS
-Stage-Stage-2:  HDFS Read: 8516 HDFS Write: 4192 SUCCESS
-Total MapReduce CPU Time Spent: 0 msec
+Starting Job = job_1676347092903_0008, Tracking URL = http://server01:8088/proxy/application_1676347092903_0008/
+Kill Command = /usr/local/hadoop-2.7.5//bin/hadoop job  -kill job_1676347092903_0008
+Hadoop job information for Stage-1: number of mappers: 1; number of reducers: 4
+2023-02-14 19:48:13,863 Stage-1 map = 0%,  reduce = 0%
+2023-02-14 19:48:22,783 Stage-1 map = 100%,  reduce = 0%, Cumulative CPU 1.58 sec
+2023-02-14 19:48:35,637 Stage-1 map = 100%,  reduce = 25%, Cumulative CPU 4.52 sec
+2023-02-14 19:48:36,719 Stage-1 map = 100%,  reduce = 50%, Cumulative CPU 7.04 sec
+2023-02-14 19:48:41,041 Stage-1 map = 100%,  reduce = 75%, Cumulative CPU 9.3 sec
+2023-02-14 19:48:42,165 Stage-1 map = 100%,  reduce = 100%, Cumulative CPU 11.46 sec
+MapReduce Total cumulative CPU time: 11 seconds 460 msec
+Ended Job = job_1676347092903_0008
+Loading data to table default.buckettest
+MapReduce Jobs Launched: 
+Stage-Stage-1: Map: 1  Reduce: 4   Cumulative CPU: 11.46 sec   HDFS Read: 19426 HDFS Write: 374 SUCCESS
+Total MapReduce CPU Time Spent: 11 seconds 460 msec
 OK
-Time taken: 5.688 seconds
+Time taken: 46.902 seconds
 ```
 
 ## 修改表结构
@@ -5489,6 +5660,8 @@ UDF只能实现一进一出的操作。
 ##### 开发Java类集成UDF
 
 ```java
+package org.duo.udf;
+
 public class CustomUDF extends UDF{
     public Text evaluate(final Text str){
         String tmp_str = str.toString();
@@ -5506,14 +5679,26 @@ tmp_str.substring(1);
 
 ##### 添加jar包
 
+###### 会话模式
+
+这种方式只在当前会话有效
+
 ```hive
 hive> add jar /usr/local/hive/lib/my_upper.jar;
+--设置函数与自定义函数关联
+hive> create temporary function my_upper as 'org.duo.udf.CustomUDF';
 ```
 
-##### 设置函数与自定义函数关联
+###### 永久模式
+
+```bash
+#先将jar上传至hdfs
+[root@server01 ~]# hdfs dfs -mkdir /hive_udf
+[root@server01 ~]# hdfs dfs -put my_upper.jar /hive_udf
+```
 
 ```hive
-hive> create temporary function my_upper as 'org.duo.udf.CustomUDF';
+hive> create function my_upper as 'org.duo.udf.CustomUDF' using jar 'hdfs://server01:8020/hive_udf/my_upper.jar';
 ```
 
 ##### 使用自定义函数

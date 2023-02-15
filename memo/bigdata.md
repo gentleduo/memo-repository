@@ -5511,6 +5511,20 @@ mapreduce.job.reduces=3
 
 上述三种设定方式的优先级依次递增。即参数声明覆盖命令行参数，命令行参数覆盖配置文 件设定。注意某些系统级的参数，例如log4j相关的设定，必须用前两种方式设定，因为那些 参数的读取在Session建立以前已经完成了。
 
+## 视图
+
+和关系型数据库中的普通视图一样，hive也支持视图
+
+特点：
+
+1. 不支持物化视图
+2. 只能查询，不能做加载数据操作
+3. 视图的创建，只是保存一份元数据，查询视图时才执行对应的子查询
+4. view定义中包含了order by/limit语句，当查询视图时也进行order by/limit语句操作时，view中定义的优先级更高
+5. view支持迭代视图
+
+## 索引
+
 ## 函数
 
 ### 内置函数
@@ -5777,6 +5791,207 @@ Time taken: 0.095 seconds, Fetched: 6 row(s)
 User- Defined Aggregation Funcation；用户定义聚合函数，可对多行数据产生作用；等同与SQL中常用的SUM()，AVG()，也是聚合函数；UDAF实现多进一出。
 
 继承org.apache.hadoop.hive.ql.exec.UDAF。
+
+## 权限管理
+
+Storage Based Authorization in the Metastore Server
+
+基于存储的授权，可以对Metastore中的元数据进行保护，但是没有提供更加细粒度的访问控制（如：列级别、行级别）
+
+SQL Standards Based Authorization in HiveServer2
+
+基于SQL标准的Hive授权，完全兼容SQL的授权模型，推荐使用该模式
+
+限制
+
+1. 启用后：dfs、add、delete、compile、and reset 等命令被禁用
+
+2. 通过 set 命令设置 hive configuration 的方式被限制某些用户使用
+
+   通过修改配置文件  hive-site.xml：hive.security.authorization.sqlstd.confwhitelist 进行配置
+
+3. 添加、删除函数以及宏的操作，仅为具有 admin 的用户开放
+
+4. 用户自定义函数（开放支持永久的自定义函数），可通过具有 admin 角色的用户创建，其他用户都可使用
+
+5. Transform 功能被禁用
+
+概念
+
+1. 完全兼容 SQL 的授权模型
+
+2. 除支持对于用户的授权认证，还支持角色 role 的授权认证
+
+   - role 可理解为是一组权限的集合，通过 role 为用户授权
+
+   - 一个用户可以具有一个或多个角色
+
+   - 默认包含另种角色：public、admin
+
+Default Hive Authorization（Legacy Mode）
+
+Hive默认授权，设计目的仅只是为了防止用户产生误操作，而不是防止恶意用户访问未经授权的数据
+
+### SQL标准的Hive授权
+
+hive-site.xml配置
+
+```xml
+<!-- 启动授权功能 -->
+<property>
+  <name>hive.security.authorization.enabled</name>
+  <value>true</value>
+</property>
+<!-- 是否禁用规则 -->
+<property>
+  <name>hive.server2.enable.doAs</name>
+  <value>false</value>
+</property>
+<!-- 谁是admin角色，多个用逗号 -->
+<property>
+  <name>hive.users.in.admin.role</name>
+  <value>root</value>
+</property>
+<property>
+  <name>hive.security.authorization.manager</name>
+  <value>org.apache.hadoop.hive.ql.security.authorization.plugin.sqlstd.SQLStdHiveAuthorizerFactory</value>
+</property>
+<property>
+  <name>hive.security.authenticator.manager</name>
+  <value>org.apache.hadoop.hive.ql.security.SessionStateUserAuthenticator</value>
+</property>
+```
+
+server02启动hiveserver
+
+```bash
+[root@server02 bin]# ./hive --service hiveserver2
+```
+
+server01连接hiveserver
+
+```bash
+[root@server01 ~]# beeline
+```
+
+添加角色权限
+
+```hive
+beeline> ! connect jdbc:hive2://server02:10000/default root 123456
+--root具有public和admin角色，系统初始化的时候赋予的是public角色；
+1: jdbc:hive2://server02:10000/default> show current roles;
++---------+--+
+|  role   |
++---------+--+
+| public  |
++---------+--+
+1 row selected (2.682 seconds)
+--先将root设置为amdin角色
+1: jdbc:hive2://server02:10000/default> set role admin;
+No rows affected (0.076 seconds)
+--查看的当前用户的角色
+1: jdbc:hive2://server02:10000/default> show current roles;
++--------+--+
+|  role  |
++--------+--+
+| admin  |
++--------+--+
+1 row selected (0.052 seconds)
+--查看系统中有几种角色
+1: jdbc:hive2://server02:10000/default> show roles;
++---------+--+
+|  role   |
++---------+--+
+| admin   |
+| public  |
++---------+--+
+2 rows selected (0.095 seconds)
+--新建角色
+1: jdbc:hive2://server02:10000/default> create role test;
+No rows affected (0.102 seconds)
+1: jdbc:hive2://server02:10000/default> show roles;
++---------+--+
+|  role   |
++---------+--+
+| admin   |
+| public  |
+| test    |
++---------+--+
+3 rows selected (0.083 seconds)
+--为新的角色分配权限（默认是空的）
+1: jdbc:hive2://server02:10000/default> show role grant role test;
++-------+---------------+-------------+----------+--+
+| role  | grant_option  | grant_time  | grantor  |
++-------+---------------+-------------+----------+--+
++-------+---------------+-------------+----------+--+
+No rows selected (0.091 seconds)
+--角色授权
+--首先确定当前是admin才能进行分配，给test角色分配admin的权限
+--带有withadminoption时，意味着test具有admin权限，并且有给其它角色分配的权限，
+--不带，只具有admin权限（对表）
+--test的限权是否生效，需要以test用户重新进入
+1: jdbc:hive2://server02:10000/default> grant admin to role test with admin option;
+No rows affected (0.121 seconds)
+1: jdbc:hive2://server02:10000/default> show role grant role test;
++--------+---------------+----------------+----------+--+
+|  role  | grant_option  |   grant_time   | grantor  |
++--------+---------------+----------------+----------+--+
+| admin  | true          | 1676445067000  | root     |
++--------+---------------+----------------+----------+--+
+1 row selected (0.088 seconds)
+1: jdbc:hive2://server02:10000/default> 
+--删除角色
+1 row selected (0.088 seconds)
+1: jdbc:hive2://server02:10000/default> create role abc;
+No rows affected (0.078 seconds)
+1: jdbc:hive2://server02:10000/default> drop role abc;
+No rows affected (0.521 seconds)
+--删除角色授权
+1: jdbc:hive2://server02:10000/default> revoke admin from role test;
+No rows affected (0.074 seconds)
+1: jdbc:hive2://server02:10000/default> show role grant role test;
++-------+---------------+-------------+----------+--+
+| role  | grant_option  | grant_time  | grantor  |
++-------+---------------+-------------+----------+--+
++-------+---------------+-------------+----------+--+
+No rows selected (0.064 seconds)
+```
+
+将某个表的权限分配给指定用户（select、update、delete、insert、all）
+
+1. 指定某个表的查询功能分配给指定用户（其它操作就无权访问）
+2. 具有 with grant option 权限的用户，也可以为其它用户进行表权限分配，注意：不能给其它用户分配自身没有的权限，比如user1只有查询功能，给其它用户也可分配查询功能，其它功能无法分配
+
+```bash
+[root@server01 ~]# beeline
+Beeline version 2.1.1 by Apache Hive
+#使用user1登录后，没有给它分配表:logtbl的权限前，是无法进行查询的
+beeline> ! connect jdbc:hive2://server02:10000/default user1 123456
+0: jdbc:hive2://server02:10000/default> select * from logtbl;
+Error: Error while compiling statement: FAILED: HiveAccessControlException Permission denied: Principal [name=user1, type=USER] does not have following privileges for operation QUERY [[SELECT] on Object [type=TABLE_OR_VIEW, name=default.logtbl]] (state=42000,code=40000)
+```
+
+使用root为user1分配logtbl的查询权限
+
+```bash
+1: jdbc:hive2://server02:10000/default> grant select on logtbl to user user1 with grant option;
+No rows affected (0.293 seconds)
+```
+
+再次查询：
+
+```bash
+0: jdbc:hive2://server02:10000/default> select * from logtbl where agent=11217;
++---------------+------------------+----------------+-----------------------------+-----------------+-----------------+---------------+--+
+|  logtbl.host  | logtbl.identity  | logtbl.t_user  |         logtbl.time         | logtbl.request  | logtbl.referer  | logtbl.agent  |
++---------------+------------------+----------------+-----------------------------+-----------------+-----------------+---------------+--+
+| 192.168.57.4  | -                | -              | 29/Feb/2019:18:14:36 +0800  | GET / HTTP/1.1  | 200             | 11217         |
+| 192.168.57.4  | -                | -              | 29/Feb/2019:18:14:36 +0800  | GET / HTTP/1.1  | 200             | 11217         |
+| 192.168.57.4  | -                | -              | 29/Feb/2019:18:14:36 +0800  | GET / HTTP/1.1  | 200             | 11217         |
+| 192.168.57.4  | -                | -              | 29/Feb/2019:18:14:36 +0800  | GET / HTTP/1.1  | 200             | 11217         |
++---------------+------------------+----------------+-----------------------------+-----------------+-----------------+---------------+--+
+4 rows selected (0.588 seconds)
+```
 
 ## 数据压缩
 

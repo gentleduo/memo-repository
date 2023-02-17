@@ -281,6 +281,28 @@ mysql能对查询的某部分进行优化并将其转化成一个常量。用于
 
 primary key 或 unique key 索引的所有部分被连接使用 ，最多只会返回一条符合条件的记录。
 
+比如：有两张表：表A包含列(id，text)，其中id是主键。表B具有相同的列(id，text)，其中id是主键。表A包含以下数据：
+
+```markdown
+1, Hello 
+2, How are
+```
+
+表B有以下数据：
+
+```markdown
+1, world!
+2, you?
+```
+
+A和B之间的JOIN：
+
+```sql
+select A.text, B.text where A.ID = B.ID
+```
+
+这个JOIN非常快，因为对于表A中扫描的每一行，表B中只能有一行满足JOIN条件。一个，不超过一个。那是因为B.id是独一无二的。
+
 实验验证：
 
 ```mysql
@@ -298,6 +320,21 @@ mysql> explain select * from film_actor left join film on film_actor.film_id = f
 #### ref
 
 相比eq_ref，不使用唯一索引，而是使用普通索引或者唯一性索引的部分前缀，索引要和某个值相比较，可能会 找到多个符合条件的行。
+
+比如：另一张带有列(id，text)的表C，其中id是索引但非UNIQUE。表C具有以下数据：
+
+```mark
+1, John!
+1, Jack!
+```
+
+A和C之间的JOIN
+
+```sql
+select A.text, C.text where A.ID = C.ID
+```
+
+JOIN不如前一个快，因为对于表A中扫描的每一行，表C中有几个可能的行，它们可以满足JOIN条件。
 
 实验验证：
 

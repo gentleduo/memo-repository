@@ -2356,10 +2356,10 @@ create table gap_tbz
   name varchar(11) not null
 );
 
-INSERT INTO test.gap_tbz (id, name) VALUES (1, 'a');
-INSERT INTO test.gap_tbz (id, name) VALUES (5, 'h');
-INSERT INTO test.gap_tbz (id, name) VALUES (8, 'm');
-INSERT INTO test.gap_tbz (id, name) VALUES (11, 'ds');
+INSERT INTO gap_tbz (id, name) VALUES (1, 'a');
+INSERT INTO gap_tbz (id, name) VALUES (5, 'h');
+INSERT INTO gap_tbz (id, name) VALUES (8, 'm');
+INSERT INTO gap_tbz (id, name) VALUES (11, 'ds');
 ```
 
 #### 情况1
@@ -2402,11 +2402,11 @@ insert into gap_tbz values(5,'cc');
 
 Mysql在可重复读隔离级别下是如何保证事务较高的隔离性的？同样的sql查询语句在一个事务里多次执行查询结果相同，就算其它事务对数据有修改也不会影响当前事务sql语句的查询结果。 这个隔离性就是靠MVCC(Multi-Version Concurrency Control)机制来保证的，对一行数据的读和写两个操作默认是不会通过加锁互斥来保证隔离性，避免了频繁加锁互斥，而在串行化隔离级别为了保证较高的隔离性是通过将所有操作加锁互斥来实现的。 Mysql在读已提交和可重复读隔离级别下都实现了MVCC机制。
 
-undo日志版本链与read view机制详解 undo日志版本链是指一行数据被多个事务依次修改过后，在每个事务修改完后，Mysql会保留修改前的数据undo回滚日志，并且用两个隐藏字段trx_id和roll_pointer把这些undo日志串联起来形成一个历史记录版本链
+undo日志版本链与read view机制：undo日志版本链是指一行数据被多个事务依次修改过后，在每个事务修改完后，Mysql会保留修改前的数据undo回滚日志，并且用两个隐藏字段trx_id和roll_pointer把这些undo日志串联起来形成一个历史记录版本链
 
 ## undo日志版本链与read view机制详解
 
-undo日志版本链是指一行数据被多个事务依次修改过后，在每个事务修改完后，Mysql会保留修改前的数据undo回滚 日志，并且用两个隐藏字段trx_id和roll_pointer把这些undo日志串联起来形成一个历史记录版本链
+undo日志版本链是指一行数据被多个事务依次修改过后，在每个事务修改完后，Mysql会保留修改前的数据undo回滚日志，并且用两个隐藏字段trx_id和roll_pointer把这些undo日志串联起来形成一个历史记录版本链
 
 | address    | id   | name     | trx_id | roll_pointer |
 | ---------- | ---- | -------- | ------ | ------------ |

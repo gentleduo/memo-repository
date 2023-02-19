@@ -423,7 +423,7 @@ key_len计算规则如下：
 
 ### 9、ref列
 
-这一列显示了在key列记录的索引中，表查找值所用到的列或常量，常见的有：const（常量），字段名（例：film.id）
+这一列显示了之前的表在key列记录的索引中查找值所用的列或常量，常见的有：const（常量），字段名（例：film.id）
 
 ### 10、rows列
 
@@ -445,7 +445,18 @@ key_len计算规则如下：
 
 #### Using index condition
 
-查询的列不完全被索引覆盖，where条件中是一个前导列的范围
+搜索条件中虽然出现了索引列，但是有部分条件无法使用索引，会根据能用索引的条件先搜索一遍再匹配无法使用索引的条件。
+
+```sql
+# 下面的sql只用到了联合索引：idx_name_age_position中的第一个字段：name。
+mysql> explain select * from employees where name = 'zhangsan' and position = '1';
++----+-------------+-----------+------------+------+-----------------------+-----------------------+---------+-------+------+----------+-----------------------+
+| id | select_type | table     | partitions | type | possible_keys         | key                   | key_len | ref   | rows | filtered | Extra                 |
++----+-------------+-----------+------------+------+-----------------------+-----------------------+---------+-------+------+----------+-----------------------+
+|  1 | SIMPLE      | employees | NULL       | ref  | idx_name_age_position | idx_name_age_position | 74      | const |    1 |    10.00 | Using index condition |
++----+-------------+-----------+------------+------+-----------------------+-----------------------+---------+-------+------+----------+-----------------------+
+1 row in set, 1 warning (0.00 sec)
+```
 
 #### Using temporary
 
@@ -596,25 +607,114 @@ mysql> EXPLAIN SELECT * FROM employees_copy WHERE (name = 'LiLei' or name = 'Han
 
 
 
-## 4、like KK% 一般情况都会走索引（索引下推）
+## 4、联合索引最左匹配原则
 
-mysql> EXPLAIN SELECT * FROM employees WHERE name like 'LiLei%' AND age = 22 AND position ='manager';
-+----+-------------+-----------+------------+-------+-----------------------+-----------------------+---------+------+------+----------+-----------------------+
-| id | select_type | table     | partitions | type  | possible_keys         | key                   | key_len | ref  | rows | filtered | Extra                 |
-+----+-------------+-----------+------------+-------+-----------------------+-----------------------+---------+------+------+----------+-----------------------+
-|  1 | SIMPLE      | employees | NULL       | range | idx_name_age_position | idx_name_age_position | 140     | NULL |    1 |     5.00 | Using index condition |
-+----+-------------+-----------+------------+-------+-----------------------+-----------------------+---------+------+------+----------+-----------------------+
-1 row in set, 1 warning (0.00 sec)
+在通过联合索引检索数据时，从索引中最左边的列开始，一直向右匹配，如果遇到范围查询(>、<、between、like等)，就停止后边的匹配。
 
-这里给引入一个概念，索引下推（Index Condition Pushdown，ICP）, like KK%其实就是用到了索引下推优化
-那什么是索引下推了？对于辅助的联合索引(name,age,position)，正常情况按照最左前缀原则，SELECT * FROM employees WHERE name like 'LiLei%' AND age = 22 AND position ='manager' 这种情况只会走name字段索引，因为根据name字段过滤完，得到的索引行里的age和position是无序的，无法很好的利用索引。
-在MySQL5.6之前的版本，这个查询只能在联合索引里匹配到名字是'LiLei'开头的索引，然后拿这些索引对应的主键逐个回表，到主键索引上找出相应的记录，再比对age和position这两个字段的值是否符合。MySQL5.6引入了索引下推优化，可以在索引遍历过程中，对索引中包含的所有字段先做判断，过滤掉不符合条件的记录之后再回表，可以有效的减少回表次数。使用了索引下推优化后，上面那个查询在联合索引里匹配到名字是'LiLei'开头的索引之后，同时还会在索引里过滤age和position这两个字段，拿着过滤完剩下的索引对应的主键id再回表查整行数据。索引下推会减少回表次数，对于innodb引擎的表索引下推只能用于二级索引，innodb的主键索引（聚簇索引）树叶子节点上保存的是全行数据，所以这个时候索引下推并不会起到减少查询全行数据的效果。
+假如对字段 (a, b, c) 建立联合索引，现在有这样一条查询语句：
 
-为什么联合索引中范围条件右边的列没有用索引下推优化？ 估计应该是Mysql认为范围查找过滤的结果集过大，like KK% 在绝大多数情况来看，过滤后的结果集比较小，所以这里Mysql选择给 like KK% 用了索引下推优化，当然这也不是绝对的，有时like KK% 也不一定就会走索引下推。
+```sql
+where a > xxx and b=yyy and c=zzz
+where a like 'xxx%' and b=yyy and c=zzz
+```
+
+在这个条件语句中，只有a用到了索引，后面的b,c就不会用到索引。这就是“如果遇到范围查询(>、<、between、like等)，就停止后边的匹配。”的意思。
+
+如下查询语句可以使用到索引：
+
+```sql
+where a = xxx
+where a = xxx and b = xxx
+where a = xxx and b = xxx and c = xxx
+where a like 'xxx%'
+where a > xxx
+where a = xxx order by b
+where a = xxx and b = xxx order by c
+group by a
+```
+
+如下查询条件也会使用索引：
+
+```sql
+where b = xxx and a = xxx
+where a = xxx and c = xxx and b = xxx
+```
+
+虽然b和a的顺序换了，但是mysql中的优化器会帮助我们调整顺序。
+
+如下查询条件只用到联合索引的一部分：
+
+```sql
+# 可以用到a列的索引，用不到c列索引。
+where a = xxx and c = xxx
+# 可以用到a列的索引，用不到b列的索引。
+where a like 'xxx%' and b = xxx 
+# 可以用到a列的索引，用不到b列的索引。
+where a > xxx and b = xxx 
+```
+
+如下查询条件完全用不到索引
+
+```sql
+where b = xxx
+where c = xxx
+-- 不满足最左前缀
+where a like '%xxx'
+-- 出现非排序使用到的索引列 d
+where d = xxx order by a 
+-- 使用函数、运算表达式及类型隐式转换等
+where a + 1 = xxx
+```
+
+如何选择合适的联合索引：
+
+- where a = xxx and b = xxx and c = xxx 如果我们的查询是这样的，建索引时，就可以考虑将选择性高的列放在索引的最前列，选择性低的放后边。
+
+- 如果是 where a > xxx and b = xxx 或 where a like 'xxx%' and b = xxx 这样的语句，可以对 (b, a) 建立索引。
+
+- 如果是 where a = xxx order by b 这样的语句，可以对 (a, b) 建立索引。
 
 
 
-## 5、Mysql如何选择合适的索引
+## 5、索引下推
+
+索引下推是索引下推是MySQL 5.6及以上版本上推出的，用于对查询进行优化。索引下推是把本应该在server层进行筛选的条件，下推到存储引擎层来进行筛选判断，这样能有效减少回表。
+
+举例说明：首先使用联合索引（name，age），现在有这样一个查询语句：
+
+```sql
+select *  from t_user where name like 'L%' and age = 17;
+```
+
+这条语句从最左匹配原则上来说是不符合的，原因在于只有name用的索引，但是age并没有用到。
+
+不用索引下推的执行过程：
+
+第一步：利用索引找出name带'L'的数据行：LiLei、Lili、Lisa、Lucy 这四条索引数据
+第二步：再根据这四条索引数据中的 id 值，逐一进行回表扫描，从聚簇索引中找到相应的行数据，将找到的行数据返回给 server 层。
+第三步：在server层判断age = 17,进行筛选，最终只留下 Lucy 用户的数据信息。
+
+使用索引下推的执行过程：
+
+第一步：利用索引找出name带'L'的数据行：LiLei、Lili、Lisa、Lucy 这四条索引数据
+第二步：根据 age = 17 这个条件，对四条索引数据进行判断筛选，最终只留下 Lucy 用户的数据信息。
+（注意：这一步不是直接进行回表操作，而是根据 age = 17 这个条件，对四条索引数据进行判断筛选）
+第三步：将符合条件的索引对应的 id 进行回表扫描，最终将找到的行数据返回给 server 层。
+
+比较二者的第二步可知，索引下推的方式极大的减少了回表次数。
+
+开启索引下推：
+
+索引下推是 MySQL 5.6 及以上版本上推出的，用于对查询进行优化。默认情况下，索引下推处于启用状态。我们可以使用如下命令来开启或关闭。
+
+```sql
+set optimizer_switch='index_condition_pushdown=off';  -- 关闭索引下推
+set optimizer_switch='index_condition_pushdown=on';  -- 开启索引下推
+```
+
+
+
+## 6、Mysql如何选择合适的索引
 
 mysql> EXPLAIN select * from employees where name > 'a';
 +----+-------------+-----------+------------+------+-----------------------+------+---------+------+-------+----------+-------------+
@@ -885,7 +985,7 @@ mysql> set session optimizer_trace="enabled=off"; -- 关闭trace;
 
 
 
-## 6、索引深入优化
+## 7、索引深入优化
 
 ### Case1：
 
@@ -998,7 +1098,7 @@ mysql> explain select * from employees where name in ( 'Lilei', 'zhuge' ) order 
 
 
 
-## 7、Using filesort文件排序原理详解
+## 8、Using filesort文件排序原理详解
 
 ### filesort文件排序方式
 
@@ -1488,7 +1588,7 @@ mysql> set session optimizer_trace="enabled=off";  -- 关闭trace
 
 
 
-## 8、索引设计原则
+## 9、索引设计原则
 
 ### 1、代码先行，索引后上
 
@@ -1516,7 +1616,7 @@ mysql> set session optimizer_trace="enabled=off";  -- 关闭trace
 
 
 
-## 9、分页查询优化
+## 10、分页查询优化
 
 很多时候我们业务系统实现分页功能可能会用如下sql实现
 
@@ -1543,7 +1643,7 @@ select * from employees e inner join (select id from employees order by name lim
 
 
 
-## 10、Join关联查询优化
+## 11、Join关联查询优化
 
 示例表
 
@@ -1664,7 +1764,7 @@ straight_join解释：straight_join功能同join类似，但能让左边的表�
 
 
 
-## 11、in和exsits优化
+## 12、in和exsits优化
 
 原则：小表驱动大表，即小的数据集驱动大的数据集
 
@@ -1701,16 +1801,41 @@ for(select * from A){
 
 ![image](assets\mysql-8.png)
 
+```sql
+CREATE TABLE `A_ClASS` (
+`ID` char(11) NOT NULL,
+`CLASS_NAME` char(20) DEFAULT NULL,
+PRIMARY KEY (`ID`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+
+insert into A_ClASS values('c1','一班');
+insert into A_ClASS values('c2','二班');
+```
+
 学生表( STUDENT)
 
 ![image](assets\mysql-9.png)
+
+```sql
+CREATE TABLE `STUDENT` (
+`ID` char(11) NOT NULL,
+`CLASS_ID` char(11) DEFAULT NULL,
+`STUDENT_NAME` char(20) DEFAULT NULL,
+PRIMARY KEY (`ID`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+
+insert into STUDENT values('s1','c1','张三');
+insert into STUDENT values('s2','c1','李四');
+insert into STUDENT values('s3','c2','王五');
+insert into STUDENT values('s4','c3','赵六');
+```
 
 注：学生表(STUDENT)的classId关联班级表（A_CLASS）的主键ID
 
 执行：
 
 ```sql
-select * from STUDENT s WHERE exists (select 1 from A_ClASS c where s.CLASS_ID=c.ID)
+select * from STUDENT s WHERE exists (select 1 from A_ClASS c where s.CLASS_ID=c.ID);
 ```
 
 结果：
@@ -1738,7 +1863,7 @@ exists语句的执行顺序如下：
 如果将上述语句中的"="换成"!="将会是如下的效果：
 
 ```sql
-select * from STUDENT s WHERE exists (select 1 from A_ClASS c where s.CLASS_ID！=c.ID)
+select * from STUDENT s WHERE exists (select 1 from A_ClASS c where s.CLASS_ID != c.ID);
 ```
 
 结果：
@@ -1760,9 +1885,9 @@ select * from STUDENT s WHERE exists (select 1 from A_ClASS c where s.CLASS_ID�
 总结：
 
 1. exists执行外循环后，会拿着外循环的值，去内层查询，如果查询到就直接返回true，并且终止本次循环，如果是false，则会一直执行，直至循环完成还为false，则本次内循环不符合条件;
-2. 内层的判断条件不要写！=;查询的结果会不尽人意;
+2. 内层的判断条件不要写!=;查询的结果会不尽人意;
 
-## 12、count(*)查询优化
+## 13、count(*)查询优化
 
 -- 临时关闭mysql查询缓存，为了查看sql多次执行的真实时间
 mysql> set global query_cache_size=0;
@@ -1796,7 +1921,7 @@ count(*) 是例外，mysql并不会把全部字段取出来，而是专门做了
 
 
 
-## 13、MySQL数据类型
+## 14、MySQL数据类型
 
 ### 1、数值类型
 

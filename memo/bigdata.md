@@ -13458,11 +13458,11 @@ hbase是bigtable的开源java版本。是建立在hdfs之上，提供高可靠�
 
 4. MemStore
 
-   顾名思义，就是内存存储，位于内存中，用来保存当前的数据操作，所以当数据保存在WAL中之后，RegsionServer会在内存中存储键值对。
+   顾名思义，就是内存存储，位于内存中，用来保存当前的数据操作，所以当数据保存在WAL中之后，RegsionServer会在内存中存储键值对。(每个列族对应一个MemStore)
 
 5. Region
 
-   Hbase表的分片，HBase表会根据RowKey值被切分成不同的region存储在RegionServer中，在一个RegionServer中可以有多个不同的region。
+   Hbase表的分片，HBase表会根据RowKey值被切分成不同的region存储在RegionServer中，在一个RegionServer中可以有多个不同的region。(Region可以理解为一张表，Region会对应多个Store(列族))
 
 ## 集群搭建
 
@@ -13589,7 +13589,7 @@ http://server01:16010/master-status
 | 3      | 黄晓明                                     | 58   | 1    | 123456   | 地球村                                 | 土星     | 13612345678 | [668@163.com](mailto:668@163.com) | 800    | 2018-12-21  12:23 |                   |      |      |      | 1545480081                                              | 3                     |
 | 4      | 按住啦baby                                 | 25   | 0    | 123456   | 地球村                                 | 韩国整容 | 13612345678 | [669@163.com](mailto:669@163.com) | 15000  | 2018-12-22  12:23 |                   |      |      |      | 1545566481                                              | 1                     |
 
-owKey：行键，每一条数据都是使用行键来进行唯一标识的
+rowKey：行键，每一条数据都是使用行键来进行唯一标识的
 
 columnFamily：列族。列族下面可以有很多列
 
@@ -13667,11 +13667,11 @@ HBase中通过row和columns确定的为一个存贮单元称为cell。每个cell
 1. 保存数据的最后n个版本
 2. 保存最近一段时间内的版本（设置数据的生命周期TTL）。
 
-用户可以针对每个列族进行设置。
+用户可以针对每个列族进行设置。  
 
 ### Cell
 
-由{row key, column( =<family> + <label>), version} 唯一确定的单元。cell中的数据是没有类型的，全部是字节码形式存贮。
+由`{row key, column( =<family> + <qualifier>), version} `唯一确定的单元。cell中的数据是没有类型的，全部是字节码形式存贮。
 
 ### VersionNum
 
@@ -15501,7 +15501,7 @@ Hive的本质其实就相当于将HDFS中已经存储的文件在Mysql中做了�
 
 ### HBase
 
-nosql数据库，是一种面向列存储的非关系型数据库。用于存储结构化和非结构话的数据，适用于单表非关系型数据的存储，不适合做关联查询，类似JOIN等操作。基于HDFS，数据持久化存储的体现形式是Hfile，存放于DataNode中，被ResionServer以region的形式进行管理。延迟较低，接入在线业务使用，面对大量的企业数据，HBase可以直线单表大量数据的存储，同时提供了高效的数据访问速度。
+nosql数据库，是一种面向列存储的非关系型数据库。用于存储结构化和半结构化的数据，适用于单表非关系型数据的存储，不适合做关联查询，类似JOIN等操作。基于HDFS，数据持久化存储的体现形式是Hfile，存放于DataNode中，被ResionServer以region的形式进行管理。延迟较低，接入在线业务使用，面对大量的企业数据，HBase可以直线单表大量数据的存储，同时提供了高效的数据访问速度。
 
 ### 总结
 

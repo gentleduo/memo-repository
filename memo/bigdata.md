@@ -14390,7 +14390,7 @@ LSM树，即日志结构合并树(Log-Structured Merge-Tree)。其实它并不�
 - MapReduce, 2004, 使得大量数据可以被计算
 - BigTable, 2006, 使得大量数据可以被及时访问
 
-在了解LSM-tree的特点前，先来看一下mysql数据库中使用的数据结构的特点，mysql使用的是B+ Tree，它的插入性能会随着树的负责度而递减
+在了解LSM-tree的特点前，先来看一下mysql数据库中使用的数据结构的特点，mysql使用的是B+ Tree，它的插入性能会随着树的深度而递减
 
 - 如果数据太多, 是不是这个树会非常宽, 甚至有几千万的量, 这个树就不只三层了
 - 这个时候插入一条数据的话, 要不断的对比, 导致复杂度升高
@@ -14482,7 +14482,7 @@ LSM树由两个或以上的存储结构组成，比如在论文中为了方便�
 
 使用布隆过滤器提升查询性能
 
-在介绍为什么hbase要引入布隆过滤器之前，先来了解一下hbase存储文件HFile的块索引机制：hbase的实际存储结构是HFile，它是位于hdfs系统中的，也就是在磁盘中。而加载到内存中的数据存储在MemStore中，当MemStore中的数据达到一定数量时，它会将数据存入HFile中。HFIle是由一个个数据块与索引块组成，他们通常默认为64KB。hbase是通过块索引来访问这些数据块的。而索引是由每个数据块的第一行数据的rowkey组成的。当hbase打开一个HFile时，块索引信息会优先加载到内存当中。然后hbase会通过这些块索引来查询数据。但是块索引是相当粗粒度的，可以简单计算一下。假设一个行占100bytes的空间，所以一个数据块64KB，所包含的行大概有：(64*1024)/100=655.53=~700行。如果用户随机查找一个行键，则这个行键很可能位于两个开始键（即索引）之间的位置。对于hbase来说，它判断这个行键是否真实存在的唯一方法就是加载这个数据块，并且扫描它是否包含这个键。同时，还存在很多情况使得这种情况更加复杂：对于一个应用来说，用户通常会以一定的速率进行更新数据，这就将导致内存中的数据被刷写到磁盘中，并且之后系统会将他们合并成更大的存储文件。在hbase的合并存储文件的时候，它仅仅会合并最近几个存储文件，直至合并的存储文件到达配置的最大大小。最终系统中会有很多的存储文件，所有的存储文件都是候选文件，其可能包含用户请求行键的单元格，即要查询的特定行的列可能分布在某个或者某几个HFile文件中，regionServer需要加载每一个块来检查该块中是否真的包含该行的单元格。
+在介绍为什么hbase要引入布隆过滤器之前，先来了解一下hbase存储文件HFile的块索引机制：hbase的实际存储结构是HFile，它是位于hdfs系统中的，也就是在磁盘中。而加载到内存中的数据存储在MemStore中，当MemStore中的数据达到一定数量时，它会将数据存入HFile中。HFIle是由一个个数据块与索引块组成，他们通常默认为64KB。hbase是通过块索引来访问这些数据块的。而索引是由每个数据块的第一行数据的rowkey组成的。当hbase打开一个HFile时，块索引信息会优先加载到内存当中。然后hbase会通过这些块索引来查询数据。但是块索引是相当粗粒度的，可以简单计算一下。假设一个行占100bytes的空间，所以一个数据块64KB，所包含的行大概有：(64*1024)/100=655.53=~700行。如果用户随机查找一个行键，则这个行键很可能位于两个开始键（即索引）之间的位置。对于hbase来说，它判断这个行键是否真实存在的唯一方法就是加载这个数据块，并且扫描它是否包含这个键(其实就是说索引中只包含每一个数据块的第一行数据的rowkey，如果要查询的rowkey不在索引文件中则需要先加载该数据块并遍历，确认该数据块中是否存在rowkey对应的数据)。同时，还存在很多情况使得这种情况更加复杂：对于一个应用来说，用户通常会以一定的速率进行更新数据，这就将导致内存中的数据被刷写到磁盘中，并且之后系统会将他们合并成更大的存储文件。在hbase的合并存储文件的时候，它仅仅会合并最近几个存储文件，直至合并的存储文件到达配置的最大大小。最终系统中会有很多的存储文件，所有的存储文件都是候选文件，其可能包含用户请求行键的单元格，即要查询的特定行的列可能分布在某个或者某几个HFile文件中，regionServer需要加载每一个块来检查该块中是否真的包含该行的单元格。
 
 ![image](assets\bigdata-35.png)
 
@@ -14498,7 +14498,7 @@ LSM树由两个或以上的存储结构组成，比如在论文中为了方便�
 
 1. 对于hbase而言，当选择采用布隆过滤器之后，HBase会在生成StoreFile（HFile）时包含一份布隆过滤器结构的数据，称其为MetaBlock；MetaBlock与DataBlock（真实的KeyValue数据）一起由LRUBlockCache维护。所以，开启bloomfilter会有一定的存储及内存cache开销。但是在大多数情况下，这些负担相对于布隆过滤器带来的好处是可以接受的。
 2. 在读取数据时，hbase会首先在布隆过滤器中查询，根据布隆过滤器的结果，再在MemStore中查询，最后再在对应的HFile中查询。
-3. 采用ROW还是ROWCOL布隆过滤器？这取决于用户的使用模式。如果用户只做行扫描，使用更加细粒度的行加列布隆过滤器不会有任何的帮助，这种场景就应该使用行级布隆过滤器。当用户不能批量更新特定的一行，并且最后的使用存储文件都含有改行的一部分时，行加列级的布隆过滤器更加有用。
+3. 采用ROW还是ROWCOL布隆过滤器？这取决于用户的使用模式。如果用户只做行扫描，使用更加细粒度的行加列布隆过滤器不会有任何的帮助，这种场景就应该使用行级布隆过滤器。当用户不能批量更新特定的一行，并且最后的使用存储文件都含有该行的一部分时，行加列级的布隆过滤器更加有用。
 4. ROW 使用场景：假设有2个Hfile文件hf1和hf2， hf1包含kv1（r1 cf:q1 v）、kv2（r2 cf:q1 v） hf2包含kv3（r3 cf:q1 v）、kv4（r4 cf:q1 v） 如果设置了CF属性中的bloomfilter（布隆过滤器）为ROW，那么get(r1)时就会过滤hf2，get(r3)就会过滤hf1 。
 5. ROWCOL使用场景：假设有2个Hfile文件hf1和hf2， hf1包含kv1（r1 cf:q1 v）、kv2（r2 cf:q1 v） hf2包含kv3（r1 cf:q2 v）、kv4（r2 cf:q2 v） 如果设置了CF属性中的bloomfilter为ROW，无论get(r1,q1)还是get(r1,q2)，都会读取hf1+hf2；而如果设置了CF属性中的bloomfilter为ROWCOL，那么get(r1,q1)就会过滤hf2，get(r1,q2)就会过滤hf1。
 
@@ -14682,7 +14682,7 @@ HBase中KeyValue并不是简单的KV数据对，而是一个具有复杂元素�
 
 ##### 不同KeyValue之间如何进行大小比较
 
-HBase设定Key大小首先比较RowKey，RowKey越小Key就越小；RowKey如果相同就看CF，CF越小Key越小；CF如果相同看Qualifier，Qualifier越小Key越小；Qualifier如果相同再看Timestamp，Timestamp越大表示时间越新，对应的Key越小。如果Timestamp还相同，就看KeyType，KeyType按照DeleteFamily -> DeleteColumn -> Delete -> Put 顺序依次对应的Key越来越大。
+HBase设定Key大小首先比较RowKey，RowKey越小Key就越小；RowKey如果相同就看CF，CF越小Key越小；CF如果相同看Qualifier，Qualifier越小Key越小；Qualifier如果相同再看Timestamp，Timestamp越大表示时间越新，对应的Key越小（目的就是因为通过RowKey seek出来的StoreFileScanner会合并为最小堆，而最新更新过的要放在堆顶，所以Timestamp越大key越小）。如果Timestamp还相同，就看KeyType，KeyType按照DeleteFamily -> DeleteColumn -> Delete -> Put 顺序依次对应的Key越来越大。
 
 ##### scan查询
 
@@ -14692,12 +14692,12 @@ HBase设定Key大小首先比较RowKey，RowKey越小Key就越小；RowKey如果
 
 这三个Scanner组成的heap为<MemstoreScanner，StoreFileScanner2,  StoreFileScanner1>，Scanner由小到大排列。查询的时候首先pop出heap的堆顶元素，即MemstoreScanner，得到keyvalue=r2:cf1:name:v3:name23的数据，拿到这个keyvalue之后，需要进行如下判定：
 
-1. 检查该KeyValue的KeyType是否是Deleted/DeletedCol等，如果是就直接忽略该列所有其他版本，跳到下列（列族）
+1. 检查该KeyValue的KeyType是否是DeleteFamily/DeleteColumn等，如果是就直接忽略该列所有其他版本，跳到下列（列族）
 2. 检查该KeyValue的Timestamp是否在用户设定的Timestamp Range范围，如果不在该范围，忽略
 3. 检查该KeyValue是否满足用户设置的各种filter过滤器，如果不满足，忽略
-4. 检查该KeyValue是否满足用户查询中设定的版本数，比如用户只查询最新版本，则忽略该cell的其他版本；反正如果用户查询所有版本，则还需要查询该cell的其他版本。
+4. 检查该KeyValue是否满足用户查询中设定的版本数，比如用户只查询最新版本，则忽略该cell的其他版本；反之如果用户查询所有版本，则还需要查询该cell的其他版本。
 
-总结：查询的时候，首先构建一个由MemstoreScanner和StoreFileScanner组成的小顶堆，堆顶肯定是MemstoreScanner，然后依次根据hfile创建的时间排列：最晚创建的hfile排在最前。查询的时候根据heap中scanner的顺序，一个一个去scanner中查找，查找的过程需要遵循一定的判定原则：比如在MemstoreScanner找到rowkey对应的KeyType为Deleted/DeletedCol，那么由于MemstoreScanner中肯定是最后更新的最新数据，所以说明该rowkey已经被删除了，就不用再到其他的hfile去找了。
+总结：查询的时候，首先构建一个由MemstoreScanner和StoreFileScanner组成的小顶堆，堆顶肯定是MemstoreScanner，然后依次根据hfile创建的时间排列：最晚创建的hfile排在最前。查询的时候根据heap中scanner的顺序，一个一个去scanner中查找，查找的过程需要遵循一定的判定原则：比如在MemstoreScanner找到rowkey对应的KeyType为Delete，那么由于MemstoreScanner中肯定是最后更新的最新数据，所以说明该rowkey已经被删除了，就不用再到其他的hfile去找了。
 
 #### scan缓存是否设置合理？
 

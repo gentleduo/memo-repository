@@ -14560,6 +14560,18 @@ BlockCache 叫做读缓存, 因为 BlockCache 缓存的数据是读取返回结�
 4. Hregion是Hbase中分布式存储和负载均衡的最小单元。最小单元就表示不同的Hregion可以分布在不同的HRegion server上。但一个Hregion是不会拆分到多个server上的。
 5. HRegion虽然是负载均衡的最小单元，但并不是物理存储的最小单元。事实上，HRegion由一个或者多个Store组成，每个store保存一个column family。每个Strore又由一个memStore和0至多个StoreFile组成。
 
+### 数据结构
+
+- 一个RegionServer包含多个Region，划分规则是：一个表的一段键值在一个RegionServer上会产生一个Region。不过当表的数据达到一定量之后，HBase也会把这个Region根据RowKey切分到不同的机器上去；
+
+- 一个Region包含多个Store，划分规则是：一个列族分为一个Store，如果一个表只有一个列族，那么这个表在这个机器上的每一个Region里面都只有一个Store；
+
+- 一个Store里面只有一个Memstore；
+
+- 一个Store里面有多个HFile，每次Memstore的刷写(flush)就产生一个新的HFile出来。
+
+![image](assets\bigdata-102.jpg)
+
 ### STORE FILE
 
 StoreFile以HFile格式保存在HDFS上。HFile的格式：
@@ -14666,8 +14678,8 @@ RegionScanner会根据列族构建StoreScanner，有多少列族就构建多少S
 
 2. 过滤淘汰StoreFileScanner：根据Time Range以及RowKey Range对StoreFileScanner以及MemstoreScanner进行过滤，淘汰肯定不存在待检索结果的Scanner。上图中StoreFile3因为检查RowKeyRange不存在待检索Rowkey所以被淘汰。
 
-3. Seek rowkey：所有StoreFileScanner开始做准备工作，在负责的HFile中定位到满足条件的起始Row。Seek过程（此处略过Lazy Seek优化）也是一个很核心的步骤，它主要包含下面三步：
-   1. 定位Block Offset：在Blockcache中读取该HFile的索引树结构，根据索引树检索对应RowKey所在的Block Offset和Block Size
+3. Seek rowkey：所有StoreFileScanner开始做准备工作，在负责的HFile中定位到满足条件的起始Row（由于hbase的索引只保存每个block的起始rowkey，所以seek的作用只能找到对象rowkey对应的块）。Seek过程（此处略过Lazy Seek优化）也是一个很核心的步骤，它主要包含下面三步：
+   1. 定位Block Offset：在Blockcache中读取该HFile的索引树结构，根据索引树检索对应RowKey所在的Block的Block Offset和Block Size
    2. Load Block：根据BlockOffset首先在BlockCache中查找Data Block，如果不在缓存，再在HFile中加载
    3. Seek Key：在Data Block内部通过二分查找的方式定位具体的RowKey
 4. StoreFileScanner合并构建最小堆：将该Store中所有StoreFileScanner和MemstoreScanner合并形成一个heap（最小堆），所谓heap是一个优先级队列，队列中元素是所有scanner，排序规则按照scanner seek到的keyvalue大小由小到大进行排序。这里需要重点关注三个问题，首先为什么这些Scanner需要由小到大排序，其次keyvalue是什么样的结构，最后，keyvalue谁大谁小是如何确定的
@@ -14773,7 +14785,7 @@ JVM内存配置量 < 20G，BlockCache策略选择LRUBlockCache；否则选择Buc
 
 优化原理：
 
-HBase读取数据通常首先会到Memstore和BlockCache中检索（读取最近写入数据&热点数据），如果查找不到就会到文件中检索。HBase的类LSM结构会导致每个store包含多数HFile文件，文件越多，检索所需的IO次数必然越多，读取延迟也就越高。文件数量通常取决于Compaction的执行策略，一般和两个配置参数有关：hbase.hstore.compaction.min和hbase.hstore.compaction.max.size，前者表示一个store中的文件数超过多少就应该进行合并，后者表示参数合并的文件大小最大是多少，超过此大小的文件不能参与合并。这两个参数不能设置太’松’（前者不能设置太大，后者不能设置太小），导致Compaction合并文件的实际效果不明显，进而很多文件得不到合并。这样就会导致HFile文件数变多。
+HBase读取数据通常首先会到Memstore和BlockCache中检索（读取最近写入数据&热点数据），如果查找不到就会到文件中检索。HBase的类LSM结构会导致每个store包含多数HFile文件，文件越多，检索所需的IO次数必然越多，读取延迟也就越高。文件数量通常取决于Compaction的执行策略，一般和两个配置参数有关：hbase.hstore.compaction.min和hbase.hstore.compaction.max.size，前者表示一个store中的文件数超过多少就应该进行合并，后者表示参与合并的文件大小最大是多少，超过此大小的文件不能参与合并。这两个参数不能设置太’松’（前者不能设置太大，后者不能设置太小），导致Compaction合并文件的实际效果不明显，进而很多文件得不到合并。这样就会导致HFile文件数变多。
 
 观察确认：
 
@@ -14788,6 +14800,16 @@ hbase.hstore.compaction.min设置不能太大，默认是3个；设置需要根�
 优化原理：
 
 Compaction是将小文件合并为大文件，提高后续业务随机读性能，但是也会带来IO放大以及带宽消耗问题（数据远程读取以及三副本写入都会消耗系统带宽）。正常配置情况下Minor Compaction并不会带来很大的系统资源消耗，除非因为配置不合理导致Minor Compaction太过频繁，或者Region设置太大情况下发生Major Compaction。
+
+hbase.hstore.compaction.min：默认值为 3，表示至少需要三个满足条件的store file时，minor compaction才会启动
+
+hbase.hstore.compaction.max：默认值为10，表示一次minor compaction中最多选取10个store file
+
+hbase.hstore.compaction.min.size：表示文件大小小于该值的store file 一定会加入到minor compaction的store file中
+
+hbase.hstore.compaction.max.size：表示文件大小大于该值的store file 一定会被minor compaction排除
+
+hbase.hstore.compaction.ratio：将store file 按照文件年龄排序（older to younger），minor compaction总是从older store file开始选择
 
 观察确认：
 

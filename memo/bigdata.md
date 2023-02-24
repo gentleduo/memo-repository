@@ -4536,6 +4536,7 @@ set hive.exec.dynamic.partition=true;
 -- 默认是strict，也就是严格模式，表示必须指定至少一个分区为静态分区
 -- nonstrict模式，即非严格模式，表示允许所有的分区字段都可以使用动态分区
 set hive.exec.dynamic.partition.mode=nonstrict;
+-- 分区字段需要放在select的最后，如果有多个分区字段按位置匹配而不是按名字匹配
 insert overwrite table dp_tmp partition(year,month,day) select * from tmp;
 ```
 
@@ -15061,7 +15062,80 @@ Scanned kv count -> 3
 
 ### split机制
 
-当Region达到阈值，会把过大的Region一分为二。默认一个HFile达到10Gb的时候就会进行切分。
+HBase分裂方式有三种：Per-Spliting、Auto-Spliting、Force-Spliting
+
+#### Per-Spliting
+
+Per-Spliting指的是在HBase创建Table时，指定好Table的Region的个数，生成多个Region。这么做的好处是一方面可以避免热点数据的写入问题（只有一个region，写数据量大时其余RegionServer就是空闲的），另一方面减少Region的Split几率，同时减少消耗集群的系统资源（IO，网络），减少因Split暂停Region的上线造成对HBase读写数据的影响。HBase默认建表时只有一个Region，此时的RowKey是没有边界的，即没有StartKey和EndKey。进行预分区时，需要配置切分点，使得HBase知道在哪个RowKey点做切分。
+
+>HBase自带了两种pre-split的算法，分别是HexStringSplit和UniformSplit。如果rowkey是十六进制的字符串作为前缀的，就比较适合用HexStringSplit，作为pre-split的算法。使用HexHash(prefix)作为rowkey的前缀，其中Hexhash为最终得到十六进制字符串的hash算法。
+
+#### Auto-Spliting
+
+自动分裂指的是随着不断向表中写入数据，Region也会不断增大，HBase根据触发的分裂策略自动分裂Region，当前HBase已经有6中分裂触发的策略，不同版本中配置的分裂策略不同，介绍一下常用三种：
+
+##### ConstantSizeRegionSplitPolicy
+
+0.94版本之前默认的分裂策略。表示一个Region中最大Store的大小超过设置阈（hbase.hregion.max.filesize）之后就会触发分裂。
+
+弊端：切分策略对于大表和小表没有明显的区分。阈值(hbase.hregion.max.filesize)设置较大对大表比较友好，但是小表就有可能不会触发分裂，极端情况下可能就1个，这对业务来说并不是什么好事。如果设置较小则对小表友好，但一个大表就会在整个集群产生大量的region，这对于集群的管理、资源使用、failover来说都不是一件好事。
+
+##### IncreasingToUpperBoundRegionSplitPolicy
+
+切分策略稍微有点复杂，总体看和ConstantSizeRegionSplitPolicy思路相同，一个region大小大于设置阈值就会触发切分。但是这个阈值并不像ConstantSizeRegionSplitPolicy是一个固定的值，而是会在一定条件下不断调整，调整规则和region所属表在当前regionserver上的region个数有关系。
+
+region split的计算公式是：
+regioncount^3 * 128M * 2，当region达到该size的时候进行split
+例如：
+第一次split：1^3 * 256 = 256MB
+第二次split：2^3 * 256 = 2048MB
+第三次split：3^3 * 256 = 6912MB
+第四次split：4^3 * 256 = 16384MB > 10GB，因此取较小的值10GB，后面每次split的size都是10GB了
+
+弊端：在大集群场景下，很多小表产生大量region分散在整个集群
+
+##### SteppingSplitPolicy
+
+2.0版本默认分裂策略。表示一个Region中最大Store的大小超过设置阈值（hbase.hregion.max.filesize）之后就会触发分裂。分裂阈值大小和待分裂Region所属表在当前RegionServer上的Region个数有关，如果Region个数为1，分裂阈值为flush size * 2，否则为MaxRegionFileSize，小表不会再产生大量的小Region
+
+##### DisableSplitPolicy
+
+禁止Region Split
+
+##### KeyPrefixRegionSplitPolicy
+
+切分策略依然依据默认切分策略，根据 Rowkey 指定长度的前缀来切分 Region，保证相同的前缀的行保存在同一个 Region 中。由 KeyPrefixRegionSplitPolicy.prefix_length 属性指定 Rowkey 前缀长度。按此长度对splitPoint进行截取。此种策略比较适合有固定前缀的 Rowkey。当没有设置前缀长度，切分效果等同与 IncreasingToUpperBoundRegionSplitPolicy。
+
+##### DelimitedKeyPrefixRegionSplitPolicy
+
+切分策略依然依据默认切分策略，同样是保证相同 RowKey 前缀的数据在一个Region中，但是是以指定分隔符前面的前缀为来切分 Region。
+
+#### Forced-Spliting
+
+客户端手动运行split命令执行分裂
+
+```markdown
+split 'forced_table', 'b' //其中forced_table 为要split的table , ‘b’ 为split 点
+```
+
+可以通过配置hbase.regionserver.region.split.policy指定自己的split策略
+
+```xml
+<!--定时切分执行类-->
+<property>
+    <name>hbase.regionserver.region.split.policy</name>
+    <value>org.apache.hadoop.hbase.regionserver.TimingRegionSplitPolicy</value>
+</property>
+<!--定时切分时间-->
+<property>
+     <name>hbase.regionserver.region.split.startTime</name>
+     <value>02:00:00</value>
+</property>
+<property>
+    <name>hbase.regionserver.region.split.endTime</name>
+    <value>04:00:00</value>
+</property>
+```
 
 ## HBase与MapReduce的集成
 
@@ -15766,7 +15840,7 @@ Endpoint协处理器类似传统数据库中的存储过程，客户端可以调
 
 ### 协处理器加载方式 
 
-协处理器的加载方式有两种，静态加载方式（ Static Load） 和动态加载方式（ Dynamic Load）。 静态加载的协处理器称之为 ystem Coprocessor，动态加载的协处理器称 之为Table Coprocessor
+协处理器的加载方式有两种，静态加载方式（ Static Load） 和动态加载方式（ Dynamic Load）。 静态加载的协处理器称之为 system Coprocessor，动态加载的协处理器称 之为Table Coprocessor
 
 #### 静态加载 
 
@@ -15993,7 +16067,7 @@ scan  'proc2'
 
 ### Linux优化
 
-1. 开启文件系统的预读缓存可以提高读取速度
+1. 开启文件系统的预读缓存可以提高读取速度；所谓预读，是指文件系统为应用程序一次读出比预期更多的文件内容并缓存在page cache中。
 
    blockdev --setra 32768 /dev/sda
 

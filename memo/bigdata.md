@@ -17487,6 +17487,7 @@ rddA.cartesian(rddB).collect().foreach(println(_))
 - 上述代码的 `cartesian` 是求得两个集合的笛卡尔积
 - 上述代码的运行结果是 `rddA` 中每个元素和 `rddB` 中的所有元素结合, 最终的结果数量是两个 `RDD` 数量之和
 - `rddC` 有两个父 `RDD`, 分别为 `rddA` 和 `rddB`
+- 不需要区分记录属于哪个分区，即：这样的数据不需要partitioner，不需要shuffle，直接本地IO去拉取数据，这种直接IO一定比先计算partitioner，shuffle落文件，最后再IO去拉速度快。而cartesian就属于这种窄依赖。
 
 对于 `cartesian` 来说, 依赖关系如下
 

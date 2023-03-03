@@ -16682,11 +16682,11 @@ server02中停止Master
 
 *附录:Spark各服务端口*
 
-| Service        | port          |
-| :------------- | :------------ |
-| Master WebUI   | server01:8080 |
-| Worker WebUI   | server01:8081 |
-| History Server | server01:4000 |
+| Service        | port           |
+| :------------- | :------------- |
+| Master WebUI   | server01:8080  |
+| Worker WebUI   | server01:8081  |
+| History Server | server01:18080 |
 
 ## yarn模式集群
 
@@ -16957,6 +16957,24 @@ Options:
                               delegation tokens periodically.
 ```
 
+>deploy-mode：
+>
+>- 为client时会产生如下几个进程：
+>
+>  SparkSubmit
+>
+>  ExecutorLauncher：相当于spark任务的ApplicationMaster
+>
+>  CoarseGrainedExecutorBackend
+>
+>- 为cluster时会产生如下几个进程：
+>
+>  SparkSubmit
+>
+>  ApplicationMaster：driver也在ApplicationMaster进程中
+>
+>  CoarseGrainedExecutorBackend
+>
 >driver-memory：
 >
 >- driver有可能会拉取计算结果回自己的jvm

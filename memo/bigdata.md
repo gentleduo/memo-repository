@@ -16957,6 +16957,18 @@ Options:
                               delegation tokens periodically.
 ```
 
+>driver-memory：
+>
+>- driver有可能会拉取计算结果回自己的jvm
+>
+>  当拉取会的数据特别大的时候，需要调整driver-memory的大小
+>
+>- driver以及executor jvm中会存储中间计算过程的数据的元数据（元数据：被计算数据的存储目录及大小等信息）
+>
+>  当要计算的数据的元数据信息过大时（比如：大量的小文件，由地址、文件大小等信息组成的元数据信息就会非常大），需要调整driver-memory的大小
+>
+>因为有上面两个特性，所以提供driver-memory参数来调整driver的jvm内存的大小。
+
 #### standalone
 
 standalone模式下，在不指定executor的资源使用的情况下，默认会抢占每个worker所有的可用的core，当再有任务提交的时候就会报出现资源不足的异常，例如：

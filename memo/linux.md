@@ -2569,6 +2569,8 @@ sshd     531 root  mem    REG                8,2    15688 50379752 /usr/lib64/li
 # 通过lsof也可以查询每个进程打开的文件句柄数目
 [root@server01 ~]# lsof -c sshd | wc -l
 126
+# 查看那些进程占用/usr/lib64/libdl-2.17.so
+[root@server01 ~]# lsof | grep /usr/lib64/libdl-2.17.so
 # lsof -i  通过监听指定的协议、端口、主机等信息，显示符合条件的进程信息。
 # 查看占用22端口的进程的信息
 [root@server01 ~]#  lsof -i :22
@@ -2587,6 +2589,13 @@ sshd    1065 root    3u  IPv4  15881      0t0  TCP server01:ssh->192.168.56.1:65
 1065
 ```
 
+### pidof
+
+```bash
+[root@server01 ~]# pidof sshd
+1134 528
+```
+
 ### kill
 
 用kill终止一个进程
@@ -2603,6 +2612,58 @@ killall的使用语法为：
 killall [信号类型] 进程名称
 信号类型：与kill命令中信号类型的含义相同。
 进程名称：进程对应的名称，例如java、httpd、mysqld、sshd、sendmail等
+
+### fuser
+
+查看文件被哪个进程占用
+
+```bash
+# 安装
+[root@server01 ~]# yum install -y psmisc
+# 查看某个进程的pid
+[root@server01 ~]# fuser /bin/bash
+/usr/bin/bash:        1136e
+# 查看当前目录正在被哪些进程在使用
+[root@server01 ~]# fuser -uv ./
+                     用户     进程号 权限   命令
+/root:               root       1136 ..c.. (root)bash
+                     root       1372 ..c.. (root)ntpdate
+# 查看/lib/gcc/x86_64-redhat-linux/4.8.2/libgcc_s.so正在被哪些进程在使用
+[root@server01 ~]# fuser -uv /lib/gcc/x86_64-redhat-linux/4.8.2/libgcc_s.so
+                     用户     进程号 权限   命令
+/usr/lib64/libgcc_s-4.8.5-20150702.so.1:
+                     root          1 ....m (root)systemd
+                     root        347 ....m (root)systemd-journal
+                     root        365 ....m (root)lvmetad
+                     root        367 ....m (root)systemd-udevd
+                     root        469 ....m (root)rsyslogd
+                     polkitd     470 ....m (polkitd)polkitd
+                     rpc         484 ....m (rpc)rpcbind
+                     root        490 ....m (root)systemd-logind
+                     root        495 ....m (root)tuned
+                     root        755 ....m (root)master
+                     postfix     776 ....m (postfix)pickup
+                     postfix     777 ....m (postfix)qmgr
+                     mysql       784 ....m (mysql)mysqld
+                     root        832 ....m (root)dhclient
+                     root       1134 ....m (root)sshd
+                     postfix    1241 ....m (postfix)cleanup
+                     postfix    1243 ....m (postfix)trivial-rewrite
+                     postfix    1244 ....m (postfix)local
+# 查看/proc这个目录有哪些进程在使用
+[root@server01 ~]# fuser -uv /proc
+                     用户     进程号 权限   命令
+/proc:               root     kernel mount (root)/proc
+# 哪些进程在进行/proc文件系统的读取
+[root@server01 ~]# fuser -muv /proc
+                     用户     进程号 权限   命令
+/proc:               root     kernel mount (root)/proc
+                     root          1 f.... (root)systemd
+                     root        347 f.... (root)systemd-journal
+                     clickhouse   1039 f.... (clickhouse)clickhouse-serv
+# 杀死/home占用home目录的所有进程
+[root@server01 ~]# fuser -mki /home
+```
 
 ## 任务调度进程crond的使用
 

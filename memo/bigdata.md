@@ -17306,7 +17306,9 @@ Spark 的 Shuffle 发展大致有两个阶段: `Hash base shuffle` 和 `Sort bas
 
 但是需要大家知道的是, Spark 的 Shuffle算法并不只是这一种, 即使是在最新版本, 也有三种Shuffle算法, 这三种算法对每个Map都只产生一个临时文件, 但是产生文件的方式不同, 一种是类似Hash的方式, 一种是刚才所说的Sort, 一种是对Sort的一种优化(使用 Unsafe API 直接申请堆外内存)
 
-### 缓存
+>**Spark在shuffle过程中存储数据和Hadoop MapReduce之间的区别是：spark会将shuffle数据保存在本地硬盘驱动器上，而不是HDFS上，HDFS是一种分布式文件系统，保存成本非常高。**
+>
+>shuffle数据存储的位置可以通过参数：spark.local.dir来设置，如果没有设置，shuffle的数据默认将放在java.io.tmpdir中。
 
 #### 缓存的意义
 

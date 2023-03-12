@@ -3865,7 +3865,7 @@ Time taken: 0.627 seconds
 
 ### HiveServer
 
-启动hiveserver 
+启动hiveserver(相当于driver)
 
 ```bash
 #启动hiveserver的两种方式：
@@ -17309,6 +17309,19 @@ Spark 的 Shuffle 发展大致有两个阶段: `Hash base shuffle` 和 `Sort bas
 >**Spark在shuffle过程中存储数据和Hadoop MapReduce之间的区别是：spark会将shuffle数据保存在本地硬盘驱动器上，而不是HDFS上，HDFS是一种分布式文件系统，保存成本非常高。**
 >
 >shuffle数据存储的位置可以通过参数：spark.local.dir来设置，如果没有设置，shuffle的数据默认将放在java.io.tmpdir中。
+>
+>方法一（推荐）：
+>在 spark-submit 命令行加入如下配置
+>--conf spark.local.dir=/user/xxx/spark_tmp
+>
+>方法二：
+>修改spark执行时临时目录的配置，在 conf 目录下的spark-defaults.conf的配置文件，增加如下一行：
+>spark.local.dir               /opt/spark_tmp
+>这种方法：修改的是全局的
+>
+>方法三：
+>配置spark-env.sh下增加:
+>export SPARK_LOCAL_DIRS=spark.local.dir /diskb/sparktmp
 
 #### 缓存的意义
 
@@ -19225,6 +19238,73 @@ spark.read.format("jdbc")
 
 ```scala
 scala> spark.read.format("jdbc").option("url", "jdbc:mysql://server01:3306/test_db").option("dbtable", "(select name, age from student where age > 10 and age < 20) as stu").option("user", "root").option("password", "123456").option("partitionColumn", "age").option("lowerBound", 1).option("upperBound", 60).option("numPartitions", 10).load().show()
+```
+
+### 启动Spark SQL JDBC
+
+跟hiveserver2的作用一样，Spark Thrift JDBCServer是Spark的一个进程，在启动之后不仅可以通过beeline以cli的方式操作spark，同时也可以通过Java JDBC代码进行连接操作。Spark Thrift JDBCServer在生产上一般也是和Hive整合使用（与hive共用元数据库）
+
+#### 启动metastore
+
+```bash
+[root@server02 bin]# nohup /usr/local/hive/bin/hive --service metastore 2>&1 >> /var/log.log &
+```
+
+#### 启动thriftserver
+
+首先在/usr/local/spark-2.2.0-bin-hadoop2.7/conf/目录下创建hive-site.xml
+
+```bash
+[root@server03 conf]# cd /usr/local/spark-2.2.0-bin-hadoop2.7/conf/
+```
+
+```xml
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+<configuration>
+  <!--
+  <property>
+      <name>hive.metastore.warehouse.dir</name>
+      <value>/user/hive/warehouse</value>
+  </property>
+  -->
+  <property>
+      <name>hive.metastore.uris</name>
+      <value>thrift://server02:9083</value>
+  </property>
+</configuration>
+```
+
+启动thriftserver
+
+```bash
+[root@server03 conf]# cd /usr/local/spark-2.2.0-bin-hadoop2.7/sbin/
+[root@server03 sbin]# ./start-thriftserver.sh --master yarn
+```
+
+#### 访问thriftserver
+
+```bash
+[root@server01 bin]# cd /usr/local/spark-2.2.0-bin-hadoop2.7/bin/
+[root@server01 bin]# ./beeline
+Beeline version 1.2.1.spark2 by Apache Hive
+beeline> ! connect jdbc:hive2://server03:10000
+Connecting to jdbc:hive2://server03:10000
+Enter username for jdbc:hive2://server03:10000: root
+# 任意密码
+Enter password for jdbc:hive2://server03:10000: ******
+0: jdbc:hive2://server03:10000> show tables;
++-----------+-------------+--------------+--+
+| database  |  tableName  | isTemporary  |
++-----------+-------------+--------------+--+
+| default   | buckettest  | false        |
+| default   | day_log     | false        |
+| default   | dp_tmp      | false        |
+| default   | logtbl      | false        |
+| default   | tmp         | false        |
+| default   | tmp1        | false        |
++-----------+-------------+--------------+--+
+6 rows selected (1.371 seconds)
 ```
 
 ## 基础操作

@@ -21410,6 +21410,12 @@ https://archive.apache.org/dist/flink/
 - JobManager负责Flink集群计算资源管理，并分发任务给TaskManager执行
 - TaskManager定期向JobManager汇报状态
 
+>注意：在Flink中JobManager承担了资源调度和任务调度两项任务，这跟Spark是有区别的，Spark中Master负责资源调度，而Driver负责任务调度。
+>
+>JobManager在进行任务调度的时候会触发集群进行checkpoint。
+
+
+
 flink-conf.yaml
 
 ```yaml
@@ -21425,13 +21431,13 @@ jobmanager.heap.size: 1024m
 # TaskManager JVM heap 内存大小
 taskmanager.heap.size: 1024m
 
-# 每个TaskManager提供的任务slots数量大小,如果有3个taskmanager一共有6个TaskSlot；是静态资源，即cpu的核数；
+# 每个TaskManager提供的任务slots数量大小
 taskmanager.numberOfTaskSlots: 2
 
 #是否进行预分配内存，默认不进行预分配，这样在我们不使用flink集群时候不会占用集群资源
 taskmanager.memory.preallocate: false
 
-# 程序默认并行计算的个数，默认的并行度为1，6个TaskSlot只用了1个，有5个空闲；是动态的概念，指程序运行时实际使用的并发能力，所以parallelism的值不能大于numberOfTaskSlots X taskmanager个数
+# 程序默认并行计算的个数，默认的并行度为1
 parallelism.default: 6
 
 #JobManager的Web界面的端口（默认：8081）
@@ -21441,11 +21447,9 @@ jobmanager.web.port: 8081
 taskmanager.tmp.dirs: /usr/local/flink-1.6.1/tmp
 ```
 
->TaskManager中资源使用task slot进行隔离。（注：隔离的是内存，core是没办法做到隔离的）
+>TaskManager中资源使用task slot进行隔离，task slot相当于Spark中的executor，注意：Task slot只是对内存资源进行了划分隔离，对CPU没有隔离，多个task slot共享CPU。一般task slot与core个数一一对应，但是如果core支持超线程，那么task slot = 2 * cores
 >
->比如：设置TaskManager的内存大小为3G，core的数量为3个，然后task slot的数量设置为3；那么意思就是说一个task可以使用1G的内存，但是cpu的使用量是没办法控制的。
->
->这个类似于spark中的executor-cores，所以即时我们设置executor-cores的数量也只是限制这个节点所启动的executor的数量，由于cpu的工作机制导致在底层是无法正真限制每个executor使用的核数的。
+>比如：设置TaskManager的内存大小为3G，core的数量为3个，然后task slot的数量设置为3；那么意思就是说一个task占用1G的内存。这个类似于spark中的executor-cores，所以即时我们设置executor-cores的数量也只是限制这个节点所启动的executor的数量，并不是对CPU进行隔离，多个executor共享CPU。很难做到从应用程序层面对CPU进行物理上的隔离。
 
 slaves
 

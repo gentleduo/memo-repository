@@ -3400,13 +3400,13 @@ YARN总体上是Master/Slave结构 ，主要由ResourceManager、NodeManager、 
 
 #### NodeManager(NM)
 
-NodeManager是每个节点上的资源和任务管理器。它会定时地向ResourceManager汇报本节点上的资源使用情况和各个Container的运行状态；同时会接收并处理来自	的Container启动/停止等请求。
+NodeManager是每个节点上的资源和任务管理器。它会定时地向ResourceManager汇报本节点上的资源使用情况和各个Container的运行状态；同时会接收并处理来自ResourceManager的Container启动/停止等请求。
 
 #### ApplicationMaster(AM)
 
 ApplicationMaster实际上是特定计算框架的一个实例，每种计算框架都有自己独特的ApplicationMaster，负责与ResourceManager协商资源，并和NodeManager协同来执行和监控Container。Spark只是可以运行在YARN上一种计算框架。
 
-spark 用户向 YARN 集群提交应用程序时,提交程序中应该包含 ApplicationMaster，用于向资源调度器申请执行任务的资源容器 Container，运行用户自己的程序任务 job，监控整个任务的执行，跟踪整个任务的状态，处理任务失败等异常情况。说的简单点就是，ResourceManager（资源）和 Driver（计算）之间的解耦合靠的就是ApplicationMaster。
+spark 用户向 YARN 集群提交应用程序时，会向ResourceManager申请一个yarn container用以启动ApplicationMaster。由于客户端已经将配置和jar文件上传至HDFS，ApplicationMaster将会下载这些jar和配置，然后启动成功（ApplicationMaster会在自己的JVM中启动Driver，所以Driver也在ApplicationMaster进程中）。ApplicationMaster用于向资源调度器申请执行任务的资源容器 Container，运行用户自己的程序任务 job，监控整个任务的执行，跟踪整个任务的状态，处理任务失败等异常情况。说的简单点就是，ResourceManager（资源）和 Driver（计算）之间的解耦合靠的就是ApplicationMaster。
 
 #### Container
 
@@ -21358,6 +21358,8 @@ Stateful Computations
 
 即有状态计算。有状态计算是最近几年来越来越被用户需求的一个功能。比如说一个网站一天内访问UV数，那么这个UV数便为状态。Flink提供了内置的对状态的一致性的处理，即如果任务发生了Failover，其状态不会丢失、不会被多算少算，同时提供了非常高的性能。
 
+有状态计算在每次进行数据计算的时候都是基于之前数据的计算结果（状态）进行计算，并且每次计算结果都会保存到存贮介质中，计算关联上下文context，基于有状态的计算不需要将历史数据重新计算，提高了计算效率；而无状态计算每次进行数据计算只是考虑当前数据，不会使用之前数据的计算结果。
+
 无界流
 
 意思很明显，只有开始没有结束。必须连续的处理无界流数据，也即是在事件注入之后立即要对其进行处理。不能等待数据到达了再去全部处理，因为数据是无界的并且永远不会结束数据注入。处理无界流数据往往要求事件注入的时候有一定的顺序性，例如可以以事件产生的顺序注入，这样会使得处理结果完整。
@@ -21429,14 +21431,14 @@ jobmanager.heap.size: 1024m
 # TaskManager JVM heap 内存大小
 taskmanager.heap.size: 1024m
 
-# 每个TaskManager提供的任务slots数量大小
+# 每个TaskManager提供的任务slots数量大小，一个task slot代表一个线程
 taskmanager.numberOfTaskSlots: 2
 
 #是否进行预分配内存，默认不进行预分配，这样在我们不使用flink集群时候不会占用集群资源
 taskmanager.memory.preallocate: false
 
 # 程序默认并行计算的个数，默认的并行度为1
-parallelism.default: 6
+parallelism.default: 1
 
 #JobManager的Web界面的端口（默认：8081）
 jobmanager.web.port: 8081
@@ -21445,7 +21447,7 @@ jobmanager.web.port: 8081
 taskmanager.tmp.dirs: /usr/local/flink-1.6.1/tmp
 ```
 
->TaskManager中资源使用task slot进行隔离，task slot相当于Spark中的executor，注意：Task slot只是对内存资源进行了划分隔离，对CPU没有隔离，多个task slot共享CPU。一般task slot与core个数一一对应，但是如果core支持超线程，那么task slot = 2 * cores
+>TaskManager负责当前节点上的任务运行及当前节点上的资源管理，TaskManager资源通过TaskSlot进行了划分，每个TaskSlot代表了一份固定资源。例如，具有三个slot的TaskManager会将其管理的内存资源分成三等份给每个slot，划分资源意味着subtask之间不会竞争内存资源，但是也意味着它们只拥有固定的资源。注意这里并没有CPU隔离，当前slots之间只是划分任务的内存资源。
 >
 >比如：设置TaskManager的内存大小为3G，core的数量为3个，然后task slot的数量设置为3；那么意思就是说一个task占用1G的内存。这个类似于spark中的executor-cores，所以即时我们设置executor-cores的数量也只是限制这个节点所启动的executor的数量，并不是对CPU进行隔离，多个executor共享CPU。很难做到从应用程序层面对CPU进行物理上的隔离。
 
@@ -21542,6 +21544,12 @@ server02:8081
 [root@server01 conf]# scp masters server03:$PWD
 ```
 
+从官网的download链接的Additional Components中下载支持Hadoop插件并且拷贝到各个节点的安装包的lib目录下：
+
+https://flink.apache.org/downloads/
+
+https://repo.maven.apache.org/maven2/org/apache/flink/flink-shaded-hadoop-2-uber/2.7.5-10.0/flink-shaded-hadoop-2-uber-2.7.5-10.0.jar
+
 启动zookeeper集群
 
 启动HDFS集群
@@ -21588,6 +21596,8 @@ object WordCount {
     restStream.print()
 
     /**
+     * 必须执行environment.execute才能正真启动flink任务
+     *
      * 2> (hello,1)
      * 4> (flink,1)
      * 1> (spark,1)
@@ -21667,7 +21677,23 @@ Flink运行在YARN上，可以使用yarn-session来快速提交作业到YARN集�
 
    ![image](assets\bigdata-5.png)
 
+>Flink on yarn实质就是在yarn管理的资源中启动一个flink集群，然后JobManager和TaskManager之间进行任务调度，这一点跟Spark on yarn是不一样的，Spark中的任务提交到yarn上，并没有启动Master和Worker，因为在Spark中Master和Worker的作用非常纯粹只做资源管理，所以直接被yarn的ResourceManager和NodeManager代替了，所以Spark只需要启动Driver和Executor即可；而Flink中JobManager和TaskManager的功能太多所以依然会启动这两个角色。
+>
+>**flink的一个task slot(线程)相当于Spark中的一个executor(进程)**
+
 yarn-session提供两种模式: 会话模式和分离模式
+
+1、yarn-session
+
+- 在提交之前，需要先去yarn中启动一个flink集群(yarn-session)
+- 启动成功之后，通过flink run这个命令去往flink集群中提交任务
+- 当job执行完毕之后，yarn-session集群不会关闭，等待下一个job的提交
+- 缺点：一直占着集群资源；优点：job启动的时间缩短了
+
+2、Run a Flink job on YARN
+
+- 直接去yarn中提交一个flink job，在job执行之前，先去启动一个flink集群，集群启动成功后job再执行，当job执行完毕后flink集群一同被关闭，释放资源
+- 缺点：由于每次提交job都要启动集群，所以整个job的执行时间变长；优点：节省资源
 
 ##### 会话模式
 

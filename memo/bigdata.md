@@ -21441,6 +21441,12 @@ jobmanager.web.port: 8081
 taskmanager.tmp.dirs: /usr/local/flink-1.6.1/tmp
 ```
 
+>TaskManager中资源使用task slot进行隔离。（注：隔离的是内存，core是没办法做到隔离的）
+>
+>比如：设置TaskManager的内存大小为3G，core的数量为3个，然后task slot的数量设置为3；那么意思就是说一个task可以使用1G的内存，但是cpu的使用量是没办法控制的。
+>
+>这个类似于spark中的executor-cores，所以即时我们设置executor-cores的数量也只是限制这个节点所启动的executor的数量，由于cpu的工作机制导致在底层是无法正真限制每个executor使用的核数的。
+
 slaves
 
 ```properties

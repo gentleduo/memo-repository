@@ -17459,9 +17459,11 @@ Checkpoint 的主要作用是斩断 RDD 的依赖链, 并且将数据存储在�
 
     // checkpoint
     // aggRDD = aggRDD.cache
-    // 不准确的说, Checkpoint 是一个 Action 操作, 也就是说
+    // 不准确的说, Checkpoint 是一个 Transformation 操作, 也就是说
     // 如果调用 checkpoint, 则会重新计算一下 RDD, 然后把结果存在 HDFS 或者本地目录中
-    // 所以, 应该在 Checkpoint 之前, 进行一次 Cache
+    // 而cache是一个Action的操作，会直接进行持久化
+    // 在Checkpoint之前, 进行一次Cache的原因是：
+    // 从源码分析可知每个rdd在进行一个操作之前会进行三个判断：1、先看上一阶段的结果有没有被cache；2、再看上一阶段的结果有没有被checkpoint；3、如果1和2都没有再进行计算，checkpoint是一个Transformation算子它的调用是在所有的action算子的最后，所有如果没有在checkpoint之前进行一次cache，那么它之前的所有的rdd会被重新计算一遍，影响性能
     aggRDD = aggRDD.cache()
     aggRDD.checkpoint()
 

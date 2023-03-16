@@ -21410,11 +21410,9 @@ https://archive.apache.org/dist/flink/
 - JobManager负责Flink集群计算资源管理，并分发任务给TaskManager执行
 - TaskManager定期向JobManager汇报状态
 
->注意：在Flink中JobManager承担了资源调度和任务调度两项任务，这跟Spark是有区别的，Spark中Master负责资源调度，而Driver负责任务调度。
+>注意：在Flink的Standalone模式中JobManager承担了资源调度和任务调度两项任务，所以一般建议用yarn模式
 >
 >JobManager在进行任务调度的时候会触发集群进行checkpoint。
-
-
 
 flink-conf.yaml
 
@@ -21549,6 +21547,80 @@ server02:8081
 启动HDFS集群
 
 启动flink集群
+
+WordCount
+
+```scala
+package org.duo.stream
+
+import org.apache.flink.streaming.api.scala.{DataStream, StreamExecutionEnvironment}
+import org.apache.flink.streaming.api.scala._
+
+/**
+ * @Auther:duo
+ * @Date: 2023-03-16 - 03 - 16 - 13:51
+ * @Description: org.duo.stream
+ * @Version: 1.0
+ */
+object WordCount {
+
+  /**
+   * @param args
+   */
+  def main(args: Array[String]): Unit = {
+
+    /**
+     * createLocalEnvironment 创建一个本地执行环境
+     * createLocalEnvironmentWithWebUI 创建一个本地执行环境，同时开启Web UI的查看端口，默认是8081
+     * getExecutionEnvironment 根据执行的环境创建上下文，比如：local cluster
+     *
+     */
+    //    StreamExecutionEnvironment.createLocalEnvironment()
+    //    StreamExecutionEnvironment.createLocalEnvironmentWithWebUI()
+    val environment = StreamExecutionEnvironment.getExecutionEnvironment
+    environment.setParallelism(1)
+    val initStream: DataStream[String] = environment.socketTextStream("server01", 8888)
+
+    val wordStream = initStream.flatMap(_.split(" "))
+    val pairStream = wordStream.map((_, 1))
+    val keyByStream = pairStream.keyBy(0)
+    val restStream = keyByStream.sum(1)
+    restStream.print()
+
+    /**
+     * 2> (hello,1)
+     * 4> (flink,1)
+     * 1> (spark,1)
+     * 2> (hello,2)
+     * 4> (hadoop,1)
+     * 2> (hello,3)
+     *
+     * 2> 代表是哪一个线程处理
+     * 但是相同的数据一定是由一个线程来处理
+     */
+    environment.execute("first flink job")
+  }
+}
+
+```
+
+提交flink任务
+
+```bash
+# -d:
+[root@server01 bin]# flink run -c org.duo.stream.WordCount -d /opt/bigdata/original-flink-1.0.jar
+```
+
+>在Spark集群提交作业时候可以使用--deploy参数指定client或者cluster方式提交作业到集群，前者是客户端模式，后者是集群模式，两者主要区别就是Driver的运行位置，在客户端模式下，Driver运行在提交作业的客户端机器上负责与集群进行资源申请调度等工作。而集群模式下Driver运行在集群中的某一个节点上负责资源申请以及调度。一般的，客户端模式适合程序的调试，这种模式下，程序中的print等类似控制台打印方法可以在提交作业的控制台打印输出，后者由于Driver运行在集群中的某一节点上，所以不会将打印信息在提交的客户端上进行打印。spark默认提交方式是客户端方式
+>
+>Flink的提交作业方式：
+>
+>flink同样支持两种提交方式，默认不指定就是客户端方式。如果需要使用集群方式提交的话。可以在提交作业的命令行中指定-d或者--detached 进行进群模式提交。
+>-d,--detached                                  If present, runs the job in  detached mode（分离模式）
+>客户端提交方式：flink run -c com.daxin.batch.App flinkwordcount.jar ，客户端会多出来一个CliFrontend进程，就是驱动进程。
+>集群模式提交：flink run -d  -c com.daxin.batch.App flinkwordcount.jar 程序提交完毕退出客户端，不在打印作业进度等信息！
+>两种提交作业方式的实现原理：
+>客户端提交其实就是同步提交，作业提交之后一直跟踪作业的执行进度以及控制台输出信息打印。而后台提交其实就是异步提交，将作业提交之后返回一个Future之后就不在跟踪作业了，需要看输出信息则需要通过Jobmanager的Web UI来查看！
 
 ### Yarn集群环境
 

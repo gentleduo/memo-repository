@@ -21653,7 +21653,7 @@ https://repo.maven.apache.org/maven2/org/apache/flink/flink-shaded-hadoop-2-uber
 
 启动zookeeper集群
 
-启动HDFS集群
+启动Yarn、HDFS集群
 
 启动flink集群
 
@@ -21683,14 +21683,14 @@ Flink运行在YARN上，可以使用yarn-session来快速提交作业到YARN集�
 
 yarn-session提供两种模式: 会话模式和分离模式
 
-1、yarn-session
+1、yarn-session（常用模式）
 
 - 在提交之前，需要先去yarn中启动一个flink集群(yarn-session)
 - 启动成功之后，通过flink run这个命令去往flink集群中提交任务
 - 当job执行完毕之后，yarn-session集群不会关闭，等待下一个job的提交
-- 缺点：一直占着集群资源；优点：job启动的时间缩短了
+- 缺点：JobManager会一直占着集群资源(TaskManager只有当提交任务时才会被启动)；优点：job启动的时间缩短了
 
-2、Run a Flink job on YARN
+2、Run a Flink job o n YARN
 
 - 直接去yarn中提交一个flink job，在job执行之前，先去启动一个flink集群，集群启动成功后job再执行，当job执行完毕后flink集群一同被关闭，释放资源
 - 缺点：由于每次提交job都要启动集群，所以整个job的执行时间变长；优点：节省资源
@@ -21709,9 +21709,9 @@ yarn-session提供两种模式: 会话模式和分离模式
 ```bash
 # -n 表示申请2个容器，
 # -s 表示每个容器启动多少个slot
-# -tm 表示每个TaskManager申请800M内存
+# -tm 表示每个TaskManager申请1024M内存
 # -d 表示以后台程序方式运行
-[root@server01 hadoop]# yarn-session.sh -n 2 -tm 800 -s 1 -d
+[root@server01 hadoop]# yarn-session.sh -n 3 -tm 1024 -s 2 -d
 ```
 
 yarn-session.sh脚本可以携带的参数:
@@ -21742,13 +21742,54 @@ yarn-session.sh脚本可以携带的参数:
 
 ```bash
 [root@server01 hadoop]# cd /usr/local/flink-1.6.1
-[root@server01 hadoop]# flink run examples/batch/WordCount.jar
+[root@server01 hadoop]# flink run -c org.duo.stream.WordCount -yid application_1679028710856_0001 /opt/bigdata/original-flink-1.0.jar
+```
+
+>yid：指定yarn-session的ApplicationID
+>
+>不使用yid也可以，因为在启动yarn-session的时候，在tmp临时目录下已经产生了一个隐藏小文件：/tmp/.yarn-properties-root；里面会记录最后一次通过yarn-session创建的flink集群的ApplicationID
+
+查看正在运行的flink job
+
+```bash
+[root@server01 ~]# flink list
+2023-03-17 13:16:59,593 INFO  org.apache.flink.yarn.cli.FlinkYarnSessionCli                 - Found Yarn properties file under /tmp/.yarn-properties-root.
+2023-03-17 13:16:59,593 INFO  org.apache.flink.yarn.cli.FlinkYarnSessionCli                 - Found Yarn properties file under /tmp/.yarn-properties-root.
+2023-03-17 13:17:00,611 INFO  org.apache.flink.yarn.cli.FlinkYarnSessionCli                 - YARN properties set default parallelism to 6
+2023-03-17 13:17:00,611 INFO  org.apache.flink.yarn.cli.FlinkYarnSessionCli                 - YARN properties set default parallelism to 6
+YARN properties set default parallelism to 6
+2023-03-17 13:17:00,844 INFO  org.apache.hadoop.yarn.client.RMProxy                         - Connecting to ResourceManager at server01/192.168.56.110:8032
+2023-03-17 13:17:01,017 INFO  org.apache.flink.yarn.cli.FlinkYarnSessionCli                 - No path for the flink jar passed. Using the location of class org.apache.flink.yarn.YarnClusterDescriptor to locate the jar
+2023-03-17 13:17:01,017 INFO  org.apache.flink.yarn.cli.FlinkYarnSessionCli                 - No path for the flink jar passed. Using the location of class org.apache.flink.yarn.YarnClusterDescriptor to locate the jar
+2023-03-17 13:17:01,110 INFO  org.apache.flink.yarn.AbstractYarnClusterDescriptor           - Found application JobManager host name 'server02' and port '42404' from supplied application id 'application_1679028710856_0001'
+Waiting for response...
+------------------ Running/Restarting Jobs -------------------
+17.03.2023 13:16:33 : f311ac4f1bdfa96d2bb4509eef947f32 : first flink job (RUNNING)
+--------------------------------------------------------------
+No scheduled jobs.
+```
+
+cancl正在运行flink job
+
+```bash
+[root@server01 ~]# flink cancel f311ac4f1bdfa96d2bb4509eef947f32
+2023-03-17 13:19:08,270 INFO  org.apache.flink.yarn.cli.FlinkYarnSessionCli                 - Found Yarn properties file under /tmp/.yarn-properties-root.
+2023-03-17 13:19:08,270 INFO  org.apache.flink.yarn.cli.FlinkYarnSessionCli                 - Found Yarn properties file under /tmp/.yarn-properties-root.
+Cancelling job f311ac4f1bdfa96d2bb4509eef947f32.
+2023-03-17 13:19:08,901 INFO  org.apache.flink.yarn.cli.FlinkYarnSessionCli                 - YARN properties set default parallelism to 6
+2023-03-17 13:19:08,901 INFO  org.apache.flink.yarn.cli.FlinkYarnSessionCli                 - YARN properties set default parallelism to 6
+YARN properties set default parallelism to 6
+2023-03-17 13:19:09,061 INFO  org.apache.hadoop.yarn.client.RMProxy                         - Connecting to ResourceManager at server01/192.168.56.110:8032
+2023-03-17 13:19:09,330 INFO  org.apache.flink.yarn.cli.FlinkYarnSessionCli                 - No path for the flink jar passed. Using the location of class org.apache.flink.yarn.YarnClusterDescriptor to locate the jar
+2023-03-17 13:19:09,330 INFO  org.apache.flink.yarn.cli.FlinkYarnSessionCli                 - No path for the flink jar passed. Using the location of class org.apache.flink.yarn.YarnClusterDescriptor to locate the jar
+2023-03-17 13:19:09,423 INFO  org.apache.flink.yarn.AbstractYarnClusterDescriptor           - Found application JobManager host name 'server02' and port '42404' from supplied application id 'application_1679028710856_0001'
+Cancelled job f311ac4f1bdfa96d2bb4509eef947f32.
 ```
 
 如果程序运行完了，可以使用yarn application -kill application_id杀掉任务
 
 ```bash
-[root@server01 flink-1.6.1]# yarn application -kill application_1663404082372_0001
+[root@server01 flink-1.6.1]# yarn application -kill application_1679028710856_0001
 ```
 
 ##### 分离模式
@@ -21761,8 +21802,24 @@ yarn-session.sh脚本可以携带的参数:
 使用flink直接提交任务
 
 ```bash
-[root@server01 flink-1.6.1]# flink run -m yarn-cluster -yn 2 ./examples/batch/WordCount.jar
+[root@server01 flink-1.6.1]# flink run -m yarn-cluster -yn 3 -ys 2 -ynm flink-jbo -c org.duo.stream.WordCount /opt/bigdata/original-flink-1.0.jar
 ```
+
+> -yn , --container 表示分配容器的数量，也就是TaskManager的数量。
+>
+> -d , --detached 设置在后台运行
+>
+> -yjm , --jobManagerMemory 设置JobManager的内存，单位是MB
+>
+> -ytm , --taskManagerMemory 设置每个TaskManager的内存，单位是MB
+>
+> -ynm , --name 给当前Flink application在Yarn上指定名称
+>
+> -yq , --query 显示yarn中可用的资源
+>
+> -yqu , --queue 指定yarn资源队列
+>
+> -ys , --slots 每个TaskManager使用的slot数量
 
 ## 架构
 

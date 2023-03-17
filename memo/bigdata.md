@@ -21634,13 +21634,37 @@ https://flink.apache.org/downloads/
 
 https://repo.maven.apache.org/maven2/org/apache/flink/flink-shaded-hadoop-2-uber/2.7.5-10.0/flink-shaded-hadoop-2-uber-2.7.5-10.0.jar
 
-计算资源统一由Hadoop YARN管理，修改Hadoop的yarn-site.xml，添加该配置表示内存超过分配值，是否将任务杀掉。默认为true。运行Flink程序，很容易超过分配的内存。
+1、计算资源统一由Hadoop YARN管理，修改Hadoop的yarn-site.xml，添加该配置表示内存超过分配值，是否将任务杀掉。默认为true。运行Flink程序，很容易超过分配的内存。
+
+2、Application提交到Yarn中运行，都会启动一个yarn-session，依然由JobManager和TaskManager组成，那么如果JobManager宕机，整个Flink集群就无法正常运转，所以可以通过如下设置来搭建Flink On Yarn的HA集群。
 
 ```xml
 <property>
 	<name>yarn.nodemanager.vmem-check-enabled</name>
     <value>false</value>
 </property>
+<!-- AppMater宕机后最大重试次数  -->
+<!-- Flink的HA不是启动两个JobManager形成主备模式，是基于重启的HA，也就是说在JobManager宕机之后通过ZK选取出新的节点，然后在新的节点上启动一个新的JobManager进程，而这个max-attempts就是重启最大失败次数 -->
+<property>
+        <name>yarn.resourcemanager.am.max-attempts</name>
+        <value>10</value>
+</property>
+```
+
+修改flink安装包下的fink-conf.yaml文件 
+
+JobManager宕机后会通过ZK重新选举新的节点启动JobManager，所以需要在fink-conf.yaml中配置ZK信息
+
+```yaml
+#开启HA，使用文件系统作为快照存储
+state.backend: filesystem
+#启用检查点，可以将快照保存到HDFS
+state.backend.fs.checkpointdir: hdfs://server01:8020/flink-checkpoints
+#使用zookeeper搭建高可用
+high-availability: zookeeper
+# 存储JobManager的元数据到HDFS
+high-availability.storageDir: hdfs://server01:8020/flink/ha/
+high-availability.zookeeper.quorum: server01:2181,server02:2181,server03:2181
 ```
 
 分发yarn-site.xml到其它服务器节点

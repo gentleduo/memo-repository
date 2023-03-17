@@ -21544,12 +21544,6 @@ server02:8081
 [root@server01 conf]# scp masters server03:$PWD
 ```
 
-从官网的download链接的Additional Components中下载支持Hadoop插件并且拷贝到各个节点的安装包的lib目录下：
-
-https://flink.apache.org/downloads/
-
-https://repo.maven.apache.org/maven2/org/apache/flink/flink-shaded-hadoop-2-uber/2.7.5-10.0/flink-shaded-hadoop-2-uber-2.7.5-10.0.jar
-
 启动zookeeper集群
 
 启动HDFS集群
@@ -21633,6 +21627,12 @@ object WordCount {
 >客户端提交其实就是同步提交，作业提交之后一直跟踪作业的执行进度以及控制台输出信息打印。而后台提交其实就是异步提交，将作业提交之后返回一个Future之后就不在跟踪作业了，需要看输出信息则需要通过Jobmanager的Web UI来查看！
 
 ### Yarn集群环境
+
+从官网的download链接的Additional Components中下载支持Hadoop插件并且拷贝到各个节点的安装包的lib目录下：
+
+https://flink.apache.org/downloads/
+
+https://repo.maven.apache.org/maven2/org/apache/flink/flink-shaded-hadoop-2-uber/2.7.5-10.0/flink-shaded-hadoop-2-uber-2.7.5-10.0.jar
 
 计算资源统一由Hadoop YARN管理，修改Hadoop的yarn-site.xml，添加该配置表示内存超过分配值，是否将任务杀掉。默认为true。运行Flink程序，很容易超过分配的内存。
 

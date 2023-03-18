@@ -21845,6 +21845,26 @@ Cancelled job f311ac4f1bdfa96d2bb4509eef947f32.
 >
 > -ys , --slots 每个TaskManager使用的slot数量
 
+## API
+
+Flink提供了不同的抽象级别用于开发流式或者批处理应用程序
+
+### Stateful Stream Processing
+
+最低级的抽象接口是状态化的数据流接口。这个接口是通过ProcessFunction集成到DataStream API中的。该接口允许用户自由的处理来自一个或多个流中的事件，并使用一致的容错状态。另外，用户也可以通过注册event time和processing time处理回调函数的方法来实现复杂的计算。
+
+### DataStream/DataSet API
+
+DataStream/DataSet API是Flink提供的核心API，DataSet处理有界流的数据集，DataStream处理有界流或者无界的数据流。用户可以通过各种方法（map/flatmap/window/keyby/sum/max/min/avg/join）将数据进行转换/计算。
+
+### Table API
+
+Table API提供了例如：select、project、join、group by、aggregate等操作，使用起来更加简洁，可以在表与DataStream/DataSet之间无缝切换，也允许程序将Table API与DataStream以及DataSet混合使用
+
+### SQL
+
+Flink提供的最高层级的抽象是SQL。这一层抽象在语法与表达能力上与Table API类似。SQL抽象与Table API交互密切，同时SQL查询可以直接在Table API定义的表上执行。
+
 ## 架构
 
 ### 基石

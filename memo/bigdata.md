@@ -24874,18 +24874,6 @@ object WatermarkDemo {
 
 官网对Flink的解释：Stateful Computations over Data Streams，这是说Flink是一个有状态的数据流计算框架。有状态的计算是指：计算任务的结果不仅仅依赖于输入，还依赖于它的当前状态。比如wordcount,计算单词的count,这是一个很常见的业务场景。count做为输出，在计算的过程中要不断的把输入累加到count上去，那么count就是一个state。
 
-Flink的一个算子有多个子任务，每个子任务分布在不同实例上，可以把状态理解为某个算子子任务在其当前实例上的一个变量，变量记录了数据流的历史信息。当新数据流入时，可以结合历史信息来进行计算。实际上，Flink的状态是由算子的子任务来创建和管理的。一个状态更新和获取的流程如下图所示，一个算子子任务接收输入流，获取对应的状态，根据新的计算结果更新状态。一个简单的例子是对一个时间窗口内输入流的某个整数字段求和，那么当算子子任务接收到新元素时，会获取已经存储在状态中的数值，然后将当前输入加到状态上，并将状态数据更新。
-
-![image](assets\bigdata-9.png)
-
-获取和更新状态的逻辑其实并不复杂，但流处理框架还需要解决以下几类问题：
-
-- 数据的产出要保证实时性，延迟不能太高。
-- 需要保证数据不丢不重，恰好计算一次，尤其是当状态数据非常大或者应用出现故障需要恢复时，要保证状态的计算不出任何错误。
-- 一般流处理任务都是7*24小时运行的，程序的可靠性非常高。
-
-基于上述要求，不能将状态直接交由内存管理，因为内存的容量是有限制的，当状态数据稍微大一些时，就会出现内存不够的问题。假如使用一个持久化的备份系统，不断将内存中的状态备份起来，当流处理作业出现故障时，需要考虑如何从备份中恢复。而且，大数据应用一般是横向分布在多个节点上，流处理框架需要保证横向的伸缩扩展性。可见，状态的管理并不那么容易。作为一个计算框架，Flink提供了有状态的计算，封装了一些底层的实现，比如状态的高效存储、Checkpoint和Savepoint持久化备份机制、计算资源扩缩容等问题。因为Flink接管了这些问题，开发者只需调用Flink API，这样可以更加专注于业务逻辑。
-
 ### State和Checkpoint
 
 前面写的WordCount的例子，没有包含状态管理。如果一个Task在处理过程中挂掉了，那么它在内存中的状态都会丢失，所有的数据都需要重新计算。 从容错和消息处理的语义上(at least once, exactly once)，Flink引入了State和Checkpoint
@@ -24903,6 +24891,205 @@ Flink的一个算子有多个子任务，每个子任务分布在不同实例上
 >   ​	可以理解为Checkpoint是把State数据定时持久化存储了，
 
 Flink中有两种基本类型的State：Keyed State和Operator State，它们可以以两种形式存在：托管状态（Managed State）和原生状态（Raw  State）。
+
+托管状态是由Flink框架管理的状态，如ValueState, ListState, MapState等。
+
+而原始状态，由用户自行管理状态具体的数据结构，框架在做checkpoint的时候，使用byte[]来读写状态内容，对其内 部数据结构一无所知。
+
+通常在DataStream上的状态推荐使用托管的状态，当实现一个用户自定义的operator时，会使用到原始状态。
+
+### Keyed State
+
+顾名思义，就是基于KeyedStream上的状态。这个状态是跟特定的key绑定的，对KeyedStream流上的每一个key，都对应一个state。比如：stream.keyBy(…)
+
+保存state的数据结构
+
+ValueState :即类型为T的 单值 状态。这个状态与对应的key绑定，是最简单的状态了。它可以通过 update 方法更新状态值，通过 value() 方法获取状态值
+
+ListState:即key上的状态值为一个列表。可以通过add方法往列表中附加值；也可以通过get()方法返回一个Iterable来遍 历状态值
+
+ReducingState:这种状态通过用户传入的reduceFunction，每次调用add方法添加值的时候，会调用reduceFunction，最 后合并到一个单一的状态值
+
+MapState:即状态值为一个map。用户通过put或putAll方法添加元素
+
+需要注意的是，以上所述的State对象，仅仅用于与状态进行交互（更新、删除、清空等），而真正的状态值，有可能 是存在内存、磁盘、或者其他分布式存储系统中。相当于我们只是持有了这个状态的句柄
+
+实例：
+
+```scala
+package org.duo.state
+
+import org.apache.flink.api.common.functions.RichFlatMapFunction
+import org.apache.flink.api.common.state.{ValueState, ValueStateDescriptor}
+import org.apache.flink.configuration.Configuration
+import org.apache.flink.streaming.api.scala.StreamExecutionEnvironment
+import org.apache.flink.api.scala._
+import org.apache.flink.util.Collector
+
+/**
+  * RichFlatMapFunction[IN, OUT]
+  *
+  * IN : 输入数据的类型
+  * OUT: 输出数据的类型
+  *
+  */
+class CountWindowAverage extends RichFlatMapFunction[(Long, Long), (Long, Long)] {
+
+  // 声明状态值
+  private var sum: ValueState[(Long, Long)] = _
+
+  // 重写flatmap方法
+  override def flatMap(input: (Long, Long), out: Collector[(Long, Long)]): Unit = {
+
+    // access the state value
+    // 通过value方法,获取状态值
+    val tmpCurrentSum = sum.value
+
+    // If it hasn't been used before, it will be null
+    // 如果状态值为null,赋一个默认值(0,0), 否则返回状态值
+    val currentSum = if (tmpCurrentSum != null) {
+      tmpCurrentSum
+    } else {
+      (0L, 0L)
+    }
+
+
+    // update the count
+    // 累加数据  (1L, 3L)  (1,3)  (1L, 5L)  (2,8)
+    val newSum = (currentSum._1 + 1, currentSum._2 + input._2)
+
+    // update the state
+    // 更新状态值
+    sum.update(newSum)
+
+    // if the count reaches 2, emit the average and clear the state
+    //    (2,8) (1,4)
+    // 当数据累加到大于等于2,就会去求平均值,接着清理状态值
+    if (newSum._1 >= 2) {
+      out.collect((input._1, newSum._2 / newSum._1))
+      sum.clear()
+    }
+  }
+
+  override def open(parameters: Configuration): Unit = {
+    sum = getRuntimeContext.getState(
+      new ValueStateDescriptor[(Long, Long)]("average", createTypeInformation[(Long, Long)])
+    )
+  }
+}
+
+
+object ExampleCountWindowAverage extends App {
+  // 加载流处理环境
+  val env = StreamExecutionEnvironment.getExecutionEnvironment
+
+  // 加载本地集合
+  env.fromCollection(List(
+    (1L, 3L),
+    (1L, 5L),
+    (1L, 7L),
+    (1L, 4L),
+    (1L, 2L)
+  )).keyBy(_._1)      // 分组,根据元组的第一个元素
+    .flatMap(new CountWindowAverage())  // 进行自定义FlatMap
+    .print()          // 打印结果
+  // the printed output will be (1,4) and (1,5)
+
+  // 执行任务
+  env.execute("ExampleManagedState")
+}
+```
+
+### Operator State
+
+与Key无关的State，与Operator绑定的state，整个operator 只对应一个 state
+
+保存state的数据结构：ListState
+
+举例来说，Flink中的Kafka Connector，就使用了operator state。它会在每个connector实例中，保存该实例中消 费topic的所有(partition, oset)映射
+
+示例：
+
+```scala
+package org.duo.state
+
+import org.apache.flink.api.common.state.{ListState, ListStateDescriptor}
+import org.apache.flink.api.common.typeinfo.{TypeHint, TypeInformation}
+import org.apache.flink.runtime.state.{FunctionInitializationContext, FunctionSnapshotContext}
+import org.apache.flink.streaming.api.checkpoint.CheckpointedFunction
+import org.apache.flink.streaming.api.functions.sink.SinkFunction
+
+import scala.collection.mutable.ListBuffer
+
+/**
+  * 带缓存的Sink
+  *
+  * SinkFunction : 自定义Sink的函数
+  * CheckpointedFunction: 状态转换函数的核心接口
+  * @param threshold    阈值
+  */
+class BufferingSink(threshold: Int = 0)
+  extends SinkFunction[(String, Int)]
+    with CheckpointedFunction {
+
+  @transient
+  private var checkpointedState: ListState[(String, Int)] = _
+
+  // 缓存对象
+  private val bufferedElements = ListBuffer[(String, Int)]()
+
+  override def invoke(value: (String, Int)): Unit = {
+    // 累加数据到bufferedElements
+    bufferedElements += value
+
+    // 如果bufferedElements累加的大小等于阈值,那么进行sink,并清除数据
+    if (bufferedElements.size == threshold) {
+      for (element <- bufferedElements) {
+        // send it to the sink
+      }
+      bufferedElements.clear()
+    }
+  }
+
+  /**
+    * 快照State
+    * @param context
+    */
+  override def snapshotState(context: FunctionSnapshotContext): Unit = {
+    // 清理下历史State
+    checkpointedState.clear()
+    // 遍历缓存bufferedElements中的所有数据,会添加到ListState中
+    for (element <- bufferedElements) {
+      checkpointedState.add(element)
+    }
+  }
+
+  /**
+    * 初始化State
+    * @param context
+    */
+  override def initializeState(context: FunctionInitializationContext): Unit = {
+    // 创建ListStateDescriptor
+    val descriptor = new ListStateDescriptor[(String, Int)](
+      "buffered-elements",
+      TypeInformation.of(new TypeHint[(String, Int)]() {})
+    )
+
+    // 获取ListState对象
+    checkpointedState = context.getOperatorStateStore.getListState(descriptor)
+
+    // 如果是错误恢复状态, 获取ListState对象的值,并且累加到bufferedElements
+    if(context.isRestored) {
+      for(element <- checkpointedState.get()) {
+        bufferedElements += element
+      }
+    }
+  }
+
+}
+```
+
+
 
 ### Managed State和Raw State
 
@@ -24966,73 +25153,6 @@ Operator  State可以用在所有算子上，每个算子子任务或者说每�
 - MapState[K, V]存储一个Key-Value map，其功能与Java的Map几乎相同。get(key: K)可以获取某个key下的value，put(key: K, value: V)可以对某个key设置value，contains(key: K)判断某个key是否存在，remove(key: K)删除某个key以及对应的value，entries(): java.lang.Iterable[java.util.Map.Entry[K, V]]返回MapState中所有的元素，iterator(): java.util.Iterator[java.util.Map.Entry[K, V]]返回一个迭代器。需要注意的是，MapState中的key和Keyed State的key不是同一个key。
 - ListState[T]存储了一个由T类型数据组成的列表。我们可以使用add(value: T)或addAll(values: java.util.List[T])向状态中添加元素，使用get(): java.lang.Iterable[T]获取整个列表，使用update(values: java.util.List[T])来更新列表，新的列表将替换旧的列表。
 - ReducingState[T]和AggregatingState[IN, OUT]与ListState[T]同属于MergingState[T]。与ListState[T]不同的是，ReducingState[T]只有一个元素，而不是一个列表。它的原理是新元素通过add(value: T)加入后，与已有的状态元素使用ReduceFunction合并为一个元素，并更新到状态里。AggregatingState[IN, OUT]与ReducingState[T]类似，也只有一个元素，只不过AggregatingState[IN, OUT]的输入和输出类型可以不一样。ReducingState[T]和AggregatingState[IN, OUT]与窗口上进行ReduceFunction和AggregateFunction很像，都是将新元素与已有元素做聚合
-
-官网示例代码
-
-```scala
-package org.duo
-
-import org.apache.flink.api.common.functions.RichFlatMapFunction
-import org.apache.flink.api.common.state.{ValueState, ValueStateDescriptor}
-import org.apache.flink.configuration.Configuration
-import org.apache.flink.streaming.api.scala.StreamExecutionEnvironment
-import org.apache.flink.api.scala._
-import org.apache.flink.util.Collector
-
-class CountWindowAverage extends RichFlatMapFunction[(Long, Long), (Long, Long)] {
-
-  private var sum: ValueState[(Long, Long)] = _
-
-  override def flatMap(input: (Long, Long), out: Collector[(Long, Long)]): Unit = {
-
-    // access the state value
-    val tmpCurrentSum = sum.value
-
-    // If it hasn't been used before, it will be null
-    val currentSum = if (tmpCurrentSum != null) {
-      tmpCurrentSum
-    } else {
-      (0L, 0L)
-    }
-
-    // update the count
-    val newSum = (currentSum._1 + 1, currentSum._2 + input._2)
-
-    // update the state
-    sum.update(newSum)
-
-    // if the count reaches 2, emit the average and clear the state
-    if (newSum._1 >= 2) {
-      out.collect((input._1, newSum._2 / newSum._1))
-      sum.clear()
-    }
-  }
-
-  override def open(parameters: Configuration): Unit = {
-    sum = getRuntimeContext.getState(
-      new ValueStateDescriptor[(Long, Long)]("average", createTypeInformation[(Long, Long)])
-    )
-  }
-}
-
-
-object ExampleCountWindowAverage extends App {
-  val env = StreamExecutionEnvironment.getExecutionEnvironment
-
-  env.fromCollection(List(
-    (1L, 3L),
-    (1L, 5L),
-    (1L, 7L),
-    (1L, 4L),
-    (1L, 2L)
-  )).keyBy(_._1)
-    .flatMap(new CountWindowAverage())
-    .print()
-  // the printed output will be (1,4) and (1,5)
-
-  env.execute("ExampleManagedState")
-}
-```
 
 #### Operator State的使用
 

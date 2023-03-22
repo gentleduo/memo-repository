@@ -2252,7 +2252,8 @@ lrwxrwxrwx. 1 root root 7 Dec 19 18:41 /dev/vggroup/lv1 -> ../dm-0
 brw-rw----. 1 root disk 253, 0 Dec 19 18:41 /dev/dm-0
 
 2.4 格式化lv；挂载
-mke2fs -t ext4 /dev/vggroup/lv1 
+mke2fs -t ext4 /dev/vggroup/lv1             # ext4
+mkfs.xfs /dev/vggroup/lv1                   # xfs
 mount /dev/vggroup/lv1   /data/lvmnt/       # 也可以
 mount /dev/mapper/vggroup-lv1  /data/lvmnt
 

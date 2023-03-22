@@ -1,16 +1,110 @@
-# MySQL命令
+# MySQL安装
+
+## 安装准备工作
+
+查看 Linux 版本，用于下载对应的mysql
 
 ```bash
-# 搜索mysql相关依赖
-[root@server01 ~]# rpm -aq | grep mysql
-# 卸载查询到的所有依赖
-[root@server01 ~]# rpm -e --nodeps mysql-community-libs-5.7.26-1.el7.x86_64
-# 查询初始密码
-[root@server01 ~]# grep 'temporary password' /var/log/mysqld.log
-# 登录MySql系统, 修改密码
-[root@server01 ~]# mysql -uroot -paVGidM5/.RtN
-# 修改密码,密码默认是8位,并且包含大小写字母+特殊字符+数字
-mysql> ALTER USER 'root'@'localhost' IDENTIFIED BY 'MySql5.7';
+[root@server01 ~]# uname -a
+Linux server01 3.10.0-514.el7.x86_64 #1 SMP Tue Nov 22 16:42:41 UTC 2016 x86_64 x86_64 x86_64 GNU/Linux
+```
+
+检查是否已经安装过 mysql
+
+```bash
+[root@server01 ~]# rpm -qa | grep mysql   
+mysql-community-libs-5.7.26-1.el7.x86_64
+mysql-community-server-5.7.26-1.el7.x86_64
+mysql80-community-release-el7-1.noarch
+mysql-community-common-5.7.26-1.el7.x86_64
+mysql-community-client-5.7.26-1.el7.x86_64
+mysql-community-libs-compat-5.7.26-1.el7.x86_64
+#【若有安装过 mysql，则删除相关文件】
+[root@server01 ~]# rpm -e [--nodeps] 包名（此处包名是上面命令查出来的名字）
+```
+
+## 下载MySQL
+
+官网地址：
+
+https://downloads.mysql.com/archives/community/
+https://downloads.mysql.com/archives/get/p/23/file/mysql-community-common-8.0.27-1.el7.x86_64.rpm
+https://downloads.mysql.com/archives/get/p/23/file/mysql-community-libs-8.0.27-1.el7.x86_64.rpm
+https://downloads.mysql.com/archives/get/p/23/file/mysql-community-server-8.0.27-1.el7.x86_64.rpm
+https://downloads.mysql.com/archives/get/p/23/file/mysql-community-client-8.0.27-1.el7.x86_64.rpm
+
+选择合适的版本:
+
+mysql-community-common-8.0.27-1.el7.x86_64.rpm
+mysql-community-libs-8.0.27-1.el7.x86_64.rpm
+mysql-community-server-8.0.27-1.el7.x86_64.rpm
+mysql-community-client-8.0.27-1.el7.x86_64.rpm
+
+![image](assets\mysql-12.png)
+
+## 安装RPM
+
+```bash
+# 先装 common
+[root@server01 ~]# rpm -ivh mysql-community-common-8.0.27-1.el7.x86_64.rpm
+# 再装 libs（确保 mariadb 已卸载，centos7 默认支持 mariadb，不支持 mysql，不卸载会出现冲突）
+[root@server01 ~]# rpm -qa | grep mariadb
+[root@server01 ~]# rpm -e --nodeps mariadb-libs-5.5.52-1.el7.x86_64
+# 如果在安装libs和client的时候遇到error:Failed dependencies，可以在安装包后面加两个参数 --nodeps --force：不再分析包之间的依赖关系而直接安装
+[root@server01 ~]# rpm -ivh mysql-community-libs-8.0.27-1.el7.x86_64.rpm --nodeps --force
+[root@server01 ~]# rpm -ivh mysql-community-client-8.0.27-1.el7.x86_64.rpm --nodeps --force
+[root@server01 ~]# rpm -ivh mysql-community-server-8.0.27-1.el7.x86_64.rpm
+```
+
+## 修改data目录
+
+如果需要为mysql数据单独指定存放目录，执行如下操作；默认mysql在安装时会指定datadir=/var/lib/mysql
+
+1、新建data目录
+
+```bash
+[root@athena003 data]# mkdir -p /data/mysql
+[root@athena003 data]# chown -R mysql:mysql mysql
+```
+
+注意：只要创建好data目录的父目录即可
+
+2、修改my.cnf配置文件
+
+```bash
+[root@athena003 data]# vim /etc/my.cnf
+datadir=/data/mysql/data
+socket=/var/lib/mysql/mysql.sock
+log-error=/var/log/mysqld.log
+pid-file=/var/run/mysqld/mysqld.pid
+```
+
+注意：这里不需要指定basedir目录，mysql在安装的时候会自动创建my.cnf文件，并且会默认将/usr/share/mysql-8.0作为basedir，即使指定basedir=/usr/share/mysql还是会报错
+
+## 初始化数据库
+
+```bash
+# 初始化数据库
+[root@athena003 data]# mysqld --user mysql --initialize
+# 获取初始密码
+# 在执行完initialize后，在/var/log/mysqld.log文件中会生成mysql的初始密码
+在执行完initialize后，在/var/log/mysqld.log文件中会生成mysql的初始密码
+[root@athena003 ~]# cat /var/log/mysqld.log
+2023-03-22T04:18:40.380807Z 0 [System] [MY-013169] [Server] /usr/sbin/mysqld (mysqld 8.0.27) initializing of server in progress as process 218619
+2023-03-22T04:18:40.392756Z 1 [System] [MY-013576] [InnoDB] InnoDB initialization has started.
+2023-03-22T04:18:40.781634Z 1 [System] [MY-013577] [InnoDB] InnoDB initialization has ended.
+2023-03-22T04:18:41.717504Z 0 [Warning] [MY-013746] [Server] A deprecated TLS version TLSv1 is enabled for channel mysql_main
+2023-03-22T04:18:41.717520Z 0 [Warning] [MY-013746] [Server] A deprecated TLS version TLSv1.1 is enabled for channel mysql_main
+2023-03-22T04:18:41.760414Z 6 [Note] [MY-010454] [Server] A temporary password is generated for root@localhost: >wyoCphlT4zZ
+# 使用初始密码：>wyoCphlT4zZ登录mysql
+[root@athena003 data]# mysql -uroot -p>wyoCphlT4zZ
+# 修改密码
+mysql> alter user 'root'@'localhost' identified by 'Mysql@322';
+Query OK, 0 rows affected (0.01 sec)
+
+mysql> flush privileges;
+Query OK, 0 rows affected (0.00 sec)
+
 # 查看密码规则:
 mysql> SHOW VARIABLES LIKE 'validate_password%';
 # 关于 mysql 密码策略相关参数:
@@ -28,12 +122,22 @@ mysql> SHOW VARIABLES LIKE 'validate_password%';
 mysql> set global validate_password_policy=LOW;
 mysql> set global validate_password_length=6;
 mysql> ALTER USER 'root'@'localhost' IDENTIFIED BY '123456';
+
 # 设置远程登录
 # 赋予root用户远程登录的权限
 mysql> GRANT ALL PRIVILEGES ON *.* TO 'root'@'%' IDENTIFIED BY '123456' WITH GRANT OPTION;
-# 刷新权限
+# 也可以通过修改user表：
+mysql> use mysql;
+Reading table information for completion of table and column names
+You can turn off this feature to get a quicker startup with -A
+Database changed
+
+mysql> update user set host = '%' where user = 'root';
+Query OK, 1 row affected (0.00 sec)
+Rows matched: 1  Changed: 1  Warnings: 0
+
 mysql> flush privileges;
-# 测试远程登录：使用SqlYog测试是否可以远程连接到node01的mysql
+Query OK, 0 rows affected (0.00 sec)
 
 # binlog 日志介绍
 # 用来记录mysql中的 增加 、 删除 、 修改 操作
@@ -69,6 +173,14 @@ mysql> show variables like '%log_bin%';
 +---------------------------------+--------------------------------+
 6 rows in set (0.00 sec)
 # 进入到 /var/lib/mysql 可以查看到mysql-bin.000001文件已经生成
+# 检查binlog-format
+mysql> show variables like '%binlog-format%';
+
+# 创建数据库、及表
+mysql> create database if not exists market_dev default character set utf8 ;
+mysql> use market_dev;
+mysql> create table t_customer_info (id int(11) not null,name varchar(45) default null,update_time datetime default null,primary key (id)) engine=innodb default charset=utf8;
+mysql> insert into t_customer_info(id,name) values (1000000001,'张三');
 ```
 
 # 数据库三范式

@@ -58,7 +58,7 @@ disable          #关闭
 具体配置步骤如下：
 
 1. 通过root用户登录A机器，然后执行ssh-keygen -t rsa命令，将会生成密钥文件和私钥文件id_rsa,id_rsa.pub或id_dsa,id_dsa.pub（一路回车，既可完成生成私钥和公钥）
-2. 将.pub文件复制到B机器的.ssh目录，并cat id_dsa.pub >> /root/.ssh/authorized_keys（或者也可以直接使用ssh-copy-id server02，那么会直接现在B机器上生成authorized_keys文件，并且将公钥复制到authorized_keys文件中，如果有多台机器需要免密登录B的话，只需要在其他机器上也重复执行ssh-copy-id server02即可）
+2. 将.pub文件复制到B机器的.ssh目录，并cat id_dsa.pub >> /root/.ssh/authorized_keys（或者也可以直接使用ssh-copy-id server02，那么会直接在B机器上生成authorized_keys文件，并且将公钥复制到authorized_keys文件中，如果A机器需要免密登录多台机器的话，只需要修改目标主机地址然后重复执行ssh-copy-id server03即可）
 3. 大功告成，从A机器登录B机器的目标账户，不再需要密码了；（直接运行 #ssh B机器的IP ）
 
 具体通信流程如下：
@@ -83,6 +83,8 @@ disable          #关闭
 [root@server03 /]# systemctl restart ntpd
 # 修改时间同步服务器ip
 [root@server03 /]# vim /etc/ntp.conf
+# 注释掉原来的server,添加server ip
+server 182.180.48.222
 # 同步时间
 [root@server03 /]# ntpq -p
 ```

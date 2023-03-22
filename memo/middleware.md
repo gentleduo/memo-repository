@@ -214,6 +214,13 @@ Zookeeper官网：https://zookeeper.apache.org/
 [root@server01 conf]# vim zoo.cfg
 
 # 修改如下内容
+#配置文件内容讲解：
+#心跳时间，用于配置服务器最小时间的单位(默认值2000ms),心跳检测时间通常是该单位的倍数。如客户端与服务端之间的会话超时时间在2tickTime~20tickTime之间。
+tickTime=2000
+#用于配置leader服务器等待Follewer服务器启动，并完成数据同步的时间，默认为10，表示10*tickTime
+initLimit=10
+#在运行过程中，Leader负责与ZK集群中所有机器进行通信，例如通过一些心跳检测机制，来检测机器的存活状态。如果Leader发出心跳包在syncLimit之后，还没有从Follower那里收到响应，那么就认为这个Follower已经不在线了。默认为5，表示5*tickTime
+syncLimit=5
 # 保留多少个快照
 autopurge.snapRetainCount=3
 # 日志多少个小时清理一次

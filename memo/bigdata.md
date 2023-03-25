@@ -1,3 +1,15 @@
+# Apache
+
+apache系列软件下载地址：
+
+https://archive.apache.org/dist/
+
+比如：
+
+https://archive.apache.org/dist/hbase/
+
+https://archive.apache.org/dist/hadoop/
+
 # Hadoop
 
 ## 环境安装
@@ -13470,6 +13482,10 @@ hbase是bigtable的开源java版本。是建立在hdfs之上，提供高可靠�
    Hbase表的分片，HBase表会根据RowKey值被切分成不同的region存储在RegionServer中，在一个RegionServer中可以有多个不同的region。(Region可以理解为一张表，Region会对应多个Store(列族))
 
 ## 集群搭建
+
+Hbase与Hadoop的对应关系
+
+https://hbase.apache.org/book.html
 
 ### 修改配置文件
 

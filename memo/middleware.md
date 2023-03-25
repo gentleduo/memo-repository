@@ -431,7 +431,6 @@ Curator包含几个包：
 ```bash
 #下面是kafka的基础配置项
 broker.id=0
-listeners=PLAINTEXT://server01:9092
 log.dirs=/date/kafka/data
 #后面加/kafka的目的是让之后关于kafka的信息都存放到zookeeper的/kafka目录下
 zookeeper.connect=server01:2181,server02:2181,server03:2181/kafka

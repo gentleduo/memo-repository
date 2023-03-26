@@ -14575,7 +14575,7 @@ Major Compaction:全合并一般周期性发生, 例如 24 小时, 合并期间�
 
 ##### 一级缓存(BlockCache)
 
-MySQL 的 B+树 并不是把数据直接存放在树中, 而是把数据组成 页(Page) 然后再存入 B+树, MySQL 中最小的数据存储单元是 Page
+MySQL的B+树并不是把数据直接存放在树中, 而是把数据组成页(Page) 然后再存入B+树, MySQL中最小的数据存储单元是Page
 
 HBase 也一样, 其最小的存储单元叫做 Block, Block 会被缓存在 BlockCache 中, 读数据时, 优先从 BlockCache 中读取
 
@@ -14585,14 +14585,14 @@ BlockCache 叫做读缓存, 因为 BlockCache 缓存的数据是读取返回结�
 
 ##### 二级缓存:
 
-当查找数据时, 会先查内存, 后查磁盘, 然后汇总返回，因为写是写在 Memstore 中, 所以从 Memstore 就能立刻读取最新状态，Memstore 没有的时候, 扫描 HFile, 通过布隆过滤器优化读性能。
+当查找数据时, 会先查内存, 后查磁盘, 然后汇总返回，因为写是写在 Memstore 中, 所以从Memstore就能立刻读取最新状态，Memstore没有的时候, 扫描HFile, 通过布隆过滤器优化读性能。
 
 ### 总结
 
-- HBase 是 LSM树 的一种开源实现, 类似的还有 LevelDB, RocketDB 等
-- HBase 无论是批量写还是实时写, 性能都超过 MySQL 不少
-- HBase 的查询只有一种, 就是扫描, Get 也是扫描的一种特殊情况, 所以 HBase 的查询能力不强
-- HBase 以 KV 的形式存储数据, 所以如果某一单元数据为 Null 则不存, 所以 HBase 适合存储比较稀疏的表
+- HBase是LSM树的一种开源实现, 类似的还有LevelDB, RocketDB 等
+- HBase无论是批量写还是实时写, 性能都超过MySQL不少
+- HBase的查询只有一种, 就是扫描, Get也是扫描的一种特殊情况, 所以HBase的查询能力不强
+- HBase以KV的形式存储数据, 所以如果某一单元数据为Null则不存, 所以HBase适合存储比较稀疏的表
 
 ## 物理存储
 
@@ -14660,7 +14660,7 @@ Meta Block的索引
 
 #### Trailer
 
-这一段是定长的。保存了每一段的偏移量，读取一个HFile时，会首先 读取Trailer，Trailer保存了每个段的起始位置(段的Magic Number用来做安全check)，然后，DataBlock Index会被读取到内存中，这样，当检索某个key时，不需要扫描整个HFile，而只需从内存中找到key所在的block，通过一次磁盘io将整个 block读取到内存中，再找到需要的key。DataBlock Index采用LRU机制淘汰。
+这一段是定长的。保存了每一段的偏移量，读取一个HFile时，会首先读取Trailer，Trailer保存了每个段的起始位置(段的Magic Number用来做安全check)，然后，DataBlock Index会被读取到内存中，这样，当检索某个key时，不需要扫描整个HFile，而只需从内存中找到key所在的block，通过一次磁盘io将整个block读取到内存中，再找到需要的key。DataBlock Index采用LRU机制淘汰。
 
 ### Memstore
 
@@ -14668,9 +14668,9 @@ Meta Block的索引
 
 ### HLog(WAL log)
 
-WAL 意为Write ahead log(http://en.wikipedia.org/wiki/Write-ahead_logging)，类似mysql中的binlog,用来 做灾难恢复时用，Hlog记录数据的所有变更,一旦数据修改，就可以从log中进行恢复。每个Region Server维护一个Hlog,而不是每个Region一个。这样不同region(来自不同table)的日志会混在一起，这样做的目的是不断追加单个文件相对于同时写多个文件而言，可以减少磁盘寻址次数，因此可以提高对table的写性能。带来的麻烦是，如果一台region server下线，为了恢复其上的region，需要将region server上的log进行拆分，然后分发到其它region server上进行恢复。HLog文件就是一个普通的Hadoop Sequence File：
+WAL 意为Write ahead log(http://en.wikipedia.org/wiki/Write-ahead_logging)，类似mysql中的binlog,用来做灾难恢复时用，Hlog记录数据的所有变更,一旦数据修改，就可以从log中进行恢复。每个Region Server维护一个Hlog,而不是每个Region一个。这样不同region(来自不同table)的日志会混在一起，这样做的目的是不断追加单个文件相对于同时写多个文件而言，可以减少磁盘寻址次数，因此可以提高对table的写性能。带来的麻烦是，如果一台region server下线，为了恢复其上的region，需要将region server上的log进行拆分，然后分发到其它region server上进行恢复。HLog文件就是一个普通的Hadoop Sequence File：
 
-1. HLog Sequence File 的Key是HLogKey对象，HLogKey中记录了写入数据的归属信息，除了table和region名字外，同时还包括 sequence number和timestamp，timestamp是”写入时间”，sequence number的起始值为0，或者是最近一次存入文件系统中sequence number。
+1. HLog Sequence File 的Key是HLogKey对象，HLogKey中记录了写入数据的归属信息，除了table和region名字外，同时还包括sequence number和timestamp，timestamp是”写入时间”，sequence number的起始值为0，或者是最近一次存入文件系统中sequence number。
 2. HLog Sequece File的Value是HBase的KeyValue对象，即对应HFile中的KeyValue。
 
 WAL的持久化等级分为如下四个等级：
@@ -14732,7 +14732,7 @@ RegionScanner会根据列族构建StoreScanner，有多少列族就构建多少S
    1. 定位Block Offset：在Blockcache中读取该HFile的索引树结构，根据索引树检索对应RowKey所在的Block的Block Offset和Block Size
    2. Load Block：根据BlockOffset首先在BlockCache中查找Data Block，如果不在缓存，再在HFile中加载
    3. Seek Key：在Data Block内部通过二分查找的方式定位具体的RowKey
-4. StoreFileScanner合并构建最小堆：将该Store中所有StoreFileScanner和MemstoreScanner合并形成一个heap（最小堆），所谓heap是一个优先级队列，队列中元素是所有scanner，排序规则按照scanner seek到的keyvalue大小由小到大进行排序。这里需要重点关注三个问题，首先为什么这些Scanner需要由小到大排序，其次keyvalue是什么样的结构，最后，keyvalue谁大谁小是如何确定的
+4. StoreFileScanner合并构建最小堆：将该Store中所有StoreFileScanner和MemstoreScanner合并形成一个heap（最小堆），所谓heap是一个优先级队列，排序规则按照scanner seek到的keyvalue大小由小到大进行排序。这里需要重点关注三个问题，首先为什么这些Scanner需要由小到大排序，其次keyvalue是什么样的结构，最后，keyvalue谁大谁小是如何确定的
 
 ##### HBase中KeyValue的结构
 

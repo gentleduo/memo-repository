@@ -564,7 +564,7 @@ $n
 `date`
 ```
 
-## 系统管理与维护命令re
+## 系统管理与维护命令
 
 ### ls
 
@@ -703,6 +703,10 @@ ps -aux
 # 查看某个进程的启动时间
 [root@server01 limits.d]# ps -eo pid,lstart,etime | grep 542
   542 Thu Oct 27 13:14:23 2022    01:34:26
+# 使用ps查看JAVA进程使用的实际内存和虚拟内存：
+[root@server01 limits.d]# ps -p ${pid} -o rss,vsz  
+RSS     VSZ
+7152568 17485844
 ```
 
 ### top

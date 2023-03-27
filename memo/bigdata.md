@@ -14465,9 +14465,7 @@ BucketCache借鉴了SlabCache的创意，也用上了堆外内存。不过它有
 3. 每个Bucket的大小上限为最大尺寸的block*4，比如可以容纳的最大的Block类型是512KB，那么每个Bucket的大小就是512KB*4=2048KB。
 4. 系统一启动BucketCache就会把可用的存储空间按照每个Bucket的大小上限均分为多个Bucket。如果划分完的数量比你的种类还少，比如比14（默认的种类数量）少，就会直接报错，因为每一种类型的Bucket至少要有一个Bucket。
 
-#### 组合模式
-
-具体地说就是把不同类型的Block分别放到LRUCache和BucketCache中。IndexBlock和BloomBlock会被放到LRUCache中。DataBlock被直接放到BucketCache中，所以数据会去LRUCache查询一下，然后再BucketCache中查询真正的数据。其实这种实现是一种更合理的二级缓存，数据从一级缓存到二级缓存最后到硬盘，数据是从小到大，存储介质也是由快到慢。考虑到成本和性能的组合，比较合理的介质是：LRUCache使用内存->BuckectCache使用SSD->HFile使用机械硬盘。
+BucketCache的通常部署是通过一个管理类来设置两个缓存层:由LruBlockCache实现的堆上缓存和由BucketCache实现的第二个缓存。默认情况下，管理类是CombinedBlockCache。它的工作原理是将元块(INDEX和BLOOM放在堆上LruBlockCache层)和数据块放在BucketCache层。
 
 ### 布隆过滤器
 
@@ -14921,6 +14919,159 @@ hbase的数据是存储在hdfs中的，hdfs是一个适合一次写入，多次�
 
 1. 使用批量put进行写入请求
 2. 在业务可以接受的情况下开启异步批量提交(在某些情况下客户端异常的情况下缓存数据有可能丢失):setAutoFlush(false)
+
+## 内存配置
+
+### 一般配置
+
+hbase-env.sh
+
+```bash
+# MaxDirectMemorySize和HBASE_OFFHEAPSIZE的作用一样都是指定堆外内存
+# MaxDirectMemorySize 或者 HBASE_OFFHEAPSIZE = BucketCache + 1
+# export HBASE_OFFHEAPSIZE=5G
+# visualvm连接jmx用于连接hbase，完成下述配置之后便可在远程环境中使用jdk自带的工具jvisualvm工具连接远程linux服务器(192.168.56.110:10101和 192.168.56.110:10102)
+export HBASE_JMX_BASE="-Dcom.sun.management.jmxremote.ssl=false -Dcom.sun.management.jmxremote.authenticate=false"
+# 设置GC类型
+export HBASE_OPTS="-XX:+UseG1GC"
+# Master专有的启动参数，Xms、Xmx、Xmn分别对应初始堆、最大堆及新生代大小
+export HBASE_MASTER_OPTS="$HBASE_MASTER_OPTS -Xms8g -Xmx8g -Xmn1g"
+export HBASE_REGIONSERVER_OPTS="$HBASE_REGIONSERVER_OPTS -Xms128g -Xmx128g"
+export HBASE_MASTER_OPTS="$HBASE_MASTER_OPTS $HBASE_JMX_BASE -Dcom.sun.management.jmxremote.port=10101"
+export HBASE_REGIONSERVER_OPTS="$HBASE_REGIONSERVER_OPTS $HBASE_JMX_BASE -Dcom.sun.management.jmxremote.port=10102"
+```
+
+hbase-site.xml
+
+```xml
+<!--在阻止新更新和强制刷新之前，区域服务器中所有memstore的最大大小。默认为堆的40%(0.4)。更新将被阻塞并强制刷新，直到区域服务器中所有memstore的大小达到hbase.regionserver.global.memstore.size.lower.limit。-->
+<property>
+    <name>hbase.regionserver.global.memstore.size</name>
+    <value>0.4</value>
+</property>
+<!-- 分配给StoreFile使用的块缓存的最大堆的百分比(-Xmx设置)。默认为0.4意味着分配40%。设置为0以禁用，但不建议使用;至少需要足够的缓存来保存storefile索引。-->
+<property>
+    <name>hfile.block.cache.size</name>
+    <value>0.4</value>
+</property>
+```
+
+### 读多写少型规划
+
+读多写少型需要更多的读缓存，并且在对读请求响应时间没有太严苛的情况下，开启offheap即启用堆外内存的中的bucketcache作为读缓存的补充；整个RegionServer内存分为两部分：JVM内存和堆外内存。其中JVM内存中BlockCache和堆外内存BucketCache一起构成了读缓存CombinedBlockCache，用于缓存读到的Block数据，其中BlockCache用于缓存IndexBlock和BloomBlock，BucketCache用于缓存实际用户数据DataBlock。
+
+hbase-env.sh
+
+```bash
+# MaxDirectMemorySize和HBASE_OFFHEAPSIZE的作用一样都是指定堆外内存
+# MaxDirectMemorySize 或者 HBASE_OFFHEAPSIZE = BucketCache + 1
+# export HBASE_OFFHEAPSIZE=5G
+# visualvm连接jmx用于连接hbase，完成下述配置之后便可在远程环境中使用jdk自带的工具jvisualvm工具连接远程linux服务器(192.168.56.110:10101和 192.168.56.110:10102)
+export HBASE_JMX_BASE="-Dcom.sun.management.jmxremote.ssl=false -Dcom.sun.management.jmxremote.authenticate=false"
+# 设置GC类型
+export HBASE_OPTS="-XX:+UseG1GC"
+# Master专有的启动参数，Xms、Xmx、Xmn分别对应初始堆、最大堆及新生代大小
+export HBASE_MASTER_OPTS="$HBASE_MASTER_OPTS -Xms8g -Xmx8g -Xmn1g"
+export HBASE_REGIONSERVER_OPTS="$HBASE_REGIONSERVER_OPTS -Xms128g -Xmx128g"
+export HBASE_MASTER_OPTS="$HBASE_MASTER_OPTS $HBASE_JMX_BASE -Dcom.sun.management.jmxremote.port=10101"
+export HBASE_REGIONSERVER_OPTS="$HBASE_REGIONSERVER_OPTS $HBASE_JMX_BASE -Dcom.sun.management.jmxremote.port=10102 -XX:MaxDirectMemorySize=64g"
+```
+
+hbase-site.xml
+
+```xml
+<!-- false：当从L1中移除时，块将移到L2。当一个块被缓存时，它首先被缓存在L1中。去寻找一个缓存块时，首先在L1中查找，如果没有找到，然后搜索L2。这种部署格式为原始L1+L2。注意:这个L1+L2模式从2.0.0移除。 -->
+<!-- true：严格的数据缓存LruBlockCache将缓存INDEX/META块，BucketCache缓存DATA块。 -->
+<property>
+    <name>hbase.bucketcache.combinedcache.enabled</name>
+    <value>true</value>
+</property>
+<!-- 设置hbase.bucketcache.ioengine和hbase.bucketcache.size > 0，启用组合块缓存。-->
+<!-- 编辑RegionServer的hbase-env.sh，并将HBASE_OFFHEAPSIZE设置为大于所需的堆外大小的值-->
+<!-- 存储桶缓存内容的位置。其中之一:offheap, file, files, mmap或pmem。注意：不在支持heap，默认值为none-->
+<property>
+    <name>hbase.bucketcache.ioengine</name>
+    <value>offheap</value>
+</property>
+<!-- 使用了bucketcache作为blockcache的一部分,那么heap中用于blockcache的百分比可以减小 -->
+<property>
+    <name>hfile.block.cache.size</nname>
+    <value>0.20</value>
+</property>
+<!-- 要么表示给缓存的总堆内存大小的百分比(如果< 1.0)，要么表示BucketCache的总容量(以兆字节为单位)。默认值:0.0，注意当bucketcache.ioengine设置为offheap的时候，这里应该表示的是给缓存的总堆外内存大小的百分比/总容量 -->
+<property>
+    <name>hbase.bucketcache.size</name>
+    <value>49152</value>
+</property>
+<!-- 由于heap中用于blockcache的百分比减小了，可以适当增大memstore的百分比 -->
+<property>
+    <name>hbase.regionserver.global.memstore.size</name>
+    <value>0.60</value>
+</property>
+```
+
+指定垃圾回收器需要注意的细节：
+
+在$HBASE_HOME/bin/hbase文件中会去判断HBASE_OPTS这个环境变量是否为空，如果为空就会根据jdk的版本去设置相应的垃圾回收器，而且HBase在启动的时候会读取HBASE_OPTS的JVM启动参数，并根据HBASE_OPTS的参数给HMaster和RegionServer设置相同的GC。如果再给HBASE_MASTER_OPTS和
+
+HBASE_REGIONSERVER_OPTS设置其他的GC类型，就需要注意新生代和老年代垃圾收集器的匹配问题了。否则会报错：Conflicting collector combinations in option list; please refer to the release notes for the combinations allowed（选项列表中有冲突的收集器组合）
+
+比如：jdk版本为8的时候，HBASE_OPTS默认会设置GC为：UseConcMarkSweepGC，如果在HBASE_REGIONSERVER_OPTS再设置：GC为G1就会报垃圾收集器不能配合使用的错误
+
+因此如果想要改变hbase默认的垃圾回收器，就需要在hbase-env.sh中定义环境变量HBASE_OPTS并设置垃圾回收器类型。
+
+```sh
+# establish a default value for HBASE_OPTS if it's not already set. For now,
+# all we set is the garbage collector.
+if [ -z "${HBASE_OPTS}" ] ; then
+  major_version_number="$(parse_java_major_version "$(read_java_version)")"
+  case "$major_version_number" in
+  8|9|10)
+    HBASE_OPTS="-XX:+UseConcMarkSweepGC"
+    ;;
+  11|*)
+    HBASE_OPTS="-XX:+UseG1GC"
+    ;;
+  esac
+  export HBASE_OPTS
+fi
+```
+
+### 堆外内存注意事项
+
+Bucketcache的三种工作模式：
+
+#### heap
+
+heap模式分配内存会调用byteBuffer.allocate方法，从JVM提供的heap区分配。内存分配时heap模式需要首先从操作系统分配内存再拷贝到JVM heap，相比offheap直接从操作系统分配内存更耗时，但反之读取缓存时heap模式可以从JVM heap中直接读取比较快。
+
+#### offheap
+
+offheap模式会调用byteBuffer.allocateDirect方法，直接从操作系统分配，因为内存属于操作系统，所以基本不会产生CMS GC，也就在任何情况下都不会因为内存碎片导致触发Full GC。内存分配时offheap直接从操作系统分配内存比较快，但反之读取时offheap模式需要首先从操作系统拷贝到JVM heap再读取，比较费时。
+
+#### file
+
+file使用Fussion-IO或者SSD等作为存储介质，相比昂贵的内存，这样可以提供更大的存储容量。
+
+#### 堆外内存的优势
+
+使用堆外内存，可以将大部分BlockCache读缓存迁入BucketCache，减少jvmheap的size，可以减少GC发生的频次及每次GC时的耗时，BucketCache没有使用JVM内存管理算法来管理缓存，而是自己对内存进行管理，因此其本身不会因为出现大量碎片导致FullGC的情况发生。
+
+#### 堆外内存的缺陷
+
+读取data block时，需要将off heap的内存块拷贝到jvm heap在读取，比较费时，对读性能敏感用户不太合适。
+
+#### 堆外内存使用总结
+
+对于读多写少且对读性能要求不高的业务场景，offheap模式能够有效的减少gc带来的影响，线上的vac集群在开启offheap模式后，GC频次和耗时都能有效降低，但是因为bucketcache 读的性能的问题达不到要求而回退到heap模式。
+
+```bash
+# 使用ps查看JAVA进程使用的虚拟内存和实际内存：
+[root@server01 limits.d]# ps -p ${pid} -o rss,vsz  
+RSS     VSZ
+7152568 17485844
+# VSZ是虚拟内存，RSS是实际使用的内存，单位KB。
+```
 
 ## 增删查改
 

@@ -1505,11 +1505,50 @@ Top命令找出CPU占用较高的Java线程信息
 
 ## jmap
 
-1. jmap -histo pid | head -20 //使用jmap找到堆中占用内存量最大的20个类(查找有多少个对象产生)
+1. 查看堆内存的配置和使用情况：jmap -heap 18230
 
-   线上系统，jmap -histo可以执行（影响有，但是比较小）
+   ```markdown
+    Heap Configuration:
+       MinHeapFreeRatio         = 0             //JVM堆缩减空间比率，低于则进行内存缩减
+       MaxHeapFreeRatio         = 100           //JVM堆扩大内存空闲比例，高于则进行内存扩张 
+       MaxHeapSize              = 994050048 (948.0MB)   //堆最大内
+       NewSize                  = 20971520 (20.0MB)     //新生代初始化内存大小
+       MaxNewSize               = 331350016 (316.0MB)   //新生代最大内存大小
+       OldSize                  = 41943040 (40.0MB)     //老年代内存大小
+       NewRatio                 = 2                     //新生代和老年代占堆内存比率
+       SurvivorRatio            = 8                      //s区和Eden区占新生代内存比率
+       MetaspaceSize            = 21807104 (20.796875MB)  //元数据初始化空间大小
+       CompressedClassSpaceSize = 1073741824 (1024.0MB)     //类指针压缩空间大小
+       MaxMetaspaceSize         = 17592186044415 MB       //元数据最大内存代销      
+       G1HeapRegionSize         = 0 (0.0MB)             //G1收集器Region单元大小
+    ​
+    Heap Usage:
+    PS Young Generation
+    Eden Space: 
+       capacity = 303038464 (289.0MB)             //Eden区总容量
+       used     = 22801000 (21.744728088378906MB)  //Eden区已使用荣浪
+       free     = 280237464 (267.2552719116211MB)   //Eden区剩余容量
+       7.524127366221075% used                      //Eden区使用比例
+    From Space:      //From区(也就是Survivor中的S1区)                             
+       capacity = 13107200 (12.5MB)                    //S1区总容量大小
+       used     = 5364536 (5.116020202636719MB)          //S1区已使用大小
+       free     = 7742664 (7.383979797363281MB)           //S1区剩余大小
+       40.92816162109375% used                       //S1使用比例
+    To Space:      //To区 (也就是Survivor中的S2区)      
+       capacity = 13631488 (13.0MB)              //S2区总容量大小
+       used     = 0 (0.0MB)                     //S2区已使用大小
+       free     = 13631488 (13.0MB)             //S2区剩余大小
+       0.0% used                                //S2区使用比率
+    PS Old Generation           
+       capacity = 110624768 (105.5MB)           //老年代总容量大小
+       used     = 49431224 (47.14128875732422MB) //老年代已使用大小
+       free     = 61193544 (58.35871124267578MB) //老年代剩余大小
+       44.68368602589973% used                   //老年代使用功能比例
+   ```
 
-2. jmap -dump:format=b,file=/opt/heapDump.hprof pid
+2. jmap -histo pid | head -20 //使用jmap找到堆中占用内存量最大的20个类(查找有多少个对象产生)
+
+3. jmap -dump:format=b,file=/opt/heapDump.hprof pid
 
    线上系统，内存特别大，堆转储文件命令：jmap -dump执行期间会对进程产生很大影响，甚至卡顿（所以线上系统慎用jmap），解决方案如下：
 
@@ -1517,8 +1556,9 @@ Top命令找出CPU占用较高的Java线程信息
 
       比如：java -Xmn10M -Xms40M -Xmx60M -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/opt/java_heapdump.hprof HelloGC
 
-      - -XX:+HeapDumpOnOutOfMemoryError参数表示当JVM发生OOM时，自动生成DUMP文件。
-      - -XX:HeapDumpPath=${目录}参数表示生成DUMP文件的路径，也可以指定文件名称，例如：-XX:HeapDumpPath=${目录}/java_heapdump.hprof。如果不指定文件名，默认为：java_<pid>_<date>_<time>_heapDump.hprof。
+      -XX:+HeapDumpOnOutOfMemoryError参数表示当JVM发生OOM时，自动生成DUMP文件。
+
+      -XX:HeapDumpPath=${目录}参数表示生成DUMP文件的路径，也可以指定文件名称，例如：-XX:HeapDumpPath=${目录}/java_heapdump.hprof。如果不指定文件名，默认为：java_<pid>_<date>_<time>_heapDump.hprof。
 
    2. 很多服务器备份(高可用)，停掉这台服务器对其他服务器不影响（比较好的方式）
 

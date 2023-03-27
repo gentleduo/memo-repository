@@ -15018,6 +15018,10 @@ HBASE_REGIONSERVER_OPTS设置其他的GC类型，就需要注意新生代和老�
 
 比如：jdk版本为8的时候，HBASE_OPTS默认会设置GC为：UseConcMarkSweepGC，如果在HBASE_REGIONSERVER_OPTS再设置：GC为G1就会报垃圾收集器不能配合使用的错误
 
+新生代和老年代能配合使用的垃圾收集器图示, 连着线的就是能配合使用
+
+![image](assets\bigdata-102.png)
+
 因此如果想要改变hbase默认的垃圾回收器，就需要在hbase-env.sh中定义环境变量HBASE_OPTS并设置垃圾回收器类型。
 
 ```sh

@@ -366,6 +366,10 @@ Curator包含几个包：
 1. curator-framework：对zookeeper的底层api的一些封装；
 2. curator-recipes：封装了一些高级特性，如：Cache事件监听、选举、分布式锁、分布式计数器等。
 
+# Nginx
+
+http://nginx.org/packages/centos/7/x86_64/RPMS/
+
 # Kafka
 
 ## 消息队列

@@ -15116,7 +15116,7 @@ master使用zookeeper来跟踪region server状态。当某个region server启动
 1. region server和zookeeper之间的网络断开了。
 2. region server挂了。
 
-无论哪种情况，region server都无法继续为它的region提供服务了，此时master会删除server目录下代表这台region server的znode数据，并将这台region server的region分配给其它还活着的同志。
+无论哪种情况，region server都无法继续为它的region提供服务了，此时master会删除server目录下代表这台region server的znode数据，并将这台region server的region分配给其它还活着的region server。
 
 ## Master工作机制
 
@@ -15143,7 +15143,7 @@ master启动进行以下步骤：
 
 2. hbase.hregion.memstore.flush.size（默认：128M）
 
-   单个region里memstore的缓存大小，超过那么整个HRegion就会flush, 
+   单个region里memstore的缓存大小，当region中的某个memstore被flush的时候，同一个region的其他memstore也会进行flush操作。
 
 3. hbase.regionserver.optionalcacheflushinterval（默认：1h）
 
@@ -15151,11 +15151,17 @@ master启动进行以下步骤：
 
 4. hbase.regionserver.global.memstore.size.lower.limit（默认：堆大小 * 0.4 * 0.95）
 
-   有时候集群的“写负载”非常高，写入量一直超过flush的量，这时，我们就希望memstore不要超过一定的安全设置。在这种情况下，写操作就要被阻塞一直到memstore恢复到一个“可管理”的大小, 这个大小就是默认值是堆大小 * 0.4 * 0.95，也就是当regionserver级别的flush操作发送后,会阻塞客户端写,一直阻塞到整个regionserver级别的memstore的大小为 堆大小 * 0.4 *0.95为止
+   默认值为none，表示在强制flush之前，RegionServer中所有memstores的最大大小。默认为hbase.regionserver.global.memstore.size大小的95%。该配置中的默认值被有意地保留为空，为了当存在旧的hbase.regionserver.global.memstore.lowerLimit属性情况下，使用旧的属性值 。
+
+   当整个RegionServer中所有写入MemStore的数据大小总和超过低水位阈值，RegionServer开始强制执行flush，先flush MemStore最大的Region，再flush次大的，依次执行。如果此时写入吞吐量依然很高，导致总MemStore的数据大小超过高水位阈值：hbase.regionserver.global.memstore.size，RegionServer会阻塞所有写入请求并强制执行flush，直至总MemStore大小下降到低水位阈值。一旦出现RegionServer写入出现阻塞，查看日志中是否存在关键字Blocking updates on，如果存在说明当前RegionServer总MemStore内存大小超过了高水位阀值。
+
+   高水位阈值 = hbase.regionserver.global.memstore.size
+
+   低水位阈值 = hbase.regionserver.global.memstore.size * hbase.regionserver.global.memstore.size.lower.limit
 
 5. hbase.hregion.preclose.flush.size（默认为：5M）
 
-   当一个 region 中的 memstore 的大小大于这个值的时候，我们又触发 了 close.会先运行“pre-flush”操作，清理这个需要关闭的memstore，然后 将这个 region 下线。当一个 region 下线了，我们无法再进行任何写操作。 如果一个 memstore 很大的时候，flush  操作会消耗很多时间。"pre-flush" 操作意味着在 region 下线之前，会先把 memstore 清空。这样在最终执行 close 操作的时候，flush 操作会很快。
+   close一个region时，region中的memstore的大小大于这个值的时候，在设置region closed flag并让该region下线前，运行“pre-flush”以清除memstore。在关闭时，在关闭标志下执行清空内存操作。在此期间，该region处于离线状态，不接受任何写入操作。如果memstore内容很大，则此刷新可能需要很长时间才能完成。preflush的目的是在设置close标志并使该region脱机之前清理内存存储的大部分空间，这样在close标志下运行的flush就没什么作用了。
 
 6. hbase.hstore.compactionThreshold（默认：超过3个）
 
@@ -15181,10 +15187,10 @@ hbase.hstore.compaction.min //默认值为 3，表示至少需要三个满足条
 hbase.hstore.compaction.max //默认值为10，表示一次minor compaction中最多选取10个store file
 hbase.hstore.compaction.min.size //表示文件大小小于该值的store file 一定会加入到minor compaction的store file中
 hbase.hstore.compaction.max.size //表示文件大小大于该值的store file 一定不会被添加到minor compaction
-hbase.hstore.compaction.ratio //将 StoreFile 按照文件年龄排序，minor compaction 总是从 older store file 开始选择，如果该文件的 size 小于后面 hbase.hstore.compaction.max 个 store file size 之和乘以 ratio 的值，那么该 store file 将加入到 minor compaction 中。如果满足 minor compaction 条件的文件数量大于 hbase.hstore.compaction.min，才会启动。
+hbase.hstore.compaction.ratio //将StoreFile按照文件年龄排序，minor compaction总是从older store file开始选择，如果该文件的size小于后面hbase.hstore.compaction.max个store file size之和乘以ratio 的值，那么该store file将加入到minor compaction中。如果满足minor compaction条件的文件数量大于hbase.hstore.compaction.min，才会启动。
 ```
 
-2、major compaction 的功能是将所有的store file合并成一个（生产环境中一般会关掉这个功能），触发major compaction的可能条件有：
+2、major compaction 的功能是将所有的store file合并成一个（生产环境中一般会关掉这个功能：通过将该参数设置为0禁用基于时间的主要压缩，并在cron作业中或通过其他外部机制运行主要压缩），触发major compaction的可能条件有：
 
 ```markdown
 1、major_compact 命令、
@@ -15203,13 +15209,15 @@ hbase-site.xml
 ```xml
 <!-- 修改后台CompactionChecker线程的检查周期 -->
 <!-- CompactionChecker线程的作用：定期检查对应的Store是否需要执行Compaction -->
+<!-- hbase.server.thread.wakefrequency (以毫秒为单位) -->
 <property>
     <name>hbase.server.thread.wakefrequency</name>
-    <value>1</value>
+    <value>10000</value>
 </property>
+<!-- 这个数字决定了检查是否需要合并的频率。检查的间隔是hbase.server.compactchecker.interval.multiplier * hbase.server.thread. wakfrequency -->
 <property>
     <name>hbase.server.compactchecker.interval.multiplier</name>
-    <value>1</value>
+    <value>1000</value>
 </property>
 ```
 
@@ -15300,7 +15308,20 @@ regioncount^3 * 128M * 2，当region达到该size的时候进行split
 
 ##### SteppingSplitPolicy
 
-2.0版本默认分裂策略。表示一个Region中最大Store的大小超过设置阈值（hbase.hregion.max.filesize）之后就会触发分裂。分裂阈值大小和待分裂Region所属表在当前RegionServer上的Region个数有关，如果Region个数为1，分裂阈值为flush size * 2，否则为MaxRegionFileSize，小表不会再产生大量的小Region
+2.0版本默认分裂策略。表示一个Region中所有的HFiles的大小之和超过设置阈值（hbase.hregion.max.filesize，默认值：10G）之后就会触发分裂。分裂阈值大小和待分裂Region的Region个数有关：如果Region个数为1，分裂阈值为flush size * 2，否则为MaxRegionFileSize，小表不会再产生大量的小Region。
+
+```java
+@Override
+protected long getSizeToCheck(final int tableRegionsCount) {
+	return tableRegionsCount == 1  ? this.initialSize : getDesiredMaxFileSize();
+}
+```
+
+还是以flushsize为128M、maxFileSize为10场景为列，计算出Region的分裂情况如下：
+第一次拆分大小为：2*128M=256M
+第二次拆分大小为：10G
+
+从上面的计算可以看出，这种策略兼顾了ConstantSizeRegionSplitPolicy策略和IncreasingToUpperBoundRegionSplitPolicy策略，对于小表也肯呢个比较好的适配。
 
 ##### DisableSplitPolicy
 

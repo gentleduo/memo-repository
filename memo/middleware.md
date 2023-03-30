@@ -370,6 +370,798 @@ Curator包含几个包：
 
 http://nginx.org/packages/centos/7/x86_64/RPMS/
 
+## worker_processes
+
+工作进程数
+
+## worker_connections
+
+单个工作进程可以允许同时建立外部连接的数量
+
+## 日志
+
+### 访问日志
+
+通过访问日志我们可以得到用户的IP地址、浏览器的信息，请求的处理时间等信息
+
+### 错误日志
+
+记录了访问出错的信息，可以帮助我们定位错误的原因
+
+### 重写日志
+
+rewrite_log on：表示将发送所有的rewrite相关的日志信息到error_log中，error_log的级别必须设置为notice。随后可以在error_log查看rewrite信息。
+
+## root,alias,index
+
+### root
+
+```nginx
+# root模块就是用来指定访问资源的document_root，nginx会将root的值和location的值进行拼接，然后再拼接上url剩余的部分及index指定的值，举例：
+location /a/{
+    root    /usr/local;
+    index   1.html;
+}
+# 访问结果如下：
+# /a/  --> /usr/local/a/1.html
+# /a/b --> /usr/local/a/b/1.html
+# 如果在location中不加index，只需要在请求的URI中指定好资源，也可访问成功，举例：
+location /a/{
+    root    /usr/local;
+}
+# 访问结果如下：
+# /a/1.html   --> /usr/local/a/1.html
+# /a/b/1.html --> /usr/local/a/b/1.html
+```
+
+### alias
+
+```nginx
+# alias模块也是用来指定访问资源的document_root，但是nginx会将alias的值替换location的值，然后再拼接上url剩余的部分及index指定的值，举例：
+location /a/{
+    alias    /usr/local/;
+    index    1.html;
+}
+# 访问结果如下：
+# /a --> /usr/local/1.html
+# /a/b --> /usr/local/b/1.html
+# alias模块有点需要注意：
+# alias指定的是document_root，不能直接指定到具体的文件，否则会500，例如：
+location /a/{
+    alias    /usr/local/1.html;
+    #index    1.html;
+}
+# 这种配置会让nginx报出500
+# 使用alias时，目录后面一定要加"/"。（root目录配置中，location匹配的path目录后面带不带"/"，都不会影响访问。）
+# alias只能位于location块中。（root可以不放在location中）
+```
+
+### index
+
+```nginx
+# 通过上面的两个例子，知道index就是用来指定具体的资源的名字的，index可以指定多个资源的名字，第一个匹配不到，就会匹配第二个，直到匹配到为止。
+# 但是location使用严格匹配的时候，不能使用index，否则会导致root失效，如：
+location =/a/{
+    root    /usr/local/;
+    index    1.html;
+}
+# 当访问的url为/a/时，实际访问的资源为：nginx的默认document_root/a/1.html，使得root失效，值得注意的是nginx的默认document_root和我们root指定的是不一样的，所以最后会404
+```
+
+## server_name
+
+客户端通过域名访问服务器时会将域名与被解析的ip一同放在请求中。当请求到了nginx中时。nginx会先去匹配ip，如果listen中没有找到对应的ip，就会通过域名进行匹配，匹配成功以后，再匹配端口。当这三步完成，就会找到对应的server的location对应的资源。
+
+第一步：在客户端配置hosts（C:\Windows\System32\drivers\etc\hosts）
+```properties
+192.168.56.201 www.test201.com
+192.168.56.202 www.test202.com
+192.168.56.203 www.test203.com
+```
+
+第二步：给虚拟机（服务端）配置另外三个ip
+
+```bash
+[root@server01 ~]# ifconfig enp0s8:1 192.168.56.201/24 up
+[root@server01 ~]# ifconfig enp0s8:2 192.168.56.202/24 up
+[root@server01 ~]# ifconfig enp0s8:3 192.168.56.203/24 up
+```
+
+第三步：建立相关的nginx的文件
+
+1.建立虚拟主机存放网页的根目录，并创建首页文件index.html
+
+```bash
+[root@server01 ~]# mkdir -p /opt/app/www
+[root@server01 ~]# cd /opt/app/www
+[root@server01 ~]# mkdir 201
+[root@server01 ~]# mkdir 202
+[root@server01 ~]# mkdir 203
+[root@server01 ~]# echo "192.168.56.201" > 201/index.html; echo "192.168.56.202" > 202/index.html;echo "192.168.56.203" > 203/index.html
+```
+
+2.修改nginx.conf，将虚拟主机配置文件包含进主文件
+
+```nginx
+#通过ip配置
+server {
+        listen       192.168.56.201:80;
+        #server_name  www.test201.com;
+
+        access_log   /opt/app/www/logs/www.test201.com.log main;
+        error_log    /opt/app/www/logs/www.test201.com.error.log;
+
+        location / {
+            root   /opt/app/www/201;
+            index  index.html index.htm;
+        }
+}
+server {
+        listen       192.168.56.202:80;
+        #server_name  www.test202.com;
+
+        access_log   /opt/app/www/logs/www.test202.com.log main;
+        error_log    /opt/app/www/logs/www.test202.com.error.log;
+
+        location / {
+            root   /opt/app/www/202;
+            index  index.html index.htm;
+        }
+}
+server {
+        listen       192.168.56.203:80;
+        #server_name  www.test203.com;
+
+        access_log   /opt/app/www/logs/www.test203.com.log main;
+        error_log    /opt/app/www/logs/www.test203.com.error.log;
+
+        location / {
+            root   /opt/app/www/203;
+            index  index.html index.htm;
+        }
+}
+```
+
+可以使用ip和域名访问。
+
+3.把server中的ip都删除，把server_name的注释都解开。重启nginx。在访问，发现用域名能访问到对应的资源。使用ip就只会出现192.168.56.201的资源。这是因为通过其他ip也能请求到nginx，但是匹配不到相应的server，这个时候就会使用第一个server。
+
+4.将server_name=www.test203.com的server的listen加上ip 192.168.56.202:80,重启nginx。这个时候使用www.test202.com，或者192.168.56.202进行访问就可以得到server_name= www.test203.com的资源。但是使用www.test203.com访问的到的是192.168.56.201的资源。这是因为：如果server中配置了ip，那么我们就使用客户端带来的ip进行匹配，这个时候server_name失效。
+
+## location
+
+1. location的匹配顺序其实是“先匹配普通，再匹配正则”
+2. “普通location”的匹配规则是“最大前缀”，因此“普通location”的确与location编辑顺序无关；但是“正则location”的匹配规则是“顺序匹配，且只要匹配到第一个就停止后面的匹配”；“普通location”与“正则location”之间的匹配顺序是？先匹配普通location，再“考虑”匹配正则location。注意这里的“考虑”是“可能”的意思，也就是说匹配完“普通location”后，有的时候需要继续匹配“正则location”，有的时候则不需要继续匹配“正则location”。两种情况下，不需要继续匹配正则location：（1）当普通location前面指定了“^~”，特别告诉Nginx本条普通location一旦匹配上，则不需要继续正则匹配；（2）当普通location恰好严格匹配上，不是最大前缀匹配，则不再继续匹配正则。
+
+syntax: location [=|~|~*|^~|@] /uri/ { … }
+
+1. different configurations depending on the URI说的就是语法格式：`location [=|~|~*|^~|@] /uri/ { … }` ，依据不同的前缀`“= ”，“^~ ”，“~ ”，“~* ”`和不带任何前缀的（因为[A]表示可选，可以不要的），表达不同的含义, 简单的说尽管location 的/uri/配置一样，但前缀不一样，表达的是不同的指令含义。
+2. 查询字符串不在URI范围内。例如：/films.htm?fid=123 的URI是/films.htm 。
+
+location /uri/可通过使用不同的前缀，表达不同的含义。对这些不同前缀，分2大类：
+
+1. 正则location ，英文说法是location using regular expressions “~”和`“~*”`前缀表示正则location(“~”区分大小写，`“~*”`不区分大小写)
+2. 普通location ，其他前缀（包 括：“=”，“^~”和“@”）和无任何前缀的都属于普通location 。
+
+对于一个特定的HTTP请求（aparticularquery），nginx应该匹配哪个location块的指令呢（注意：在nginx.conf配置文件里面一般会定义多个location的）？匹配规则是：先匹配普通location（再匹配正则表达式）。“普通location”内部（普通location与普通location）是如何匹配的呢？简单的说：最大前缀匹配。
+
+1. match the beginning portion of the query（说的是匹配URI的前缀部分beginning portion）；
+2. the most specific match will be used （因为location不是“严格匹配”，而是“前缀匹配”，就会产生一个HTTP请求，可以“前缀匹配”到多个普通location，例如：location /prefix/mid/{}和location /prefix/{}，对于HTTP请求/prefix/mid/t.html，前缀匹配的话两个location都满足，选哪个？原则是：the most specific match，于是选的是location /prefix/mid/{}）。
+
+普通location先匹配，而且选择了最大前缀匹配后，不能就停止后面的匹配，最大前缀匹配只是一个临时的结果，nginx还需要继续检查正则location（但至于最终使用普通location的最大前缀匹配，还是正则location的匹配，截止当前的内容还没讲，但后面会讲）。“正则location”内部的匹配规则是：按照正则location在配置文件中的物理顺序（编辑顺序）匹配的（这句话就说明location 并不是一定跟顺序无关，只是普通location与顺序无关，正则location还是与顺序有关的），并且只要匹配到一条正则location ，就不再考虑后面的（这与“普通location”与“正则location”之间的规则不一样，“普通location”与“正则location ”之间的规则是：选择出“普通location”的最大前缀匹配结果后，还需要继续搜索正则location）。
+
+匹配结果的决策关系。如果继续搜索的“正则location”也有匹配上的，那么“正则location”覆盖“普通location”的最大前缀匹配；但是如果“正则location”没有能匹配上，那么就用“普通location”的最大前缀匹配结果。普通location匹配完后，还会继续匹配正则location；但是nginx允许你阻止这种行为，方法很简单，只需要在普通location前加“^~”或“=”。“^~”和“=”的区别：共同点是它们都能阻止继续搜索正则location，不同点是“^~”依然遵守“最大前缀”匹配规则，然而“=”不是“最大前缀”，而是必须是严格匹配（exact match）
+
+还有一种“隐含”的方式来阻止正则location的搜索，这种隐含的方式就是：当“最大前缀”匹配恰好就是一个“严格精确（exact match）”匹配，照样会停止后面的搜索。原文字面意思是：只要遇到“精确匹配exact match”，即使普通location没有带“=”或“^~”前缀，也一样会终止后面的匹配。
+
+```nginx
+location = / {  
+    #//精确匹配/ ，主机名后面不能带任何字符串
+	default_type text/html;
+	return 200 "number A";
+}
+ 
+location = /login {
+	#精确匹配 /login 开头的地址，匹配符合以后，不在继续往下搜索
+	default_type text/html;
+	return 200 "number B";
+}
+ 
+location ^~ /blog/ { 
+	#非正则匹配，匹配/blog/后，停止往下搜索正则，采用这一条
+	default_type text/html;
+	return 200 "number C";
+}
+ 
+ 
+location ~  \.(gif|jpg|png|js|css)$ {
+	#区分大小写的正则匹配  若匹配成功，停止往下搜索正则，采用这一条
+	default_type text/html;
+	add_header  Content-Type 'text/html; charset=utf-8';
+	return 200 "number D";
+}
+ 
+ 
+location ~* \.png$ {  
+	#不区分大小写的正则匹配 ，停止往下搜索正则，采用这一条
+	default_type text/html;
+	#如果不设置Content-Type的话，则response中的Content-Type会因为被设置成为了imamge/png而显示不正常，
+	add_header  Content-Type 'text/html; charset=utf-8';
+	return 200 "number E";
+}
+ 
+location / {
+	#因为所有的地址都以 / 开头，所以这条规则将匹配到所有请求
+	#如果没任何规则匹配上，就采用这条规则
+	default_type text/html;
+	return 200 "number F";
+}
+ 
+location /blog/detail { 
+	#最长字符串匹配，若完全匹配成功，就不在继续匹配，否则还会进行正则匹配
+	default_type text/html;
+	return 200 "number G";
+}
+ 
+location /images {  
+	#最长字符串匹配，同上
+	default_type text/html;
+	return 200 "number Y";
+}
+ 
+location ^~ /static/files {  
+	#非正则匹配，若匹配成功，就不在继续匹配
+	default_type text/html;
+	return 200 "number X";
+}
+# 1、当访问根路径/的时候，比如http://www.findme.wang/ ，会匹配规则A。
+# 2、当访如http://www.findme.wang/login ，会匹配规则B。
+# 3、当访如http://www.findme.wang/login.html ，会匹配规则F。
+# 4、当访如http://www.findme.wang/blog/detail/3.html，会匹配规则G。分析思路，首先看看，“精确匹配”是否可以匹配成功，显示不可以；然后，看看是否可以“普通匹配”是否可以完全匹配，显示也没有；接着再看“普通匹配”的最大前缀匹配发现有两条规则符合要求C和G，根据the-most-specific-match原则，先将规则G作为临时结果保存，（由于规则G没有加“^~”符号所以还要继续检查正则location。如果注释掉规则G的location，因为规则C的location加了“^~”符号所以在匹配到普通location后不再需要继续匹配“正则location”了，所以这个时候返回的是规则C）然后继续检查正则location，在正则location中没有匹配到，所以返回G。
+
+# nginx配置文件通过使用add_header指令来设置response header。
+# 具体方法如下：
+# add_header key value
+# add_header Cache-Control no-store
+# add_header Content-Encoding gzip
+# 用以改变Content-Type时比较特殊，可以在它设置了类型的同时还会指定charset，不过Content-Type和charset之间有分号，所以我们需要这样来添加。
+# add_header  Content-Type 'text/html; charset=utf-8';
+# 这样就可以给responent header的Content-Type添加指定的属性了。
+# 匹配所有.js文件的话，设置responent header的Content-Type值赋值为"text/javascript;charset=utf-8"。
+```
+
+## proxy_pass
+
+在nginx中配置proxy_pass代理转发时，如果在proxy_pass后面的url加/，表示绝对根路径；如果没有/，表示相对路径，把匹配的路径部分也给代理走。
+
+假设下面两种种情况分别用 http://server02/app/api001进行访问：（proxy_pass不包含URI）
+
+```nginx
+# 第一种：
+location /app/ {
+    proxy_pass http://server01:8085/;
+}
+# 代理到URL：http://server01:8085/api001
+# 第二种（相对于第一种，最后少一个/）
+location /app/ {
+    proxy_pass http://server01:8085;
+}
+# 代理到URL：http://server01:8085/app/api001
+```
+
+反向代理proxy_pass的语法结构为proxy_pass URL，其中，URL为要设置的被代理服务器的地址，包含传输协议、主机名称或IP地址加端口号、URI等要素。
+proxy_pass URL ,URL中是否含有URI，如果不包含，nginx服务器不会改变原地址的URI；如果包含了URI，则nginx服务器会使用新的URI替换原来的URI。
+（nginx服务器会使用新的URI然后再拼接上和location匹配之后剩余的部分组成新的URL）
+假设下面两种种情况分别用http://server02:81/proxy/api001进行访问：（proxy_pass包含URI）
+
+```nginx
+# 第一种：
+location /proxy/ {
+    proxy_pass http://server01:8085/app;
+}
+# 代理到URL：http://server01:8085/appapi001
+# 第二种（相对于第一种，最后少一个/）
+location /proxy/ {
+    proxy_pass http://server01:8085/app/;
+}
+# 代理到URL：http://server01:8085/app/api001
+```
+
+## rewrite
+
+### 定义
+
+rewrite功能就是使用nginx提供的全局变量或自己设置的变量，结合正则表达式和标志位实现url重写以及重定向；rewrite只能放在 server{}, location{}, if{}中，并且只能对域名后边的除去传递的参数外的字符串起作用。例如 http://seanlook.com/a/we/index.php?id=1&u=str 只对/a/we/index.php重写。
+
+### 语法
+
+rewrite regex replacement [flag];
+
+如果相对域名或参数字符串起作用，可以使用全局变量匹配，也可以使用proxy_pass反向代理。 rewrite和location功能看似有点像，都能实现跳转。主要区别在于rewrite是在同一域名内更改获取资源的路径，而location是对一类路径做控制访问或反向代理，可以proxy_pass到其他机器。很多情况下rewrite也会写在location里，它们的执行顺序是：
+
+1. 执行server块的rewrite指令
+2. 执行location匹配
+3. 执行选定的location中的rewrite指令
+
+如果其中某步URI被重写，则重新循环执行1-3，直到找到真实存在的文件；循环超过10次，则返回500 Internal Server Error错误。
+
+flag标志位
+
+1. last : 相当于Apache的[L]标记，表示完成rewrite
+2. break : 停止执行当前虚拟主机的后续rewrite指令集
+3. redirect : 返回302临时重定向，地址栏会显示跳转后的地址
+4. permanent : 返回301永久重定向，地址栏会显示跳转后的地址
+
+因为301和302不能简单的只返回状态码，还必须有重定向的URL，这就是return指令无法返回301,302的原因了。这里last和break区别有点难以理解：
+
+1. last一般写在server和if中，而break一般使用在location中
+2. last不终止重写后的url匹配，即新的url会再从server走一遍匹配流程，而break终止重写后的匹配
+3. break和last都能阻止继续执行后面的rewrite指令
+
+> 301和302都是将URL地址转移到新的地址中，这是二者的共同点。不同点是：
+>
+> 301适合永久重定向：常见场景是使用域名跳转。浏览器发出原始请求后重定向到新地址，浏览器会缓存这个请求，等下次再次访问原始地址时会直接请求到新地址去。
+>
+> 302适合临时跳转：可用于临时的、动态的地址跳转，每次请求原地址都会重新重定向到目标地址。应用场景：页面单点登录。
+
+### if
+
+格式：if (条件判断) { 具体的rewrite规则 }
+
+if条件判断语句由Nginx内置变量、逻辑判断符号和目标字符串三部分组成。
+
+其中，内置变量是Nginx固定的非自定义的变量，如，$request_method, $request_uri等。
+
+逻辑判断符号，有`=, !=, ~, ~*, !~, !~*`
+
+!表示相反的意思，~为匹配符号，它右侧为正则表达式，区分大小写，而~*为不区分大小写匹配。
+
+目标字符串可以是正则表达式，通常不用加引号，但表达式中有特殊符号时，比如空格、花括号、分号等，需要用单引号引起来。
+
+```nginx
+# 示例1：当http请求方法为post时，返回403状态码
+if ($request_method = POST)
+{
+    return 403; 
+}
+# 示例2：通过浏览器标识匹配关键字，禁止IE浏览器访问
+if ($http_user_agent ~* MSIE) 
+{
+    return 403;
+}
+# 限制多个浏览器：
+if ($http_user_agent ~* "MSIE|firefox|Chrome")
+{
+    return 403;
+}
+# 示例3：当请求的文件不存在时，进行重定向或return状态码等处理操作
+if(!-f $request_filename)
+{
+    rewrite 语句;
+}
+# 示例4：判断uri中某个参数的内容
+if($request_uri ~* 'gid=\d{6,8}/') 
+{
+    rewrite 语句;
+}
+# \d表示数字，{6,8}表示数字出现的次数是6到8次，当uri中gid参数的值包含6-8个数字那么执行rewrite语句
+```
+
+### break,last
+
+两个指令用法相同，但含义不同，需要放到rewrite规则的末尾，用来控制重写后的链接是否继续被nginx配置执行(主要是rewrite、return指令)。
+
+```nginx
+# 1.break和last在location{}外部时
+server{
+    listen 80; 
+    server_name test.com;
+    root /data/wwwroot/test.com;
+
+    rewrite /1.html /2.html;
+    rewrite /2.html /3.html;
+}
+# 请求1.html文件时，会被重定向到2.html，然后被重定向到3.html，最后返回的文件为3.html
+# 示例1：在rewrite指令后面添加break
+server{
+    listen 80; 
+    server_name test.com;
+    root /data/wwwroot/test.com;
+
+    rewrite /1.html /2.html break;
+    rewrite /2.html /3.html;
+}
+# 请求1.html文件时，会被重定向到2.html，然后直接返回2.html，break在此处的作用就是当匹配第一个rewrite指令成功时，不执行后面的rewrite指令
+# 示例2：当break后面还有location{}的情况
+server{
+    listen 80; 
+    server_name test.com;
+    root /data/wwwroot/test.com;
+
+    rewrite /1.html /2.html break;
+    rewrite /2.html /3.html;
+    location /2.html {
+        return 403;
+    }
+}
+# 请求1.html文件时，会返回403状态码，这是因为当1.html被重定向到2.html时，break不会匹配后面的rewrite规则，但条件2.html匹配location{}定义的文件2.html，所以会执行return 403
+#以上两个示例中，将break换成last效果一样
+
+# 2.break和last在location{}内部时
+测试示例：
+server{
+    listen 80; 
+    server_name test.com;
+    root /data/wwwroot/test.com;
+    
+    location / {
+        rewrite /1.html /2.html;
+        rewrite /2.html /3.html;
+    }
+    location /2.html
+    {
+        rewrite /2.html /a.html;
+    }
+    location /3.html
+    {
+        rewrite /3.html /b.html;
+    }
+}
+# 请求1.html，会经过两次重定向到3.html，3.html又刚好匹配location /3.html{}，所以返回b.html，当请求2.html时，会直接返回a.html，因为location /2.html {} 更精准，优先匹配
+# 示例1：在rewrite后面添加break
+server{
+    listen 80; 
+    server_name test.com;
+    root /data/wwwroot/test.com;
+    
+    location / {
+        rewrite /1.html /2.html break;
+        rewrite /2.html /3.html;
+    }
+    location /2.html
+    {
+        rewrite /2.html /a.html;
+    }
+    location /3.html
+    {
+        rewrite /3.html /b.html;
+    }
+}
+# 请求1.html，会返回2.html，不会返回a.html，当break再location {} 内部时，遇到break后，当前location{} 以及后面的location{} 的指令都不再执行
+# 示例2：在rewrite后面添加last
+server{
+    listen 80; 
+    server_name test.com;
+    root /data/wwwroot/test.com;
+    
+    location / {
+        rewrite /1.html /2.html last;
+        rewrite /2.html /3.html;
+    }
+    location /2.html
+    {
+        rewrite /2.html /a.html;
+    }
+    location /3.html
+    {
+        rewrite /3.html /b.html;
+    }
+}
+# 请求1.html时，会返回a.html，在location {} 内部遇到last，当前location {}中剩下的指令不会再执行，但被重定向的url会重新匹配一遍location {}
+# =======================================================================================
+# 3.break和last用法总结
+# 1.当rewrite规则在location{}外，break和last作用一样，遇到break或last后，其后续的rewrite/return语句不再执行。但后续有location{}的话，还会近一步执行location{}里面的语句,前提是请求能匹配该location
+# 2.当rewrite规则在location{}里，遇到break后，本location{}与其他location{}的所有rewrite/return规则都不再执行
+# 3.当rewrite规则在location{}里，遇到last后，本location{}里后续rewrite/return规则不执行，但重写后的url再次从头匹配所有location
+# 4.在server块下，会优先执行rewrite部分，然后才会去匹配location块
+```
+
+### return
+
+该指令一般用于对请求的客户端直接返回响应状态码。在该作用域内return后面的所有nginx配置都是无效的，可以使用在server、location以及if配置中，除了支持跟状态码，还可以跟字符串或者url链接。
+
+```nginx
+# 示例1：直接返回状态码
+server{
+    listen 80;
+    server_name www.test.com;
+    return 403;
+    rewrite www.test.net;  
+}
+# 访问时，直接返回403状态码，return返回内容后，后面的配置rewrite不会执行
+# 示例2：当return在if 判断中时
+server {
+.....
+
+    if ($request_uri ~ "\.password|\.bak")
+    {
+        return 404;
+        rewrite /(.*) /index.html;  
+    }
+.....
+}
+# 请求的文件包含.password或.bak时，直接返回404，rewrite不会执行，但if {}外的配置会继续执行，return只在当前作用域中生效
+# 示例3：返回字符串
+server{
+    listen 80;
+    server_name www.test.com;
+    return 200 "hello";
+}
+# 返回字符串必须加上状态码，否则会报错
+# 示例4：返回nginx变量
+location /1.html {
+    return 200 "$host $request_uri";
+}
+# 示例5：返回url
+server{
+    listen 80;
+    server_name www.test.com;
+    return http://www.test.com/index2.html;
+}
+# 返回url时，必须以http://或https://开头
+# 示例6：返回html代码
+if ($http_referer ~ 'baidu.com') 
+{
+    return 200 "<html><script>window.location.href='//$host$request_uri';</script></html>";
+}
+# 当网站被黑了的时候，从百度点进网站是链接都会跳转到其他网站，可以使用该方法暂时处理
+# 注意：return http://$host$request_uri; 在浏览器中会提示"重定向的次数过多"
+
+# rewrite应用实例
+# 1.域名跳转（域名重定向）
+# 单个域名的情况：
+server{
+    listen 80;
+    server_name www.test.com;
+    rewrite /(.*) http://www.test.net/$1 permanent;    
+}
+# 多个域名的情况：
+server{
+    listen 80;
+    server_name www.test.com www.test.net;
+    if ($host != 'www.test.net')
+    {
+        rewrite /(.*) http://www.test.net/$1 permanent;
+    }
+}
+# 2.http跳转https
+server{
+    listen 80;
+    server_name www.test.com;
+    rewrite /(.*) https://www.test.com/$1 permanent;
+}
+# 3.跳转二级目录
+server{
+    listen 80;
+    server_name bbs.test.com;
+    rewrite /(.*) http://www.test.com/bbs/$1 last;
+}
+# 4.动静态请求分离
+server{
+    listen 80;
+    server_name www.test.com;
+    location ~* .*\.(jpg|jpeg|gif|css|png|js)$
+    {
+        rewrite /(.*) http://img.test.com/$1 permanent;
+    }
+}
+#假设www.test.com的服务器在国外，访问速度较慢，img.test.com的服务器在国内，访问速度正常，可以将访问www.test.com静态文件的请求重定向到img.test.com，提高文件返回速度
+```
+
+### error_page,rewrite
+
+1. error_page指令的作用是：当出现指定的错误时，指定需要跳转的页面。这里的错误指的是http响应行中，响应码非200的相应码。比如400， 404， 500等。
+
+   例如：error_page 502 503 /50x.html；这样实际上产生了一个内部跳转(internal redirect)，当访问出现502、503的时候就能返回50x.html中的内容。
+
+   例如：error_page 502 503 =200 /50x.html；意思是访问产生502 、503的时候给用户的返回状态是200，内容是50x.html。
+
+2. rewrite 指令的作用是：根据rewrite指令中的匹配规则和替换规则去修改一个url。通常我们称之为url的路由（跳转）规则。
+
+   例如：rewrite "/a.html" /a.php break；把/a.html路由为/a.php，然后去执行a.php，最后把执行结果返回用户。
+
+## upstream
+
+```nginx
+# 1、proxy_pass + upstream
+upstream foo.example.com {
+	server 127.0.0.1:8001;
+}
+
+server {
+	listen       80;
+	server_name  localhost;
+
+	location /foo {
+		proxy_pass http://foo.example.com;
+	}
+}
+# 访问http://localhost/foo，proxy模块会将请求转发到127.0.0.1的8001端口上。
+
+# 2、只有proxy_pass，没有upstream与resolver
+server {
+	listen       80;
+	server_name  localhost;
+
+	location /foo {
+		proxy_pass http://foo.example.com;
+	}
+}
+# 实际上是隐式创建了upstream，upstream名字就是foo.example.com。upstream模块利用本机设置的DNS服务器（或/etc/hosts），将foo.example.com解析成IP，访问http://localhost/foo，proxy模块会将请求转发到解析后的IP上。
+# 如果本机未设置DNS服务器，或者DNS服务器无法解析域名，则nginx启动时会报类似如下错误：
+# nginx: [emerg] host not found in upstream "foo.example.com" in /path/nginx/conf/nginx.conf:110
+
+# 3、proxy_pass + resolver（变量设置域名）
+server {
+	listen       80;
+	server_name  localhost;
+
+	resolver 114.114.114.114;
+	location /foo {
+		set $foo foo.example.com;
+		proxy_pass http://$foo;
+	}
+}
+# 访问http://localhost/foo，nginx会动态利用resolver设置的DNS服务器（本机设置的DNS服务器或/etc/hosts无效），将域名解析成IP，proxy模块会将请求转发到解析后的IP上。
+
+# 4、proxy_pass + upstream（显式） + resolver（变量设置域名）
+upstream foo.example.com {
+	server 127.0.0.1:8001;
+}
+
+server {
+	listen       80;
+	server_name  localhost;
+
+	resolver 114.114.114.114;
+	location /foo {
+		set $foo foo.example.com;
+		proxy_pass http://$foo;
+	}
+}
+# 访问http://localhost/foo时，upstream模块会优先查找是否有定义upstream后端服务器，如果有定义则直接利用，不再走DNS解析。所以proxy模块会将请求转发到127.0.0.1的8001端口上。
+
+# 5、proxy_pass + upstream（隐式） + resolver（变量设置域名）
+server {
+	listen       80;
+	server_name  localhost;
+
+	resolver 114.114.114.114;
+	location /foo {
+		set $foo foo.example.com;
+		proxy_pass http://$foo;
+	}
+
+	location /foo2 {
+		proxy_pass http://foo.example.com;
+	}
+}
+# location /foo2实际上是隐式定义了upstream foo.example.com，并由本地DNS服务器进行了域名解析，访问http://localhost/foo时，upstream模块会优先查找upstream，即隐式定义的foo.example.com，nginx再动态利用resolver设置的DNS服务器（本机设置的DNS服务器或/etc/hosts无效），将域名（foo.example.com）解析成IP，proxy模块会将请求转发到解析后的IP上。
+
+# 6、proxy_pass + resolver（不用变量设置域名）
+server {
+	listen       80;
+	server_name  localhost;
+
+	resolver 114.114.114.114;
+	location /foo {
+		proxy_pass http://foo.example.com;
+	}
+}
+# 不使用变量设置域名，则resolver的设置不起作用，此时相当于场景2，只有proxy_pass的场景。
+
+# 7、proxy_pass + upstream + resolver（不用变量设置域名）
+upstream foo.example.com {
+	server 127.0.0.1:8001;
+}
+
+server {
+	listen       80;
+	server_name  localhost;
+
+	resolver 114.114.114.114;
+	location /foo {
+		proxy_pass http://foo.example.com;
+	}
+}
+# 不使用变量设置域名，则resolver的设置不起作用，此时相当于场景1 proxy_pass + upstream。
+
+# 8、proxy_pass 直接指定IP加端口号
+server {
+	listen       80;
+	server_name  localhost;
+
+	location /foo {
+		proxy_pass http://127.0.0.1:8001/;
+	}
+}
+# 实际上是隐式创建了upstream，proxy_pass会将请求转发到127.0.0.1的8001端口上。
+```
+
+## non_idempotent
+
+Nginx通过反向代理做负载均衡时，如果被代理的其中一个服务发生错误或者超时的时候，通常希望Nginx自动重试其他的服务，从而实现服务的高可用性。实际上Nginx本身默认会有错误重试机制，并且可以通过proxy_next_upstream来自定义配置。如果不了解HTTP协议以及Nginx的机制，就可能在使用过程中遇到各种各样的坑。例如服务出现了错误或超时却未重试，或者一些例如创建订单或发送短信这类的HTTP接口，客户端只发送一次请求，后台却由于Nginx重试导致创建了多个订单，或者收到多条短信，导致一些业务上的问题。
+
+在Nginx配置文件中，`proxy_next_upstream`用于指定在什么情况下Nginx会将请求转移到其他服务器上。其默认值是`proxy_next_upstream error timeout`，即发生网络错误以及超时，才会重试其他服务器。默认情况下服务返回500状态码是不会重试的，如果想在响应500状态码时也进行重试，可以配置：proxy_next_upstream error timeout http_500;当然还有`http_502`、`http_503`、`http_404`等可以指定在出现哪些状态码的情况下需要重试。具体配置项可以参考官方文档:http://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_next_upstream
+
+用一个最简单的例子来测试一下该特性，例如下面是Spring Boot写了一个简单的HTTP接口，返回500状态码：
+
+```java
+@SpringBootApplication
+public class NginxRetryApplication {
+
+    public static void main(String[] args) {
+        SpringApplication.run(NginxRetryApplication.class, args);
+    }
+}
+
+@RestController
+class TestController {
+
+    @RequestMapping("/")
+    public String test() {
+        System.out.println("收到一个请求"); // 打印日志
+        throw new RuntimeException(); // 抛出异常, 返回500状态码
+    }
+}
+```
+
+分别使用9030和9031两个端口号启动该Spring Boot服务，然后Nginx配置好负载均衡：
+
+```nginx
+upstream nginxretry {
+    server 127.0.0.1:9030 max_fails=0;
+    server 127.0.0.1:9031 max_fails=0;
+}
+server {
+    listen 9039;
+    location / {
+        proxy_pass http://nginxretry;
+        proxy_next_upstream error timeout http_500;
+    }
+}
+```
+
+注意：以上配置中`max_fails=0`是为了更方便的测试Nginx错误重试机制。`max_fails`默认值是1，用于指定一个server在一段时间内（默认10s）发生错误次数达到多少次，Nginx就会自动将该服务器下线。这里设置为0是禁用这个特性，防止在测试过程中服务器被踢下线不好测试。线上环境下一般不会设置`max_fails=0`。
+
+配置完成后重启Nginx，使用GET方式请求 http://localhost:9039/ ，再分别查看9030和9031两个端口号对应的服务日志，可以发现两个服务都收到请求，也就是Nginx在访问其中一个服务收到500错误状态码后，又尝试去访问另一个服务。
+
+再次使用POST方式请求 http://localhost:9039/ ，再分别查看9030和9031两个端口号对应的服务日志，可以发现只有一个服务收到请求。也就是当请求类型是POST时，Nginx默认不会失败重试。如果想让POST请求也会失败重试，可以按照下面的方法进行配置。
+
+在Nginx文档中可以看到proxy_next_upstream有一个选项non_idempotent:
+
+normally, requests with a non-idempotent method (POST, LOCK, PATCH) are  not passed to the next server if a request has been sent to an upstream  server (1.9.13); enabling this option explicitly allows retrying such  requests;
+
+通常情况下，如果请求使用非等幂方法（POST、LOCK、PATCH），请求失败后不会再到其他服务器进行重试。加上`non_idempotent`选项后，即使是非幂等请求类型（例如POST请求），发生错误后也会重试。
+
+如果想让POST请求也会失败重试，需要配置`non_idempotent`：
+
+```nginx
+upstream nginxretry {
+    server 127.0.0.1:9030 max_fails=0;
+    server 127.0.0.1:9031 max_fails=0;
+}
+server {
+    listen 9039;
+    location / {
+        proxy_pass http://nginxretry;
+        proxy_next_upstream error timeout http_500 non_idempotent;
+    }
+}
+```
+
+重启Nginx后再次使用POST请求访问 http://localhost:9039/ ，再分别查看9030和9031两个端口号对应的服务日志，可以看到两个服务都收到请求，也就是POST请求也会重试了。不过实际上在生产环境中，不建议加上non_idempotent选项，具体原因如下：
+
+在HTTP协议规范中，对幂等方法（Idempotent Method）做了以下定义：
+
+A request method is considered "idempotent" if the intended effect on  the server of multiple identical requests with that method is the same  as the effect for a single such request.
+
+如果使用该方法的多个相同请求对服务器的预期效果与单个请求的效果相同，则认为请求方法是幂等的。常见的HTTP请求方法中，GET是幂等的，而POST是非幂等的。
+
+在做业务开发是如何理解幂等性，举个最简单的例子：GET方法一般用于获取数据，如果获取的是数据库数据，对应的是SELECT语句。同样的SELECT语句执行一次还是多次，都不会影响数据。而POST一般对应INSERT，如果执行多次后，可能会造成数据重复插入的问题。所以不要使用GET方法做一些INSERT操作，在业务开发时要遵循HTTP协议规范。
+
+生产环境中为什么不建议加上non_idempotent选项？因为无论是发生500错误还是timeout，服务器上的业务可能都已经执行过了，而重试会导致非幂等方法重复执行，从而导致业务问题，例如一个请求会创建了多个订单，或者收到多条短信的问题。
+
 # Kafka
 
 ## 消息队列

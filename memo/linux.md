@@ -2931,7 +2931,7 @@ max-file 表示系统级别的能够打开的文件句柄的数量。是对整�
 [root@server01 ~]# vim /etc/sysctl.conf
 # 文件末尾加入配置内容：fs.file-max = 640000
 fs.file-max = 64000
-# 然后执行命令，使修改配置立即生效
+# 然后执行命令，使修改配置立即生效。
 [root@server01 ~]# sysctl -p
 fs.file-max = 640000
 ```

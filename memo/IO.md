@@ -5755,6 +5755,18 @@ void tcp_time_wait(struct sock *sk, int state, int timeo)
 
 对于`net.ipv4.tcp_tw_recycle`选项，其作用是在将TIME_WAIT的超时时间设置成rto，而非60秒，而rto一般情况下会小于1秒，所以recycle经常能够快速回收处理TIME_WAIT状态的端口。而timestamps同样必须打开recycle才能生效。另外一种不生效的情况是`inet_getpeer`函数无法获取到对应的信息时，recycle也不会生效。
 
+### net.ipv4.ip_local_port_range
+
+当client请求服务时，系统为该请求建立 tcp连接，该连接的port值是一个随机数字。该数字的取值范围配置由net.ipv4.ip_local_port_range这个参数决定。port的最大值其实可以达到65535（2^16 - 1)。65535这个数字与操作系统无关，不管Linux系统是32位的还是64位的。这个数字是由网络tcp协议决定的，tcp协议头部中的16位（两个字节）表示端口号，这就决定了其最大值65535，操作系统只能跟着这个限制。
+
+### net.ipv4.ip_local_reserved_ports
+
+使用net.ipv4.ip_local_port_range参数，规划出一段端口段预留作为服务的端口，这种方法是可以解决当前问题，但是会有个问题，端口使用量减少了，当服务器需要消耗大量的端口号的话，比如反代服务器，就存在瓶颈了。 预留端口配置(可支持逗号分隔的多个数字，比如10000, 10005-10010)
+
+最好的做法是将服务监听的端口以逗号分隔全部添加到ip_local_reserved_ports中，TCP/IP协议栈从ip_local_port_range中随机选取源端口时，会排除ip_local_reserved_ports中定义的端口，因此就不会出现端口被占用了服务无法启动。
+
+ip_local_reserved_ports正好可以辅助解决上述问题，将服务模块需要listen的端口全部添加到 ip_local_reserved_ports中，这样Linux tcp/ip协议栈从ip_local_port_range中选端口时，会跳过ip_local_reserved_ports中定义的端口。
+
 ### 如何测试TIME_WAIT的超时时间
 
 使用curl的`--local-port`选项可以大概地看出TIME_WAIT的超时时间

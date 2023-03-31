@@ -370,6 +370,19 @@ Curator包含几个包：
 
 http://nginx.org/packages/centos/7/x86_64/RPMS/
 
+命令
+
+nginx                                        # 启动Nginx
+nginx -s reload                       # 在nginx已经启动的情况下重新载入配置文件（平滑重启）
+nginx -s reopen                      # 重新打开日志文件
+nginx -s stop                           # 停止 Nginx
+nginx -s quit                            # stop的方式是立即停止Nginx服务，无论当前工作进程是否正在处理工作。而quit是在完成当前工作任务后再停止
+nginx -c /xxx/nginx.conf        # 以特定目录下的配置文件启动Nginx
+nginx -t                                     # 检测当前配置文件是否正确
+nginx -t -c /xxxx/nginx.conf  #检测特定目录下的Nginx配置文件是否正确
+nginx -v                                    # 显示版本信息
+nginx -V                                    # 显示版本信息和编译选项
+
 ## worker_processes
 
 工作进程数
@@ -666,6 +679,12 @@ location /proxy/ {
 }
 # 代理到URL：http://server01:8085/app/api001
 ```
+
+> 总结：
+>
+> 1、如果proxy_pass中没有URI（即：只有ip和端口，如：http://server01:8085），那么最终代理转发的url为：proxy_pass + location
+>
+> 2、如果proxy_pass中包含URI（即：除了ip和端口还有其他内容，"/"也算，如：http://server01:8085/app），那么最终代理的内容为：proxy_pass + (访问URL中的URI - location)
 
 ## rewrite
 

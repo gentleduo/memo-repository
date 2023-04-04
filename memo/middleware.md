@@ -1808,6 +1808,8 @@ redis-server  ../redis.conf
 ```bash
 cd  /usr/local/redis-3.2.8/src
 redis-cli -h server01
+# 使用密码连接
+redis-cli -h 127.0.0.1 -p 6379 -a Passw0rd
 ```
 
 ### 停止

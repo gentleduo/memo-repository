@@ -5765,7 +5765,15 @@ void tcp_time_wait(struct sock *sk, int state, int timeo)
 
 最好的做法是将服务监听的端口以逗号分隔全部添加到ip_local_reserved_ports中，TCP/IP协议栈从ip_local_port_range中随机选取源端口时，会排除ip_local_reserved_ports中定义的端口，因此就不会出现端口被占用了服务无法启动。
 
-ip_local_reserved_ports正好可以辅助解决上述问题，将服务模块需要listen的端口全部添加到 ip_local_reserved_ports中，这样Linux tcp/ip协议栈从ip_local_port_range中选端口时，会跳过ip_local_reserved_ports中定义的端口。
+>ip_local_port_range和ip_local_reserved_ports都是针对于，ss命令中的Local Address对应的端口，即源（本地）端口的最小和最大端口的限制，同时适用于TCP和UDP连接。
+>
+>比如：
+>
+>1、该服务器作为client向某台服务器发起tcp连接请求的时候，需要通过操作系统申请分配临时端口，那么就是在ip_local_port_range指定的范围中随机分配一个端口
+>
+>2、当该服务器上某个应用启动的时候需要随机挑选一个端口作为对外提供服务的listen端口时，也是在ip_local_port_range指定的范围中随机分配一个端口
+>
+>简单说来就是系统中的程序会随机选择这个范围内的端口来连接到目的端口、或者随机选择这个范围内的端口作为listen端口启动服务
 
 ### 如何测试TIME_WAIT的超时时间
 

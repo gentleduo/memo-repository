@@ -1701,6 +1701,10 @@ tar  -jxvf	xxxxxx.tar.bz2
 [root@server01 ~]# vim /etc/passwd
 # 用户名：密码：UID（用户ID）：GID（组ID）：描述性信息：主目录：默认Shell
 # root用户的UID和GID都是0，如果要将一个普通用户改成一个root用户只需要将普通用的UID和GID都改成0即可
+# useradd -u 0 -o -g 0 user
+# -u：手工指定用户的 UID，注意 UID 的范围（不要小于 500）。
+# -g：GID
+# -o：允许创建的用户的 UID 相同。例如，执行 "useradd -u 0 -o usertest" 命令建立用户 usertest，它的 UID 和 root 用户的 UID 相同，都是 0；
 root:x:0:0:root:/root:/bin/bash
 # 默认shell为：/sbin/nologin的用户是虚拟用户
 bin:x:1:1:bin:/bin:/sbin/nologin
@@ -2037,7 +2041,139 @@ echo $环境变量名
 
 #### 环境变量与配置文件 
 
-/etc/profile属于全局环境变量配置文件，.bash_profile、.bashrc属于用户环境变量文件，此两个文件位于用户根目录下。当某Linux用户登录时，Shell会首先执行系统默认的配置文件/etc/profile，然后会自动执行.bash_profile文件(在.bash_profile中会调用~/.bashrc文件)，如果.bash_profile文件不存在，接着读取~/.bashrc文件。Bash的初始化环境变量文件顺序：
+bash相关的配置文件主要分为全局配置文件和个人配置文件
+
+全局配置文件：
+
+1. /etc/profile：用来设置系统环境参数，比如$PATH. 这里面的环境变量是对系统内所有用户生效的。
+
+2. /etc/profile.d/*.sh：全部用户、任何方式登录都有效
+
+3. /etc/bashrc：这个文件设置系统bash shell相关的东西，对系统内所有用户生效。只要用户运行bash命令，那么这里面的东西就在起作用。
+
+个人配置文件
+
+1. ~/.bash_profile：用来设置一些环境变量，功能和/etc/profile 类似，但是这个是针对用户来设定的，也就是说，你在/home/user1/.bash_profile 中设定了环境变量，那么这个环境变量只针对 user1 这个用户生效；~/.bash_profile 是交互式、login 方式进入 bash 运行的，意思是只有用户登录时才会生效。
+
+2. ~/.bashrc：作用类似于/etc/bashrc, 只是~/.bashrc只针对当前用户生效，不对其他用户生效。~/.bashrc 是交互式 non-login 方式进入 bash 运行的，用户不一定登录，只要以该用户身份运行命令行就会读取该文件。
+
+| 概念        | 举例                                                         | 举例                                                         |
+| ----------- | ------------------------------------------------------------ | ------------------------------------------------------------ |
+| 登陆shell   | 用户登陆时，输入用户名和密码登陆的shell，或bash --login命令打开的shell | /etc/profile->/etc/profile.d/*.sh->~/.bash_profile->~/.bashrc->/etc/bashrc |
+| 非登陆shell | 用户登陆时不需要系统认证打开的shell，或bash命令打开的shell   | ~/.bashrc->/etc/bashrc->/etc/profile.d/*.sh（测试下来，虽然不执行profile，但是会继承上一个shell的全部变量） |
+| 交互shell   | 提供命令提示符等待用户输入命令的是交互shell模式              | 用户登录后，在终端上输入命令，shell 立即执行用户提交的命令。当用户退出后，shell 也终止了。 |
+| 非交互shell | 直接运行脚本文件是非交互shell模式                            | 即 shell 与用户不存在交互，而是以 shell script的方式执行的。 |
+
+命令bash启动shell时，是可以通过选项改变其行为的，(sh 基本兼容bash这些设定)
+
+```bash
+bash [长选项] [选项] [脚本]
+```
+
+常用选项：
+
+| 选项           | 含义                                                         |
+| -------------- | ------------------------------------------------------------ |
+| -i             | shell在交互模式下运行                                        |
+| -l             | shell作为登陆shell                                           |
+| -r             | 启动受限shell                                                |
+| --             | 选项结束标志，后面的内容当做文件名或参数，即使他们以-开头    |
+| --login        | 同-l                                                         |
+| --noprofile    | 阻止读取初始化文件/etc/profile、~/.bash_profile、~/.bash_login、~/.profile |
+| --norc         | 在交互式shell，阻止读取初始化文件~/.bashrc。如果shell以sh调用的话，该选项默认是打开的。 |
+| --recfile file | 在交互式shell，指定初始化文件是file而不是~/.bashrc           |
+| --version      | 版本信息                                                     |
+
+查看登录式：shopt login_shell
+
+```bash
+# 新起一个bash，为非登录shell
+[root@server01 opt]# bash
+[root@server01 opt]# shopt login_shell            
+login_shell     off
+# 指定--login参数，新起一个bash，为登录shell
+[root@server01 opt]# bash --login
+[root@server01 opt]# shopt login_shell
+login_shell     on
+# 新起一个bash：
+[root@server01 opt]# ssh server01
+Last login: Thu Apr  6 19:08:09 2023
+[root@server01 ~]# shopt login_shell
+login_shell     on
+```
+
+查看交互式法1：echo $PS1 # 非空则表示交互式
+
+```bash
+[root@server01 ~]# echo $PS1 
+[\u@\h \W]\$
+[root@server01 ~]# cat test.sh
+echo $PS1
+shopt login_shell
+[root@server01 ~]# sh test.sh 
+
+login_shell     off
+```
+
+交互/非交互/登录/非登录shell这些组合情况，在脚本的调用方面有区别；而且对于bash与sh也存在差异；
+
+下面以bash为例：
+
+示例1：
+
+```bash
+# 交互式的登录shell和非交互式shell，首先会继承上一个shell的所有变量，然后会按下面这个流程执行：
+# /etc/profile->/etc/profile.d/*.sh->~/.bash_profile->~/.bashrc->/etc/bashrc
+# 所有可以看到 /etc/profile文件末尾设置的环境变量被加载了两遍。（非交互式的登录效果一样）
+[root@server01 opt]# bash -il test.sh
+/usr/local/rvm/gems/ruby-2.6.0/bin:/usr/local/rvm/gems/ruby-2.6.0@global/bin:/usr/local/rvm/rubies/ruby-2.6.0/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/usr/local/rvm/bin:/usr/local/java/jdk1.8.0_144/bin:/usr/local/zookeeper/bin:/usr/local/hadoop-2.7.5/bin:/usr/local/hadoop-2.7.5/sbin:/usr/local/hive/bin:/usr/local/sqoop/bin:/usr/local/flume/bin:/usr/local/hbase-2.0.0/bin:/usr/local/flink-1.6.1/bin:/usr/local/node/bin:/root/bin:/usr/local/java/jdk1.8.0_144/bin:/usr/local/zookeeper/bin:/usr/local/hadoop-2.7.5/bin:/usr/local/hadoop-2.7.5/sbin:/usr/local/hive/bin:/usr/local/sqoop/bin:/usr/local/flume/bin:/usr/local/hbase-2.0.0/bin:/usr/local/flink-1.6.1/bin:/usr/local/node/bin:/root/bin
+# 交互式的非登录shell和非交互式的非登录shell，同样会继承上一个shell的所有变量，然后会按下面这个流程执行：
+# ~/.bashrc->/etc/bashrc->/etc/profile.d/*.sh
+# 因为非登录shell不会执行/etc/profile，所以/etc/profile文件末尾设置的环境变量没有被重复加载。（非交互式的非登录效果一样）
+[root@server01 opt]# bash -i test.sh 
+/usr/local/rvm/gems/ruby-2.6.0/bin:/usr/local/rvm/gems/ruby-2.6.0@global/bin:/usr/local/rvm/rubies/ruby-2.6.0/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/usr/local/rvm/bin:/usr/local/java/jdk1.8.0_144/bin:/usr/local/zookeeper/bin:/usr/local/hadoop-2.7.5/bin:/usr/local/hadoop-2.7.5/sbin:/usr/local/hive/bin:/usr/local/sqoop/bin:/usr/local/flume/bin:/usr/local/hbase-2.0.0/bin:/usr/local/flink-1.6.1/bin:/usr/local/node/bin:/root/bin
+```
+
+示例2：
+
+在server02的/root/.bashrc文件中增加一个环境变量：
+
+```bash
+# .bashrc
+
+# User specific aliases and functions
+
+alias rm='rm -i'
+alias cp='cp -i'
+alias mv='mv -i'
+
+# Source global definitions
+if [ -f /etc/bashrc ]; then
+        . /etc/bashrc
+fi
+export PATH=$PATH:/usr/local/hadoop-2.7.5/bin
+```
+
+在server02的/opt目录下，创建如下shell脚本
+
+```bash
+[root@localhost opt]# cat test.sh 
+echo $PATH
+```
+
+在server01下执行如下命令：
+
+```bash
+# 由于是通过ssh直接连接server02后直接通过bash打开shell，所以没有父shell，此外通过bash打开shell默认是非登录式的所以会按照：~/.bashrc->/etc/bashrc->/etc/profile.d/*.sh这个流程执行，因此/etc/profile和~/.bash_profile是不会被执行的。
+[root@server01 opt]# ssh server02 "bash /opt/test.sh"
+/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/usr/local/hadoop-2.7.5/bin
+# 如果通过bash -l打开shell(shell作为登陆shell)，则会按照/etc/profile->/etc/profile.d/*.sh->~/.bash_profile->~/.bashrc->/etc/bashrc的流程执行，那么/etc/profile里面配置的环境变量就会生效
+[root@server01 opt]# ssh server02 "bash -l /opt/test.sh"
+/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/usr/local/hadoop-2.7.5/bin:/usr/local/java/jdk1.8.0_144/bin:/usr/local/zookeeper/bin:/usr/local/hadoop-2.7.5/bin:/usr/local/hadoop-2.7.5/sbin:/usr/local/flume/bin:/usr/local/hbase-2.0.0/bin:/usr/local/flink-1.6.1/bin:/usr/local/hadoop-2.7.5/bin:/root/bin
+[root@server01 opt]# 
+```
+
+
 
 ![image](assets\linux-11.png)
 
@@ -5272,4 +5408,4 @@ free()函数只传入一个内存地址，为什么能知道要释放多大的�
 >
 >2. 在/root/.bashrc中添加：export TERM=xterm
 >
->3. 最后关闭CRT，再重新打开连接一下
+>3. 最后关闭CRT，再重新打开连接一下 

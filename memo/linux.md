@@ -2266,24 +2266,12 @@ MBR和GPT之间的区别
 ### UEFI和BIOS
 
 UEFI（Unified Extensible Firmware Interface)：全称“统一的可扩展固件接口”，它定义了一种在操作系统和平台固件之间的接口标准。这种接口用于操作系统自动从预启动的操作环境（在系统启动之后，但是操作系统开始运作之前）加载到一种操作系统上，从而使开机程序化繁为简，节省时间。需要注意，UEFI最准确的说它仅是一种规范，不同厂商根据该规范对UEFI的实现，并做出PC固件后,该固件就称为UEFI固件。
-BIOS（基本输入和输出系统），是最古老的一种系统固件和接口，采用汇编语言进行编程，并使用中断来执行输入/输出操作，在出现之初即确定了 PC 生态系统的基本框架。
+BIOS（基本输入和输出系统），是最古老的一种系统固件和接口，采用汇编语言进行编程，并使用中断来执行输入/输出操作，在出现之初即确定了PC生态系统的基本框架。
 UEFI比BIOS先进在三个方面：
-(1) 读取分区表
-(2) 访问某些特定文件系统中的文件
-(3) 执行特定格式的代码【可以说UEFI像一个简易的操作系统】
 
-### UEFI、BIOS和MBR、GPT之间的关系
-
-MBR的特点
-MBR分区的分区表保存在硬盘的第一个扇区，而且只有64字节，所以最多只能有四个表项。也就是说，我们只能把硬盘分为4主分区，或者分成小于等于3个主分区再加一个扩展分区。
-MBR分区的优点就是简单，支持度高，很多操作系统都可以从MBR分区的硬盘启动。	缺点就是MBR分区不能识别大于2T的硬盘空间，也不能有大于2T的分区.
-MBR支持32位和64位系统。
-GPT的特点
-没有4个主分区的限制，对分区的数量没有限制。
-GPT可管理硬盘大小最大18EB
-要从GPT分区的硬盘启动，则需要UEFI主板、硬盘使用GPT分区、操作系统支持GPT这三个条件。
-必须使用64位系统。
-UEFI的目标是取代传统BIOS，它不支持MBR模式，仅支持GPT格式。不过，近年出现的UEFI主板，采用UEFI+BIOS共存模式，并且BIOS中集成UEFI启动项。
+1. 读取分区表
+2. 访问某些特定文件系统中的文件
+3. 执行特定格式的代码【可以说UEFI像一个简易的操作系统】
 
 ### Linux操作系统GPT-UEFI支持列表
 
@@ -2733,7 +2721,7 @@ sshd    1065 root  txt    REG                8,2   819640 50916842 /usr/sbin/ssh
 sshd    1065 root  DEL    REG                0,4             15932 /dev/zero
 sshd    1065 root  mem    REG                8,2   510416 50342739 /usr/lib64/libfreeblpriv3.so
 sshd    1065 root  mem    REG                8,2    15480 16873174 /usr/lib64/security/pam_lastlog.so
-# lsof -p PNAME：PNAME是进程名称，通过进程名称显示程序打开的所有文件及相关进程
+# lsof -c PNAME：PNAME是进程名称，通过进程名称显示程序打开的所有文件及相关进程
 [root@server01 ~]# lsof -c sshd
 COMMAND  PID USER   FD   TYPE             DEVICE SIZE/OFF     NODE NAME
 sshd     531 root  cwd    DIR                8,2     4096       64 /
@@ -2804,6 +2792,9 @@ killall [信号类型] 进程名称
                      用户     进程号 权限   命令
 /root:               root       1136 ..c.. (root)bash
                      root       1372 ..c.. (root)ntpdate
+# 列占用指定端口的进程号
+[root@server01 ~]# fuser -n tcp 9009
+9009/tcp:             1037
 # 查看/lib/gcc/x86_64-redhat-linux/4.8.2/libgcc_s.so正在被哪些进程在使用
 [root@server01 ~]# fuser -uv /lib/gcc/x86_64-redhat-linux/4.8.2/libgcc_s.so
                      用户     进程号 权限   命令
@@ -3472,7 +3463,7 @@ target     prot opt source               destination
 
 Chain POSTROUTING (policy ACCEPT)
 target     prot opt source               destination 
-# 清除本机防火墙的所有规则设定：上面三条指令可以清除防火墙的所有规则，但是不能清除预设的默认规则（policy）
+# 清除本机防火墙的所有规则设定：下面三条指令可以清除防火墙的所有规则，但是不能清除预设的默认规则（policy）
 [root@server01 /]# iptables -F
 [root@server01 /]# iptables -X
 [root@server01 /]# iptables -Z
@@ -3507,7 +3498,7 @@ iptables设置语法如下：
 ```
 
 -A	新增加一条规则，放到已有规则的最后面
--I	插入一条规则，如果没有制定插入规则的顺序，则新插入的变成第一条规则，A和I后面跟链：INPUT、OUTPUT、FORWARD
+-I	插入一条规则，如果没有指定插入规则的顺序，则新插入的变成第一条规则，A和I后面跟链：INPUT、OUTPUT、FORWARD
 -i	指定数据包进入的那个网络接口。linux下常见的有eth0、eth1、lo等等。此参数一般与INPUT链配合使用
 -o	指定数据包传出的那个网络接口。经常与OUTPUT链配合使用
 -p	指定此规则适用的协议，常用的协议有tcp、udp、icmp以及all

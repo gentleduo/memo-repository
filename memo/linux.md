@@ -301,6 +301,19 @@ mount -t 文件系统类型 设备名 挂载点
 [root@server01 ~]# mount /home/CentOS-7-x86_64-DVD-1611.iso /media -o loop
 ```
 
+进入/etc/yum.repos.d目录，新建配置文件Redhat.repo
+
+```bash
+[root@server01 ~]# cd /etc/yum.repos.d/
+[root@server01 yum.repos.d] mv CentOS-Base.repo CentOS-Base.repo_bak
+[root@server01 yum.repos.d]# vim Redhat.repo
+[Redhat]
+name=Redhat
+baseurl=file:///media
+enabled=1
+gpgcheck=0
+```
+
 设备的卸载
 
 umonut 挂载目录
@@ -375,10 +388,25 @@ init管理主要是针对于centos7以前的版本
 
 init管理机制与特点
 所有的服务启动脚本都放置于/etc/init.d/目录，基本上都是使用bash shell所写成的脚本程序，需要启动、关闭、重新启动、查看状态时，可以通过如下的方式来处理：
-启动：/etc/init.d/daemon start
-关闭：/etc/init.d/daemon stop
-重启：/etc/init.d/daemon restart
-查看状态：/etc/init.d/daemon status
+启动：/etc/init.d/XXXdaemon start
+关闭：/etc/init.d/XXXdaemon stop
+重启：/etc/init.d/XXXdaemon restart
+查看状态：/etc/init.d/XXXdaemon status
+
+```bash
+# /etc/init.d/目录下存放的是所有的启动脚本
+[root@server01 init.d]# ll /etc/init.d/
+总用量 44
+-rwxr-xr-x  1 root root 10835 10月  6 2020 clickhouse-server
+-rw-r--r--. 1 root root 15131 9月  12 2016 functions
+-rwxr-xr-x. 1 root root  2989 9月  12 2016 netconsole
+-rwxr-xr-x. 1 root root  6643 9月  12 2016 network
+-rw-r--r--. 1 root root  1160 11月  7 2016 README
+# 比如：查看clickhouse-server的状态
+[root@server01 init.d]# /etc/init.d/clickhouse-server status
+clickhouse-server service is running
+# 具体怎么启动哪些服务要结合下面的系统运行等级来看
+```
 
 init机制的系统运行级
 init可以根据使用者自订的执行等级(runlevel)来唤醒不同的服务，以进入不同的操作模式。基本上 Linux 提供7个执行等级，分别是0, 1, 2...6 ，
@@ -390,8 +418,19 @@ init 5：图形界面模式。
 init 6：重启模式
 
 init管理机制服务设置方式
-各个执行等级的启动脚本是通过 /etc/rc.d/rc[0-6]/SXXdaemon 链接到 /etc/init.d/daemon 。即：管理在各个系统运行级中需要启动的服务
+各个执行等级的启动脚本是通过 /etc/rc.d/rc[0-6]/SXXdaemon 链接到 /etc/init.d/daemon 。即：管理在各个系统运行等级中需要启动的服务
 链接文件名 (SXXdaemon) 的功能为： S 为启动该服务，XX是数字，表示启动的顺序。由于有SXX的设定，因此在开机时可以依序执行所有需要的服务。
+
+```bash
+# 比如在init 3这个运行等级下，会依次执行/etc/init.d/目录下的network、clickhouse-server脚本
+# 注：K50netconsole中的K代表的含义未知
+[root@server01 init.d]# ll /etc/rc.d/rc3.d/
+总用量 0
+lrwxrwxrwx. 1 root root 20 7月  31 2017 K50netconsole -> ../init.d/netconsole
+lrwxrwxrwx. 1 root root 17 7月  31 2017 S10network -> ../init.d/network
+lrwxrwxrwx  1 root root 27 11月 11 15:45 S50clickhouse-server -> ../init.d/clickhouse-server
+```
+
 设置服务自启动： chkconfig daemon on
 关闭服务自启动： chkconfig daemon off
 查看服务是否自启动： chkconfig --list daemon
@@ -417,41 +456,17 @@ lrwxrwxrwx. 1 root root 13 7月  31 2017 /lib/systemd/system/runlevel6.target ->
 
 ### systemd
 
-systemd提供了一个非常强大的命令行工具systemctl，可能很多系统运维人员都已经非常熟悉基于sysvinit的服务管理方式，比如service、chkconfig命令，而systemd也能完成同样的管理任务，可以把systemctl看作是service和chkconfig的组合体。要查看、启动、停止、重启、启用或者禁用系统服务，都可以通过systemctl命令来实现 。
+systemd提供了一个非常强大的命令行工具systemctl，可能很多系统运维人员都已经非常熟悉基于sysvinit的服务管理方式，比如service、chkconfig命令，而systemd也能完成同样的管理任务，可以把systemctl看作是service和chkconfig的组合体。要查看、启动、停止、重启、启用或者禁用系统服务，都可以通过systemctl命令来实现 。Systemd使用单元(Units)来管理系统服务和程序。系统单元使用配置文件来控制其相关操作。单元配置文件有三种类型：默认单元配置文件，系统特定的单元配置文件和运行时的单元配置文件。三种类型的单元配置文件所在路径： 
 
-linux系统中有很多的system目录，常看到的有/etc/systemd/system、/lib/systemd/system以及/usr/lib/systemd/system；目录/lib/systemd/system 以及/usr/lib/systemd/system 其实指向的是同一目录，在/目录下执行命令 `ll` 即可知：
+1. 默认单元配置文件：/usr/lib/systemd/system；当安装新软件包时，在安装过程中，单元配置文件会在该目录中生成
 
-```bash
-[root@server01 system]# ll /
-总用量 56
-drwxr-xr-x   3 root root    36 8月  25 09:51 app
-lrwxrwxrwx.  1 root root     7 7月  31 2017 bin -> usr/bin
-dr-xr-xr-x.  4 root root  4096 7月  31 2017 boot
-drwxr-xr-x   3 root root    24 10月  7 09:33 data
-drwxr-xr-x  18 root root  2960 10月 23 10:48 dev
-drwxr-xr-x. 86 root root  8192 10月 23 10:48 etc
-drwxrwxrwx   2 root root    22 3月  12 2019 extend_folder
-drwxr-xr-x. 17 root root  4096 2月  10 2022 home
--rw-r--r--   1 root root 12153 8月  18 2017 jars
-lrwxrwxrwx.  1 root root     7 7月  31 2017 lib -> usr/lib
-lrwxrwxrwx.  1 root root     9 7月  31 2017 lib64 -> usr/lib64
-drwxr-xr-x.  3 root root    38 10月 23 2018 media
-drwxr-xr-x.  2 root root     6 3月   5 2018 mnt
-drwxr-xr-x   2 root root     6 1月  17 2021 oldroot
-drwxr-xr-x. 42 root root  8192 10月 22 21:17 opt
-drwxr-xr-x   3 root root    22 3月  13 2018 output
-dr-xr-xr-x  89 root root     0 10月 23 10:48 proc
-dr-xr-x---. 21 root root  4096 10月 23 11:43 root
-drwxr-xr-x  22 root root   700 10月 23 10:48 run
-lrwxrwxrwx.  1 root root     8 7月  31 2017 sbin -> usr/sbin
-drwxr-xr-x.  2 root root     6 11月  5 2016 srv
-dr-xr-xr-x  13 root root     0 10月 23 10:48 sys
-drwxrwxrwt. 12 root root  4096 10月 23 11:42 tmp
-drwxr-xr-x. 13 root root   155 7月  31 2017 usr
-drwxr-xr-x. 20 root root  4096 10月 23 10:48 var
-```
+2. 运行时的配置文件 /run/systemd/system；分别在units启动和停止时，会自动生成和删除。
 
-/etc/systemd/system/(系统管理员安装的单元, 优先级更高)。在一般的使用场景下，每一个 Unit（服务等） 都有一个配置文件，告诉 Systemd 怎么启动这个 Unit 。Systemd 默认从目录`/etc/systemd/system/`读取配置文件。但是，里面存放的大部分文件都是符号链接，指向目录`/usr/lib/systemd/system/`，真正的配置文件存放在这个目录。 `systemctl enable` 命令用于在上面两个目录之间，建立符号链接关系。
+3. 系统特定的配置文件 /etc/systemd/system；包含定制的单元配置。通过这些配置文件，用户可以覆盖units的默认行为。
+
+当对系统服务和程序的状态进行任何更改时，例如：start,stop,enable,和disable时，systemd读取并执行其单元配置文件。按照以下顺序检查单元配置文件。系统特定的单元配置文件、运行时单元配置文件、默认单元配置文件。例如，如果一个units配置文件在着三个路径下面都存在，则仅使用系统特定的配置文件：/etc/systemd/system。
+
+对于multi-user.target来说，需要把/lib/systemd/system/multi-user.target.wants下面的service和/etc/systemd/system/multi-user.target.wants下面的service都执行了。这两个目录是叠加的关系。/etc/systemd/system/multi-user.target.wants/，这里的服务是用户自定义的systemd的开机启动项。目录/usr/lib/systemd/system/multi-user.target.wants/，是系统开机启用的systemd。如果想disable那些位于/etc/systemd/system/multi-user.target.wants下面的服务，只需要执行 systemctl disable xx.service即可，执行的结果是删除xx.service 在/etc/systemd/system/multi-user.target.wants下面的软连接。disable之后，如果想enable这个服务，需要执行systemctl enable xx.service。如果想disable那些位于/lib/systemd/system/multi-user.target.wants下面的服务，需要执行 systemctl mask yy.service即可，执行的结果是在/etc/systemd/system目录下面创建一个软连接，yy.service -----> /dev/null，mask之后，如果想重新生成这个服务，需要执行systemctl unmask yy.service
 
 ```bash
 # 比如配置docker service开机启动，其实真正的Unit在放在/usr/lib/systemd/system/目录下，/etc/systemd/system/目录只是存放指向该文件的软链接；
@@ -471,6 +486,9 @@ drwxr-xr-x. 2 root root 4096 10月 23 11:50 multi-user.target.wants
 drwxr-xr-x  2 root root   51 3月  12 2019 sockets.target.wants
 drwxr-xr-x  2 root root   89 5月  15 2018 sysinit.target.wants
 drwxr-xr-x. 2 root root   44 7月  31 2017 system-update.target.wants
+# 查看systemd的默认target：
+[root@server01 system]# systemctl get-default     
+multi-user.target
 ```
 
 ### systemd命令和sysvinit命令对比

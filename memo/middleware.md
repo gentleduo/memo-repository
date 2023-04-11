@@ -682,9 +682,9 @@ location /proxy/ {
 
 > 总结：
 >
-> 1、如果proxy_pass中没有URI（即：只有ip和端口，如：http://server01:8085），那么最终代理转发的url为：proxy_pass + location
+> 1、如果proxy_pass中没有URI（即：只有ip和端口，如：http://server01:8085），那么最终代理转发的url为：proxy_pass + 请求URL中的URI
 >
-> 2、如果proxy_pass中包含URI（即：除了ip和端口还有其他内容，"/"也算，如：http://server01:8085/app），那么最终代理的内容为：proxy_pass + (访问URL中的URI - location)
+> 2、如果proxy_pass中包含URI（即：除了ip和端口还有其他内容，"/"也算，如：http://server01:8085/app），那么最终代理的内容为：proxy_pass + (请求URL中的URI - location)
 
 ## rewrite
 

@@ -5765,7 +5765,7 @@ void tcp_time_wait(struct sock *sk, int state, int timeo)
 
 最好的做法是将服务监听的端口以逗号分隔全部添加到ip_local_reserved_ports中，TCP/IP协议栈从ip_local_port_range中随机选取源端口时，会排除ip_local_reserved_ports中定义的端口，因此就不会出现端口被占用了服务无法启动。
 
->ip_local_port_range和ip_local_reserved_ports都是针对于，ss命令中的Local Address对应的端口，即源（本地）端口的最小和最大端口的限制，同时适用于TCP和UDP连接。
+>ip_local_port_range和ip_local_reserved_ports都是针对于ss命令中的Local Address对应的端口，即源（本地）端口的最小和最大端口的限制，同时适用于TCP和UDP连接。
 >
 >比如：
 >

@@ -1823,8 +1823,9 @@ PASS_MIN_LEN    5
 PASS_WARN_AGE   7
 
 #创建用户时不指定UID的话自动UID的范围
-UID_MIN                  1000
 #用户ID的最小值
+UID_MIN                  1000
+#用户ID的最大值
 UID_MAX                 60000
 #系统uid的最小值
 SYS_UID_MIN               201
@@ -2178,7 +2179,7 @@ login_shell     off
 示例1：
 
 ```bash
-# 交互式的登录shell和非交互式shell，首先会继承上一个shell的所有变量，然后会按下面这个流程执行：
+# 交互式的登录shell和非交互式登录shell，首先会继承上一个shell的所有变量，然后会按下面这个流程执行：
 # /etc/profile->/etc/profile.d/*.sh->~/.bash_profile->~/.bashrc->/etc/bashrc
 # 所有可以看到 /etc/profile文件末尾设置的环境变量被加载了两遍。（非交互式的登录效果一样）
 [root@server01 opt]# bash -il test.sh
@@ -3844,7 +3845,7 @@ iowait：表示CPU等待输入输出完成时间的百分比
 
 ##### st
 
-虚拟器消耗的百分比，一般忽略不用考虑
+steal time，专门对虚拟机来说的：一台物理是可以虚拟化出几台虚拟机的。在其中一台虚拟机上用top查看发现st不为0，就说明本来有这么多个cpu时间是安排给该虚拟机的，但是由于某种虚拟技术，把这个cpu时间分配给了其他的虚拟机了。这就叫做偷取。
 
 ### sar
 
@@ -4163,6 +4164,20 @@ iotop默认显示的是线程信息：TID，如果想要其显示进程信息可
 8589934592 bytes (8.6 GB) copied, 123.37 s, 69.6 MB/s
 ```
 
+>dd命令是一个非常强大的命令，可以用它来测试磁盘的读写性能；使用dd来测试硬盘读写速度只能提供一个大概的测试结果，理论上文件规模越大，测试结果越准确。理论上bs越大，所测得性能越高。
+>
+>dd if=/dev/zero of=test bs=64k count=16k；这个不准确，写入的是pagecache，可能命令结束的时候数据还没有真正写到磁盘上去
+>
+>dd if=/dev/zero of=test bs=64k count=16k conv=fsync；比较准确，在dd结束前会写到磁盘
+>
+>dd if=/dev/zero of=test bs=64k count=4k oflag=dsync；是真正的每写一次就写一次磁盘
+>
+>通过查看dd的帮助页面对于一些参数的解释
+>
+>conv=fsync  Synchronize output data and metadata just before finishing 意思也就是在dd命令结束前同步data和metadata，那就是不是每一次写都同步一次咯，也就是如果在dd命令中写了100次，他可能是等到最后的时候才把他们同步到磁盘。
+>
+>oflag=dsync Use synchronized I/O for data. For the output file, this forces a physical write of output data on each write，那就是指每一次写都得等到这一次写写到了磁盘才进行下一个写，也就是如果写100次，每次写都是写到磁盘后才进行下一次写的。
+
 ## 网络性能评估
 
 ### ping
@@ -4397,6 +4412,24 @@ usr sys idl wai hiq siq
 0.02 0.05 0.05
 ```
 
+### 查看CPU中断
+
+int:interrupt 每秒产生系统的中断次数
+
+csw:上下文切换次数
+
+int,csw越大，内核消耗的CPU时间会越多。
+
+```bash
+[root@server02 ~]# dstat -y
+---system--
+ int   csw 
+ 518  4562 
+ 115   161 
+  99   160 
+ 102   148 
+```
+
 ### 查看网卡流量
 
 ```bash
@@ -4408,6 +4441,32 @@ usr sys idl wai hiq siq
  924B 1062B
  864B 1002B
  924B 1062B
+```
+
+### 查看内存分页统计
+
+值较大表明系统正在使用大量的交换空间，通常情况下当系统已经开始用交换空间的时候，就说明内存已经不够用了，或者说内存非常分散，理想情况下page in（换入）和page out（换出）的值是0 0。
+
+```bash
+[root@server02 ~]# dstat -g
+---paging--
+  in   out 
+   0     0 
+   0     0 
+   0     0 
+   0     0 
+```
+
+### 查看当前占用I/O、cpu、内存等最高的进程信息
+
+```bash
+[root@server02 ~]# dstat --top-mem --top-cpu --top-io
+--most-expensive- -most-expensive- ----most-expensive----
+  memory process |  cpu process   |     i/o process      
+clickhouse-s93.0M|clickhouse-se1.0|systemd      61k  136k
+clickhouse-s93.0M|clickhouse-se1.0|sshd: root@ 388B  480B
+clickhouse-s 506M|clickhouse-se 17|clickhouse-1069k 1035k
+clickhouse-s 506M|                |clickhouse- 920B  157B
 ```
 
 # Linux虚拟内存管理

@@ -727,6 +727,42 @@ RSS     VSZ
 7152568 17485844
 ```
 
+获取占用CPU资源最多的10个进程
+
+ps aux|sort -nr -k3
+
+参数解析
+
+- sort #排序命令 
+- -nr #默认使用字符串排序n代表使用数值进行排序 默认从小到大排序 r代表反向排序 
+- -k3 #以第3列进行排序
+
+这里会有一个问题，就是：第一行：head也参与的排序
+
+![image](assets\linux-65.png)
+
+把输入第一行删除，然后剩余的行参与排序并取前10位
+
+ps aux|grep -v PID|sort -nr -k3|head -n10
+
+![image](assets\linux-66.png)
+
+grep参数解析
+
+-v 反向查找，比如 grep -v "grep" 就是查找不含有 grep 字段的行; 
+
+如需要显示PID，则先运行输出第一行然后再进行排序
+
+ps aux|head -n1;ps aux|grep -v PID|sort -nr -k3|head -n10
+
+![image](assets\linux-67.png)
+
+同理输出内存占用多的进程，内存参数在第四行
+
+ps aux|head -n1;ps aux|grep -v PID|sort -nr -k4|head -n10
+
+![image](assets\linux-68.png)
+
 ### top
 
 第一行：top - 16:20:38 up 12 days,  5:24,  2 users,  load average: 0.04, 0.03, 0.05
@@ -839,6 +875,8 @@ top的交互命令
 【3】敲top后，top命令默认以K为单位显示内存大小，我们可以通过大写字母E来切换内存信息区域的显示单位，如下按一下E切换到MB
 
 【4】敲top后，输入f，可以定制显示的列。通过光标移动到想要显示的列，然后按d或者Space，然后按q退出。
+
+【5】敲top后，然后按下大写M按照内存MEM排序，按下大写P按照CPU排序。
 
 ### date
 

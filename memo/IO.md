@@ -3045,13 +3045,13 @@ public class SelectorThread implements Runnable {
 
 # tcp/ip
 
-## 三次握手过程：
+## 三次握手
 
 1. 主机A发送位码为SYN＝1,随机产生Seq Number=XXX的数据包到服务器，主机B由SYN＝1知道，A要求建立联机，主机A的状态变为SYN_SENT；
 2. 主机B收到请求后要确认联机信息，向A发送Ack Number=(主机A的Seq+1),SYN=1,ACK=1,随机产生Seq Number=YYY的包，此时主机B的状态变为SYN_RCVD；
 3. 主机A收到后检查Ack Number是否正确，即第一次发送的Seq Number+1,以及位码ACK是否为1，若正确，主机A状态变为ESTABLISHED；主机A会再发送Ack Number=(主机B的Seq Number+1),ACK=1，主机B收到后确认Ack Number与ACK=1，若正确，主机B状态变为ESTABLISHED，连接建立成功；
 
-## 四次挥手的过程：
+## 四次挥手
 
 1. 首先客户端想要释放连接，向服务器端发送一段TCP报文，其中：标记位为FIN，表示“请求释放连接“；随后客户端进入FIN-WAIT-1阶段，即半关闭阶段。并且停止在客户端到服务器端方向上发送数据，但是客户端仍然能接收从服务器端传输过来的数据。
 
@@ -3114,7 +3114,7 @@ TTL的值一般是64，Linux将MSL设置为30秒，意味着Linux认为数据报
 
 ![image](assets\io-7.png)
 
-服务端收到这个RST并将其解释为一个错误（Connectionresetbypeer），这对于一个可靠的协议来说不是一个优雅的终止方式。为了防止这种情况出现，客户端必须等待足够长的时间确保对端收到ACK，如果对端没有收到ACK，那么就会触发TCP重传机制，服务端会重新发送一个FIN，这样一去一来刚好两个MSL的时间。
+服务端收到这个RST并将其解释为一个错误（Connection reset by peer），这对于一个可靠的协议来说不是一个优雅的终止方式。为了防止这种情况出现，客户端必须等待足够长的时间确保对端收到ACK，如果对端没有收到ACK，那么就会触发TCP重传机制，服务端会重新发送一个FIN，这样一去一来刚好两个MSL的时间。
 
 ![image](assets\io-8.png)
 
@@ -3157,7 +3157,7 @@ net.ipv4.tcp_tw_reuse，如果开启该选项的话，客户端（连接发起�
 
 为什么tcp_tw_reuse默认是关闭的？
 
-第一个问题：开启tcp_tw_reuse的同时，也需要开启tcp_timestamps，意味着可以用时间戳的方式有效的判断回绕序列号的历史报文。但是在看了防回绕序列号算法的源码后，发现对于RST报文的时间戳即使过期了，只要RST报文的序列号在对方的接收窗口内，也是能被接受的。
+第一个问题：开启tcp_tw_reuse的同时，也需要开启tcp_timestamps，意味着可以用时间戳的方式有效的判断回绕序列号的历史报文。但是在看了防回绕序列号算法的源码后，发现对于RST报文的时间戳即使过期了，只要RST报文的序列号（有可能是回绕序列号）在对方的接收窗口内，也是能被接受的。
 
 ```c
 static bool tcp_validate_incoming(struct sock *sk, struct sk_buff *skb, const struct tcphdr *th, int syn_inerr)

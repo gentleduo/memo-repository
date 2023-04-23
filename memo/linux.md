@@ -1384,6 +1384,20 @@ ss是Socker-Statistics的缩写，是一款非常适用、快速、跟踪显示�
 -4：仅显示IPv4的sockets连接；
 -6：仅显示IPv6的sockets连接；
 
+```bash
+# 显示状态为established连接
+[root@server01 ~]# ss -np -o state established | head -n 2
+Netid  Recv-Q Send-Q Local Address:Port               Peer Address:Port              
+u_str  0      0      /var/run/dbus/system_bus_socket 13705                      * 13689               users:(("dbus-daemon",pid=494,fd=10))
+# 显示处于established状态的源端口为22的所有tcp套接字
+[root@server01 ~]# ss -np -o state established '( sport = :22 )' 
+Netid Recv-Q Send-Q                 Local Address:Port                                Peer Address:Port              
+tcp   0      0                     192.168.56.110:22                                  192.168.56.2:2310                users:(("sshd",pid=1064,fd=3)) timer:(keepalive,115min,0)
+# 显示处于FIN-WAIT-1状态的源端口为80或者443，目标网络为192.168.1/24所有tcp套接字
+[root@server01 ~]# ss -o state fin-wait-1 '( sport = :http or sport = :https )' dst 192.168.56/24
+Netid Recv-Q Send-Q               Local Address:Port                                Peer Address:Port
+```
+
 ## 文本编辑工具
 
 ### vi
@@ -4322,17 +4336,23 @@ tcp， udp ， icmp，若未给定协议类型，则匹配所有可能的类型
 示例：
 
 ```bash
-[root@server01 ~]# tcpdump -n -i enp0s8 -c 5 src host 192.168.56.1
-tcpdump: verbose output suppressed, use -v or -vv for full protocol decode
-listening on enp0s8, link-type EN10MB (Ethernet), capture size 262144 bytes
-12:50:54.517640 IP 192.168.56.1.63223 > 192.168.56.110.ssh: Flags [.], ack 1732657228, win 8207, length 0
-12:50:54.559283 IP 192.168.56.1.63223 > 192.168.56.110.ssh: Flags [.], ack 161, win 8212, length 0
-12:50:54.600083 IP 192.168.56.1.63223 > 192.168.56.110.ssh: Flags [.], ack 321, win 8211, length 0
-12:50:54.646512 IP 192.168.56.1.63223 > 192.168.56.110.ssh: Flags [.], ack 481, win 8211, length 0
-12:50:54.688145 IP 192.168.56.1.63223 > 192.168.56.110.ssh: Flags [.], ack 641, win 8210, length 0
-5 packets captured
-5 packets received by filter
-0 packets dropped by kernel
+# 过滤主机
+# 抓取所有经过enp0s8，目的或源地址是192.168.56.1的网络数据
+[root@server01 ~]# tcpdump -n -i enp0s8 host 192.168.56.1
+# 指定源地址
+[root@server01 ~]# tcpdump -n -i enp0s8 src host 192.168.56.1
+# 指定目的地址
+[root@server01 ~]# tcpdump -n -i enp0s8 dst host 192.168.56.110
+# 过滤端口
+# 抓取所有经过enp0s8，目的或源端口是22的网络数据
+[root@server01 ~]# tcpdump -n -i enp0s8 port 22
+# 指定源端口
+[root@server01 ~]# tcpdump -n -i enp0s8 src port 22
+# 指定目的端口
+[root@server01 ~]# tcpdump -n -i enp0s8 dst port 22
+
+# 过滤地址和端口，目的地址为192.168.56.110并且目的端口为22
+[root@server01 ~]# tcpdump -n -i enp0s8 dst host 192.168.56.110 and dst port 22
 ```
 
 tcpdump常见的包携带的标志，即：Flags

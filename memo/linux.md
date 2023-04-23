@@ -725,6 +725,10 @@ ps -aux
 [root@server01 limits.d]# ps -p ${pid} -o rss,vsz  
 RSS     VSZ
 7152568 17485844
+# 查看进程：1035内有多少个线程；其中，nlwp含义是number of light-weight process。
+[root@server01 ~]# ps -o nlwp 1035                                 
+NLWP
+  78
 ```
 
 获取占用CPU资源最多的10个进程

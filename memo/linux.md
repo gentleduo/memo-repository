@@ -4290,12 +4290,15 @@ Usage: tcpdump [-aAbdDefhHIJKlLnNOpqStuUvxX#] [ -B size ] [ -c count ]
                 [ --immediate-mode ] [ -T type ] [ --version ] [ -V file ]
                 [ -w file ] [ -W filecount ] [ -y datalinktype ] [ -z postrotate-command ]
                 [ -Z user ] [ expression ]
+# tcpdump tcp -i eth1 -t -s 0 -c 100 and dst port ! 22 and src net 192.168.1.0/24 -w ./target.cap
+# tcp: ip icmp arp rarp 和 tcp、udp、icmp这些选项等都要放到第一个参数的位置，用来过滤数据报的类型
 ```
 
 tcpdump可以将网络中传送的数据包的header完全截获下来进行分析，它支持对网络层（net ip 端）、协议（tcp/udp）、主机（src/dst host）、网络或端口（port）的过滤，并提供and、or、not等逻辑语句来去掉无用的信息。tcpdump的常用选项如下：
 
 #### 抓包选项
 
+tcp: ip icmp arp rarp 和 tcp、udp、icmp这些选项等都要放到第一个参数的位置，用来过滤数据报的类型
 -c：指定要抓取的包数量。
 -i interface：指定tcpdump需要监听的接口。默认会抓取第一个网络接口
 -n：对地址以数字方式显式，否则显式为主机名，也就是说-n选项不做主机名解析。
@@ -4359,7 +4362,7 @@ tcp， udp ， icmp，若未给定协议类型，则匹配所有可能的类型
 [root@server01 ~]# tcpdump -n -i enp0s8 dst host 192.168.56.110 and dst port 22
 ```
 
-tcpdump常见的包携带的标志，即：Flags
+在TCP层，有个FLAGS字段，这个字段有以下几个标识：SYN, FIN, ACK, PSH, RST, URG
 
 S: S=SYC : 发送连接标志
 
@@ -4372,6 +4375,20 @@ ack:表示确认包
 RST=RESET:异常关闭连接
 
 .:表示没有任何标志
+
+![image](assets\linux-69.jpg)
+
+fin 0 syn 10 rst 100 psh 1000 ack 10000 urg 100000
+
+ack+psh 11000 转化十进制等于 24
+
+```bash
+# 抓取所有经过enp0s8、端口是22的RST报文
+[root@aistation002 hbase-performance-test]# tcpdump -n -i ens8f0 port 7080 and tcp[13]=4 -w /opt/hbase-performance-test/network.out
+tcpdump: listening on ens8f0, link-type EN10MB (Ethernet), capture size 262144 bytes
+# 从抓包文件中过滤出想要的报文，并转存到另一个文件中
+[root@aistation002 hbase-performance-test]# tcpdump -r file.pcap 'tcp[13]=4' -w rst.pcap
+```
 
 ## dstat 
 

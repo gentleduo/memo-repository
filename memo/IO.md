@@ -1558,6 +1558,8 @@ java进程在执行accept之后，可以拿到内核分配的文件描述符，�
    - Max：为TCP socket预留用于发送缓冲的内存最大值。该值不会影响net.core.wmem_max，今天选择参数SO_SNDBUF则不受该值影响。默认值为128K。 
    - 缺省设置：4096 16384 4194304
 
+
+
 # 多路复用器
 
 ## NIO
@@ -3050,6 +3052,57 @@ public class SelectorThread implements Runnable {
 1. 主机A发送位码为SYN＝1,随机产生Seq Number=XXX的数据包到服务器，主机B由SYN＝1知道，A要求建立联机，主机A的状态变为SYN_SENT；
 2. 主机B收到请求后要确认联机信息，向A发送Ack Number=(主机A的Seq+1),SYN=1,ACK=1,随机产生Seq Number=YYY的包，此时主机B的状态变为SYN_RCVD；
 3. 主机A收到后检查Ack Number是否正确，即第一次发送的Seq Number+1,以及位码ACK是否为1，若正确，主机A状态变为ESTABLISHED；主机A会再发送Ack Number=(主机B的Seq Number+1),ACK=1，主机B收到后确认Ack Number与ACK=1，若正确，主机B状态变为ESTABLISHED，连接建立成功；
+
+TCP三次握手详细解析过程
+
+![image](assets\io-13.jpg)
+
+### 第一次握手
+
+客户在socket() connect()后主动(active open)连接上服务器, 发送SYN ，这时客户端的状态是SYN_SENT，服务器在进行socket(),bind(),listen()后等待客户的连接，收到客户端的 SYN 后：
+
+#### 半连接队列(syn queue)未满
+
+服务器将该连接的状态变为SYN_RCVD, 服务器把连接信息放到半连接队列(syn queue)里面。
+
+#### 半连接队列(syn queue)已满
+
+服务器不会将该连接的状态变为SYN_RCVD，且将该连接丢弃。（SYN flood攻击就是利用这个原理，对于SYN foold攻击，应对方法之一是使syncookies生效，将其值置1即可，路径/proc/sys/net/ipv4/tcp_syncookies，即使是半连接队列syn queue已经满了，也可以接收正常的非恶意攻击的客户端的请求）半连接队列(syn queue)最大值/proc/sys/net/ipv4/tcp_max_syn_backlog
+
+>SYN flood攻击
+>攻击方的客户端只发送SYN分节给服务器，然后对服务器发回来的SYN+ACK什么也不做，直接忽略掉，
+>不发送ACK给服务器；这样就可以占据着服务器的半连接队列的资源，导致正常的客户端连接无法连接上服务器。
+>(SYN flood攻击的方式其实也分两种，第一种，攻击方的客户端一直发送SYN，对于服务器回应的SYN+ACK什么也不做，不回应ACK, 第二种，攻击方的客户端发送SYN时，将源IP改为一个虚假的IP, 然后服务器将SYN+ACK发送到虚假的IP, 这样当然永远也得不到ACK的回应。)
+
+### 第二次握手
+
+服务器返回SYN+ACK段给到客户端，客户端收到SYN+ACK段后，客户端的状态从SYN_SENT变为ESTABLISHED， 也即是connect()函数的返回。
+
+### 第三次握手
+
+全连接队列(accept queue)的最大值 /proc/sys/net/core/somaxconn (默认128)。全连接队列值 = min(backlog, somaxconn)，这里的backlog是listen(int sockfd, int backlog)函数里面的那个参数backlog
+
+#### 全连接队列(accept queue)未满
+
+服务器收到客户端发来的ACK, 服务端该连接的状态从SYN_RCVD变为ESTABLISHED,然后服务器将该连接从半连接队列(syn queue)里面移除，且将该连接的信息放到全连接队列(accept queue)里面。
+
+#### 全连接队列(accept queue)已满
+
+服务器收到客户端发来的ACK, 不会将该连接的状态从SYN_RCVD变为ESTABLISHED。全连接队列(accept queue)已满时，则根据 /proc/sys/net/ipv4/tcp_abort_on_overflow的值来执行相应动作：
+
+tcp_abort_on_overflow = 0
+
+在该状态下会有一个定时器重传服务端SYN/ACK 给客户端（服务器重新进行第二次握手的次数由/proc/sys/net/ipv4/tcp_synack_retries决定），这个定时器是一个服务器的规则是从新发送syn+ack的时间间隔成倍的增加，tcp_synack_retries等于5，那这五次的时间分别是 1s、2s、4s、8s、16s，这种倍数规则叫“二进制指数退让”(binary exponential backoff)。
+
+如果服务器上的进程只是短暂的繁忙造成accept队列满，那么当TCP全连接队列有空位时，再次接收到的请求报文由于含有ACK，仍然会触发服务器端成功建立连接。所以，tcp_abort_on_overflow设为0可以提高连接建立的成功率，只有非常肯定TCP全连接队列会长期溢出时，才能设置为1以尽快通知客户端。
+
+![image](assets\io-14.png)
+
+上述实验中，当服务端SYN/ACK重传5次之后，既没报timeout也没发送RST。
+
+tcp_abort_on_overflow = 1
+
+tcp_abort_on_overflow等于1 时,重置连接(一般是发送RST给客户端，这时在客户端异常中可以看到很多connection reset by peer的错误)
 
 ## 四次挥手
 

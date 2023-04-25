@@ -1181,6 +1181,120 @@ A request method is considered "idempotent" if the intended effect on  the serve
 
 生产环境中为什么不建议加上non_idempotent选项？因为无论是发生500错误还是timeout，服务器上的业务可能都已经执行过了，而重试会导致非幂等方法重复执行，从而导致业务问题，例如一个请求会创建了多个订单，或者收到多条短信的问题。
 
+## keepalive
+
+当使用nginx作为反向代理时，为了支持长连接，需要做到两点：
+
+1. 从client到nginx的连接是长连接
+2. 从nginx到server的连接是长连接
+
+### 保持和client的长连接
+
+默认情况下，nginx已经自动开启了对client连接的keep alive支持（同时client发送的HTTP请求要求keep alive）。一般场景可以直接使用，但是对于一些比较特殊的场景，还是有必要调整个别参数（keepalive_timeout和keepalive_requests）。
+
+```nginx
+http {
+    keepalive_timeout  120s 120s;
+    keepalive_requests 10000;
+}
+```
+
+#### keepalive_timeout
+
+语法:keepalive_timeout timeout [header_timeout];
+
+第一个参数：设置keep-alive客户端连接在服务器端保持开启的超时值（默认75s）；值为0会禁用keep-alive客户端连接；
+
+第二个参数：可选、在响应的header域中设置一个值“Keep-Alive: timeout=time”；通常可以不用设置；
+注：keepalive_timeout默认75s，一般情况下也够用，对于一些请求比较大的内部服务器通讯的场景，适当加大为120s或者300s；
+
+#### keepalive_requests
+
+keepalive_requests指令用于设置一个keep-alive连接上可以服务的请求的最大数量，当最大请求数量达到时，连接被关闭。默认是100。这个参数的真实含义，是指一个keep alive建立之后，nginx就会为这个连接设置一个计数器，记录这个keep alive的长连接上已经接收并处理的客户端请求的数量。如果达到这个参数设置的最大值时，则nginx会强行关闭这个长连接，逼迫客户端不得不重新建立新的长连接。
+大多数情况下当QPS(每秒请求数)不是很高时，默认值100凑合够用。但是，对于一些QPS比较高（比如超过10000QPS，甚至达到30000,50000甚至更高) 的场景，默认的100就显得太低。
+简单计算一下，QPS=10000时，客户端每秒发送10000个请求(通常建立有多个长连接)，每个连接只能最多跑100次请求，意味着平均每秒钟就会有100个长连接因此被nginx关闭。同样意味着为了保持QPS，客户端不得不每秒中重新新建100个连接。因此，就会发现有大量的TIME_WAIT的socket连接(即使此时keep alive已经在client和nginx之间生效)。因此对于QPS较高的场景，非常有必要加大这个参数，以避免出现大量连接被生成再抛弃的情况，减少TIME_WAIT
+
+### 保持和server的长连接
+
+为了让nginx和后端server（nginx称为upstream）之间保持长连接，典型设置如下：（默认nginx访问后端都是用的短连接(HTTP1.0)，一个请求来了，Nginx 新开一个端口和后端建立连接，后端执行完毕后主动关闭该链接）
+
+```nginx
+http {
+    upstream  BACKEND {
+        server   192.168.0.1：8080  weight=1 max_fails=2 fail_timeout=30s;
+        server   192.168.0.2：8080  weight=1 max_fails=2 fail_timeout=30s;
+        keepalive 300;        // 这个很重要！
+    }
+server {
+        listen 8080 default_server;
+        server_name "";
+        location /  {
+            proxy_pass http://BACKEND;
+            proxy_set_header Host  $Host;
+            proxy_set_header x-forwarded-for $remote_addr;
+            proxy_set_header X-Real-IP $remote_addr;
+            add_header Cache-Control no-store;
+            add_header Pragma  no-cache;
+            proxy_http_version 1.1;         // 这两个最好也设置
+            proxy_set_header Connection "";
+        }
+    }
+}
+```
+
+location中有两个参数需要设置：
+
+```nginx
+http {
+    server {
+        location /  {
+            proxy_http_version 1.1; // 这两个最好也设置
+            proxy_set_header Connection "";
+        }
+    }
+}
+```
+
+HTTP协议中对长连接的支持是从1.1版本之后才有的，因此最好通过proxy_http_version指令设置为”1.1”；而”Connection” header应该被清理。清理的意思，我的理解，是清理从client过来的http header，因为即使是client和nginx之间是短连接，nginx和upstream之间也是可以开启长连接的。这种情况下必须清理来自client请求中的”Connection” header。
+
+upstream中的keepalive设置
+
+此处keepalive的含义不是开启、关闭长连接的开关；也不是用来设置超时的timeout；更不是设置长连接池最大连接数。官方解释：
+
+1. The connections parameter sets the maximum number of idle keepalive connections to upstream servers connections（设置到upstream服务器的空闲keepalive连接的最大数量）
+
+2. When this number is exceeded, the least recently used connections are closed. （当这个数量被突破时，最近使用最少的连接将被关闭）
+
+3. It should be particularly noted that the keepalive directive does not limit the total number of connections to upstream servers that an nginx worker process can open.（特别提醒：keepalive指令不会限制一个nginx worker进程到upstream服务器连接的总数量）
+
+先假设一个场景： 有一个HTTP服务，作为upstream服务器接收请求，响应时间为100毫秒。如果要达到10000 QPS的性能，就需要在nginx和upstream服务器之间建立大约1000条HTTP连接。nginx为此建立连接池，然后请求过来时为每个请求分配一个连接，请求结束时回收连接放入连接池中，连接的状态也就更改为idle。再假设这个upstream服务器的keepalive参数设置比较小，比如常见的10.
+
+1. 假设请求和响应是均匀而平稳的，那么这1000条连接应该都是一放回连接池就立即被后续请求申请使用，线程池中的idle线程会非常的少，趋进于零，不会造成连接数量反复震荡。
+
+2. 显示中请求和响应不可能平稳，以10毫秒为一个单位，来看连接的情况(注意场景是1000个线程+100毫秒响应时间，每秒有10000个请求完成)，假设应答始终都是平稳的，只是请求不平稳，第一个10毫秒只有50,第二个10毫秒有150：
+
+   - 下一个10毫秒，有100个连接结束请求回收连接到连接池，但是假设此时请求不均匀10毫秒内没有预计的100个请求进来，而是只有50个请求。注意此时连接池回收了100个连接又分配出去50个连接，因此连接池内有50个空闲连接。
+
+   - 然后注意看keepalive=10的设置，这意味着连接池中最多容许保留有10个空闲连接。因此nginx不得不将这50个空闲连接中的40个关闭，只留下10个。
+   - 再下一个10个毫秒，有150个请求进来，有100个请求结束任务释放连接。150 - 100 = 50,空缺了50个连接，减掉前面连接池保留的10个空闲连接，nginx不得不新建40个新连接来满足要求。
+
+3. 同样，如果假设相应不均衡也会出现上面的连接数波动情况。
+
+造成连接数量反复震荡的一个推手，就是这个keepalive这个最大空闲连接数。毕竟连接池中的1000个连接在频繁利用时，出现短时间内多余10个空闲连接的概率实在太高。因此为了避免出现上面的连接震荡，必须考虑加大这个参数，比如上面的场景如果将keepalive设置为100或者200,就可以非常有效的缓冲请求和应答不均匀。
+
+总结：keepalive这个参数一定要小心设置，尤其对于QPS比较高的场景，推荐先做一下估算，根据QPS和平均响应时间大体能计算出需要的长连接的数量。比如前面10000QPS和100毫秒响应时间就可以推算出需要的长连接数量大概是1000.然后将keepalive设置为这个长连接数量的10%到30%。比较懒的同学，可以直接设置为keepalive=1000之类的，一般都OK的了。
+
+综上，出现大量TIME_WAIT的情况
+
+导致nginx端出现大量TIME_WAIT的情况有两种：
+
+- keepalive_requests设置比较小，高并发下超过此值后nginx会强制关闭和客户端保持的keepalive长连接；（主动关闭连接后导致nginx出现TIME_WAIT）
+- keepalive设置的比较小（空闲数太小），导致高并发下nginx会频繁出现连接数震荡（超过该值会关闭连接），不停的关闭、开启和后端server保持的keepalive长连接；
+
+导致后端server端出现大量TIME_WAIT的情况：
+
+- nginx没有打开和后端的长连接，即：没有设置proxy_http_version 1.1;和proxy_set_header Connection “”;从而导致后端server每次关闭连接，高并发下就会出现server端出现大量TIME_WAIT
+
 # Kafka
 
 ## 消息队列

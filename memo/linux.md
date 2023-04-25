@@ -1367,6 +1367,18 @@ netstat命令是一个监控TCP/IP网络的非常有用的工具，它可以显�
 -x或--unix：此参数的效果和指定"-A unix"参数相同； 
 --ip或--inet：此参数的效果和指定"-A inet"参数相同。
 
+```bash
+# 当Recv-Q > Send-Q时表示全队列溢出，可通过执行netstat -s | grep "overflowed"命令观察溢出情况
+[root@server01 ~]# netstat -s | grep "overflowed"
+    6 times the listen queue of a socket overflowed
+# socket overflowed表示全队列溢出的次数
+[root@server01 ~]# netstat -s | grep listen      
+    6 times the listen queue of a socket overflowed
+# sockets dropped表示半连接队列溢出的次数
+[root@server01 ~]# netstat -s | grep LISTEN
+    6 SYNs to LISTEN sockets dropped
+```
+
 ### ss
 
 ss是Socker-Statistics的缩写，是一款非常适用、快速、跟踪显示的网络套接字的新工具。它和netstat显示的内容类似，但它比netstat更加强大。当服务器的socket连接数量变得非常大时，无论是使用netstat命令还是直接cat/proc/net/tcp，执行速度都会很慢。而用ss可以快速、有效的执行并得到结果。ss利用到了TCP协议栈中tcp_diag。tcp_diag是一个用于分析统计的模块，可以获得Linux内核中第一手的信息，这就确保了ss的快捷高效。当然，如果你的系统中没有tcp_diag，ss也可以正常运行，只是效率会变得稍慢。yum install iproute iproute-doc；语法格式 ss [OPTION]... [FILTER]

@@ -4360,6 +4360,9 @@ tcp， udp ， icmp，若未给定协议类型，则匹配所有可能的类型
 
 # 过滤地址和端口，目的地址为192.168.56.110并且目的端口为22
 [root@server01 ~]# tcpdump -n -i enp0s8 dst host 192.168.56.110 and dst port 22
+
+# 过滤数据报类型为tcp、目的地址为192.168.56.110并且目的端口为22
+[root@server01 ~]# tcpdump tcp -n -i enp0s8 dst host 192.168.56.110 and dst port 22
 ```
 
 在TCP层，有个FLAGS字段，这个字段有以下几个标识：SYN, FIN, ACK, PSH, RST, URG

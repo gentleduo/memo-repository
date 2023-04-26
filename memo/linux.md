@@ -1379,6 +1379,39 @@ netstat命令是一个监控TCP/IP网络的非常有用的工具，它可以显�
     6 SYNs to LISTEN sockets dropped
 ```
 
+netstat命令中加上参数-o之后，显示的标题多出了一个Timer的列，这一列就是代表着计时功能。里面的数据又分为两列，例如：keepalive  (576.47/0/0) 。下面来详细的介绍这两列的具体参数和含义：
+
+第一列，一般有一下几种状态
+
+1. keepalive - #表示是keepalive的时间计时
+2. on - #表示是重发(retransmission)的时间计时
+3. off - #表示没有时间计时
+4. timewait - #表示等待(timewait)时间计时
+
+第二列，
+
+576.47/0/0
+
+第一个数值：计时时间值：当第一列为keepalive的时候，a代表keepalive计时时间；当第一列为on的时候，a代表重发(retransmission)的时间计时；当第一列为timewait的时候，a代表等待(timewait)的时间计时
+
+第二个数值：已经产生的重发(retransmission)次数
+
+第三个数值：keepalive已经发送的探测(probe)包的次数
+
+如果State列为CLOSE_WAIT状态是，Timer列多为off，因为CLOSE_WAIT的是属于被动关闭那一方，这个是没有超时(timeout)设置的,所以也就不用计时了。
+
+```bash
+[root@server01 ~]# netstat -no |head -n 4
+Active Internet connections (w/o servers)
+Proto Recv-Q Send-Q Local Address           Foreign Address         State       Timer
+tcp        0      1 192.168.56.110:36436    192.168.56.111:2181     SYN_SENT    on (0.71/0/0)
+tcp        0     96 192.168.56.110:22       192.168.56.2:26806      ESTABLISHED on (0.23/0/0)
+```
+
+>注意：保活定时器(keepalive timer)
+>
+>在TCP连接建立的时候指定了SO_KEEPALIVE，保活定时器才会生效。如果客户端和服务端长时间没有数据交互，那么需要保活定时器来判断是否对端还活着，但是这个其实很不实用，因为默认是2小时没有数据交互才探测，时间实在是太长了。应用如果真的要确认对端是否活着， 那么应该自己实现心跳包，而不是依赖于这个保活定时器，所以应用层一般不会开启这个定时器，所以也无法通过ss命令来查看是否有keepalive计时器来判断该连接是不是keepalive的
+
 ### ss
 
 ss是Socker-Statistics的缩写，是一款非常适用、快速、跟踪显示的网络套接字的新工具。它和netstat显示的内容类似，但它比netstat更加强大。当服务器的socket连接数量变得非常大时，无论是使用netstat命令还是直接cat/proc/net/tcp，执行速度都会很慢。而用ss可以快速、有效的执行并得到结果。ss利用到了TCP协议栈中tcp_diag。tcp_diag是一个用于分析统计的模块，可以获得Linux内核中第一手的信息，这就确保了ss的快捷高效。当然，如果你的系统中没有tcp_diag，ss也可以正常运行，只是效率会变得稍慢。yum install iproute iproute-doc；语法格式 ss [OPTION]... [FILTER]

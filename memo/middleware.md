@@ -1205,8 +1205,7 @@ http {
 
 第一个参数：设置keep-alive客户端连接在服务器端保持开启的超时值（默认75s）；值为0会禁用keep-alive客户端连接；
 
-第二个参数：可选、在响应的header域中设置一个值“Keep-Alive: timeout=time”；通常可以不用设置；
-注：keepalive_timeout默认75s，一般情况下也够用，对于一些请求比较大的内部服务器通讯的场景，适当加大为120s或者300s；
+第二个参数：可选、在响应的header域中设置一个值“Keep-Alive: timeout=time”；告知浏览器对长连接的维持时间。
 
 #### keepalive_requests
 

@@ -1235,7 +1235,7 @@ server {
             add_header Cache-Control no-store;
             add_header Pragma  no-cache;
             proxy_http_version 1.1;         // 这两个最好也设置
-            proxy_set_header Connection "";
+            proxy_set_header Connection "keep-alive";
         }
     }
 }
@@ -1248,13 +1248,13 @@ http {
     server {
         location /  {
             proxy_http_version 1.1; // 这两个最好也设置
-            proxy_set_header Connection "";
+            proxy_set_header Connection "keep-alive";
         }
     }
 }
 ```
 
-HTTP协议中对长连接的支持是从1.1版本之后才有的，因此最好通过proxy_http_version指令设置为”1.1”；而”Connection” header应该被清理。清理的意思，我的理解，是清理从client过来的http header，因为即使是client和nginx之间是短连接，nginx和upstream之间也是可以开启长连接的。这种情况下必须清理来自client请求中的”Connection” header。
+HTTP协议中对长连接的支持是从1.1版本之后才有的，因此最好通过proxy_http_version指令设置为”1.1”
 
 upstream中的keepalive设置
 

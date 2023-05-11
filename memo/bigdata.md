@@ -14433,7 +14433,7 @@ LSM树由两个或以上的存储结构组成，比如在论文中为了方便�
 
 #### LRUBlock Cache
 
-近期最少使用算法。读出来的block会被放到BlockCache中待 下次查询使用。当缓存满了的时候，会根据LRU的算法来淘汰block。
+近期最少使用算法。读出来的block会被放到BlockCache中待下次查询使用。当缓存满了的时候，会根据LRU的算法来淘汰block。
 
 | area名称      | 占用比例 | 说明                                                         |
 | ------------- | -------- | ------------------------------------------------------------ |
@@ -14443,7 +14443,7 @@ LSM树由两个或以上的存储结构组成，比如在论文中为了方便�
 
 #### SlabCache
 
-这是一种堆外内存的解决方案。堆外内存（off-heap memory）是 不属于JVM管理的内存范围，说白了，就是原始的内存区域了。堆外内 存的大小可以通过-XX:MaxDirectMe morySize=60MB这样来设置。
+这是一种堆外内存的解决方案。堆外内存（off-heap memory）是不属于JVM管理的内存范围，说白了，就是原始的内存区域了。堆外内存的大小可以通过-XX:MaxDirectMe morySize=60MB这样来设置。
 
 使用堆外内存最大的好处就是：回收堆外内存的时候JVM几乎不会停顿，这样再也不用怕回收的时候业务系统卡住了。既然堆外内存回收的时候不会卡，为什么大家不都去用它呀？这是因为堆外内存的缺点几乎比它带来的好处还大：
 
@@ -14575,15 +14575,15 @@ Major Compaction:全合并一般周期性发生, 例如 24 小时, 合并期间�
 
 MySQL的B+树并不是把数据直接存放在树中, 而是把数据组成页(Page) 然后再存入B+树, MySQL中最小的数据存储单元是Page
 
-HBase 也一样, 其最小的存储单元叫做 Block, Block 会被缓存在 BlockCache 中, 读数据时, 优先从 BlockCache 中读取
+HBase也一样, 其最小的存储单元叫做Block, Block会被缓存在BlockCache中, 读数据时, 优先从BlockCache中读取
 
-BlockCache 是 RegionServer 级别的
+BlockCache是RegionServer级别的
 
-BlockCache 叫做读缓存, 因为 BlockCache 缓存的数据是读取返回结果给客户端时存入的
+BlockCache叫做读缓存, 因为BlockCache缓存的数据是读取返回结果给客户端时存入的
 
 ##### 二级缓存:
 
-当查找数据时, 会先查内存, 后查磁盘, 然后汇总返回，因为写是写在 Memstore 中, 所以从Memstore就能立刻读取最新状态，Memstore没有的时候, 扫描HFile, 通过布隆过滤器优化读性能。
+当查找数据时, 会先查内存, 后查磁盘, 然后汇总返回，因为写是写在Memstore中, 所以从Memstore就能立刻读取最新状态，Memstore没有的时候, 扫描HFile, 通过布隆过滤器优化读性能。
 
 ### 总结
 
@@ -14702,13 +14702,27 @@ Mutiple WALs(HBASE-14457)：
 
 ### 读请求
 
-1. 首先通过zookeeper获取一张特殊表：meta表的位置信息，meta表中保存了包含所有创建的表的位置信息；
-2. 从meta表中获取要访问的表所在的HRegionServer；
-3. 访问对应的HRegionServer，然后扫描所在HRegionServer的Memstore和Storefile来查询数据。
-4. 首先从memstore中读取数据，如果读取到了那么直接将数据返回，如果没有，则去blockcache读取数据
-5. 如果blockcache中读取到数据，则直接返回数据给客户端，如果读取不到，则遍历storefile文件，查找数据
-6. 如果从storefile中读取不到数据，则返回空，如果读取到数据，那么需要将数据先缓存到blockcache(方便下一次读取)，然后再将数据返回给客户端
-7. blockcache是内存空间，如果缓存的数据比较多，满了之后会采用LRU策略，将比较老的数据进行删除。
+1. Client先访问zookeeper，获取hbase:meta表位于哪个Region Server；
+
+   >注意：
+   >
+   >1、首先zookeeper维护hbase的meta表所在的节点信息，而Hbase集群中会维护meta表，这个表存储着Hbase集群所有region的相关信息，包括region所在RegionServer节点，region的rowkey范围，以及region所在表名，列值等信息；
+   >
+   >2、这个hbase:meta表其实就是一个表的形式存储在hbase中的，只是这个表只有一个region，不切分；
+   >
+   >3、一般这个表region不大，比如一个集群几十万个region的hbase，其meta表也只有几百兆的大小。
+   >
+   >4、这个hbase:meta表或者说这个region也会存储在hbase节点上，具体存储在哪个节点上由zookeeper维护。当有RegionServer宕机的时候，Hmaster会将该RegionServer的region负载均衡等移动到其他RegionServer上去（个人感觉迁移应该只是更新meta表信息，因为HBase本身并不存储文件,它只规定文件格式以及文件内容,实际文件存储由HDFS实现，所以meta表中实际记录的应该是rowkey所在的hdfs节点），并且会将宕机的region server上的log进行拆分，然后分发到其它region server上进行恢复
+
+2. 访问对应的Region Server，获取hbase:meta表，根据读请求的namespace:table/rowkey，查询出目标数据位于哪个Region Server中的哪个Region中。并将该table的region信息以及meta表的位置信息缓存在客户端的meta cache，方便下次访问；
+
+3. 与目标Region Server进行通讯；
+
+4. 分别在Block Cache（读缓存），MemStore和Store File（HFile）中查询目标数据，并将查到的所有数据进行合并。
+
+5. 将查询到的数据块（Block，HFile数据存储单元，默认大小为64KB）缓存到Block Cache。
+
+6. blockcache是内存空间，如果缓存的数据比较多，满了之后会采用LRU策略，将比较老的数据进行删除。
 
 #### 读取数据流程
 

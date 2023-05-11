@@ -15009,7 +15009,7 @@ hbase-site.xml
 </property>
 <!-- 使用了bucketcache作为blockcache的一部分,那么heap中用于blockcache的百分比可以减小 -->
 <property>
-    <name>hfile.block.cache.size</nname>
+    <name>hfile.block.cache.size</name>
     <value>0.20</value>
 </property>
 <!-- 要么表示给缓存的总堆内存大小的百分比(如果< 1.0)，要么表示BucketCache的总容量(以兆字节为单位)。默认值:0.0，注意当bucketcache.ioengine设置为offheap的时候，这里应该表示的是给缓存的总堆外内存大小的百分比/总容量 -->
@@ -15036,7 +15036,7 @@ HBASE_REGIONSERVER_OPTS设置其他的GC类型，就需要注意新生代和老�
 
 ![image](assets\bigdata-102.png)
 
-因此如果想要改变hbase默认的垃圾回收器，就需要在hbase-env.sh中定义环境变量HBASE_OPTS并设置垃圾回收器类型。
+因此如果想要改变hbase默认的垃圾回收器，就需要在hbase-env.sh中定义环境变量：HBASE_OPTS并设置垃圾回收器类型。
 
 ```sh
 # establish a default value for HBASE_OPTS if it's not already set. For now,

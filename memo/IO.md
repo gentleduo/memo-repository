@@ -1543,22 +1543,159 @@ java进程在执行accept之后，可以拿到内核分配的文件描述符，�
 
 ### 非LISTEN状态
 
-非LISTEN状态：即ServerSocket在accpet之后得到的socket；
+可以影响非listen状态下的socket连接缓存的参数：
 
-1. Recv-Q表示receive queue中的bytes数量；大小由/proc/sys/net/ipv4/tcp_rmem 决定
-   - 该文件包含3个整数值，分别是：min，default，max 
-   - Min：为TCP socket预留用于接收缓冲的内存数量，即使在内存出现紧张情况下TCP socket都至少会有这么多数量的内存用于接收缓冲。 
-   - Default：为TCP socket预留用于接收缓冲的内存数量，默认情况下该值影响其它协议使用的 net.core.wmem中default的 值。该值决定了在tcp_adv_win_scale、tcp_app_win和tcp_app_win的默认值情况下，TCP 窗口大小为65535。 
-   - Max：为TCP socket预留用于接收缓冲的内存最大值。该值不会影响 net.core.wmem中max的值，今天选择参数 SO_SNDBUF则不受该值影响。 
-   - 缺省设置：4096 87380 6291456
-2. Send-Q表示send queue中的bytes数量；大小由/proc/sys/net/ipv4/tcp_wmem 
-   - 该文件包含3个整数值，分别是：min，default，max 
-   - Min：为TCP socket预留用于发送缓冲的内存最小值。每个TCP socket都可以使用它。
-   - Default：为TCP socket预留用于发送缓冲的内存数量，默认情况下该值会影响其它协议使用的net.core.wmem中default的 值，一般要低于net.core.wmem中default的值。 
-   - Max：为TCP socket预留用于发送缓冲的内存最大值。该值不会影响net.core.wmem_max，今天选择参数SO_SNDBUF则不受该值影响。默认值为128K。 
-   - 缺省设置：4096 16384 4194304
+/proc/sys/net/core/rmem_default
+
+/proc/sys/net/core/rmem_max
+
+/proc/sys/net/core/wmem_default
+
+/proc/sys/net/core/wmem_max
+
+这些文件用来设置所有socket的发送和接收缓存大小，所以既影响TCP，也影响UDP。
+
+#### UDP
+
+这些参数实际的作用跟SO_RCVBUF和SO_SNDBUF的socketoption相关。如果不用setsockopt去更改创建出来的socket buffer长度的话，那么就使用rmem_default和wmem_default来作为默认的接收和发送的socket buffer长度。如果修改这些socket option的话，那么可以修改的上限是由rmem_max和wmem_max来限定的。
+
+#### TCP
+
+##### tcp_rmem、tcp_wmem 
+
+针对于tcp，除了以上四个文件的影响外，还包括如下文件：
+
+/proc/sys/net/ipv4/tcp_rmem 单位是字节，接收缓存区大小，缓存从对端接收的数据，后续会被应用程序读取。
+
+/proc/sys/net/ipv4/tcp_wmem 单位字节，发送缓存区大小，缓存应用程序的数据，有序列号被应答确认的数据会从发送缓冲区删除掉。
+
+对于TCP来说，上面core目录下的四个文件的作用效果一样，只是默认值不再是rmem_default 和wmem_default ，而是由tcp_rmem和tcp_wmem文件中所显示的第二个值决定。通过setsockopt可以调整的最大值依然由rmem_max和wmem_max限制。
+
+tcp_rmem和tcp_wmem中也包括三值，这三个值依次表示：min default max
+
+min：决定tcp socket buffer最小长度。
+
+default：决定其默认长度。（此值覆盖net.core.rmem默认值）
+
+max：决定其最大长度。在一个tcp链接中，对应的buffer长度将在min和max之间变化。导致变化的主要因素是当前内存压力，在内存压力模式阀值以下可以增长到这个值（OS根据tcp_mem设定的值判断内存压力）。如果使用setsockopt设置了对应buffer长度的话，这个值将被忽略。相当于关闭了tcp buffer的动态调整。（此值不会覆盖net.core.rmem_max）
+
+##### tcp_adv_win_scale
+
+tcp_rmem、tcp_wmem还受tcp_adv_win_scale的影响，tcp_adv_win_scale这个值用来影响缓存中有多大空间用来存放overhead相关数据，所谓overhead数据可以理解为比如TCP报头等非业务数据。假设缓存字节数为bytes，这个值说明，有bytes/2的tcp_adv_win_scale次方的空间用来存放overhead数据。默认值为1表示有1/2的缓存空间用来放overhead，此值为二表示1/4的空间。当tcp_adv_win_scale <= 0的时候，overhead空间运算为：bytes-bytes/2^(-tcp_adv_win_scale)。取值范围是：[-31, 31]。
+
+##### tcp_mem
+
+单位是page，此值是动态的，linux根据机器自身内存情况进行分配，
+
+第一个值：系统无内存压力，在这个页数之下，TCP不担心它的内存需求。
+
+第二个值：启动压力模式阀值，当TCP分配的内存量超过此页数时，TCP将减缓其内存消耗并进入内存压力模式，当内存消耗低于“min”时，该模式将退出。
+
+第三个值：最大值，所有TCP套接字允许排队的页面数。超出则将报文丢弃并打印Out of socket memory
+
+假设一个page大小是4K，net.ipv4.tcp_mem = 196608   262144  393216，那么对应的内存分配就是：768M 1G 1.5G；内存为1G时进入压力模式。
+
+##### tcp_moderate_rcvbuf
+
+这个参数是服务器是否支持缓存动态调整的开关，1为默认值打开，0为关闭。当然，这里是针对接收缓存的限制；另外要注意的是，使用 setsockopt 设置对应buffer长度的时候，实际生效的值将是设置值的2倍。
+
+### TCP窗口
+
+TCP传输过程中，真正能决定一次写长度的并不直接受tcp socket wmem的长度影响，严格来说，是受到tcp发送窗口大小的影响。而tcp发送窗口(swnd)大小还要受到接收端的通告窗口(rwnd)来决定（其实不仅和通告窗口还和拥塞窗口(cwnd)也有关）。
+
+#### TCP报文窗口字段
+
+在TCP报文头部，有一个16比特的窗口字段，用来表示接受方的缓冲区大小，发送方可以根据这个值的大小来调节发送的数据量，从而起到流控的目的。
+
+![image](D:\gentleduo\memo-repository\memo\assets\io-15.png)
+
+TCP的流量控制由连接的每一端通过声明的窗口大小来提供 。窗口大小为字节数 ，起始于确认序号字段指明的值，这个值是接收端期望接收的字节。窗口大小是一个16 bit字段，因而窗口大小最大为65535字节。
+
+#### 窗口大小对性能的影响
+
+TCP基于通告窗口大小的机制，运行发送方在停止并等待确认前可以连续发送多个分组。由于发送方不必每发一个分组就停下来等待确认，因此该协议可以加速数据的传输。TCP传输速率和窗口大小成正相关，在某些情况下，提高窗口大小能够提高传输速率。但TCP窗口大小只有16bit，最大表示65535字节，对当前千兆接口已经是标配，在数据中心对服务器上开始部署10G接口的现实情况下，65535字节的窗口显然是不够的。
+
+#### 窗口扩大因子
+
+TCP头部的最后一个选项字段(options)是可变长的可选信息。这部分最多包含40字节。常见对TCP选项有7种，其中kind=3是窗口扩大因子选项。TCP连接初始化时，通信双方使用该选项来协商接收通过的窗口扩大因子。假设TCP头部中的通告窗口大小为N，窗口扩大因子(位移数)是M，那么TCP报文段的实际接收通告窗口大小为：N * (2 ** M)。M的取值范围为0 ～ 14。这样的话，通告窗口最大约为1GB，能够满足大部分应用的需求。
+
+#### 启用窗口扩大因子
+
+tcp_window_scaling：要支持超过64KB的TCP窗口，必须启用该值（1表示启用），TCP窗口最大至1GB，TCP连接双方都启用时才生效。
+
+### 拥塞控制
+
+#### 拥塞现象
+
+在某段时间，若对网络中某一资源的需求超过了该资源所能提供的可用部分，网络的性能就要变换，叫做拥塞。若是对于TCP这种有重传机制的传输协议，当发生数据丢失时，重传数据将延长数据到达的时间；同时，高频率的重传，也将导致网络的拥塞得不到缓解。拥塞控制，就是在网络中发生拥塞时，减少向网络中发送数据的速度，防止造成恶性循环；同时在网络空闲时，提高发送数据的速度，最大限度地利用网络资源。说的简单点，就和堵车差不多，路就这么宽，来的车多，自然过的就慢，所以在必要的时候要限号。
+
+#### 造成拥塞的原因
+
+1. 多条流入线路有分组到达，并需要同一输出线路，此时，如果路由器没有足够的内存来存放所有这些分组，那么有的分组就会丢失。
+2. 路由器的慢带处理器的缘故，以至于难以完成必要的处理工作，如缓冲区排队、更新路由表等。
+
+#### 防止拥塞的方法
+
+1. 在传输层可采用：重传策略、乱序缓存策略、确认策略、流控制策略和确定超时策略。
+2. 在网络层可采用：子网内部的虚电路与数据报策略、分组排队和服务策略、分组丢弃策略、路由算法和分组生存管理。
+3. 在数据链路层可采用：重传策略、乱序缓存策略、确认策略和流控制策略。
+
+#### 传输层防止拥塞
+
+以丢包作为依据
+
+以探测带宽作为依据
+
+##### 慢启动
+
+发送方维持一个叫做拥塞窗口cwnd，根据网络来进行动态的调整大小，网络拥塞的时候，路由器会丢弃报文，当发送方没有按时收到确认报文，那么就知道网络发生了拥堵。慢开始的“慢”指的是，初始cwnd=1（此时表示的是报文段的个数，而不是真正传输时使用的字节流）
+
+1. 开始时发送方cwnd=1，发送报文段M1，如果收到确认M1，那么此时增大cwnd=2，并发送M2，M3
+2. 要注意，发送方每收到一个确认报文段，cwnd*2（不包括缺失重传的确认）
+
+也就是说，每经过一个传输伦次（RTT时间），cwnd加倍。但是，为了防止拥塞窗口cwnd增长过大而引起网络拥塞，设置一个慢开始门限ssthresh。不同情况下使用的算法是不同的：
+
+1. 当cwnd<ssthresh，使用上述的慢开始算法
+2. 当cwnd>ssthresh，停止使用慢开始，使用拥塞避免算法
+3. 当cwnd==ssthresh，两者都可以使用
+
+拥塞窗口：cwnd（congestion window）
+
+通告窗口：rwnd（receiver‘s advertised window）
+
+发送窗口：swnd = min(cwnd，rwnd)
+
+##### 拥塞避免
+
+拥塞避免算法的思路是让拥塞窗口cwnd缓慢增大，而不是加倍；慢启动阈值 ssthresh(slow start threshold)：达到 ssthresh 后，以线性方式增加cwnd，cwnd += SMSS*SMSS/cwnd
+
+![image](assets\io-16.png)
+
+假设ssthresh为16，也就是超过这个值就要转化为拥塞避免算法，并且假设到24的时候，网络出现拥堵。此时注意两个词：
+
+1. 乘法减小：也就是说，当拥塞避免算法增长到24之后，我们更新ssthresh=24/2=12，之后再重新执行之前的两个算法。乘法减小，指的就是ssthresh减半
+
+2. 加法增大：指的是，执行拥塞避免算法之后，cwnd线性的进行增长，防止很快就遇到网络拥塞状态
+
+##### 快速重传与快速恢复
+
+快重传的核心：当接收方收到了一个失序的报文，马上报告给发送方，赶紧重传，假如M2收到了，M3没有收到，之后的M4,M5,M6又发送了，此时接收方一共连续给发送方反馈了4个M2确认报文。那么快重传规定，发送方只要连续收到3个重复确认，立即重传对方发来的M3
+
+![image](assets\io-17.png)
+
+再来看一下快恢复:当发送方连续收到三个重复确认，执行乘法减小，ssthresh减半；由于发送方可能认为网络现在没有拥塞，因此与慢开始不同，把cwnd值设置为ssthresh减半之后的值，然后执行拥塞避免算法，线性增大cwnd
+
+![image](assets\io-18.png)
 
 
+
+```bash
+# 查看tcp连接的发送窗口、接受窗口、拥塞窗口以及慢启动阀值
+[root@server01 ~]# ss -io state established '( dport = 80 or sport = 80 )'
+Netid     Recv-Q     Send-Q           Local Address:Port              Peer Address:Port     Process
+tcp       0          0              192.168.247.130:47864          192.168.247.129:http
+	 ts sack cubic wscale:7,11 rto:603 rtt:200.748/75.374 ato:40 mss:1448 pmtu:1500 rcvmss:1448 advmss:1448 cwnd:10 bytes_sent:149 bytes_acked:150 bytes_received:448880 segs_out:107 segs_in:312 data_segs_out:1 data_segs_in:310 send 577.0Kbps lastsnd:1061 lastrcv:49 lastack:50 pacing_rate 1.2Mbps delivery_rate 57.8Kbps delivered:2 app_limited busy:201ms rcv_rtt:202.512 rcv_space:115840 rcv_ssthresh:963295 minrtt:200.474
+```
 
 # 多路复用器
 

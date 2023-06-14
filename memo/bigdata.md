@@ -32088,7 +32088,7 @@ Hudi内部对每个表都维护了一个Timeline，这个Timeline是由一组作
 
 ### 文件及索引
 
-Hudi将表组织成HDFS上某个指定目录（basepath）下的目录结构，表被分成多个分区，分区是以目录的形式存在，每个目录下面会存在属于该分区的多个文件，类似Hive表，每个Hudi表分区通过一个分区路径（partitionpath）来唯一标识。在每个分区下面，通过文件分组（File Group）的方式来组织（**也有说是按commit时间分组，待验证**），每个分组对应一个唯一的文件ID。每个文件分组中包含多个文件分片（File Slice），每个文件分片包含一个Base文件（*.parquet），这个文件是在执行COMMIT/COMPACTION操作的时候生成的，同时还生成了几个日志文件（*.log.*），日志文件中包含了从该Base文件生成以后执行的插入/更新操作。
+Hudi将表组织成HDFS上某个指定目录（basepath）下的目录结构，表被分成多个分区（可以理解为将表水平拆分，即：将数据拆分成多份分散到多张表中，表结构一模一样，查询或更新的时候可以通过取模的方式获取该数据所在表的位置），分区是以目录的形式存在，每个目录下面会存在属于该分区的多个文件，类似Hive表，每个Hudi表分区通过一个分区路径（partitionpath）来唯一标识。在每个分区下面，通过文件分组（File Group）的方式来组织（**也有说是按commit时间分组，待验证**），每个分组对应一个唯一的文件ID。每个文件分组中包含多个文件分片（File Slice），每个文件分片包含一个Base文件（*.parquet），这个文件是在执行COMMIT/COMPACTION操作的时候生成的，同时还生成了几个日志文件（*.log.*），日志文件中包含了从该Base文件生成以后执行的插入/更新操作。
 Hudi采用MVCC设计，当执行COMPACTION操作时，会合并日志文件和Base文件，生成新的文件分片。CLEANS操作会清理掉不用的/旧的文件分片，释放存储空间。
 Hudi会通过记录Key与分区Path组成Hoodie Key，即Record Key+Partition Path，通过将Hoodie Key映射到前面提到的文件ID，具体其实是映射到file_group/file_id，这就是Hudi的索引。一旦记录的第一个版本被写入文件中，对应的Hoodie Key就不会再改变了。
 

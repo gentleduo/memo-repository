@@ -598,7 +598,134 @@ mysql需要创建一张临时表来处理查询。出现这种情况一般是要
 
 使用某些聚合函数（比如 max、min）来访问存在索引的某个字段。（mysql能够在优化阶段分解查询语句时便获取结果）
 
+# 约束
 
+## not null
+
+如果在列上定义了not null，那么当插入数据时，必须为列提供数据。
+
+## unique
+
+当定义了唯一约束后，该列值是不能重复的，但是允许为空。
+
+如果没有给唯一约束命名，默认和列名相同。
+
+```sql
+# 表级别的唯一约束，
+create table t_unique_1(
+id int not null,
+name varchar(20),
+password varchar(16),
+constraint unique_name_pwd unique(name,password)
+);
+# 查看表的唯一约束信息
+select * from information_schema.table_constraints where table_name='t_unique_1';
+# 删除约束的两种方式
+alter table t_unique_1 drop index t_unique_1;
+drop index unique_name_pwd on t_unique_1;;
+```
+
+## primary key
+
+用于唯一的标识表中的行数据，当定义了主键约束后，该列不但不能重复而且不能为NULL。一张表最多只能有一个主键，但是可以有多个unique约束。
+
+```sql
+################查找没有定义主键的表################
+select * from information_schema.tables as t left join ( select distinct table_schema, table_name from information_schema.KEY_COLUMN_USAGE) as kt on kt.table_schema=t.table_schema and kt.table_name = t.table_name where t.table_schema not in ('mysql','information_schema','performance_schema','test','sys') and kt.table_name is null;
+################主键的删除################
+#无自增字段+主键
+create table t_t1 (id int primary key,name varchar(10),age int(10));
+alter table t_t1 drop primary key;
+#有自增字段+主键
+create table t_t2 (id int primary key AUTO_INCREMENT,name varchar(10),age int(10));
+alter table t_t2 change id id int;
+alter table t_t2 drop primary key;
+################主键的增加################
+alter table t_t1 add primary key (id);
+alter table t_t2 add primary key (id);
+################有主键的表想插入重复的值################
+#1、ignore：自动忽略重复的记录行，不影响后面的记录插入
+create table t_t3 (id int primary key,name varchar(10),age int(10));
+insert into t_t3 values(1,'a',18);
+# 在执行下面的sql是由于在插入1的时候主键重复后报错退出，所以2,3插入不进去
+insert into t_t3 values(1,'a',18),(2,'b',19),(3,'c',19);
+# 键入关键字ignore后会忽略重复的主键，所以2和3能插进去
+insert ignore into t_t3 values(1,'a',18),(2,'b',19),(3,'c',19);
+#2、replace：先删除重复的行再插入，替换
+replace into t_t3 values(2,'aa',18),(3,'bb',19),(4,'c',19);
+#3、on duplicate key update：先执行insert操作，再根据主键执行update操作
+insert ignore into t_t3 values(5,'e',5);
+insert ignore into t_t3 values(5,'e',5) on duplicate key update age = age + 1;
+################有重复值，没主键，要加主键################
+create table t_t4 (id int,name varchar(10),age int(10)); 
+insert into t_t4 values(1,'a',18),(1,'b',19),(2,'c',20),(2,'d',21),(3,'e',22),(4,'f',23);
+# 报错
+alter table t_t4 add primary key (id);
+#1、查出不重复的数据，复制到一张新表做备份，再将原来的表重命名，然后再恢复原表名，再加主键。
+#mysql默认启用了ONLY_FULL_GROUP_BY模式，即：select不能引用不在GROUP BY子句中的列所以下面的sql是不会成功的，
+select * from t_t4 group by id having count(id)>=1;
+# 解决方案1，临时方案：将sql_mode中的ONLY_FULL_GROUP_BY去掉
+show variables like 'sql_mode';
+set global sql_mode='STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'; 
+set session sql_mode='STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION';
+# 解决方案2，永久方案：在my.cnf中添加sql_mode，然后重启mysql。
+sql_mode='STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'; 
+
+create table t_t4_temp as select * from t_t4 group by id having count(id)>=1;
+rename table t_t4 to t_t4_bak;
+rename table t_t4_temp to t_t4;
+select * from t_t4;
+alter table t_t4 add primary key (id);
+```
+
+## foreign key
+
+用于定义主表和从表之间的关系，外键约束要定义在从表上，主要则必须具有主键约束或是unique约束，当定义外键约束后，要求外键数据必须在主表的主键列存在或是为NULL。（外键的名字由MySQL自动给出）
+
+```sql
+# 保证数据的完整性，至少两张表，父子关系
+# 语法
+# foreign key (外键字段) references 主表名（关联字段）[主表记录删除时on delete/更新时 on update 的动作]
+# 如果指定了on delete/on update还有几个选择：
+# cascade：级联操作，主表更新从表也更新（主键值），主表删除从表也删除
+# set null：设置null，主表更新从表设置为null（主键值），主表删除从表也设置null(从表的列属性不是not null)
+# restrict：拒绝父表删除和更新
+# no action：标准的SQL关键字，同restrict
+
+# 创建部门表
+create table t_dept ( dept_id int primary key auto_increment, dept_name varchar(20) not null) character set utf8;
+# 创建员工表
+create table t_employee (emp_id int primary key auto_increment,emp_name varchar(20) not null,dept_id int,foreign key (dept_id) references t_dept(dept_id)) character set utf8;
+insert into t_employee values(1,'itpux01',10); -- 错误
+# 查询外键的名字
+select * from information_schema.`KEY_COLUMN_USAGE` where table_schema='test_db' and table_name='t_employee';
+# 删除外键
+alter table t_employee drop foreign key t_employee_ibfk_1;
+# 级联操作
+alter table t_employee add foreign key (dept_id) references t_dept(dept_id) on delete cascade;
+alter table t_employee add foreign key (dept_id) references t_dept(dept_id) on update cascade;
+alter table t_employee add foreign key (dept_id) references t_dept(dept_id) on delete cascade on update cascade;
+insert into t_dept values(1,'dept01'),(2,'dept02'),(3,'dept03');
+insert into t_employee values(1,'emp01',1),(2,'emp02',2),(3,'emp03',3);
+# set null
+alter table t_employee add foreign key (dept_id) references t_dept(dept_id) on delete set null on update set null;
+# restrict
+alter table t_employee add foreign key (dept_id) references t_dept(dept_id) on delete restrict on update restrict;
+# 删除：级联，更新：禁止
+alter table t_employee add foreign key (dept_id) references t_dept(dept_id) on delete cascade on update restrict;
+```
+
+## check
+
+用于强制行数据必须满足的条件，假定在sal列上定义了check约束，并要求sal列值在1000~2000之间，如果不在1000~2000之间就提示出错。（主要mysql的check约束并不是强约束，也就是虽然定义了check约束，但是实际上不满足条件时也是能插入进去的）
+
+>1、NOT NULL约束只能在列级别定义，作用在多个列上的约束只能定义在表级别，例如复合主键约束；
+>
+>2、列级别上不能定义外键约束，并且不能给约束起名字，由MySQL自动命名（NOT NULL除外）；
+>
+>3、表级别上定义的约束可以给约束起名字（CHECK约束除外）；
+>
+>4、AUTO_INCREMENT：只能定义在有索引的列，并且必须not null，一张表只能存在一个自动增长的列，通常定义在主键字段上面。AUTO_INCREMENT=X，可以修改初始值，默认从1开始递增。
 
 # 索引优化
 

@@ -2813,8 +2813,12 @@ CREATE TABLESPACE tablespace_name
 ```sql
 mysql> CREATE TABLE t1 (c1 INT PRIMARY KEY) TABLESPACE ts1;
 #或
-mysql> ALTER TABLE t2 TABLESPACE ts1;
+mysql> ALTER TABLE t2 TABLESPACE = ts1;
 # 注意：在MySQL 5.7.24中弃用了将表分区添加到共享表空间的支持，在MySQL 8.0.13中不再支持。共享表空间包括InnoDB系统表空间和常规表空间。
+# 将常规表空间的表迁到独占表空间
+mysql> ALTER TABLE t2 TABLESPACE = innodb_file_per_table;
+# 将常规表空间的表迁到系统表空间
+mysql> ALTER TABLE t2 TABLESPACE = innodb_system;
 ```
 
 ### Undo表空间
@@ -2890,9 +2894,340 @@ InnoDB 临时表空间包括会话临时表空间和全局临时表空间
 
    配置 innodb_temp_data_file_path 要求重新启动服务器。
 
-## MySQL执行SQL的流程
+## InnoDB行记录格式
 
-### 通常sql执行流程
+### 行格式
+
+目前，InnoDB支持4中行记录格式，分别是 Compact、Redundant、Dynamic和Compressed 行格式。
+
+| 行格式     | 紧凑的存储特征 | 增强的可变长存储 | 大索引键前缀支持 | 压缩支持 | 支持的表空间                  | 所需文件格式       |
+| ---------- | -------------- | ---------------- | ---------------- | -------- | ----------------------------- | ------------------ |
+| Redundant  | NO             | NO               | NO               | NO       | system,file-per-table,general | Antelope,Barracuda |
+| Compact    | YES            | NO               | NO               | NO       | system,file-per-table,general | Antelope,Barracuda |
+| Dynamic    | YES            | YES              | YES              | NO       | system,file-per-table,general | Barracuda          |
+| Compressed | YES            | YES              | YES              | YES      | file-per-table,general        | Barracuda          |
+
+InnoDB 表的默认行格式由参数 innodb_default_row_format 定义，默认值为 DYNAMIC。
+
+```mysql
+mysql> show variables like 'innodb_default_row_format';
++---------------------------+---------+
+| Variable_name             | Value   |
++---------------------------+---------+
+| innodb_default_row_format | dynamic |
++---------------------------+---------+
+# 可以通过如下语法来指定表的行格式：
+mysql> CREATE TABLE <table_name(column_name)> ROW_FORMAT=行格式名称
+    
+mysql> ALTER TABLE <table_name> ROW_FORMAT=行格式名称
+```
+
+### 文件格式
+
+在MySQL 8.0之前的版本中，支持两种主要的文件格式:
+
+1. Antelope是innodb-base的文件格式，对应的行格式为:紧凑、冗余。
+2. Barracude是innodb-plugin后引入的文件格式，同时Barracude也支持Antelope文件格式，新的文件格式。对应的行格式是:压缩的、动态的。。
+
+两者区别在于：
+
+| **文件格式**              | **支持行格式**                           | **特性**                                                     |
+| ------------------------- | ---------------------------------------- | ------------------------------------------------------------ |
+| Antelope （Innodb-base）  | ROW_FORMAT=COMPACT ROW_FORMAT=REDUNDANT  | Compact和redumdant的区别在就是在于首部的存存内容区别。 compact的存储格式为首部为一个非NULL的变长字段长度列表redundant的存储格式为首部是一个字段长度偏移列表（每个字段占用的字节长度及其相应的位移）。在Antelope中对于变长字段，低于768字节的，不会进行overflow page存储，某些情况下会减少结果集IO. |
+| Barracuda (innodb-plugin) | ROW_FORMAT=DYNAMIC ROW_FORMAT=COMPRESSED | 这两者主要是功能上的区别功能上的。另外在行里的变长字段和Antelope的区别是：采用了完全的行溢出的方式，在数据页中只存放20个字节的指针（溢出页的地址），实际的数据都存放在Off Page（溢出页）中。 另外这两都需要开启innodb_file_per_table=1（这个特性对一些优化还是很有用的） |
+
+MySQL 8.0之后不再支持Antelope，只支持Barracuda格式，因此innodb_file_format这个配置也在mysql8被去掉了
+
+>**由于保存行溢出页的指针大小为20字节，是不是可以推算出字段的最大容量呢？**
+>
+>比如：一个地址4个字节，那么20个字节最多保存5个地址，那么字段的最大容量为：5*16K？需要验证
+
+### 行记录结构
+
+![image](assets\mysql-57.png)
+
+>隐藏列：
+>
+>1、DB_ROW_ID(row_id) : 当表没有定义主键，则选择unique键作为主键，如果仍没有，则默认添加一个名为DB_ROW_ID的隐藏列作为主键，占用6个字节。也就是说这个列只有当没有主键也没有索引时才存在
+>
+>2、DB_TRX_ID(transaction_id): 事务id,占用6字节
+>
+>3、DB_ROLL_PTR(roll_pointer): 占用7个字节,回滚指针(后面MVCC的时候会用到)
+>
+>创建表的时候如果指定了主键，在具体的行格式中InnoDB就不会去创建row_id隐藏列了。上图所示的行记录结构是假设创建表的时候指定了主键的情况。
+
+### 行容量限制
+
+mysql里每一个行的大小被限制在**65535**字节（不包括隐藏列和记录头信息）
+
+对于varchar类型的字段，如果该字段定义为NOT NULL则实际最大容量为65533，因为另外需要占2个字节存储真实数据占用字节的长度；如果该字段定义为可以为空则实际最大容量为65532，因为另外需要占2个字节存储真实数据占用字节的长度和一个字节存储NULL值标识。比如我们定义一个存储VARCHAR(M)类型的列，其实需要占用3部分存储空间：
+
+- 真实数据
+- 真实数据占用字节的长度
+- NULL值标识，如果该列有NOT NULL属性则可以没有这部分存储空间
+
+```mysql
+# 可以为NULL时：
+mysql> create table test_t1 (c1 varchar(65533)) charset latin1; 
+ERROR 1118 (42000): Row size too large. The maximum row size for the used table type, not counting BLOBs, is 65535. This includes storage overhead, check the manual. You have to change some columns to TEXT or BLOBs
+mysql> create table test_t1 (c1 varchar(65532)) charset latin1; 
+Query OK, 0 rows affected (0.04 sec)
+# NOT NULL时：
+mysql> create table test_t2 (c1 varchar(65534) not null) charset latin1; 
+ERROR 1118 (42000): Row size too large. The maximum row size for the used table type, not counting BLOBs, is 65535. This includes storage overhead, check the manual. You have to change some columns to TEXT or BLOBs
+mysql> create table test_t2 (c1 varchar(65533) not null) charset latin1;  
+Query OK, 0 rows affected (0.06 sec)
+```
+
+65535 是记录的最大长度，则这个限制不仅仅是针对一列，而是所有列。即所有列的长度加起来不能超过65535。看下面这个示例，指定了2个列，分别定义为VARCHAR和INT。
+
+```mysql
+mysql> create table test_t3 (c1 varchar(65530) not null,c2 int not null) charset latin1;
+ERROR 1118 (42000): Row size too large. The maximum row size for the used table type, not counting BLOBs, is 65535. This includes storage overhead, check the manual. You have to change some columns to TEXT or BLOBs
+mysql> create table test_t3 (c1 varchar(65529) not null,c2 int not null) charset latin1; 
+Query OK, 0 rows affected (0.05 sec)
+```
+
+因为INT会占4个字节，所以 c1 最大就只能设置为65535 - 4 - 2 = 65529。这里之所以要减去2，是因为varchar(65529)超过了255个字节，需要2个字节来表示其长度。报错信息中，提到“The maximum row size for the used table type, not counting BLOBs, is 65535”，即记录的最大长度限制不包括BLOB等字段。
+
+### 变长字段长度列表
+
+MySQL 5+默认行格式都是Dynamic，所以通过默认行格式dynamic来理解变长字段长度列表
+
+```mysql
+# 创建表
+CREATE TABLE record_format_demo (col1 VARCHAR(8),col2 VARCHAR(8) NOT NULL,col3 CHAR(8),col4 VARCHAR(8)) CHARSET= ascii;
+# 查看行格式
+mysql> show table status like 'record_format_demo'\G
+*************************** 1. row ***************************
+           Name: record_format_demo
+         Engine: InnoDB
+        Version: 10
+     Row_format: Dynamic
+           Rows: 0
+ Avg_row_length: 0
+    Data_length: 16384
+Max_data_length: 0
+   Index_length: 0
+      Data_free: 0
+ Auto_increment: NULL
+    Create_time: 2023-06-21 13:02:32
+    Update_time: NULL
+     Check_time: NULL
+      Collation: ascii_general_ci
+       Checksum: NULL
+ Create_options: 
+        Comment: 
+1 row in set (0.00 sec)
+# 向表中插入两条记录：
+mysql> INSERT INTO record_format_demo(col1,col2,col3,col4) VALUES ('zhangsan','lisi','wangwu','songhk'), ('tong','chen',NULL,NULL);
+Query OK, 2 rows affected (0.01 sec)
+Records: 2  Duplicates: 0  Warnings: 0
+```
+
+行格式：
+
+![image](assets\mysql-58.png)
+
+MySQL支持一些变长的数据类型，比如VARCHAR(M)、VARBINARY(M)、各种TEXT类型，各种BLOB类型，可以把拥有这些数据类型的列称为变长字段，变长字段中存储多少字节的数据是不固定的，所以在存储真实数据的时候需要顺便把这些数据占用的字节数也存起来，因此这些变长字段占用的存储空间分为两部分：真正的数据内容和占用的字节数
+在dynamic行格式中，把所有变长字段的真实数据占用的字节长度都存放在记录的开头部位，从而形成一个变长字段长度列表，各变长字段数据占用的字节数按照列的顺序逆序存放，再次强调一遍，是逆序存放！
+拿record_format_demo表中的第一条记录来举个例子。因为record_format_demo表的c1、c2、c4列都是VARCHAR(10)类型的，也就是变长的数据类型，所以这三个列的值的长度都需要保存在记录开头处，因为record_format_demo表中的各个列都使用的是ascii字符集，所以每个字符只需要1个字节来进行编码，来看一下第一条记录各变长字段内容的长度：
+
+| 列名 | 存储内容 | 内容长度（十进制表示） | 内容长度（十六进制表示） |
+| ---- | -------- | ---------------------- | ------------------------ |
+| `c1` | `'aaaa'` | `4`                    | `0x04`                   |
+| `c2` | `'bbb'`  | `3`                    | `0x03`                   |
+| `c4` | `'d'`    | `1`                    | `0x01`                   |
+
+又因为这些长度值需要按照列的逆序存放，所以最后变长字段长度列表的字节串用十六进制表示的效果就是（各个字节之间实际上没有空格，用空格隔开只是方便理解）：01 03 04 
+
+把这个字节串组成的变长字段长度列表填入上面的示意图中的效果就是：
+
+![image](assets\mysql-59.png)
+
+由于第一行记录中`c1`、`c2`、`c4`列中的字符串都比较短，也就是说内容占用的字节数比较小，用1个字节就可以表示，但是如果变长列的内容占用的字节数比较多，可能就需要用2个字节来表示。具体用1个还是2个字节来表示真实数据占用的字节数，`InnoDB`有它的一套规则，我们首先声明一下`W`、`M`和`L`的意思：
+
+1. 假设某个字符集中表示一个字符最多需要使用的字节数为`W`，也就是使用`SHOW CHARSET`语句的结果中的`Maxlen`列，比方说`utf8`字符集中的`W`就是`3`，`gbk`字符集中的`W`就是`2`，`ascii`字符集中的`W`就是`1`。
+2. 对于变长类型`VARCHAR(M)`来说，这种类型表示能存储最多`M`个字符（注意是字符不是字节），所以这个类型能表示的字符串最多占用的字节数就是`M×W`。
+3. 假设它实际存储的字符串占用的字节数是`L`。
+
+所以确定使用1个字节还是2个字节表示真正字符串占用的字节数的规则就是这样：
+
+1. 如果`M×W <= 255`，那么使用1个字节来表示真正字符串占用的字节数。
+   - 就是说InnoDB在读记录的变长字段长度列表时先查看表结构，如果某个变长字段允许存储的`最大字节数不大于255时`，可以认为只使用`1个字节`来表示真正字符串占用的字节数。
+2. 如果`M×W > 255`，则分为两种情况：
+   - 如果`L <= 127`，则用1个字节来表示真正字符串占用的字节数。
+   - 如果`L > 127`，则用2个字节来表示真正字符串占用的字节数。
+
+>InnoDB在读记录的变长字段长度列表时先查看表结构，如果某个变长字段允许存储的最大字节数大于255时，该怎么区分它正在读的某个字节是一个单独的字段长度还是半个字段长度呢？设计InnoDB的大佬使用该字节的第一个二进制位作为标志位：如果该字节的第一个位为0，那该字节就是一个单独的字段长度（使用一个字节表示不大于127的二进制的第一个位都为0），如果该字节的第一个位为1，那该字节就是半个字段长度。
+
+总结一下就是说：如果该可变字段允许存储的最大字节数（`M×W`）超过255字节并且真实存储的字节数（`L`）超过127字节，则使用2个字节，否则使用1个字节。
+
+另外需要注意的一点是，变长字段长度列表中只存储值为 **非NULL** 的列内容占用的长度，值为 **NULL** 的列的长度是不储存的 。也就是说对于第二条记录来说，因为c4列的值为NULL，所以第二条记录的变长字段长度列表只需要存储c1和c2列的长度即可。其中c1列存储的值为'eeee'，占用的字节数为4，c2列存储的值为'fff'，占用的字节数为3。数字4可以用1个字节表示，3也可以用1个字节表示，所以整个变长字段长度列表共需2个字节。填充完变长字段长度列表的两条记录的对比图如下：
+
+![image](assets\mysql-60.png)
+
+> 并不是所有记录都有这个变长字段长度列表部分，比方说表中所有的列都不是变长的数据类型的话，这一部分就不需要有。
+
+### NULL值列表
+
+表中的某些列可能存储NULL值，把这些NULL值都放到记录的真实数据中存储会很占地方，所以dynamic行格式把这些值为NULL的列统一管理起来，存储到NULL值列表中，它的处理过程是这样的：
+
+1. 首先统计表中允许存储NULL的列有哪些
+
+   主键列、被NOT NULL修饰的列都是不可以存储NULL值的，所以在统计的时候不会把这些列算进去。比方说表record_format_demo的3个列c1、c3、c4都是允许存储NULL值的，而c2列是被NOT NULL修饰，不允许存储NULL值。
+
+2. 如果表中没有允许存储 NULL 的列，则NULL值列表 也不存在了，否则将每个允许存储NULL的列对应一个二进制位，二进制位按照列的顺序逆序排列，二进制位表示的意义如下：
+
+   - 二进制位的值为1时，代表该列的值为NULL。
+
+   - 二进制位的值为0时，代表该列的值不为NULL。
+
+     因为表record_format_demo有3个值允许为NULL的列，所以这3个列和二进制位的对应关系就是这样：
+
+     ![image](assets\mysql-61.png)
+
+     再一次强调，二进制位按照列的顺序逆序排列，所以第一个列c1和最后一个二进制位对应。
+
+3. MySQL规定NULL值列表必须用整数个字节的位表示，如果使用的二进制位个数不是整数个字节，则在字节的高位补0。
+
+   表record_format_demo只有3个值允许为NULL的列，对应3个二进制位，不足一个字节，所以在字节的高位补0，效果就是这样：
+
+   ![image](assets\mysql-62.png)
+
+   以此类推，如果一个表中有9个允许为NULL，那这个记录的NULL值列表部分就需要2个字节来表示了。知道了规则之后，我们再返回头看表record_format_demo中的两条记录中的NULL值列表应该怎么储存。因为只有c1、c3、c4这3个列允许存储NULL值，所以所有记录的NULL值列表只需要一个字节。
+
+对于第一条记录来说，c1、c3、c4这3个列的值都不为NULL，所以它们对应的二进制位都是0，画个图就是这样：
+
+![image](assets\mysql-63.png)
+
+所以第一条记录的NULL值列表用十六进制表示就是：0x00。
+
+对于第二条记录来说，c1、c3、c4这3个列中c3和c4的值都为NULL，所以这3个列对应的二进制位的情况就是：
+
+![image](assets\mysql-64.png)
+
+所以第二条记录的NULL值列表用十六进制表示就是：0x06。
+
+所以这两条记录在填充了NULL值列表后的示意图就是这样：
+
+![image](assets\mysql-65.png)
+
+### 记录头信息
+
+```mysql
+mysql> CREATE TABLE page_demo(c1 INT,c2 INT,c3 VARCHAR(10000),PRIMARY KEY (c1)) CHARSET=ascii;
+Query OK, 0 rows affected (0.06 sec)
+```
+
+这个新创建的page_demo表有3个列，其中c1和c2列是用来存储整数的，c3列是用来存储字符串的。需要注意的是，我们把 c1 列指定为主键，所以在具体的行格式中InnoDB就没必要为我们去创建那个所谓的 row_id 隐藏列了。而且我们为这个表指定了ascii字符集以及Compact的行格式。所以这个表中记录的行格式示意图就是这样的：
+
+![image](assets\mysql-66.png)
+
+从图中可以看到，特意把记录头信息的5个字节的数据给标出来了，说明它很重要，我们再次先把这些记录头信息中各个属性的大体意思浏览一下：
+
+| 名称         | 大小（单位：bit） | 描述                                                         |
+| ------------ | ----------------- | ------------------------------------------------------------ |
+| 预留位1      | 1                 | 没有使用                                                     |
+| 预留位2      | 1                 | 没有使用                                                     |
+| delete_mask  | 1                 | 标记该记录是否被删除                                         |
+| min_rec_mask | 1                 | B+树的每层非叶子节点中的最小记录都会添加该标记               |
+| n_owned      | 4                 | 表示当前记录拥有的记录数                                     |
+| heap_no      | 13                | 表示当前记录在记录堆的位置信息                               |
+| record_type  | 3                 | 表示当前记录的类型，`0`表示普通记录，`1`表示B+树非叶节点记录，`2`表示最小记录，`3`表示最大记录 |
+| next_record  | 16                | 表示下一条记录的相对位置                                     |
+
+主要在介绍记录头信息的作用，所以为了理解上的方便，只在page_demo表的行格式演示图中画出有关的头信息属性以及c1、c2、c3列的信息（其他信息没画不代表它们不存在啊，只是为了理解上的方便在图中省略了～），简化后的行格式示意图就是这样：
+
+![image](assets\mysql-67.png)
+
+向page_demo表中插入几条记录：
+
+```mysql
+mysql> INSERT INTO page_demo VALUES(1, 100, 'aaaa'), (2, 200, 'bbbb'), (3, 300, 'cccc'), (4, 400, 'dddd');
+Query OK, 4 rows affected (0.03 sec)
+Records: 4  Duplicates: 0  Warnings: 0
+```
+
+为了方便大家分析这些记录在页的User Records部分中是怎么表示的，把记录中头信息和实际的列数据都用十进制表示出来了（其实是一堆二进制位），所以这些记录的示意图就是：
+
+![image](assets\mysql-68.png)
+
+1. delete_mask
+
+   这个属性标记着当前记录是否被删除，占用1个二进制位，值为`0`的时候代表记录并没有被删除，为`1`的时候代表记录被删除掉了。这些被删除的记录之所以不立即从磁盘上移除，是因为移除它们之后把其他的记录在磁盘上重新排列需要性能消耗，所以只是打一个删除标记而已，所有被删除掉的记录都会组成一个所谓的垃圾链表，在这个链表中的记录占用的空间称之为所谓的可重用空间，之后如果有新记录插入到表中的话，可能把这些被删除的记录占用的存储空间覆盖掉。
+
+   >提示：将这个delete_mask位设置为1和将被删除的记录加入到垃圾链表中其实是两个阶段
+
+2. min_rec_mask
+
+   B+树的每层非叶子节点中的最小记录都会添加该标记
+
+3. n_owned
+
+4. heap_no
+
+   这个属性表示当前记录在本页中的位置，从图中可以看出来，插入的4条记录在本页中的位置分别是：2、3、4、5。那怎么不见heap_no值为0和1的记录呢？这其实是设计InnoDB的大佬们玩的一个小把戏，他们自动给每个页里边儿加了两个记录，由于这两个记录并不是我们自己插入的，所以有时候也称为伪记录或者虚拟记录。这两个伪记录一个代表最小记录，一个代表最大记录，等一下~，记录可以比大小么？是的，记录也可以比大小，对于一条完整的记录来说，比较记录的大小就是比较主键的大小。比方说我们插入的4行记录的主键值分别是：1、2、3、4，这也就意味着这4条记录的大小从小到大依次递增。但是不管我们向页中插入了多少自己的记录，设计InnoDB的大佬们都规定他们定义的两条伪记录分别为最小记录与最大记录。这两条记录的构造十分简单，都是由5字节大小的记录头信息和8字节大小的一个固定的部分组成的，如图所示
+
+   ![image](assets\mysql-69.png)
+
+   由于这两条记录不是自己定义的记录，所以它们并不存放在页的User Records部分，他们被单独放在一个称为Infimum + Supremum的部分，如图所示：
+
+   ![image](assets\mysql-70.png)
+
+   从图中我们可以看出来，最小记录和最大记录的heap_no值分别是0和1，也就是说它们的位置最靠前。
+
+5. record_type
+
+   这个属性表示当前记录的类型，一共有4种类型的记录，0表示普通记录，1表示B+树非叶节点记录，2表示最小记录，3表示最大记录。从图中可以看出来，我们自己插入的记录就是普通记录，它们的record_type值都是0，而最小记录和最大记录的record_type值分别为2和3。
+
+   ![image](assets\mysql-71.png)
+
+   30这个页就是B+树中非叶子节点，10，8，9，20这几个页就是B+树中的叶子节点。通过上图可以看出非叶子节点中记录的record_type都是1，而叶子节点的record_type都是0（代表普通记录，即用户插入的记录）。
+
+6. next_record
+
+   
+
+### 行溢出数据
+
+以ascii字符集下的varchar_size_demo表为例，插入一条记录：
+
+```mysql
+mysql> CREATE TABLE varchar_size_demo(c VARCHAR(65532)) CHARSET=ascii;
+Query OK, 0 rows affected (0.04 sec)
+mysql> INSERT INTO varchar_size_demo(c) VALUES(REPEAT('a', 65532));
+Query OK, 1 row affected (0.04 sec)
+```
+
+其中的REPEAT('a', 65532)是一个函数调用，它表示生成一个把字符'a'重复65532次的字符串。前面说过，MySQL中磁盘和内存交互的基本单位是页，也就是说MySQL是以页为基本单位来管理存储空间的，记录都会被分配到某个页中存储。而一个页的大小一般是16KB，也就是16384字节，而一个VARCHAR(M)类型的列就最多可以存储65532个字节，这样就可能造成一个页存放不了一条记录的情况。
+
+1. 在Compact和Reduntant行格式中，对于占用存储空间非常大的列，在记录的真实数据处只会存储该列的一部分数据，把剩余的数据分散存储在几个其他的页中，然后记录的真实数据处用20个字节存储指向这些页的地址（当然这20个字节中还包括这些分散在其他页面中的数据的占用的字节数），从而可以找到剩余数据所在的页。对于Compact和Reduntant行格式来说，如果某一列中的数据非常多的话，在本记录的真实数据处只会存储该列的前768个字节的数据和一个指向其他页的地址，然后把剩下的数据存放到其他页中，这个过程也叫做行溢出，存储超出768字节的那些页面也被称为溢出页。
+2. Compressed和Dynamic两种记录格式采用了完全的行溢出的方式，在数据页中只存放20个字节的指针（溢出页的地址），实际的数据都存放在Off Page（溢出页）中。Compressed行记录格式的另一个功能就是，存储在其中的行数据会以zlib的算法进行压缩，因此对于BLOB、TEXT、VARCHAR这类大长度类型的数据能够进行非常有效的存储
+
+### 行溢出的临界点
+
+MySQL中规定一个页中至少存放两行记录，以上面的varchar_size_demo表为例，它只有一个列c，往这个表中插入两条记录，每条记录最少插入多少字节的数据才会行溢出的现象呢？这得分析一下页中的空间都是如何利用的。
+
+1. 每个页除了存放我们的记录以外，也需要存储一些额外的信息，这些额外信息加起来需要136个字节的空间（现在只要知道这个数字就好了），其他的空间都可以被用来存储记录。
+
+2. 每个记录需要的额外信息是27字节。这27个字节包括下面这些部分：
+   - 2个字节用于存储真实数据的长度
+   - 1个字节用于存储列是否是NULL值
+   - 5个字节大小的头信息
+   - 6个字节的row_id列
+   - 6个字节的transaction_id列
+   - 7个字节的roll_pointer列
+
+假设一个列中存储的数据字节数为n，那么发生行溢出现象时需要满足这个式子：
+
+```scss
+136 + 2×(27 + n) > 16384
+```
+
+求解这个式子得出的解是：n > 8098。也就是说如果一个列中存储的数据不大于8098个字节，那就不会发生行溢出，否则就会发生行溢出。不过这个8098个字节的结论只是针对只有一个列的varchar_size_demo表来说的，如果表中有多个列，那上面的式子和结论都需要改一改了，所以重点就是：不用关注这个临界点是什么，只要知道如果向一个行中存储了很大的数据时，可能发生行溢出的现象。
+
+## 通常sql执行流程
 
 ![image](assets\mysql-17.png)
 

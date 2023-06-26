@@ -4365,7 +4365,7 @@ lsn是表示当前系统中写入的redo日志量，这包括了写到log buffer
 
 总结一下上面说的，就是：flush链表中的脏页按照修改发生的时间顺序进行排序，也就是按照oldest_modification代表的LSN值进行排序，被多次更新的页面不会重复插入到flush链表中，但是会更新newest_modification属性的值。
 
-##### checkpoint
+#### checkpoint
 
 由于redo日志文件组容量是有限的，所以不得不选择循环使用redo日志文件组中的文件，但是这会造成最后写的redo日志与最开始写的redo日志追尾，这时应该想到：redo日志只是为了系统奔溃后恢复脏页用的，如果对应的脏页已经刷新到了磁盘，也就是说即使现在系统奔溃，那么在重启后也用不着使用redo日志恢复该页面了，所以该redo日志也就没有存在的必要了，那么它占用的磁盘空间就可以被后续的redo日志所重用。也就是说：判断某些redo日志占用的磁盘空间是否可以覆盖的依据就是它对应的脏页是否已经刷新到磁盘里。看一下前面一直介绍的那个例子：
 
@@ -4379,13 +4379,85 @@ lsn是表示当前系统中写入的redo日志量，这包括了写到log buffer
 
 - 步骤一：计算一下当前系统中可以被覆盖的redo日志对应的lsn值最大是多少。
 
-  redo日志可以被覆盖，意味着它对应的脏页被刷到了磁盘，只要计算出当前系统中被最早修改的脏页对应的oldest_modification值，那凡是在系统lsn值小于该节点的oldest_modification值时产生的redo日志都是可以被覆盖掉的，把该脏页的oldest_modification赋值给checkpoint_lsn。比方说当前系统中页a已经被刷新到磁盘，那么flush链表的尾节点就是页c，该节点就是当前系统中最早修改的脏页了，它的oldest_modification值为8916，我们就把8916赋值给checkpoint_lsn（也就是说在redo日志对应的lsn值小于8916时就可以被覆盖掉）。
+  redo日志可以被覆盖，意味着它对应的脏页被刷到了磁盘，只要计算出当前系统中被最早修改的脏页对应的oldest_modification值，那凡是在系统lsn值小于该节点的oldest_modification值时产生的redo日志都是可以被覆盖掉的，把该脏页的oldest_modification赋值给checkpoint_lsn。比方说当前系统中页a已经被刷新到磁盘，那么flush链表的尾节点就是页c，该节点就是当前系统中最早修改的脏页了，它的oldest_modification值为8916，就把8916赋值给checkpoint_lsn（也就是说在redo日志对应的lsn值小于8916时就可以被覆盖掉）。
 
 - 步骤二：将checkpoint_lsn和对应的redo日志文件组偏移量以及此次checkpint的编号写到日志文件的管理信息（就是checkpoint1或者checkpoint2）中。
 
   InnoDB维护了一个目前系统做了多少次checkpoint的变量checkpoint_no，每做一次checkpoint，该变量的值就加1。前面说过计算一个lsn值对应的redo日志文件组偏移量是很容易的，所以可以计算得到该checkpoint_lsn在redo日志文件组中对应的偏移量checkpoint_offset，然后把这三个值都写到redo日志文件组的管理信息中。每一个redo日志文件都有2048个字节的管理信息，但是上述关于checkpoint的信息只会被写到日志文件组的第一个日志文件的管理信息中。但是是存储到checkpoint1中还是checkpoint2中呢？InnoDB规定，当checkpoint_no的值是偶数时，就写到checkpoint1中，是奇数时，就写到checkpoint2中。记录完checkpoint的信息之后，redo日志文件组中各个lsn值的关系就像这样：
 
   ![image](assets\mysql-129.png)
+
+在整个日志文件组中还有两个重要的属性，分别是write pos、checkpoint
+
+- write pos是当前记录的位置，一边写一边后移
+- checkpoint是当前要擦除的位置，也是往后推移
+
+每次刷盘redo log记录到日志文件组中，write pos位置就会后移更新。每次MySQL加载日志文件组恢复数据时，会清空加载过的redo log记录，并把checkpoint后移更新。write pos和checkpoint.之间的还空着的部分可以用来写入新的redo log记录。如果write pos追上checkpoint，表示日志文件组满了，这时候不能再写入新的redo log记录，MySQL得停下来，清空一些记录，把checkpoint推进一下。
+
+#### 批量从flush链表中刷出脏页
+
+一般情况下都是后台的线程在对LRU链表和flush链表进行刷脏操作，这主要因为刷脏操作比较慢，不想影响用户线程处理请求。但是如果当前系统修改页面的操作十分频繁，这样就导致写日志操作十分频繁，系统lsn值增长过快。如果后台的刷脏操作不能将脏页刷出，那么系统无法及时做checkpoint，可能就需要用户线程同步的从flush链表中把那些最早修改的脏页（oldest_modification最小的脏页）刷新到磁盘，这样这些脏页对应的redo日志就没用了，然后就可以去做checkpoint了。
+
+#### 查看系统中的各种LSN值
+
+可以使用SHOW ENGINE INNODB STATUS命令查看当前InnoDB存储引擎中的各种LSN值的情况，比如：
+
+```mysql
+mysql> SHOW ENGINE INNODB STATUS\G
+Log sequence number 124476971
+Log flushed up to   124099769
+Pages flushed up to 124052503
+Last checkpoint at  124052494
+```
+
+- Log sequence number：代表系统中的lsn值，也就是当前系统已经写入的redo日志量，包括写入log buffer中的日志。
+- Log flushed up to：代表flushed_to_disk_lsn的值，也就是当前系统已经写入磁盘的redo日志量。
+- Pages flushed up to：代表flush链表中被最早修改的那个页面对应的oldest_modification属性值。
+- Last checkpoint at：当前系统的checkpoint_lsn值。
+
+### 崩溃恢复
+
+在服务器不挂的情况下，redo日志简直就是个大累赘，不仅没用，反而让性能变得更差。但是如果数据库挂了，那redo日志就非常重要了，可以在重启时根据redo日志中的记录就可以将页面恢复到系统奔溃前的状态。接下来大致看一下恢复过程是什么样。
+
+#### 确定恢复的起点
+
+checkpoint_lsn之前的redo日志都可以被覆盖，也就是说这些redo日志对应的脏页都已经被刷新到磁盘中了，既然它们已经被刷盘，就没必要恢复它们了。对于checkpoint_lsn之后的redo日志，它们对应的脏页可能没被刷盘，也可能被刷盘了，不能确定，所以需要从checkpoint_lsn开始读取redo日志来恢复页面。当然，redo日志文件组的第一个文件的管理信息中有两个block都存储了checkpoint_lsn的信息，所以要选取最近发生的那次checkpoint的信息。衡量checkpoint发生时间早晚的信息就是所谓的checkpoint_no，只要把checkpoint1和checkpoint2这两个block中的checkpoint_no值读出来比一下大小，哪个的checkpoint_no值更大，说明哪个block存储的就是最近的一次checkpoint信息。这样就能拿到最近发生的checkpoint对应的checkpoint_lsn值以及它在redo日志文件组中的偏移量checkpoint_offset。
+
+#### 确定恢复的终点
+
+redo日志恢复的起点确定了，那终点是哪个呢？这个还得从block的结构说起。在写redo日志的时候都是顺序写的，写满了一个block之后会再往下一个block中写：
+
+![image](assets\mysql-130.png)
+
+普通block的log block header部分有一个称之为LOG_BLOCK_HDR_DATA_LEN的属性，该属性值记录了当前block里使用了多少字节的空间。对于被填满的block来说，该值永远为512。如果该属性的值不为512，那么就是它了，它就是此次奔溃恢复中需要扫描的最后一个block。
+
+#### 怎么恢复
+
+确定了需要扫描哪些redo日志进行奔溃恢复之后，接下来就是怎么进行恢复了。假设现在的redo日志文件中有5条redo日志，如图：
+
+![image](assets\mysql-131.png)
+
+由于redo 0在checkpoint_lsn后边，恢复时可以不管它。可以按照redo日志的顺序依次扫描checkpoint_lsn之后的各条redo日志，按照日志中记载的内容将对应的页面恢复出来。这样没什么问题，不过设计InnoDB的大佬还是想了一些办法加快这个恢复的过程：
+
+使用哈希表
+
+根据redo日志的space ID和page number属性计算出散列值，把space ID和page number相同的redo日志放到哈希表的同一个槽里，如果有多个space ID和page number都相同的redo日志，那么它们之间使用链表连接起来，按照生成的先后顺序链接起来的，如图所示：
+
+![image](assets\mysql-132.png)
+
+之后就可以遍历哈希表，因为对同一个页面进行修改的redo日志都放在了一个槽里，所以可以一次性将一个页面修复好（避免了很多读取页面的随机IO），这样可以加快恢复速度。另外需要注意一点的是，同一个页面的redo日志是按照生成时间顺序进行排序的，所以恢复的时候也是按照这个顺序进行恢复，如果不按照生成时间顺序进行排序的话，那么可能出现错误。比如原先的修改操作是先插入一条记录，再删除该条记录，如果恢复时不按照这个顺序来，就可能变成先删除一条记录，再插入一条记录，这显然是错误的。
+
+跳过已经刷新到磁盘的页面（**没理解，需要确认**）
+
+checkpoint_lsn之前的redo日志对应的脏页确定都已经刷到磁盘了，但是checkpoint_lsn之后的redo日志并不能确定是否已经刷到磁盘，主要是因为在最近做的一次checkpoint后，可能后台线程又不断的从LRU链表和flush链表中将一些脏页刷出Buffer Pool。这些在checkpoint_lsn之后的redo日志，如果它们对应的脏页在奔溃发生时已经刷新到磁盘，那在恢复时也就没有必要根据redo日志的内容修改该页面了。那在恢复时怎么知道某个redo日志对应的脏页是否在奔溃发生时已经刷新到磁盘了呢？这还得从页面的结构说起，我们前面说过每个页面都有一个称之为File Header的部分，在File Header里有一个称之为FIL_PAGE_LSN的属性，该属性记载了最近一次修改页面时对应的lsn值（其实就是页面控制块中的newest_modification值）。如果在做了某次checkpoint之后有脏页被刷新到磁盘中，那么该页对应的FIL_PAGE_LSN代表的lsn值肯定大于checkpoint_lsn的值，凡是符合这种情况的页面就不需要重复执行lsn值小于FIL_PAGE_LSN的redo日志了，所以更进一步提升了奔溃恢复的速度。
+
+### LOG_BLOCK_HDR_NO
+
+对于实际存储redo日志的普通的log block来说，在log block header处有一个称之为LOG_BLOCK_HDR_NO的属性，这个属性代表一个唯一的标号。这个属性是初次使用该block时分配的，跟当时的系统lsn值有关。使用下面的公式计算该block的LOG_BLOCK_HDR_NO值：((lsn / 512) & 0x3FFFFFFFUL) + 1。这个公式里的0x3FFFFFFFUL的二进制表示：
+
+![image](assets\mysql-133.png)
+
+图中可以看出，0x3FFFFFFFUL对应的二进制数的前2位为0，后30位的值都为1。让一个数和0x3FFFFFFFUL做与运算的意思就是要将该值的前2个比特位的值置为0，这样该值就肯定小于或等于0x3FFFFFFFUL了。这也就说明了，不论lsn多大，((lsn / 512) & 0x3FFFFFFFUL)的值肯定在0 ~ 0x3FFFFFFFUL之间，再加1的话肯定在1~0x40000000UL之间。而0x40000000UL这个值就代表着1GB。也就是说系统最多能产生不重复的LOG_BLOCK_HDR_NO值只有1GB个。InnoDB规定redo日志文件组中包含的所有文件大小总和不得超过512GB，一个block大小是512字节，也就是说redo日志文件组中包含的block块最多为1GB个，所以有1GB个不重复的编号值也就够用了。另外，LOG_BLOCK_HDR_NO值的第一个比特位比较特殊，称之为flush bit，如果该值为1，代表着本block是在某次将log buffer中的block刷新到磁盘的操作中的第一个被刷入的block。
 
 ## Undo Log
 

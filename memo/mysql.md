@@ -4759,6 +4759,138 @@ binlog日志和redo日志都是还原数据库数据用的，这两个功能很�
 
 其实大家可以看到MySQL通过两阶段提交过程来完成事务的一致性的，也即redo log和binlog的一致性的。理论上是先写redo log，再写binlog，两个日志都提交成功(刷入磁盘)，事务才算真正的完成。
 
+### BinLog保存时效
+
+编辑/etc/my.cnf文件，在[mysqld]节点中增加如下两行
+
+```properties
+max_binlog_size = 500M
+expire_logs_days = 15
+```
+
+binlog保存时效max_binlog_size：bin log日志每达到设定大小后，会使用新的bin log日志。如mysql-bin.000002达到500M后，创建并使用mysql-bin.000003文件作为日志记录。expire_logs_days：保留指定日期范围内的bin log历史日志，上示例设置的15天内。
+
+```mysql
+-- mysql8.0以下版本查看当前数据库日志binlog保存时效 以天为单位，默认0 永不过期，最多只能设置99天
+show variables like 'expire_logs_days';
+set global expire_logs_days=60;
+
+-- mysql8.0以上版本通过设置全局参数binlog_expire_logs_seconds修改binlog保存时间 以秒为单位；默认2592000 30天   14400   4小时；86400  1天；259200  3天
+show variables like '%binlog_expire_logs_seconds%';
+
+set global binlog_expire_logs_seconds=259200;
+```
+
+### 过期删除策略
+
+1. mysql是根据binlog文件的操作系统最近修改时间，来判断binlog是否过期(而不是根据binlog日志中事物发生的时间)。
+2. 在触发mysql过期删除时，mysql先检查*bin.index文件，找到目前最老的binlog，然后检查该文件的系统时间，会有如下两种情况：
+   1. 如果发现该文件未过期，则认为目前没有binlog日志过期,不进行删除,即使此时有其他binlog已过期。
+   2. 如果发现该文件已经过期，则会找下一个binlog，判断是否过期,同样存在两种情况(过期或者未过期),如此往复,直到找到第一个过期的binlog 即停止继续查找，并删除该binlog及所有该binlog之前的所有日志
+
+```mysql
+#查看数据库binlog列表
+show binary logs;
+#删除该binlog之前的日志
+purge master logs to '3306-bin.000007';
+#触发过期日志清除操作，并强制重新创建一个binlog文件。
+flush logs;
+#查看master状态，即最后(最新)一个binlog日志的编号名称，及其最后一个操作事件pos结束点(Position)值
+show master status;
+```
+
+### BinLog查看工具
+
+```mysql
+# in '日志文件'，指定要查询的binlog文件名，不指定就默认看第一个。
+show binlog events in 'duodb-binlog.000001';
+# from pos 指定从哪个pos开始查询
+show binlog events in 'duodb-binlog.000001' from 219;
+# limit offset 偏移量，从某个位置开始查多少条
+show binlog events in 'duodb-binlog.000001' limit 5,1;
+show binlog events in 'duodb-binlog.000001' from 219 limit 3,2;
+# limint row_count 查询总条数
+show binlog events in 'duodb-binlog.000001' limit 5;
+show binlog events in 'duodb-binlog.000001' from 219 limit 3;
+```
+
+
+
+```bash
+# 如果日志太多可以通过参数指定输出某个数据库的日志，-d或者--database
+mysqlbinlog -d itpuxdb mysql-bin.000007
+# 禁止恢复过程中产生日志
+mysqlbinlog -D itpuxdb mysql-bin.000007
+mysqlbinlog --disable-log-bin itpuxdb mysql-bin.000007
+# 在输出时候控制内容的编码显示格式，base64-output配合-vv则是显示详细的信息
+mysqlbinlog --base64-output=decode-rows -vv mysql-bin.000007
+# 获取从指定位置开始到指定位置结束的日志
+mysqlbinlog --start-position=538 --stop-position=646 mysql-bin.000003
+# 获取从指定时间开始到指定时间结束的日志
+mysqlbinlog --start-datatime='2023-07-02 13:38:00' --stop-datatime='2023-07-02 14:38:00' mysql-bin.000003
+```
+
+### 日志恢复数据
+
+```mysql
+#通过binlog日志增量恢复至表删除之前，下面的例子表示：通过分析可知需要恢复的日志为mysql-bin.000003的第一行到第890行，然后执行下面的命令后就可以完成恢复
+mysqlbinlog -stop-position=890 --database=itpux mysql-bin.000003 | mysql -uroot -p itpux
+#闪回批量误删除
+#1、官方的mysqlbinlog：支持离线，用脚本处理binlog的输出，再插回数据库，通用性不好，技术要求比较高
+#2、第三方的mysqlbinlog工具：比官方的工具多了一个闪回功能，-B
+#3、开源的binlog2sql：兼容性比较好，使用难度小，使用简单，前提是MySQL必须开启
+#线上环境快速闪回：binlog2sql；离线解析：mysqlbinlog/mysqlbinlog_flashback
+```
+
+例子1：利用官方的mysqlbinlog闪回批量误删除操作
+
+```mysql
+binlog_format=row
+
+create table itpuxfg2 (
+`id` int(10) unsigned not null auto_increment,
+`name` varchar(16) not null,
+`sex` enum('m','w') not null default 'm',
+`age` tinyint(3) unsigned not null,
+primary key (`id`)
+) engine=innodb default charset=utf8;
+
+insert into itpux.itpuxfg2(`name`,`sex`,`age`) values
+('itpux1','w',21),
+('itpux2','m',22),
+('itpux3','w',23),
+('itpux4','m',24),
+('itpux5','w',25);
+commit;
+
+select * from itpux.itpuxfg2;
+
+delete from itpuxfg2 where id=2; -- 想象很美好。
+delete from itpuxfg2; -- 现实很骨感。
+commit; -- 完了。发现弄错了
+
+select * from itpux.itpuxfg2;
+
+#开始恢复，生产高峰：
+#锁表，禁止继续写入
+lock tables itpuxfg2 read;
+show master status;
+show binlog events in 'itpuxdb-binlog.000001';
+# 查找被删除的内容
+mysqlbinlog --base64-output=decode-rows -vv itpuxdb-binlog.000001 | sed -n '/### DELETE FROM `itpuxdb`.`itpuxfg2`/,/COMMIT/p' > itpuxfg2.txt
+# 通过sed名将DELETE替换成INSERT后再执行
+cat itpuxfg2.txt | sed -n '/###/p' | sed 's/### //g;s/\/\*.*/,/g;s/DELETEFROM/INSERT INTO/g;s/WHERE/SELECT/g;' | sed -r 's/(@4.*),/\1;/g'|sed's/@[1-9]=//g' > recover_itpuxfg2.sql
+
+#然后解锁表：
+unlock tables;
+lock tables itpuxfg2 write;
+......
+commit;
+unlock tables;
+source recover_itpuxfg2.sql
+select * from itpuxfg2;
+```
+
 ## Buffer Pool
 
 Buffer Pool就是数据库的一个内存组件，里面缓存了磁盘上的真实数据，增删改操作首先就是针对这个内存中的Buffer Pool里的数据执行的，同时配合了后续的redo log、刷磁盘等机制和操作。

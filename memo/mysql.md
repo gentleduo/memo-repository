@@ -4759,6 +4759,99 @@ binlog日志和redo日志都是还原数据库数据用的，这两个功能很�
 
 其实大家可以看到MySQL通过两阶段提交过程来完成事务的一致性的，也即redo log和binlog的一致性的。理论上是先写redo log，再写binlog，两个日志都提交成功(刷入磁盘)，事务才算真正的完成。
 
+### BinLog基础参数
+
+1. 文件大小
+
+   - max_binlog_size
+
+     范围4k-1G，默认为1G；这里注意下，并非设置了max_binlog_size=1G，binlog文件最大就为1G，当事务短且小的情况下，binlog接近1G的时候，就会flush log，生成新的binlog文件，但是，但是，但是，但是同个事务是不能够跨多个binlog文件存储，一个事务只能存储在一个binlog文件。如果这个时候，有个大事务，假设单个SQL UPDATE了100w行数据，SQL产生的binlog日志记录有5G，那么当前的binlog文件则会出现大于5G的情况，该事务结束后，才会切换binlog文件。
+
+2. 缓存大小
+
+   - binlog_cache_size
+     - binlog写缓冲区设置大小，由于是内存，写速度非常快，可以有效提高binlog的写效率，如果数据库中经常出现大事务，可以酌情提高该参数。
+     - 那么，如果观察binlog_cache_size设置是否合理呢？可以通过show status like '%Binlog_cache%';查看Binlog_cache_use and Binlog_cache_disk_use的使用情况，Binlog_cache_use表示用到binlog缓冲区的次数，Binlog_cache_disk_use使用临时文件来存放binlog cache的次数，如果Binlog_cache_disk_use的次数过多，可以酌情提高该参数。
+   - binlog_stmt_cache_size
+     - 保留一个事务内，非事务语句文本的缓存大小。默认32k。
+     - 与binlog_cache_size一样，也可以通过show status like '%binlog_stmt_cache%';来查看是否设置合理。查看参数为：Binlog_stmt_cache_use（使用缓存区的次数），Binlog_stmt_cache_disk_use（使用临时文件的次数）
+   - max_binlog_cache_size
+     - 默认为4G，如果发生大事务占用binlog cache超过设置值，则会报错 ： multi-statement transaction required more than 'max_binlog_cache_size' bytes of storage。
+     - 有binlog_cache_size还需要max_binlog_cache_size的原因：
+       1. 当一个线程连接进来并开始执行事务的时候，数据库会按照binlog_cache_size的大小分配给它一个缓冲区域，如果使用到的空间要大于binlog_cache_size，则会使用临时文件来存储，线程结束后再删除临时文件。
+       2. 而max_binlog_cache_size则是严格限制了一个多SQL事务总的使用binlog cache的大小，保留分配缓冲区域跟临时文件，总大小不能超过max_binlog_cache_size的限制值，一旦超过，则会报错multi-statement transaction required more than 'max_binlog_cache_size' bytes of storage。
+
+3. binlog文件相关
+
+   1. log_bin_basename
+      - binlog文件的命名方式
+   2. log_bin_index
+      - binlog索引文件的绝对路径
+
+### BinLog二进制格式
+
+1. log_bin
+
+   指定--log-bin=binlog日志文件的路径
+
+2. binlog_format
+
+   - 设置binlog的记录格式，
+
+   - 5.7.6前默认statement，5.7.7后默认row，可选row，mixed，statement
+
+     - statement
+
+       - 当binlog_format=statement的时候，DDL及DML都是明文按照SQL记录存储
+       - 函数在不同时间不同服务器，执行结果不一致，这会给复制的主从带来数据不一致的严重影响，比如：LOAD_FILE()， UUID()， USER()，FOUND_ROWS()，defaults now()及用户自定义函数等
+       - 同步到从库的binlog都是SQL语句，在slave端再跑一遍，假设一个update语句性能很差，但是最终只修改了一行数据，那么在从库也会同样执行这个性能差的SQL
+       - 而对于 insert tb select * from tbname 这类型的SQL，则只需要同步一行SQL语句即可
+
+     - row
+
+       - binlog_row_image默认full，binlog_rows_query_log_events默认false
+       - 在row格式下，其他参数默认，DDL明文存储SQL脚本，DML是加密存储且存储的是每一行的行记录修改情况。mysqlbinlog提供参数-v反解析查看。
+       - 最安全的同步设置：同步到从库的binlog都是按行记录修改的SQL，所以假设一个update语句性能很差，但是最终只修改了一行数据，那么在从库不需要执行这个性能差的SQL，只需要直接执行行记录的修改结果即可（注意，使用基于row格式复制的实例，请给所有表格添加主键或者唯一索引，不然每一行记录的修改都需要全表扫，会导致从库性能非常差而且可能延时较长）
+       - 而对于 insert tb select * from tbname 这类型的SQL，statment格式的只需要同步一条sql，但是row的话，则需要同步所有行记录。
+
+     - mixed
+
+       mixed模式下，大多数情况下，是以statement格式记录binlog日志，当隔离级别为RC模式的时候，则修改为row模式记录，以下几个形式，也是以row模式记录：
+
+       - When a function contains UUID().
+       - When one or more tables with AUTO_INCREMENT columns are updated and a trigger or stored function is invoked. Like all other unsafe statements, this generates a warning if binlog_format = STATEMENT
+       - When the body of a view requires row-based replication, the statement creating the view also uses it. For example, this occurs when the statement creating a view uses the UUID() function.
+       - When a call to a UDF is involved.
+       - If a statement is logged by row and the session that executed the statement has any temporary tables, logging by row is used for all subsequent statements (except for those accessing temporary tables) until all temporary tables in use by that session are dropped
+       - This is true whether or not any temporary tables are actually logged.
+       - Temporary tables cannot be logged using row-based format; thus, once row-based logging is used, all subsequent statements using that table are unsafe. The server approximates this condition by treating all statements executed during the session as unsafe until the session no longer holds any temporary tables.
+       - When FOUND_ROWS() or ROW_COUNT() is used. (Bug #12092, Bug #30244)
+       - When USER(), CURRENT_USER(), or CURRENT_USER is used. (Bug #28086)
+       - When a statement refers to one or more system variables. (Bug #31168)
+
+3. binlog_row_image
+
+   - 主要针对当binlog_format=row格式下的设置
+
+   - 默认full，可选full，noblob，minimal
+
+     - full
+
+       update语句的set部分是新纪录内容，delete及update语句的where部分是全部旧记录内容；
+
+     - noblob
+
+       update语句的set部分是新纪录内容，delete及update语句的where部分是全部旧记录内容，但是，如果修改的列不是blob或者text字段，则set部分不会出现blob及text字段；where条件中无论涉不涉及，都不会出现；
+
+     - minimal
+
+       update语句的set部分只有修改的列内容，delete及update语句的where部分是主键或者唯一索引，如果都没有，才会使整行旧记录；
+
+4. binlog_rows_query_log_events
+
+   1. 主要针对当binlog_format=row格式 下的设置，如果基于row记录binlog日志，默认是只记录变化的行数据，不记录涉及执行的SQL语句，如果开启此参数，则会一同记录执行的SQL语句
+   2. 默认false
+
 ### BinLog保存时效
 
 编辑/etc/my.cnf文件，在[mysqld]节点中增加如下两行

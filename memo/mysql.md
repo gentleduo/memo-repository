@@ -5229,7 +5229,7 @@ mysqldump客户端读取会读取`my.cnf`中`[client]`和`[mysqldump]`中的参�
 
 --flush-privileges：导出权限
 
---master-data：主要用于记录一致性备份的起点，首先会通过FLUSH TABLES WITH READ LOCK ,然后SHOW MASTER STATUS，再然后UNLOCK TABLES，在这个过程中获取到了master在lock时刻的binlog，获取binlog位置的过程一定是在加锁后，这样才可以准确获取响应的binlog
+--master-data：在dump之后的结果中存有当前备份开始时的binlog位置，为了满足所获得binlog位置的一致性，需要在执行SHOW MASTER STATUS前，获取对所有表的读锁以阻塞所有binlog的提交事件，因此要求执行一次FLUSH TABLES WITH READ LOCK，获取binlog位置的过程一定是在加锁后，这样才可以准确获取响应的binlog
 
 1. 1：表示在dump过程中记录主库的binlog和pos点，并在dump文件中不注释掉这一行，即恢复时会执行；
 2. 2：表示在dump过程中记录主库的binlog和pos点，并在dump文件中注释掉这一行；
@@ -5268,6 +5268,120 @@ mysqldump客户端读取会读取`my.cnf`中`[client]`和`[mysqldump]`中的参�
 -n,--no-create-db：不创建数据库，即：如果不存在数据库就不执行导入
 
 -t,--no-create-info：不创建表，即：如果不存在表就不执行导入
+
+### single-transaction
+
+通过打开general_log，观察single-transaction如何在不对表加锁的情况下保证数据的一致性，对于使用MyISAM等不支持事务的存储引擎的表，--single-transaction无法保证它们的数据一致性。
+
+```mysql
+# 关闭查询日志
+mysql> set global general_log = on; 
+```
+
+1、只加--single-transaction的情况，会通过将事物的隔离级别设置为"可重复读"，会创建一个数据库当前的快照与一个事务id，所有在该事务之后的事务所进行的数据更新都会被过滤，以此来保证备份的一致性。所以只支持存储引擎为InnoDB的情况。
+
+```bash
+[root@athena003 ~]# mysqldump -uroot -pMysql@322 --single-transaction --databases risk_dev > /opt/risk_dev.sql
+```
+
+```markdown
+Tcp port: 3306  Unix socket: /var/lib/mysql/mysql.sock
+Time                 Id Command    Argument
+2023-07-05T02:22:16.309653Z	  246 Query	show databases
+2023-07-05T02:24:42.444828Z	  247 Connect	root@localhost on  using Socket
+2023-07-05T02:24:42.444976Z	  247 Query	/*!40100 SET @@SQL_MODE='' */
+2023-07-05T02:24:42.445066Z	  247 Query	/*!40103 SET TIME_ZONE='+00:00' */
+2023-07-05T02:24:42.445137Z	  247 Query	/*!80000 SET SESSION information_schema_stats_expiry=0 */
+2023-07-05T02:24:42.445190Z	  247 Query	SET SESSION NET_READ_TIMEOUT= 86400, SESSION NET_WRITE_TIMEOUT= 86400
+# 设置事物的隔离级别为REPEATABLE READ；通过执行START TRANSACTION WITH CONSISTENT SNAPSHOT会创建一个数据库当前的快照与一个事务id
+2023-07-05T02:24:42.445271Z	  247 Query	SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ
+2023-07-05T02:24:42.445318Z	  247 Query	START TRANSACTION /*!40100 WITH CONSISTENT SNAPSHOT */
+2023-07-05T02:24:42.445501Z	  247 Query	SHOW VARIABLES LIKE 'gtid\_mode'
+# 指定了--single-transaction选项时才会解锁所有先前被加锁的表，--single-transaction下所进行的备份通过事务性质可以保证数据的一致性，没有必要再保留对所有表所加的锁，因此这里执行解锁，以免阻塞其他事务的进行。
+2023-07-05T02:24:42.449321Z	  247 Query	UNLOCK TABLES
+2023-07-05T02:24:42.449504Z	  247 Query	SELECT LOGFILE_GROUP_NAME, FILE_NAME, TOTAL_EXTENTS, INITIAL_SIZE, ENGINE, EXTRA FROM INFORMATION_SCHEMA.FILES WHERE FILE_TYPE = 'UNDO LOG' AND FILE_NAME IS NOT NULL AND LOGFILE_GROUP_NAME IS NOT NULL AND LOGFILE_GROUP_NAME IN (SELECT DISTINCT LOGFILE_GROUP_NAME FROM INFORMATION_SCHEMA.FILES WHERE FILE_TYPE = 'DATAFILE' AND TABLESPACE_NAME IN (SELECT DISTINCT TABLESPACE_NAME FROM INFORMATION_SCHEMA.PARTITIONS WHERE TABLE_SCHEMA IN ('risk_dev'))) GROUP BY LOGFILE_GROUP_NAME, FILE_NAME, ENGINE, TOTAL_EXTENTS, INITIAL_SIZE ORDER BY LOGFILE_GROUP_NAME
+2023-07-05T02:24:42.454130Z	  247 Query	SELECT DISTINCT TABLESPACE_NAME, FILE_NAME, LOGFILE_GROUP_NAME, EXTENT_SIZE, INITIAL_SIZE, ENGINE FROM INFORMATION_SCHEMA.FILES WHERE FILE_TYPE = 'DATAFILE' AND TABLESPACE_NAME IN (SELECT DISTINCT TABLESPACE_NAME FROM INFORMATION_SCHEMA.PARTITIONS WHERE TABLE_SCHEMA IN ('risk_dev')) ORDER BY TABLESPACE_NAME, LOGFILE_GROUP_NAME
+2023-07-05T02:24:42.456001Z	  247 Query	SHOW VARIABLES LIKE 'ndbinfo\_version'
+2023-07-05T02:24:42.457710Z	  247 Init DB	risk_dev
+2023-07-05T02:24:42.457778Z	  247 Query	SHOW CREATE DATABASE IF NOT EXISTS `risk_dev`
+# 增加savepoint的意义在于，假如要dump表A，savepoint记录了dump表A之前尚未给表A加MDL锁（metadata lock：基于表元数据(表结构)的锁）的状态，当开始dump表A时，由于要进行一系列select操作，会给表A加上MDL锁防止其他事务的DDL操作改变表结构导致读动作出错；最后当对表A的dump完成后，后续都不会再访问表A了，此时没有释放的MDL锁没有意义，反而会阻塞其他并行事务对表A的DDL操作。对此，MySQL的解决方法是在访问表A前通过SAVEPOINT sp记录一个savepoint，在dump完表A之后通过ROLLBACK TO SAVEPOINT sp回到当时的状态，即可释放对表A加的MDL锁，放行其他事务对该表的DDL操作。
+2023-07-05T02:24:42.457863Z	  247 Query	SAVEPOINT sp
+2023-07-05T02:24:42.457948Z	  247 Query	show tables
+2023-07-05T02:24:42.459065Z	  247 Query	show table status like 't\_customer\_info'
+2023-07-05T02:24:42.459981Z	  247 Query	SET SQL_QUOTE_SHOW_CREATE=1
+2023-07-05T02:24:42.460031Z	  247 Query	SET SESSION character_set_results = 'binary'
+2023-07-05T02:24:42.460072Z	  247 Query	show create table `t_customer_info`
+2023-07-05T02:24:42.460329Z	  247 Query	SET SESSION character_set_results = 'utf8mb4'
+2023-07-05T02:24:42.460404Z	  247 Query	show fields from `t_customer_info`
+2023-07-05T02:24:42.461200Z	  247 Query	show fields from `t_customer_info`
+2023-07-05T02:24:42.461993Z	  247 Query	SELECT /*!40001 SQL_NO_CACHE */ * FROM `t_customer_info`
+2023-07-05T02:24:42.462126Z	  247 Query	SET SESSION character_set_results = 'binary'
+2023-07-05T02:24:42.462185Z	  247 Query	use `risk_dev`
+2023-07-05T02:24:42.462234Z	  247 Query	select @@collation_database
+2023-07-05T02:24:42.462310Z	  247 Query	SHOW TRIGGERS LIKE 't\_customer\_info'
+2023-07-05T02:24:42.462981Z	  247 Query	SET SESSION character_set_results = 'utf8mb4'
+2023-07-05T02:24:42.463039Z	  247 Query	SET SESSION character_set_results = 'binary'
+2023-07-05T02:24:42.463657Z	  247 Query	SELECT COLUMN_NAME,                       JSON_EXTRACT(HISTOGRAM, '$."number-of-buckets-specified"')                FROM information_schema.COLUMN_STATISTICS                WHERE SCHEMA_NAME = 'risk_dev' AND TABLE_NAME = 't_customer_info'
+2023-07-05T02:24:42.463855Z	  247 Query	SET SESSION character_set_results = 'utf8mb4'
+2023-07-05T02:24:42.463905Z	  247 Query	ROLLBACK TO SAVEPOINT sp
+2023-07-05T02:24:42.463939Z	  247 Query	RELEASE SAVEPOINT sp
+2023-07-05T02:24:42.464467Z	  247 Quit
+```
+
+2、加--single-transaction和--master-data的情况：
+
+```bash
+[root@athena003 ~]# mysqldump -uroot -pMysql@322 --single-transaction --master-data=2 --databases risk_dev > /opt/risk_dev.sql
+```
+
+```markdown
+2023-07-05T02:26:21.564660Z	  248 Connect	root@localhost on  using Socket
+2023-07-05T02:26:21.564837Z	  248 Query	/*!40100 SET @@SQL_MODE='' */
+2023-07-05T02:26:21.564926Z	  248 Query	/*!40103 SET TIME_ZONE='+00:00' */
+2023-07-05T02:26:21.565009Z	  248 Query	/*!80000 SET SESSION information_schema_stats_expiry=0 */
+2023-07-05T02:26:21.565059Z	  248 Query	SET SESSION NET_READ_TIMEOUT= 86400, SESSION NET_WRITE_TIMEOUT= 86400
+# ####################################################################################
+# 进行关表和加读锁的目的：
+# --master-data选项要求dump出来的结果中包含binlog位置；
+# 为了准确地得到当前binlog的位置，自然就需要给所有的表加共享锁，防止其他并行事务进行写操作导致binlog更新，因此这里才有一个关表、加读锁的动作。
+# ####################################################################################
+# FLUSH TABLES：关闭所有表
+2023-07-05T02:26:21.565135Z	  248 Query	FLUSH /*!40101 LOCAL */ TABLES
+# 关表同时给所有表加上读锁
+2023-07-05T02:26:21.573490Z	  248 Query	FLUSH TABLES WITH READ LOCK
+2023-07-05T02:26:21.573579Z	  248 Query	SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ
+2023-07-05T02:26:21.573642Z	  248 Query	START TRANSACTION /*!40100 WITH CONSISTENT SNAPSHOT */
+2023-07-05T02:26:21.573746Z	  248 Query	SHOW VARIABLES LIKE 'gtid\_mode'
+# 获取、记录当前的binlog位置，并将得到的binlog位置信息写入dump结果中。
+2023-07-05T02:26:21.576579Z	  248 Query	SHOW MASTER STATUS
+2023-07-05T02:26:21.576668Z	  248 Query	UNLOCK TABLES
+2023-07-05T02:26:21.576832Z	  248 Query	SELECT LOGFILE_GROUP_NAME, FILE_NAME, TOTAL_EXTENTS, INITIAL_SIZE, ENGINE, EXTRA FROM INFORMATION_SCHEMA.FILES WHERE FILE_TYPE = 'UNDO LOG' AND FILE_NAME IS NOT NULL AND LOGFILE_GROUP_NAME IS NOT NULL AND LOGFILE_GROUP_NAME IN (SELECT DISTINCT LOGFILE_GROUP_NAME FROM INFORMATION_SCHEMA.FILES WHERE FILE_TYPE = 'DATAFILE' AND TABLESPACE_NAME IN (SELECT DISTINCT TABLESPACE_NAME FROM INFORMATION_SCHEMA.PARTITIONS WHERE TABLE_SCHEMA IN ('risk_dev'))) GROUP BY LOGFILE_GROUP_NAME, FILE_NAME, ENGINE, TOTAL_EXTENTS, INITIAL_SIZE ORDER BY LOGFILE_GROUP_NAME
+2023-07-05T02:26:21.585652Z	  248 Query	SELECT DISTINCT TABLESPACE_NAME, FILE_NAME, LOGFILE_GROUP_NAME, EXTENT_SIZE, INITIAL_SIZE, ENGINE FROM INFORMATION_SCHEMA.FILES WHERE FILE_TYPE = 'DATAFILE' AND TABLESPACE_NAME IN (SELECT DISTINCT TABLESPACE_NAME FROM INFORMATION_SCHEMA.PARTITIONS WHERE TABLE_SCHEMA IN ('risk_dev')) ORDER BY TABLESPACE_NAME, LOGFILE_GROUP_NAME
+2023-07-05T02:26:21.586899Z	  248 Query	SHOW VARIABLES LIKE 'ndbinfo\_version'
+2023-07-05T02:26:21.588256Z	  248 Init DB	risk_dev
+2023-07-05T02:26:21.588352Z	  248 Query	SHOW CREATE DATABASE IF NOT EXISTS `risk_dev`
+2023-07-05T02:26:21.588464Z	  248 Query	SAVEPOINT sp
+2023-07-05T02:26:21.588560Z	  248 Query	show tables
+2023-07-05T02:26:21.590448Z	  248 Query	show table status like 't\_customer\_info'
+2023-07-05T02:26:21.591509Z	  248 Query	SET SQL_QUOTE_SHOW_CREATE=1
+2023-07-05T02:26:21.591566Z	  248 Query	SET SESSION character_set_results = 'binary'
+2023-07-05T02:26:21.591613Z	  248 Query	show create table `t_customer_info`
+2023-07-05T02:26:21.592037Z	  248 Query	SET SESSION character_set_results = 'utf8mb4'
+2023-07-05T02:26:21.592117Z	  248 Query	show fields from `t_customer_info`
+2023-07-05T02:26:21.593487Z	  248 Query	show fields from `t_customer_info`
+2023-07-05T02:26:21.594338Z	  248 Query	SELECT /*!40001 SQL_NO_CACHE */ * FROM `t_customer_info`
+2023-07-05T02:26:21.594470Z	  248 Query	SET SESSION character_set_results = 'binary'
+2023-07-05T02:26:21.594522Z	  248 Query	use `risk_dev`
+2023-07-05T02:26:21.594578Z	  248 Query	select @@collation_database
+2023-07-05T02:26:21.594653Z	  248 Query	SHOW TRIGGERS LIKE 't\_customer\_info'
+2023-07-05T02:26:21.595791Z	  248 Query	SET SESSION character_set_results = 'utf8mb4'
+2023-07-05T02:26:21.595852Z	  248 Query	SET SESSION character_set_results = 'binary'
+2023-07-05T02:26:21.595925Z	  248 Query	SELECT COLUMN_NAME,                       JSON_EXTRACT(HISTOGRAM, '$."number-of-buckets-specified"')                FROM information_schema.COLUMN_STATISTICS                WHERE SCHEMA_NAME = 'risk_dev' AND TABLE_NAME = 't_customer_info'
+2023-07-05T02:26:21.596287Z	  248 Query	SET SESSION character_set_results = 'utf8mb4'
+2023-07-05T02:26:21.596331Z	  248 Query	ROLLBACK TO SAVEPOINT sp
+2023-07-05T02:26:21.596372Z	  248 Query	RELEASE SAVEPOINT sp
+2023-07-05T02:26:21.596814Z	  248 Quit	
+```
 
 ### 其它
 
@@ -5315,7 +5429,7 @@ mysqldump -uroot -proot itpuxdb yg --where="employee_id < 105" > itpuxdb13.sql
 mysqldump -uroot -proot -R -E --all-databases > fullbak14.sql
 
 #导出数据库（数据一致+导出权限+刷新日志）
-mysqldump -uroot -proot --single-transaction --master-data=2 --flush-logs--flush-privileges --routines --all-databases > fullbak15.sql
+mysqldump -uroot -proot --single-transaction --master-data=2 --flush-logs --flush-privileges --routines --all-databases > fullbak15.sql
 ```
 
 ## mysqlpump

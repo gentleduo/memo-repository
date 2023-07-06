@@ -5210,6 +5210,8 @@ mysqldump客户端读取会读取`my.cnf`中`[client]`和`[mysqldump]`中的参�
 
 -w,--where=''：导出指定条件的数据
 
+--skip-lock-tables：所的有备份，都不包括 information_schema、sys、performance_schema。如果要真备份这 3 个数据库就是加上skip-lock-tables参数
+
 ### 与事物和锁相关的选项
 
 --single-transaction：保证数据一致性，主要做了以下两个操作
@@ -5225,7 +5227,7 @@ mysqldump客户端读取会读取`my.cnf`中`[client]`和`[mysqldump]`中的参�
 
 **single-transaction、locak-tables、locak-all-tables是互斥的，只能同时用一个**
 
---flush-logs：导出数据时刷新二进制日志，达到一致性导出。
+-F,--flush-logs：导出数据时刷新二进制日志，达到一致性导出。该选项也会刷新binlog日志。执行“mysqldump -F”或“mysqladmin flush-logs”会将binlog刷新为新文件。
 
 --flush-privileges：导出权限
 
@@ -5430,6 +5432,77 @@ mysqldump -uroot -proot -R -E --all-databases > fullbak14.sql
 
 #导出数据库（数据一致+导出权限+刷新日志）
 mysqldump -uroot -proot --single-transaction --master-data=2 --flush-logs --flush-privileges --routines --all-databases > fullbak15.sql
+
+#导入所有库
+mysql -uroot -p < 11.sql
+#导入单个库
+mysql -uroot -p -o itpux < db_fullbackup.sql
+#导入单个表（需要先建表）
+mysql -uroot -p itpux < itpuxtest.sql
+```
+
+### 字符集问题与字符集转换
+
+汲到字符集的地方有3个：
+
+1）mysql 自身的设置
+
+my.cnf 文件 
+
+show variables like '%character%';
+
+2）服务器的字符集设置
+
+vi ~/.bash_prorfile
+
+export LANG=en_US.UTF8
+
+3）使用工具的字符集设置
+
+mysqldump -uroot -proot --default-character-set=utf8 --single-transaction--master-data=2 --flush-logs --flush-privileges --routines--all-databases >db_fullbackup.sql
+
+4）CRT 工具也可以设置字符集。
+
+转换字符编码
+
+iconv -t utf-8 -f gbk -c db_fullbackup.sql > db_fullbackup_utf8.sql
+
+-f, --from-code=名称     原始文本编码
+
+-t, --to-code=名称       输出编码
+
+字符集转换案例
+
+```mysql
+create database itpuxdb1 charset gbk;
+use itpuxdb1;
+create table itpuxzfj(
+id int,
+name varchar(20)
+) engine=innodb,charset=gbk;
+insert into itpuxzfj values(1,'风哥教育');
+insert into itpuxzfj values(2,'风哥 Oracle 微职位培训班');
+insert into itpuxzfj values(3,'风哥 MySQL 微职位培训班');
+insert into itpuxzfj values(4,'风哥双 DBA 微职位培训班');
+insert into itpuxzfj values(5,'ITPUX 技术网');
+commit;
+```
+
+```bash
+# 接下来，将 itpuxdb1 由 gbk 转换为 utf8 字符集的数据库。
+# 第一步，导出表结果，并且将sql中的gbk全局替换为utf8
+mysqldump -uroot -proot --routines --default-character-set=utf8 --no-dataitpuxdb1 > itpuxdb1_nodata.sql
+# 修改 itpuxdb_nodata.sql 中的定义 :%s/gbk/utf8/g
+# 建议修改 char/varchar 的长度为原来的 1.5 倍，为了安全，导出时加--extended-insert参数。
+# 第二步，按照GBK的格式导出数据，并且将sql中的gbk全局替换为utf8
+mysqldump -uroot -proot --routines --default-character-set=gbk--extended-insert --no-create-info itpuxdb1 > itpuxdb1_data.sql
+# 由/*!40101 SET NAMES gbk */;修改为/*!40101 SET NAMES utf8 */;
+# 创建utf8的库
+create database itpuxdb2 charset=utf8;
+# 导入utf8的表结构
+mysql -uroot -proot itpuxdb2 < itpuxdb1_nodata.sql
+# 第三步，导入数据
+iconv -t utf-8 -f gbk -c itpuxdb1_data.sql > itpuxdb1_data_new.sqlmysql -uroot -proot itpuxdb2 < itpuxdb1_data_new.sql
 ```
 
 ## mysqlpump

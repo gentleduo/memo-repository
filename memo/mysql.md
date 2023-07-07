@@ -5507,6 +5507,89 @@ iconv -t utf-8 -f gbk -c itpuxdb1_data.sql > itpuxdb1_data_new.sqlmysql -uroot -
 
 ## mysqlpump
 
+mysql5.7.8开始官方提供的一个逻辑备份工具：mysqlpump(mysql 5.7.11+)，用法和mysqldump类似区别在于mysqlpump是多线程，而mysqldump是单线程，因此mysqlpump可以备份超过100G的库。
+
+### 相关参数
+
+相比mysqldump多出来的重要参数：
+
+--add-drop-user
+
+在 create user 语句之前增加 drop user，这个参数要和--user 一起使用，否则不生效。
+
+--compress-output
+
+默认不压缩输出，目前可以使用压缩的算法有 lz4 和 zlib
+
+--default-parallelism
+
+指定并行线程数据，默认是 2 个，如果设置 0 就不并行备份，如果是单表则并行无效。每个线程在导入的时候，先写数据，最后再创二级索引（主键索引在创建表的时候建立）。
+
+--defer-table-indexes
+
+延迟创建索引，直到所有的数据都加载完了之后再创建索引，默认开启。关闭--skip-defer-table-indexes,就和 mysqldump 类似了，先创建表和索引，再导数据，因为在加载还原数据的时候要维护二级索引的开销，导致效率比较低。
+
+--parallel-schemas
+
+指定并行备份的库，每个库指定相应的线程数：--parallel-schemas=6:db1,3:db3
+
+### 常用备份命令
+
+```bash
+# 导出所有库（不压缩）
+[root@server01 ~]# mysqlpump -uroot -proot --single-transaction --default-character-set=utf8--default-parallelism=2 --all-databases --users > alldb01.sql
+
+# 导出所有库（使用LZ4压缩）
+[root@server01 ~]# mysqlpump -uroot -proot --single-transaction --default-character-set=utf8--default-parallelism=2 --compress-output=LZ4 --all-databases --users>alldb02.sql.LZ4
+
+# 导出所有库（使用ZLIB压缩-压缩效果最好）
+[root@server01 ~]# mysqlpump -uroot -proot --single-transaction --default-character-set=utf8--default-parallelism=2 --compress-output=ZLIB --all-databases --users>alldb03.sql.zlib
+
+# 备份单个数据库（数据+结构）
+[root@server01 ~]# mysqlpump -uroot -proot --single-transaction --default-parallelism=2 -B itpux > itpux_04.sql
+
+# 导出多个库，并设置不同的并行度
+[root@server01 ~]# mysqlpump -uroot -proot --single-transaction --default-parallelism=2 --parallel-schemas=2:itpux --parallel-schemas=2:itpuxdb1 -B itpuxitpuxdb1 > itpux_05.sql
+
+[root@server01 ~]# mysqlpump -uroot -proot --single-transaction --default-parallelism=2 --parallel-schemas=2:itpux,3:itpuxdb1 -B itpux itpuxdb1 > itpux_05.sql
+
+# 导出多个库，并行线程不分开
+[root@server01 ~]# mysqlpump -uroot -proot --single-transaction --default-parallelism=2 -B itpux itpuxdb1 > itpux_06.sql
+
+# 导出单个数据库（数据+结构+过程+函数+触发器+事件）
+[root@server01 ~]# mysqlpump -uroot -proot --single-transaction --routines --triggers --events --default-parallelism=2 -B itpux > itpux_07.sql
+
+# 只导出所有数据库的结构
+[root@server01 ~]# mysqlpump -uroot -proot --single-transaction --default-parallelism=2 --all-databases --add-drop-table --skip-dump-rows > alldb08.sql
+
+# 只导出数据
+[root@server01 ~]# mysqlpump -uroot -proot --single-transaction --default-parallelism=2 -B itpux --no-create-info > itpux10.sql
+
+# 只导出某张表（结构+数据）
+[root@server01 ~]# mysqlpump -uroot -proot --single-transaction --default-parallelism=2 --include-databases=itpux --include-tables=itpuxfg01 > itpux11.sql
+
+# 只导出某张表的数据
+[root@server01 ~]# mysqlpump -uroot -proot --single-transaction --default-parallelism=2 --no-create-info --include-databases=itpux --include-tables=itpuxfg01 >itpux12.sql
+
+# 导出某个数据库，排除某几张表
+[root@server01 ~]# mysqlpump -uroot -proot --single-transaction --default-character-set=utf8--default-parallelism=2 --all-databases --exclude-databases=itpuxdb--users > alldb15.sqlmysqlpump -uroot -proot --single-transaction --default-parallelism=2 --include-databases=itpuxdb --exclude-tables=itpux_m5,itpux_m1 > itpuxdb13.sql
+
+# 导出所有数据库，排除某个库
+[root@server01 ~]# mysqlpump -uroot -proot --single-transaction --default-character-set=utf8 --default-parallelism=2 --all-databases --exclude-databases=itpuxdb --users > alldb15.sql
+```
+
+### 恢复数据
+
+```bash
+# 恢复库
+[root@server01 ~]# mysql -uroot -proot < itpux_06.sql
+# 恢复表
+use itpux;
+drop table itpuxfg01;
+echo "commit;" >> itpux11.sql
+[root@server01 ~]# mysql -uroot -proot itpux < itpux_06.sql
+```
+
 #  MySql主从复制
 
 ## 原理

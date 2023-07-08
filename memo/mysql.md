@@ -1,6 +1,214 @@
 # MySQL安装
 
-## 安装准备工作
+## 二进制安装
+
+### 环境准备
+
+磁盘准备
+
+/dev/sda：将操作系统安装在该盘，设置该磁盘为标准分区，并且在设置swap分区后将剩余的空间全部划分给根分区。其他的磁盘在操作系统安装好后全部做成lvm分区。（在安装操作系统的时候其他的磁盘不用管）
+/dev/sdb
+/dev/sdc
+/dev/sdd
+/dev/sde
+/dev/sdf
+
+```bash
+[root@mysql01 ~]# pvcreate /dev/sdb /dev/sdc /dev/sdd /dev/sde /dev/sdf
+[root@mysql01 ~]# pvs
+[root@mysql01 ~]# vgcreate appvg /dev/sdb
+[root@mysql01 ~]# vgcreate datavg /dev/sdc
+[root@mysql01 ~]# vgcreate logvg /dev/sdd
+[root@mysql01 ~]# vgcreate bakvg /dev/sde
+[root@mysql01 ~]# vgcreate softvg /dev/sdf
+[root@mysql01 ~]# vgdisplay
+[root@mysql01 ~]# vgs
+[root@mysql01 ~]# lvcreate -n softlv -L 30000M softvg
+[root@mysql01 ~]# lvcreate -n mysqllv -L 30000M appvg
+[root@mysql01 ~]# lvcreate -n datalv -L 30000M datavg
+[root@mysql01 ~]# lvcreate -n loglv -L 30000M logvg
+[root@mysql01 ~]# lvcreate -n baklv -L 30000M bakvg
+[root@mysql01 ~]# lvdisplay
+[root@mysql01 ~]# lvs
+#xfs
+[root@mysql01 ~]# mkfs.xfs /dev/softvg/softlv 
+[root@mysql01 ~]# mkfs.xfs /dev/appvg/mysqllv 
+[root@mysql01 ~]# mkfs.xfs /dev/datavg/datalv 
+[root@mysql01 ~]# mkfs.xfs /dev/logvg/loglv
+[root@mysql01 ~]# mkfs.xfs /dev/bakvg/baklv
+[root@mysql01 ~]# echo "/dev/appvg/mysqllv /mysql/app               xfs    defaults        0 0" >> /etc/fstab
+[root@mysql01 ~]# echo "/dev/datavg/datalv /mysql/data               xfs    defaults        0 0" >> /etc/fstab
+[root@mysql01 ~]# echo "/dev/logvg/loglv /mysql/log               xfs    defaults        0 0" >> /etc/fstab
+[root@mysql01 ~]# echo "/dev/bakvg/baklv /mysql/backup             xfs    defaults        0 0" >> /etc/fstab
+[root@mysql01 ~]# echo "/dev/softvg/softlv /soft             xfs    defaults        0 0" >> /etc/fstab
+#ext4
+[root@mysql01 ~]# mkfs.ext4 /dev/softvg/softlv 
+[root@mysql01 ~]# mkfs.ext4 /dev/appvg/mysqllv 
+[root@mysql01 ~]# mkfs.ext4 /dev/datavg/datalv 
+[root@mysql01 ~]# mkfs.ext4 /dev/logvg/loglv
+[root@mysql01 ~]# mkfs.ext4 /dev/bakvg/baklv
+[root@mysql01 ~]# echo "/dev/appvg/mysqllv /mysql/app               ext4    defaults        0 0" >> /etc/fstab
+[root@mysql01 ~]# echo "/dev/datavg/datalv /mysql/data               ext4    defaults        0 0" >> /etc/fstab
+[root@mysql01 ~]# echo "/dev/logvg/loglv /mysql/log               ext4    defaults        0 0" >> /etc/fstab
+[root@mysql01 ~]# echo "/dev/bakvg/baklv /mysql/backup             ext4    defaults        0 0" >> /etc/fstab
+[root@mysql01 ~]# echo "/dev/softvg/softlv /soft             ext4    defaults        0 0" >> /etc/fstab
+
+[root@mysql01 ~]# mkdir -p /mysql/app
+[root@mysql01 ~]# mkdir -p /mysql/data
+[root@mysql01 ~]# mkdir -p /mysql/log
+[root@mysql01 ~]# mkdir -p /mysql/backup
+[root@mysql01 ~]# mkdir -p /soft
+
+[root@mysql01 ~]# mount /mysql/app
+[root@mysql01 ~]# mount /mysql/data
+[root@mysql01 ~]# mount /mysql/log
+[root@mysql01 ~]# mount /mysql/backup
+[root@mysql01 ~]# mount /soft
+[root@mysql01 ~]# df -h
+```
+
+hosts
+
+```bash
+[root@mysql01 ~]# echo "192.168.56.110 mysql01" >> /etc/hosts
+[root@mysql01 ~]# echo "192.168.56.111 mysql02" >> /etc/hosts
+[root@mysql01 ~]# echo "192.168.56.112 mysql03" >> /etc/hosts
+[root@mysql01 ~]# echo "192.168.56.113 mysql04" >> /etc/hosts
+[root@mysql01 ~]# echo "192.168.56.114 mysql05" >> /etc/hosts
+[root@mysql01 ~]# echo "192.168.56.115 mysql06" >> /etc/hosts
+[root@mysql01 ~]# echo "192.168.56.116 mysql07" >> /etc/hosts
+[root@mysql01 ~]# echo "192.168.56.117 mysql08" >> /etc/hosts
+[root@mysql01 ~]# echo "192.168.56.101 server01" >> /etc/hosts
+[root@mysql01 ~]# echo "192.168.56.102 server02" >> /etc/hosts
+[root@mysql01 ~]# echo "192.168.56.103 server03" >> /etc/hosts
+[root@mysql01 ~]# echo "192.168.56.120 loadbalance01" >> /etc/hosts
+[root@mysql01 ~]# echo "192.168.56.121 loadbalance02" >> /etc/hosts
+[root@mysql01 ~]# echo "192.168.56.130 middleware01" >> /etc/hosts
+[root@mysql01 ~]# echo "192.168.56.131 middleware02" >> /etc/hosts
+```
+
+配置英文环境
+
+```bash
+[root@mysql01 ~]# echo "export LANG=en_US.UTF8" >> ~/.bash_profile
+[root@mysql01 ~]# echo "export LANG=en_US.UTF8" >> /etc/profile
+[root@mysql01 ~]# source ~/.bash_profile
+[root@mysql01 ~]# source /etc/profile
+```
+
+修改资源限制参数
+
+```bash
+[root@mysql01 ~]# echo "* soft memlock 300000" >> /etc/security/limits.conf
+[root@mysql01 ~]# echo "* hard memlock 300000" >> /etc/security/limits.conf
+[root@mysql01 ~]# echo "* soft nproc 65535" >> /etc/security/limits.conf
+[root@mysql01 ~]# echo "* hard nproc 65535" >> /etc/security/limits.conf
+[root@mysql01 ~]# echo "* soft nofile 65535" >> /etc/security/limits.conf
+[root@mysql01 ~]# echo "* hard nofile 65535" >> /etc/security/limits.conf
+[root@mysql01 ~]# echo "* soft stack 65535" >> /etc/security/limits.conf
+[root@mysql01 ~]# echo "* hard stack 65535" >> /etc/security/limits.conf
+[root@mysql01 ~]# echo "* - nproc 65535" > /etc/security/limits.d/90-nproc.conf
+```
+
+设置系统安全策略
+
+```bash
+[root@mysql01 ~]# echo "SELINUX=disabled" > /etc/selinux/config
+[root@mysql01 ~]# echo "SELINUXTYPE=targeted" >> /etc/selinux/config
+```
+
+设置内核参数
+
+```bash
+[root@mysql01 ~]# echo "vm.nr_hugepages=150" >> /etc/sysctl.conf
+[root@mysql01 ~]# echo "vm.swappiness=10" >> /etc/sysctl.conf
+[root@mysql01 ~]# echo "vm.min_free_kbytes=51200" >> /etc/sysctl.conf
+[root@mysql01 ~]# echo "net.ipv4.tcp_max_tw_buckets = 6000" >> /etc/sysctl.conf
+[root@mysql01 ~]# echo "net.ipv4.ip_local_port_range = 1024 65000" >> /etc/sysctl.conf
+[root@mysql01 ~]# echo "net.ipv4.tcp_tw_recycle = 0" >> /etc/sysctl.conf
+[root@mysql01 ~]# echo "net.ipv4.tcp_tw_reuse = 1" >> /etc/sysctl.conf
+[root@mysql01 ~]# echo "net.core.somaxconn = 65500" >> /etc/sysctl.conf
+[root@mysql01 ~]# echo "net.core.netdev_max_backlog = 262144" >> /etc/sysctl.conf
+[root@mysql01 ~]# echo "net.ipv4.tcp_max_orphans = 262144" >> /etc/sysctl.conf
+[root@mysql01 ~]# echo "net.ipv4.tcp_max_syn_backlog = 262144" >> /etc/sysctl.conf
+[root@mysql01 ~]# echo "net.ipv4.tcp_synack_retries = 2" >> /etc/sysctl.conf
+[root@mysql01 ~]# echo "net.ipv4.tcp_syn_retries = 1" >> /etc/sysctl.conf
+[root@mysql01 ~]# echo "net.ipv4.tcp_fin_timeout = 1" >> /etc/sysctl.conf
+[root@mysql01 ~]# echo "net.ipv4.tcp_keepalive_time = 30" >> /etc/sysctl.conf
+[root@mysql01 ~]# echo "net.ipv4.tcp_keepalive_probes = 6" >> /etc/sysctl.conf
+[root@mysql01 ~]# echo "net.ipv4.tcp_keepalive_intvl = 5" >> /etc/sysctl.conf
+[root@mysql01 ~]# echo "net.ipv4.tcp_timestamps = 0" >> /etc/sysctl.conf
+```
+
+关闭防火墙
+
+```bash
+[root@mysql01 ~]# systemctl status firewalld.service
+[root@mysql01 ~]# systemctl stop firewalld.service
+[root@mysql01 ~]# systemctl disable firewalld.service
+```
+
+控制资源分配限制
+
+```bash
+[root@mysql01 ~]# echo "session required pam_limits.so" >> /etc/pam.d/login
+```
+
+修改系统启动脚本
+
+```bash
+[root@mysql01 ~]# echo "if test -f /sys/kernel/mm/transparent_hugepage/enabled; then">> /etc/rc.d/rc.local
+[root@mysql01 ~]# echo "echo never > /sys/kernel/mm/transparent_hugepage/enabled">> /etc/rc.d/rc.local
+[root@mysql01 ~]# echo "fi">> /etc/rc.d/rc.local
+[root@mysql01 ~]# echo "if test -f /sys/kernel/mm/transparent_hugepage/defrag; then">> /etc/rc.d/rc.local
+[root@mysql01 ~]# echo "echo never > /sys/kernel/mm/transparent_hugepage/defrag">> /etc/rc.d/rc.local
+[root@mysql01 ~]# echo "fi">> /etc/rc.d/rc.local
+[root@mysql01 ~]# chmod +x /etc/rc.d/rc.local
+```
+
+关闭 NUMA 功能
+
+```bash
+[root@mysql01 ~]# yum install numactl
+[root@mysql01 ~]# vi /etc/default/grub
+GRUB_CMDLINE_LINUX="crashkernel=auto spectre_v2=retpoline rhgb quiet numa=off"
+[root@mysql01 ~]# grub2-mkconfig -o /etc/grub2.cfg
+[root@mysql01 ~]# numastat
+[root@mysql01 ~]# numactl --show
+[root@mysql01 ~]# numactl --hardware
+```
+
+IO 调度算法与 IO 优化
+
+```bash
+[root@mysql01 ~]# cat /sys/block/sd*/queue/scheduler
+#当硬盘的类型为：sas/stat
+[root@mysql01 ~]# echo 'deadline' > /sys/block/sdb/queue/scheduler
+[root@mysql01 ~]# echo 'deadline' > /sys/block/sdc/queue/scheduler
+[root@mysql01 ~]# echo 'deadline' > /sys/block/sdd/queue/scheduler
+[root@mysql01 ~]# echo 'deadline' > /sys/block/sde/queue/scheduler
+[root@mysql01 ~]# echo 'deadline' > /sys/block/sdf/queue/scheduler
+#当硬盘的类型为：ssd
+[root@mysql01 ~]# echo 'NOOP' > /sys/block/sd*/queue/scheduler
+#减少预读
+[root@mysql01 ~]# echo '16' > /sys/block/sdb/queue/read_ahead_kb
+[root@mysql01 ~]# echo '16' > /sys/block/sdc/queue/read_ahead_kb
+[root@mysql01 ~]# echo '16' > /sys/block/sdd/queue/read_ahead_kb
+[root@mysql01 ~]# echo '16' > /sys/block/sde/queue/read_ahead_kb
+[root@mysql01 ~]# echo '16' > /sys/block/sdf/queue/read_ahead_kb
+#增大队列
+[root@mysql01 ~]# echo '512' > /sys/block/sdb/queue/nr_requests
+[root@mysql01 ~]# echo '512' > /sys/block/sdc/queue/nr_requests
+[root@mysql01 ~]# echo '512' > /sys/block/sdd/queue/nr_requests
+[root@mysql01 ~]# echo '512' > /sys/block/sde/queue/nr_requests
+[root@mysql01 ~]# echo '512' > /sys/block/sdf/queue/nr_requests
+```
+
+
+
+## RPM安装
+
+### 安装准备工作
 
 查看 Linux 版本，用于下载对应的mysql
 
@@ -23,7 +231,7 @@ mysql-community-libs-compat-5.7.26-1.el7.x86_64
 [root@server01 ~]# rpm -e [--nodeps] 包名（此处包名是上面命令查出来的名字）
 ```
 
-## 下载MySQL
+### 下载MySQL
 
 官网地址：
 
@@ -42,7 +250,7 @@ mysql-community-client-8.0.27-1.el7.x86_64.rpm
 
 ![image](assets\mysql-12.png)
 
-## 安装RPM
+### 安装RPM
 
 ```bash
 # 先装 common
@@ -56,7 +264,7 @@ mysql-community-client-8.0.27-1.el7.x86_64.rpm
 [root@server01 ~]# rpm -ivh mysql-community-server-8.0.27-1.el7.x86_64.rpm
 ```
 
-## 修改data目录
+### 修改data目录
 
 如果需要为mysql数据单独指定存放目录，执行如下操作；默认mysql在安装时会指定datadir=/var/lib/mysql
 
@@ -81,7 +289,7 @@ pid-file=/var/run/mysqld/mysqld.pid
 
 注意：这里不需要指定basedir目录，mysql在安装的时候会自动创建my.cnf文件，并且会默认将/usr/share/mysql-8.0作为basedir，即使指定basedir=/usr/share/mysql还是会报错
 
-## 初始化数据库
+### 初始化数据库
 
 ```bash
 # 初始化数据库

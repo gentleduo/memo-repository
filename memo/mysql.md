@@ -13,6 +13,8 @@
 /dev/sde
 /dev/sdf
 
+不同的盘创建不同的vg，这样做的好处：1、方便后续扩展；2、后面mysql的数据目录和备份目录分别在不同的磁盘上，避免一块盘坏了数据和备份全部丢失的情况。
+
 ```bash
 [root@mysql01 ~]# pvcreate /dev/sdb /dev/sdc /dev/sdd /dev/sde /dev/sdf
 [root@mysql01 ~]# pvs
@@ -204,7 +206,713 @@ IO 调度算法与 IO 优化
 [root@mysql01 ~]# echo '512' > /sys/block/sdf/queue/nr_requests
 ```
 
+环境检查
 
+```bash
+[root@mysql01 ~]# rpm -qa | grep libaio
+libaio-0.3.109-13.el7.x86_64
+```
+
+### 安装
+
+```bash
+[root@mysql01 ~]# groupadd mysql
+# /bin/false是最严格的禁止login选项，一切服务都不能用，
+# /sbin/nologin只是不允许系统login，可以使用其他ftp等服务
+[root@mysql01 ~]# useradd -r -g mysql -s /bin/false mysql
+# 创建基础目录
+[root@mysql01 ~]# mkdir -p /mysql/data/3306/data
+[root@mysql01 ~]# mkdir -p /mysql/log/3306
+[root@mysql01 ~]# mkdir -p /mysql/log/3306/binlog/
+# 解压
+[root@mysql01 ~]# mv /soft/mysql-8.0.32-el7-x86_64.tar.gz /mysql/app/
+[root@mysql01 ~]# cd /mysql/app/
+[root@mysql01 app]# tar zxfv mysql-8.0.32-el7-x86_64.tar.gz 
+# 创建软链接
+[root@mysql01 app]# ln -s mysql-8.0.32-el7-x86_64 mysql
+# 添加环境变量
+[root@mysql01 ~]# vim ~/.bash_profile
+export MYSQL_HOME=/mysql/app/mysql/bin
+PATH=$PATH:$HOME/bin:$MYSQL_HOME
+# 重新登陆，查看版本
+[root@mysql01 ~]# mysql --version
+# 修改权限
+[root@mysql01 ~]# chown -R mysql:mysql /mysql
+
+# 创建my.cnf
+[root@mysql01 3306]# cd /mysql/data/3306/
+[root@mysql01 3306]# vim my.cnf
+```
+
+my.conf
+
+```ini
+[client]
+port=3306
+socket	= /mysql/data/3306/mysql.sock
+
+[mysql]
+no-beep
+# 提示符
+prompt="\u@itpux \R:\m:\s [\d]> "
+#no-auto-rehash
+auto-rehash
+default-character-set=utf8mb4
+
+[mysqld]
+########basic settings########
+# 针对于主从复制，一般用端口号
+server-id=3306
+port=3306
+user = mysql
+bind_address= 192.168.56.110
+# 软件安装路径
+basedir=/mysql/app/mysql
+datadir=/mysql/data/3306/data
+socket	= /mysql/data/3306/mysql.sock
+pid-file=/mysql/data/3306/mysql.pid
+character-set-server=utf8mb4
+skip-character-set-client-handshake=1
+# autocommit = 0
+# skip_name_resolve = 1
+max_connections = 800
+max_connect_errors = 1000
+default-storage-engine=INNODB
+transaction_isolation = READ-COMMITTED
+explicit_defaults_for_timestamp = 1
+sort_buffer_size = 32M
+join_buffer_size = 128M
+tmp_table_size = 72M
+max_allowed_packet = 16M
+sql_mode = "STRICT_TRANS_TABLES,NO_ENGINE_SUBSTITUTION,NO_ZERO_DATE,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO"
+interactive_timeout = 1800
+wait_timeout = 1800
+read_buffer_size = 16M
+read_rnd_buffer_size = 32M
+
+table_open_cache=2000
+thread_cache_size=768
+myisam_max_sort_file_size=10G
+myisam_sort_buffer_size=135M
+key_buffer_size=32M
+read_buffer_size=8M
+read_rnd_buffer_size=4M
+
+back_log=1024
+#flush_time=0
+open_files_limit=65536
+table_definition_cache=1400
+#binlog_row_event_max_size=8K
+#sync_master_info=10000
+#sync_relay_log=10000
+#sync_relay_log_info=10000
+
+########log settings########
+log-output=FILE
+# 全局日志，不建议打开，影响性能。（0：关闭；1：打开）
+general_log = 0
+general_log_file=/mysql/log/3306/general.err
+# 慢查询日志
+slow_query_log = ON
+slow_query_log_file=/mysql/log/3306/slow-query.err
+long_query_time=10
+# 错误日志
+log-error=/mysql/log/3306/log-error.err
+
+log_queries_not_using_indexes = 1
+log_slow_admin_statements = 1
+log_slow_replica_statements = 1
+log_throttle_queries_not_using_indexes = 10
+binlog_expire_logs_seconds = 2592000
+min_examined_row_limit = 100
+log_bin=/mysql/log/3306/binlog/binlog
+
+########replication settings########
+#master_info_repository = TABLE
+#relay_log_info_repository = TABLE
+#log_bin = bin.log
+#sync_binlog = 1
+#gtid_mode = on
+#enforce_gtid_consistency = 1
+#log_slave_updates
+#binlog_format = row 
+#relay_log = relay.log
+#relay_log_recovery = 1
+#binlog_gtid_simple_recovery = 1
+#slave_skip_errors = ddl_exist_errors
+
+########innodb settings########
+# 根据您的服务器IOPS能力适当调整
+# 一般配普通SSD盘的话，可以调整到 10000 - 20000
+# 配置高端PCIe SSD卡的话，则可以调整的更高，比如 50000 - 80000
+innodb_io_capacity = 4000
+innodb_io_capacity_max = 8000
+innodb_buffer_pool_size = 500M
+innodb_buffer_pool_instances = 8
+innodb_buffer_pool_load_at_startup = 1
+innodb_buffer_pool_dump_at_shutdown = 1
+innodb_lru_scan_depth = 2000
+innodb_lock_wait_timeout = 5
+#innodb_flush_method = O_DIRECT
+
+innodb_redo_log_capacity=5368709120
+innodb_log_buffer_size = 16M
+
+innodb_rollback_segments = 128
+innodb_undo_log_truncate = 1
+innodb_max_undo_log_size = 2G
+
+innodb_flush_neighbors = 1
+innodb_purge_threads = 4
+innodb_thread_concurrency = 64
+innodb_print_all_deadlocks = 1
+innodb_strict_mode = 1
+innodb_sort_buffer_size = 64M
+innodb_flush_log_at_trx_commit=1
+innodb_autoextend_increment=64
+innodb_concurrency_tickets=5000
+innodb_old_blocks_time=1000
+innodb_open_files=65536
+innodb_stats_on_metadata=0
+# 1：用户独立表空间；0：没有独立的用户表空间
+innodb_file_per_table=1
+innodb_checksum_algorithm=0
+innodb_data_file_path=ibdata1:200M;ibdata2:200M;ibdata3:200M:autoextend:max:5G
+innodb_temp_data_file_path = ibtmp1:200M:autoextend:max:20G
+
+innodb_buffer_pool_dump_pct = 40
+innodb_page_cleaners = 4
+innodb_purge_rseg_truncate_frequency = 128
+binlog_gtid_simple_recovery=1
+log_timestamps=system
+#transaction_write_set_extraction=MURMUR32
+```
+
+初始化
+
+```bash
+# 错误日志文件必须创建，否则服务起不来
+[root@mysql01 3306]# touch /mysql/log/3306/log-error.err 
+[root@mysql01 3306]# chown -R mysql:mysql /mysql
+# 初始化
+[root@mysql01 3306]# mysqld --defaults-file=/mysql/data/3306/my.cnf --initialize --user=mysql --basedir=/mysql/app/mysql --datadir=/mysql/data/3306/data
+
+[root@mysql01 3306]# rm -rf /mysql/data/3306/data/*
+[root@mysql01 3306]# rm -rf /mysql/log/3306/log-error.err 
+[root@mysql01 3306]# touch /mysql/log/3306/log-error.err
+[root@mysql01 3306]# chown -R mysql:mysql /mysql
+[root@mysql01 3306]# cat /mysql/log/3306/log-error.err
+```
+
+### 启动停止服务
+
+```bash
+[root@mysql01 support-files]# cd /mysql/app/mysql/support-files
+# 修改mysql.server文件，具体内容参照下方的mysql.service
+[root@mysql01 support-files]# vim mysql.server
+#
+[root@mysql01 support-files]# cp /mysql/app/mysql/support-files/mysql.server /mysql/app/mysql/bin/mysqlservice
+[root@mysql01 support-files]# mysqlservice status
+
+# 新建mysql服务单元配置文件，具体内容参照下方的mysqld.service
+[root@mysql01 support-files]# cd /usr/lib/systemd/system/
+[root@mysql01 system]# vim mysqld.service
+
+[root@mysql01 system]# chown -R mysql:mysql /mysql/
+[root@mysql01 ~]# systemctl start mysqld.service
+# 通过命令可以看到mysql后台启动了两个进程，mysqld_safe是oracle在原来mysqld的基础上做了优化
+# 原来通过mysqld的方式启动的话，如果mysql异常终止是不会自动重启的
+# 而mysqld_safe则会在mysql异常退出后，自动重启mysql
+# 简单来说，通过mysqld启动的mysql在出问题后不会重启，而通过mysqld_safe命令启动的mysql在出问题后会自动重启
+[root@mysql01 ~]# ps -ef | grep mysql
+mysql     2493     1  0 14:29 ?        00:00:00 /bin/sh /mysql/app/mysql/bin/mysqld_safe --defaults-file=/mysql/data/3306/my.cnf --datadir=/mysql/data/3306/data --pid-file=/mysql/data/3306/mysql.pid
+mysql     3578  2493  2 14:29 ?        00:00:02 /mysql/app/mysql/bin/mysqld --defaults-file=/mysql/data/3306/my.cnf --basedir=/mysql/app/mysql --datadir=/mysql/data/3306/data --plugin-dir=/mysql/app/mysql/lib/plugin --log-error=/mysql/log/3306/log-error.err --open-files-limit=65536 --pid-file=/mysql/data/3306/mysql.pid --socket=/mysql/data/3306/mysql.sock --port=3306
+root      3629  2427  0 14:30 pts/1    00:00:00 grep --color=auto mysql
+
+#当系统中存在多个mysql的时候，可以通过编写启动脚本的方式启动不同的mysql。例如：
+[root@mysql01 ~]#  echo "/mysql/app/mysql/bin/mysqld_safe --defaults-file=/mysql/data/3306/my.cnf --user=mysql &" > /mysql/data/3306/mysql.start
+[root@mysql01 ~]# chown mysql:mysql /mysql/data/3306/mysql.start
+[root@mysql01 ~]# chmod +x /mysql/data/3306/mysql.start
+# 使用脚本的方式启动mysql，先停止
+[root@mysql01 3306]# systemctl stop mysqld.service
+# 启动
+[root@mysql01 3306]# /mysql/data/3306/mysql.start
+[root@mysql01 3306]# 2023-07-09T06:40:48.585024Z mysqld_safe Logging to '/mysql/log/3306/log-error.err'.
+2023-07-09T06:40:48.623628Z mysqld_safe Starting mysqld daemon with databases from /mysql/data/3306/data
+# 停止 通过脚本启动的mysql，最好使用shutdown来停止，但是在停止的时候会出现密码过期的问题。
+# A temporary password is generated for root@localhost: tyUsdMu5t5=t
+[root@mysql01 3306]# mysqladmin -uroot -p shutdown -S /mysql/data/3306/mysql.sock
+Enter password: 
+mysqladmin: connect to server at 'localhost' failed
+error: 'Your password has expired. To log in you must change it using a client that supports expired passwords.'
+
+```
+
+#### mysqld.service
+
+```bash
+#!/bin/sh
+# Copyright Abandoned 1996 TCX DataKonsult AB & Monty Program KB & Detron HB
+# This file is public domain and comes with NO WARRANTY of any kind
+
+# MySQL daemon start/stop script.
+
+# Usually this is put in /etc/init.d (at least on machines SYSV R4 based
+# systems) and linked to /etc/rc3.d/S99mysql and /etc/rc0.d/K01mysql.
+# When this is done the mysql server will be started when the machine is
+# started and shut down when the systems goes down.
+
+# Comments to support chkconfig on RedHat Linux
+# chkconfig: 2345 64 36
+# description: A very fast and reliable SQL database engine.
+
+# Comments to support LSB init script conventions
+### BEGIN INIT INFO
+# Provides: mysql
+# Required-Start: $local_fs $network $remote_fs
+# Should-Start: ypbind nscd ldap ntpd xntpd
+# Required-Stop: $local_fs $network $remote_fs
+# Default-Start:  2 3 4 5
+# Default-Stop: 0 1 6
+# Short-Description: start and stop MySQL
+# Description: MySQL is a very fast and reliable SQL database engine.
+### END INIT INFO
+ 
+# If you install MySQL on some other places than /usr/local/mysql, then you
+# have to do one of the following things for this script to work:
+#
+# - Run this script from within the MySQL installation directory
+# - Create a /etc/my.cnf file with the following information:
+#   [mysqld]
+#   basedir=<path-to-mysql-installation-directory>
+# - Add the above to any other configuration file (for example ~/.my.ini)
+#   and copy my_print_defaults to /usr/bin
+# - Add the path to the mysql-installation-directory to the basedir variable
+#   below.
+#
+# If you want to affect other MySQL variables, you should make your changes
+# in the /etc/my.cnf, ~/.my.cnf or other MySQL configuration files.
+
+# If you change base dir, you must also change datadir. These may get
+# overwritten by settings in the MySQL configuration files.
+# 主要修改以下三个地方
+# 1、如果不设置basedir那么mysql启动的时候默认会到/usr/local/mysql目录下去找启动命令
+basedir=/mysql/app/mysql
+datadir=/mysql/data/3306/data
+
+# Default value, in seconds, afterwhich the script should timeout waiting
+# for server start. 
+# Value here is overriden by value in my.cnf. 
+# 0 means don't wait at all
+# Negative numbers mean to wait indefinitely
+service_startup_timeout=900
+
+# Lock directory for RedHat / SuSE.
+lockdir='/var/lock/subsys'
+lock_file_path="$lockdir/mysql"
+
+# The following variables are only set for letting mysql.server find things.
+
+# Set some defaults
+# 2、修改mysqld_pid_file_path以及basedir、bindir、datadir、sbindir、libexecdir
+mysqld_pid_file_path=/mysql/data/3306/mysql.pid
+if test -z "$basedir"
+then
+  basedir=/mysql/app/mysql
+  bindir=/mysql/app/mysql/bin
+  if test -z "$datadir"
+  then
+    datadir=/mysql/data/3306/data
+  fi
+  sbindir=/mysql/app/mysql/bin
+  libexecdir=/mysql/app/mysql/bin
+else
+  bindir="$basedir/bin"
+  if test -z "$datadir"
+  then
+    datadir="/mysql/app/3306/data"
+  fi
+  sbindir="$basedir/sbin"
+  libexecdir="$basedir/libexec"
+fi
+
+# datadir_set is used to determine if datadir was set (and so should be
+# *not* set inside of the --basedir= handler.)
+datadir_set=
+
+#
+# Use LSB init script functions for printing messages, if possible
+#
+lsb_functions="/lib/lsb/init-functions"
+if test -f $lsb_functions ; then
+  . $lsb_functions
+else
+  log_success_msg()
+  {
+    echo " SUCCESS! $@"
+  }
+  log_failure_msg()
+  {
+    echo " ERROR! $@"
+  }
+fi
+
+PATH="/sbin:/usr/sbin:/bin:/usr/bin:$basedir/bin"
+export PATH
+
+mode=$1    # start or stop
+
+[ $# -ge 1 ] && shift
+
+
+other_args="$*"   # uncommon, but needed when called from an RPM upgrade action
+           # Expected: "--skip-networking --skip-grant-tables"
+           # They are not checked here, intentionally, as it is the resposibility
+           # of the "spec" file author to give correct arguments only.
+
+case `echo "testing\c"`,`echo -n testing` in
+    *c*,-n*) echo_n=   echo_c=     ;;
+    *c*,*)   echo_n=-n echo_c=     ;;
+    *)       echo_n=   echo_c='\c' ;;
+esac
+
+parse_server_arguments() {
+  for arg do
+    case "$arg" in
+      --basedir=*)  basedir=`echo "$arg" | sed -e 's/^[^=]*=//'`
+                    bindir="$basedir/bin"
+		    if test -z "$datadir_set"; then
+		      datadir="$basedir/data"
+		    fi
+		    sbindir="$basedir/sbin"
+		    libexecdir="$basedir/libexec"
+        ;;
+      --datadir=*)  datadir=`echo "$arg" | sed -e 's/^[^=]*=//'`
+		    datadir_set=1
+	;;
+      --pid-file=*) mysqld_pid_file_path=`echo "$arg" | sed -e 's/^[^=]*=//'` ;;
+      --service-startup-timeout=*) service_startup_timeout=`echo "$arg" | sed -e 's/^[^=]*=//'` ;;
+    esac
+  done
+}
+
+wait_for_pid () {
+  verb="$1"           # created | removed
+  pid="$2"            # process ID of the program operating on the pid-file
+  pid_file_path="$3" # path to the PID file.
+
+  i=0
+  avoid_race_condition="by checking again"
+
+  while test $i -ne $service_startup_timeout ; do
+
+    case "$verb" in
+      'created')
+        # wait for a PID-file to pop into existence.
+        test -s "$pid_file_path" && i='' && break
+        ;;
+      'removed')
+        # wait for this PID-file to disappear
+        test ! -s "$pid_file_path" && i='' && break
+        ;;
+      *)
+        echo "wait_for_pid () usage: wait_for_pid created|removed pid pid_file_path"
+        exit 1
+        ;;
+    esac
+
+    # if server isn't running, then pid-file will never be updated
+    if test -n "$pid"; then
+      if kill -0 "$pid" 2>/dev/null; then
+        :  # the server still runs
+      else
+        # The server may have exited between the last pid-file check and now.  
+        if test -n "$avoid_race_condition"; then
+          avoid_race_condition=""
+          continue  # Check again.
+        fi
+
+        # there's nothing that will affect the file.
+        log_failure_msg "The server quit without updating PID file ($pid_file_path)."
+        return 1  # not waiting any more.
+      fi
+    fi
+
+    echo $echo_n ".$echo_c"
+    i=`expr $i + 1`
+    sleep 1
+
+  done
+
+  if test -z "$i" ; then
+    log_success_msg
+    return 0
+  else
+    log_failure_msg
+    return 1
+  fi
+}
+
+# Get arguments from the my.cnf file,
+# the only group, which is read from now on is [mysqld]
+# 3、修改conf文件的位置
+if test -x "$bindir/my_print_defaults";  then
+  print_defaults="$bindir/my_print_defaults"
+else
+  # Try to find basedir in /etc/my.cnf
+  conf=/mysql/data/3306/my.cnf
+  print_defaults=
+  if test -r $conf
+  then
+    subpat='^[^=]*basedir[^=]*=\(.*\)$'
+    dirs=`sed -e "/$subpat/!d" -e 's//\1/' $conf`
+    for d in $dirs
+    do
+      d=`echo $d | sed -e 's/[ 	]//g'`
+      if test -x "$d/bin/my_print_defaults"
+      then
+        print_defaults="$d/bin/my_print_defaults"
+        break
+      fi
+    done
+  fi
+
+  # Hope it's in the PATH ... but I doubt it
+  test -z "$print_defaults" && print_defaults="my_print_defaults"
+fi
+
+#
+# Read defaults file from 'basedir'.   If there is no defaults file there
+# check if it's in the old (depricated) place (datadir) and read it from there
+#
+
+# 4、修改test参数
+extra_args=""
+if test -r "/mysql/data/3306/my.cnf"
+then
+  extra_args="-e /mysql/data/3306/my.cnf"
+fi
+
+parse_server_arguments `$print_defaults $extra_args mysqld server mysql_server mysql.server`
+
+#
+# Set pid file if not given
+#
+if test -z "$mysqld_pid_file_path"
+then
+  mysqld_pid_file_path=$datadir/`hostname`.pid
+else
+  case "$mysqld_pid_file_path" in
+    /* ) ;;
+    * )  mysqld_pid_file_path="$datadir/$mysqld_pid_file_path" ;;
+  esac
+fi
+
+# 5、在启动命令$bindir/mysqld_safe中加入参数：--defaults-file=/mysql/data/3306/my.cnf
+case "$mode" in
+  'start')
+    # Start daemon
+
+    # Safeguard (relative paths, core dumps..)
+    cd $basedir
+
+    echo $echo_n "Starting MySQL"
+    if test -x $bindir/mysqld_safe
+    then
+      # Give extra arguments to mysqld with the my.cnf file. This script
+      # may be overwritten at next upgrade.
+      $bindir/mysqld_safe --defaults-file=/mysql/data/3306/my.cnf --datadir="$datadir" --pid-file="$mysqld_pid_file_path" $other_args >/dev/null &
+      wait_for_pid created "$!" "$mysqld_pid_file_path"; return_value=$?
+
+      # Make lock for RedHat / SuSE
+      if test -w "$lockdir"
+      then
+        touch "$lock_file_path"
+      fi
+
+      exit $return_value
+    else
+      log_failure_msg "Couldn't find MySQL server ($bindir/mysqld_safe)"
+    fi
+    ;;
+
+  'stop')
+    # Stop daemon. We use a signal here to avoid having to know the
+    # root password.
+
+    if test -s "$mysqld_pid_file_path"
+    then
+      # signal mysqld_safe that it needs to stop
+      touch "$mysqld_pid_file_path.shutdown"
+
+      mysqld_pid=`cat "$mysqld_pid_file_path"`
+
+      if (kill -0 $mysqld_pid 2>/dev/null)
+      then
+        echo $echo_n "Shutting down MySQL"
+        kill $mysqld_pid
+        # mysqld should remove the pid file when it exits, so wait for it.
+        wait_for_pid removed "$mysqld_pid" "$mysqld_pid_file_path"; return_value=$?
+      else
+        log_failure_msg "MySQL server process #$mysqld_pid is not running!"
+        rm "$mysqld_pid_file_path"
+      fi
+
+      # Delete lock for RedHat / SuSE
+      if test -f "$lock_file_path"
+      then
+        rm -f "$lock_file_path"
+      fi
+      exit $return_value
+    else
+      log_failure_msg "MySQL server PID file could not be found!"
+    fi
+    ;;
+
+  'restart')
+    # Stop the service and regardless of whether it was
+    # running or not, start it again.
+    if $0 stop  $other_args; then
+      $0 start $other_args
+    else
+      log_failure_msg "Failed to stop running server, so refusing to try to start."
+      exit 1
+    fi
+    ;;
+
+  'reload'|'force-reload')
+    if test -s "$mysqld_pid_file_path" ; then
+      read mysqld_pid <  "$mysqld_pid_file_path"
+      kill -HUP $mysqld_pid && log_success_msg "Reloading service MySQL"
+      touch "$mysqld_pid_file_path"
+    else
+      log_failure_msg "MySQL PID file could not be found!"
+      exit 1
+    fi
+    ;;
+  'status')
+    # First, check to see if pid file exists
+    if test -s "$mysqld_pid_file_path" ; then 
+      read mysqld_pid < "$mysqld_pid_file_path"
+      if kill -0 $mysqld_pid 2>/dev/null ; then 
+        log_success_msg "MySQL running ($mysqld_pid)"
+        exit 0
+      else
+        log_failure_msg "MySQL is not running, but PID file exists"
+        exit 1
+      fi
+    else
+      # Try to find appropriate mysqld process
+      mysqld_pid=`pidof $libexecdir/mysqld`
+
+      # test if multiple pids exist
+      pid_count=`echo $mysqld_pid | wc -w`
+      if test $pid_count -gt 1 ; then
+        log_failure_msg "Multiple MySQL running but PID file could not be found ($mysqld_pid)"
+        exit 5
+      elif test -z $mysqld_pid ; then 
+        if test -f "$lock_file_path" ; then 
+          log_failure_msg "MySQL is not running, but lock file ($lock_file_path) exists"
+          exit 2
+        fi 
+        log_failure_msg "MySQL is not running"
+        exit 3
+      else
+        log_failure_msg "MySQL is running but PID file could not be found"
+        exit 4
+      fi
+    fi
+    ;;
+    *)
+      # usage
+      basename=`basename "$0"`
+      echo "Usage: $basename  {start|stop|restart|reload|force-reload|status}  [ MySQL server options ]"
+      exit 1
+    ;;
+esac
+
+exit 0
+```
+
+#### mysqld.service
+
+```ini
+[Unit]
+Description=MySQL Server
+Documentation=man:mysqld(8)
+Documentation=http://dev.mysql.com/doc/refman/en/using-systemd.html
+After=network.target
+After=syslog.target
+
+[Install]
+WantedBy=multi-user.target
+
+[Service]
+User=mysql
+Group=mysql
+Type=forking
+PIDFile=/mysql/data/3306/mysql.pid
+TimeoutSec=0
+
+# Execute pre and post scripts as root
+PermissionsStartOnly=true
+
+# Start main service
+ExecStart=/mysql/app/mysql/support-files/mysql.server start
+
+# Use this to switch malloc implementation
+EnvironmentFile=-/etc/sysconfig/mysql
+
+# Sets open_files_limit
+LimitNOFILE = 65536
+LimitNPROC = 65536 
+
+Restart=on-failure
+RestartPreventExitStatus=1
+
+PrivateTmp=false
+```
+
+### 密码过期问题
+
+```bash
+# 创建sock软链接，避免每次登录mysql的时候都要指定-S参数
+[root@mysql01 3306]# ln -s /mysql/data/3306/mysql.sock /tmp/
+# 使用初始化密码连接到mysql
+[root@mysql01 3306]# mysql -uroot -p
+Enter password: 
+```
+
+```mysql
+# 修改用户密码
+# 由于MySql8.0版本和5.0 的加密规则不一样，而大部分可视化工具只支持旧的加密方式，为了可以通过可视化工具远程访问数据库，所以将MySQL用户登录的加密规则修改为mysql_native_password
+mysql> ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '123456';
+Query OK, 0 rows affected (0.01 sec)
+
+# 这里将root用户的host设置为%，表示：root用户可以在任何地点登录该mysql服务器
+mysql> update user set host='%' where user='root';
+Query OK, 0 rows affected (0.00 sec)
+
+mysql> select host,user,plugin from user;
++-----------+------------------+-----------------------+
+| host      | user             | plugin                |
++-----------+------------------+-----------------------+
+| %         | root             | mysql_native_password |
+| localhost | mysql.infoschema | caching_sha2_password |
+| localhost | mysql.session    | caching_sha2_password |
+| localhost | mysql.sys        | caching_sha2_password |
++-----------+------------------+-----------------------+
+4 rows in set (0.00 sec)
+
+mysql> flush privileges;
+Query OK, 0 rows affected (0.00 sec)
+```
+
+```bash
+# 修改完密码之后，输入新的密码就可以停止mysql服务了
+[root@mysql01 ~]# mysqladmin -uroot -p shutdown
+Enter password: 
+```
 
 ## RPM安装
 
@@ -4436,7 +5144,7 @@ log block header的属性分别如下：
 1. innodb_log_group_home_dir ：指定 redo log 文件组所在的路径，默认值为./，表示在数据库的数据目录下。MySQL的默认数据目录（ var/lib/mysql ）下默认有两个名为 ib_logfile0 和ib_logfile1 的文件，log buffer中的日志默认情况下就是刷新到这两个磁盘文件中。此redo日志文件位置还可以修改。
 2. innodb_log_files_in_group（log_files文件个数）：指明redo log file的个数，命名方式如：ib_logfile0，iblogfile1… iblogfilen。默认2个，最大100个
 3. innodb_flush_log_at_trx_commit：控制 redo log 刷新到磁盘的策略，默认为1。
-4. innodb_log_file_size（log_files文件个数中单个大小）：单个 redo log 文件设置大小，默认值为 48M 。最大值为512G，注意最大值指的是整个 redo log 系列文件之和，即（innodb_log_files_in_group * innodb_log_file_size ）不能大于最大值512G。
+4. innodb_log_file_size（log_files文件个数中单个大小）：单个 redo log 文件设置大小，默认值为 48M 。最大值为512G，注意最大值指的是整个 redo log 系列文件之和，即（innodb_log_files_in_group * innodb_log_file_size ）不能大于最大值512G。从8.0.30开始新增innodb_redo_log_capacity(单位为字节)，用于定义redo log的总大小，如果设置了innodb_redo_log_capacity则原来的：innodb_log_group_home_dir 、innodb_log_files_in_group、innodb_log_file_size就都失效了，在8.0.30里，redo log存储在datadir/#innodb_redo下，由32个文件组成，文件命名为#ib_redoN**#，每个文件是innodb_log_file_size/32。有两种类型的redo log文件，一种是当前正在使用的(ordinary)，文件名是正常的ib_redoN；另一种是空闲的(spare)，文件名为ib_redoN_tmp。
 
 #### 日志文件组
 
@@ -4722,7 +5430,7 @@ redo log是事务持久性的保证，undo log是事务原子性的保证。在�
 1. 情况一：事务执行过程中可能遇到各种错误，比如服务器本身的错误，操作系统错误，甚至是突然断电导致的错误。
 2. 情况二：程序员可以在事务执行过程中手动输入ROLLBACK语句结束当前事务的执行。以上情况出现，我们需要把数据改回原先的样子，这个过程称之为回滚，这样就可以造成一个假象：这个事务看起来什么都没做，所以符合原子性要求。
 
-每当要对一条记录做改动时（这里的改动可以指INSERT、DELETE、UPDATE),都需要"留一手"一一把回滚时所需的东西记下来。比如：
+每当要对一条记录做改动时（这里的改动可以指innodb_undo_logsINSERT、DELETE、UPDATE),都需要"留一手"一一把回滚时所需的东西记下来。比如：
 
 - 插入一条记录时，至少要把这条记录的主键值记下来，之后回滚的时候只需要把这个主键值对应的记录删掉就好了。（对于每个INSERT，InnoDB存储引擎会完成一个DELETE)
 - 删除了一条记录，至少要把这条记录中的内容都记下来，这样之后回滚时再把由这些内容组成的记录插入到表中就好了。（对于每个DELETE，InnoDB存储引擎会执行一个INSERT)
@@ -4762,9 +5470,9 @@ mysql> show variables like 'innodb_undo_logs';
 
 1. innodb_undo_directory:设置rollback segment 的文件所在的路径。这意味着rollback segmenti可以存放在共享表空间以外的位置，即可以设置为独立表空间。该参数的默认值为“/"，表示当前InnoDB存储引擎的目录。
 
-2. innodb_undo_1ogs:设置rollback segment的个数，默认值为128。在InnoDB 1.2版本中，该参数用来替换之前版本的参数innodb_rollback_segments。
+2. innodb_undo_1ogs:设置rollback segment的个数，默认值为128。在InnoDB 1.2版本中，该参数用来替换之前版本的参数innodb_rollback_segments。（mysql8之后使用innodb_rollback_segments）
 
-3. innodb_undo_tablespaces:设置构成rollback segment文件的数量，这样rollback segment可以较为平均地分布在多个文件中。设置该参数后，会在路径innodb_undo_directory看到undo为前缀的文件，该文件就代表rollback segment文件。undo log相关参数一般很少改动。
+3. innodb_undo_tablespaces:设置构成rollback segment文件的数量，这样rollback segment可以较为平均地分布在多个文件中。设置该参数后，会在路径innodb_undo_directory看到undo为前缀的文件，该文件就代表rollback segment文件。undo log相关参数一般很少改动。(mysql8之后改参数将被废弃：The setting INNODB_UNDO_TABLESPACES is deprecated and is no longer used.  InnoDB always creates 2 undo tablespaces to start with. If you need more, please use CREATE UNDO TABLESPACE.)
 
 undo页的重用
 

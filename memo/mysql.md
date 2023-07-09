@@ -223,9 +223,8 @@ libaio-0.3.109-13.el7.x86_64
 # 创建基础目录
 [root@mysql01 ~]# mkdir -p /mysql/data/3306/data
 [root@mysql01 ~]# mkdir -p /mysql/log/3306
-[root@mysql01 ~]# mkdir -p /mysql/log/3306/binlog/
+[root@mysql01 ~]# mkdir -p /mysql/log/3306/binlog
 # 解压
-[root@mysql01 ~]# mv /soft/mysql-8.0.32-el7-x86_64.tar.gz /mysql/app/
 [root@mysql01 ~]# cd /mysql/app/
 [root@mysql01 app]# tar zxfv mysql-8.0.32-el7-x86_64.tar.gz 
 # 创建软链接
@@ -244,7 +243,7 @@ PATH=$PATH:$HOME/bin:$MYSQL_HOME
 [root@mysql01 3306]# vim my.cnf
 ```
 
-my.conf
+#### my.conf
 
 ```ini
 [client]
@@ -261,8 +260,8 @@ default-character-set=utf8mb4
 
 [mysqld]
 ########basic settings########
-# 针对于主从复制，一般用端口号
-server-id=3306
+# 针对于主从复制，一般用ip+端口号
+server-id=1103306
 port=3306
 user = mysql
 bind_address= 192.168.56.110
@@ -391,17 +390,14 @@ log_timestamps=system
 初始化
 
 ```bash
-# 错误日志文件必须创建，否则服务起不来
+# 错误日志文件必须创建，否则无法执行初始化
 [root@mysql01 3306]# touch /mysql/log/3306/log-error.err 
-[root@mysql01 3306]# chown -R mysql:mysql /mysql
-# 初始化
-[root@mysql01 3306]# mysqld --defaults-file=/mysql/data/3306/my.cnf --initialize --user=mysql --basedir=/mysql/app/mysql --datadir=/mysql/data/3306/data
-
 [root@mysql01 3306]# rm -rf /mysql/data/3306/data/*
 [root@mysql01 3306]# rm -rf /mysql/log/3306/log-error.err 
 [root@mysql01 3306]# touch /mysql/log/3306/log-error.err
 [root@mysql01 3306]# chown -R mysql:mysql /mysql
-[root@mysql01 3306]# cat /mysql/log/3306/log-error.err
+# 初始化
+[root@mysql01 3306]# mysqld --defaults-file=/mysql/data/3306/my.cnf --initialize --user=mysql --basedir=/mysql/app/mysql --datadir=/mysql/data/3306/datar
 ```
 
 ### 启动停止服务
@@ -410,7 +406,7 @@ log_timestamps=system
 [root@mysql01 support-files]# cd /mysql/app/mysql/support-files
 # 修改mysql.server文件，具体内容参照下方的mysql.service
 [root@mysql01 support-files]# vim mysql.server
-#
+
 [root@mysql01 support-files]# cp /mysql/app/mysql/support-files/mysql.server /mysql/app/mysql/bin/mysqlservice
 [root@mysql01 support-files]# mysqlservice status
 
@@ -429,6 +425,10 @@ mysql     2493     1  0 14:29 ?        00:00:00 /bin/sh /mysql/app/mysql/bin/mys
 mysql     3578  2493  2 14:29 ?        00:00:02 /mysql/app/mysql/bin/mysqld --defaults-file=/mysql/data/3306/my.cnf --basedir=/mysql/app/mysql --datadir=/mysql/data/3306/data --plugin-dir=/mysql/app/mysql/lib/plugin --log-error=/mysql/log/3306/log-error.err --open-files-limit=65536 --pid-file=/mysql/data/3306/mysql.pid --socket=/mysql/data/3306/mysql.sock --port=3306
 root      3629  2427  0 14:30 pts/1    00:00:00 grep --color=auto mysql
 
+######################################################################
+#第一次服务启动成功后，需要修改初始密码
+######################################################################
+
 #当系统中存在多个mysql的时候，可以通过编写启动脚本的方式启动不同的mysql。例如：
 [root@mysql01 ~]#  echo "/mysql/app/mysql/bin/mysqld_safe --defaults-file=/mysql/data/3306/my.cnf --user=mysql &" > /mysql/data/3306/mysql.start
 [root@mysql01 ~]# chown mysql:mysql /mysql/data/3306/mysql.start
@@ -439,7 +439,7 @@ root      3629  2427  0 14:30 pts/1    00:00:00 grep --color=auto mysql
 [root@mysql01 3306]# /mysql/data/3306/mysql.start
 [root@mysql01 3306]# 2023-07-09T06:40:48.585024Z mysqld_safe Logging to '/mysql/log/3306/log-error.err'.
 2023-07-09T06:40:48.623628Z mysqld_safe Starting mysqld daemon with databases from /mysql/data/3306/data
-# 停止 通过脚本启动的mysql，最好使用shutdown来停止，但是在停止的时候会出现密码过期的问题。
+# 停止 通过脚本启动的mysql，最好使用shutdown来停止，但是在停止的时候会出现密码过期的问题。需要修改初始化密码
 # A temporary password is generated for root@localhost: tyUsdMu5t5=t
 [root@mysql01 3306]# mysqladmin -uroot -p shutdown -S /mysql/data/3306/mysql.sock
 Enter password: 
@@ -448,7 +448,7 @@ error: 'Your password has expired. To log in you must change it using a client t
 
 ```
 
-#### mysqld.service
+#### mysql.service
 
 ```bash
 #!/bin/sh
@@ -873,7 +873,7 @@ RestartPreventExitStatus=1
 PrivateTmp=false
 ```
 
-### 密码过期问题
+### 修改初始密码
 
 ```bash
 # 创建sock软链接，避免每次登录mysql的时候都要指定-S参数
@@ -888,6 +888,8 @@ Enter password:
 # 由于MySql8.0版本和5.0 的加密规则不一样，而大部分可视化工具只支持旧的加密方式，为了可以通过可视化工具远程访问数据库，所以将MySQL用户登录的加密规则修改为mysql_native_password
 mysql> ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '123456';
 Query OK, 0 rows affected (0.01 sec)
+
+mysql> use mysql;
 
 # 这里将root用户的host设置为%，表示：root用户可以在任何地点登录该mysql服务器
 mysql> update user set host='%' where user='root';

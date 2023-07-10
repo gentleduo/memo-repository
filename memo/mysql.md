@@ -6540,6 +6540,39 @@ mysql主从复制用途
 - master 会生成一个 log dump 线程，用来给从库I/O线程传输binlog；
 - slave重做中继日志中的事件，将改变反映它自己的数据。
 
+## 配置参数
+
+mysql主从复制的参数要求
+
+```ini
+[mysqld]
+# 必须设置事务的隔离级别为：读已提交（是必须为读已提交还是至少是读已提交需要确认？）
+transaction_isolation = READ-COMMITTED
+# 打开二进制日志
+log_bin=/mysql/log/3306/binlog/binlog
+# 二进制日志格式必须为row（默认就是row）
+binlog_format = row
+# 主要针对当binlog_format=row格式 下的设置，如果基于row记录binlog日志，默认是只记录变化的行数据，不记录涉及执行的SQL语句，如果开启此参数，则会一同记录执行的SQL语句。这个参数默认是false。（是否必须打开需要确认）
+binlog_rows_query_log_events = on
+# 会强制在提交事务的时候，把binlog直接写入OS CACHE，并立即刷入到磁盘文件里去，相当于直接写入磁盘了。那么这样提交事务之后，哪怕机器宕机，磁盘上的binlog是不会丢失
+sync_binlog = 1
+# 表示在每次事务提交的时候，都会把redo log buffer刷到磁盘文件系统中(os cache)去，并立刻调用文件系统的“flush”操作将缓存刷新到磁盘上去
+innodb_flush_log_at_trx_commit = 1
+# 同步函数和存储过程，默认：OFF
+log_bin_trust_function_creators = ON
+# 默认1024M=1073741824B
+max_binlog_size = 2147483648
+# binlog保存时间 以秒为单位；默认2592000 30天，mysql8以前的版本通过expire_logs_days设置
+binlog_expire_logs_seconds = 2592000
+# binlog缓存大小，默认32768B，即32K，建议设置1~4M，
+binlog_cache_size = 1048576
+# 这个参数是在主库上设置，默认是自动开启的，看到XA首先想到的就是分布式事务，这个参数确保事务日志写入bin-log的顺序与事务的time-line是一致的，这样在系统崩溃的时候，启用日志恢复，可以严格按照时间线来恢复数据库。
+# 在MySQL 8中，innodb_support_xa系统变量已被移除，因为始终启用Innodb对XA事务中两阶段提交的支持，
+# innodb_support_xa = TRUE
+```
+
+
+
 ## Canal
 
 canal是阿里巴巴的一个使用Java开发的开源项目，它是专门用来进行数据库同步的。

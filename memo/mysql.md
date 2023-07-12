@@ -260,11 +260,14 @@ default-character-set=utf8mb4
 
 [mysqld]
 ########basic settings########
+# skip-grant-tables
 # 针对于主从复制，一般用ip+端口号
 server-id=1103306
 port=3306
 user = mysql
-bind_address= 192.168.56.110
+# 主从复制的时候bind_address设置为0.0.0.0，表示接受所有服务器主机 IPv4 接口上的 TCP/IP 连接
+#bind_address= 192.168.56.110
+bind_address= 0.0.0.0
 # 软件安装路径
 basedir=/mysql/app/mysql
 datadir=/mysql/data/3306/data
@@ -277,7 +280,8 @@ skip-character-set-client-handshake=1
 max_connections = 800
 max_connect_errors = 1000
 default-storage-engine=INNODB
-transaction_isolation = READ-COMMITTED
+# transaction_isolation = READ-COMMITTED
+transaction_isolation = REPEATABLE-READ
 explicit_defaults_for_timestamp = 1
 sort_buffer_size = 32M
 join_buffer_size = 128M
@@ -322,23 +326,35 @@ log_queries_not_using_indexes = 1
 log_slow_admin_statements = 1
 log_slow_replica_statements = 1
 log_throttle_queries_not_using_indexes = 10
-binlog_expire_logs_seconds = 2592000
 min_examined_row_limit = 100
-log_bin=/mysql/log/3306/binlog/binlog
 
-########replication settings########
-#master_info_repository = TABLE
+# binlog设置
+log_bin=/mysql/log/3306/binlog/binlog
+binlog_format = row 
+binlog_rows_query_log_events = on
+sync_binlog = 1
+max_binlog_size = 2147483648
+binlog_expire_logs_seconds = 2592000
+binlog_cache_size = 1048576
+log_bin_trust_function_creators = ON
+
+## 主从复制，master增加如下设置
+#gtid_mode = ON
+#enforce_gtid_consistency = ON
+#binlog_gtid_simple_recovery = ON
+
+## 主从复制，slave增加如下设置
+#relay_log = /mysql/log/3306/relaylog/relay.log
+#relay_log_recovery = ON
 #relay_log_info_repository = TABLE
-#log_bin = bin.log
-#sync_binlog = 1
-#gtid_mode = on
-#enforce_gtid_consistency = 1
-#log_slave_updates
-#binlog_format = row 
-#relay_log = relay.log
-#relay_log_recovery = 1
-#binlog_gtid_simple_recovery = 1
+#master_info_repository = TABLE
+#read_only = ON
 #slave_skip_errors = ddl_exist_errors
+#slave_preserve_commit_order = ON
+#gtid_mode = ON
+#log_slave_updates = ON
+#enforce_gtid_consistency = ON
+#binlog_gtid_simple_recovery = ON
 
 ########innodb settings########
 # 根据您的服务器IOPS能力适当调整
@@ -6540,14 +6556,20 @@ mysql主从复制用途
 - master 会生成一个 log dump 线程，用来给从库I/O线程传输binlog；
 - slave重做中继日志中的事件，将改变反映它自己的数据。
 
-## 配置参数
+## 传统异步复制
+
+### 配置参数
 
 mysql主从复制的参数要求
 
 ```ini
+# master节点增加以下参数
 [mysqld]
+# 参数设置为on时，MySQL将不在每次处理连接请求时做hostname解析，而从用户表里直接提取IP地址，提高了性能。不是必须配置项
+# skip_name_resolve = ON
 # 必须设置事务的隔离级别为：读已提交（是必须为读已提交还是至少是读已提交需要确认？）
-transaction_isolation = READ-COMMITTED
+# transaction_isolation = READ-COMMITTED
+transaction_isolation = REPEATABLE-READ
 # 打开二进制日志
 log_bin=/mysql/log/3306/binlog/binlog
 # 二进制日志格式必须为row（默认就是row）
@@ -6569,9 +6591,215 @@ binlog_cache_size = 1048576
 # 这个参数是在主库上设置，默认是自动开启的，看到XA首先想到的就是分布式事务，这个参数确保事务日志写入bin-log的顺序与事务的time-line是一致的，这样在系统崩溃的时候，启用日志恢复，可以严格按照时间线来恢复数据库。
 # 在MySQL 8中，innodb_support_xa系统变量已被移除，因为始终启用Innodb对XA事务中两阶段提交的支持，
 # innodb_support_xa = TRUE
+# GTID (Global Transaction ID)是全局事务ID,由主库上生成的与事务绑定的唯一标识，这个标识不仅在主库上是唯一的，在MySQL集群内也是唯一的。
+# ON:产生GTID
+# OFF:不产生GTID,Slave只接受不带GTID的事务
+# ON_PERMISSIVE  :产生GTID,Slave即接受不带GTID的事务,也接受带GTID的事务
+# OFF_PERMISSIVE :不产生GTID,Slave即接受不带GTID的事务,也接受带GTID的事务
+gtid_mode = ON
+# ON:当发现语句/事务不支持GTID时，返回错误信息
+# WARN:当发现不支持语句/事务，返回警告，并在日志中记录警告信息
+# OFF:不检查是否有GTID不支持的语句/事务
+enforce_gtid_consistency = ON
+# 这个参数控制当mysql启动或重启时候，mysql在搜索GTID时是如何迭代使用binlong文件的，这个选项开启会提升mysql执行恢复的性能。默认就是开启的
+binlog_gtid_simple_recovery = ON
+
+# slave节点增加以下参数
+# 设置事务隔离级别
+transaction_isolation = REPEATABLE-READ
+# 设置binlog相关参数
+log_bin=/mysql/log/3306/binlog/binlog
+binlog_format = row
+binlog_rows_query_log_events = on
+sync_binlog = 1
+innodb_flush_log_at_trx_commit = 1
+log_bin_trust_function_creators = ON
+max_binlog_size = 2147483648
+binlog_expire_logs_seconds = 2592000
+binlog_cache_size = 1048576
+# relaylog日志目录
+relay_log = /mysql/log/3306/relaylog/relay.log
+# 打开replication中继日志崩溃恢复模式，replication支持中继日志的自我修复，当slave从库启动后，如果replay-log发生损坏，导致一部分中继日志没有处理，就自动放弃未执行的replay-log，重新从master上获取日志，完成中继日志的恢复，该参数表示当前接受到的relay-log，全部删除，然后从SQL线程回放到的位置重新拉取。
+relay_log_recovery = ON
+# realy_log_info_repository用来决定slave同步的位置信息记录在哪里，同样有两个参数：
+# relay_log_info_repository=file，就会创建一个realy-log.info
+# relay_log_info_repository=table，就会创建mysql.slave_relay_info表来记录同步的位置信息。
+# relay_log_info_repository=file，sync_relay_log_info=N，如果N>0，slave在N个事务之后使用fdatasync()方式将realy_info.info文件同步到磁盘中。如果N=0，那么Mysql并不会同步realy_log.info文件到磁盘，而是让操作系统决定
+# relay_log_info_repository=table，如果该表是支持事务的表，那么slave在每次事务之后都会更新该表，忽略sync_relay_log_info参数。如果该表是非事务表，sync_log_info=N，当N>0时，则slave会在每N个event后更新该表，当N=0时，则该表永远不会被更新
+# 设置为file很难保证一致性，mysql8以后默认是table
+relay_log_info_repository = TABLE
+#  master_info_repository有两个值，分别是file和table，该参数决定了slave记录master的状态，如果参数是file，就会创建master.info文件，如果参数值是table，就在mysql中创建slave_master_info的表。
+# 如果master_info_repository=file,sync_master_info=N，其中N>0，那么slave就会在每N个事件后，使用fdatasync()方式同步到master.info文件中。如果sync_master_info=N，其中N=0，那么MySQL就会把状态信息写入到OS Cache中，需要等待操作系统同步
+# 如果master_info_repository=table,sync_master_info=N,如果N>0，那么slave就会在，每N个事件后，更新mysql.slave_master_info表，如果N=0，那么mysql.slave_master_info表将永远不会更新
+master_info_repository = TABLE
+# 从库开启只读模式
+read_only = ON
+# 通过slave_skip_errors参数来跳所有错误或指定类型的错误，选项有四个可用值，分别为：off，all，ErorCode，ddl_exist_errors。默认情况下该参数值是off，我们可以列出具体的error code，也可以选择all，mysql5.6及MySQL Cluster NDB 7.3以及后续版本增加了参数ddl_exist_errors，该参数包含一系列error code(1007,1008,1050,1051,1054,1060,1061,1068,1094,1146)
+slave_skip_errors = ddl_exist_errors
+# slave_preserve_commit_order 参数在多线程复制环境下，能够保证从库回放relay log事务的顺序与这些事务在relay log中的顺序完全一致，也就是与主库提交的顺序完全一致。举个例子，开启并行复制后，如果relay log中有3个事务A,B,C，他们在relay log中的顺序是A->B->C，而它们的last_commited相同，也就是说他们可以并行回放，那么在从库上，这3个事务，提交的顺序可能就不再是A->B->C，设置slave_preserve_commit_order=ON，能够保证这3个事务，在从库回放时，仍然按照它们在relay log中的顺序来回放，保证从库回放relay log事务的顺序与主库完全相同。
+slave_preserve_commit_order = ON
+# GTID (Global Transaction ID)是全局事务ID,由主库上生成的与事务绑定的唯一标识，这个标识不仅在主库上是唯一的，在MySQL集群内也是唯一的。
+# ON:产生GTID
+# OFF:不产生GTID,Slave只接受不带GTID的事务
+# ON_PERMISSIVE  :产生GTID,Slave即接受不带GTID的事务,也接受带GTID的事务
+# OFF_PERMISSIVE :不产生GTID,Slave即接受不带GTID的事务,也接受带GTID的事务
+gtid_mode = ON
+# OFF:从库的binlog不会记录来源于主库的操作记录
+# ON:从库的binlog记录主库同步的操作日志
+# 如果是多个从库，切换后，建议关掉log_slave_updates参数，否则重置主库后可能会将已经执行过的二进制日志重复传送给其他从库，导致同步错误
+log_slave_updates = ON
+# ON:当发现语句/事务不支持GTID时，返回错误信息
+# WARN:当发现不支持语句/事务，返回警告，并在日志中记录警告信息
+# OFF:不检查是否有GTID不支持的语句/事务
+enforce_gtid_consistency = ON
+# 这个参数控制当mysql启动或重启时候，mysql在搜索GTID时是如何迭代使用binlong文件的，这个选项开启会提升mysql执行恢复的性能。默认就是开启的
+binlog_gtid_simple_recovery = ON
 ```
 
+### 从库创建中继日志目录
 
+```bash
+[root@mysql02 ~]# mkdir -p /mysql/log/3306/relaylog
+[root@mysql02 ~]# chown -R mysql:mysql /mysql
+```
+
+### 创建同步用户
+
+主库和从库都需要创建
+
+```mysql
+mysql> create user 'repuser'@'%' identified by 'repuser123';
+Query OK, 0 rows affected (0.02 sec)
+
+mysql> grant replication slave on *.* to 'repuser'@'%';
+Query OK, 0 rows affected (0.01 sec)
+
+mysql> flush privileges;
+Query OK, 0 rows affected (0.01 sec)
+
+mysql> select user,host from mysql.user;
++------------------+-----------+
+| user             | host      |
++------------------+-----------+
+| repuser          | %         |
+| root             | %         |
+| mysql.infoschema | localhost |
+| mysql.session    | localhost |
+| mysql.sys        | localhost |
++------------------+-----------+
+5 rows in set (0.00 sec)
+```
+
+### 修改配置文件
+
+分别修改主从服务器的my.cnf后，重启主从服务器
+
+### 查看主节点状态
+
+master节点上登录mysql，查看binlog文件状态
+
+```mysql
+mysql> show master status;
++---------------+----------+--------------+------------------+-------------------+
+| File          | Position | Binlog_Do_DB | Binlog_Ignore_DB | Executed_Gtid_Set |
++---------------+----------+--------------+------------------+-------------------+
+| binlog.000033 |      157 |              |                  |                   |
++---------------+----------+--------------+------------------+-------------------+
+1 row in set (0.00 sec)
+```
+
+### 连接主库
+
+启动slave
+
+```bash
+[root@mysql02 ~]# systemctl stop mysqld.service
+```
+
+使用复制用户请求服务器公钥：
+
+mysql8.0之后身份验证插件发生了变化，默认会使用：caching_sha2_password，使用caching_sha2_password进行身份验证时，master在验证时需要公钥，但是对于该插件除非请求否则服务器不会发送公钥，所有必须从服务器请求基于RSA密钥对的密码交换所需的公共密钥。
+
+```bash
+# https://www.modb.pro/db/29919
+# 解决方案一：
+# 使用复制用户请求服务器公钥：
+# 在这种情况下，服务器将RSA公钥发送给客户端，后者使用它来加密密码并将结果返回给服务器。插件使用服务器端的RSA私钥解密密码，并根据密码是否正确来接受或拒绝连接。
+[root@mysql02 ~]# mysql -urepuser -prepuser123 -h 192.168.56.110 -P3306 --get-server-public-key
+# 解决方案二：
+# 使用复制用户请求服务器公钥：
+[root@mysql02 ~]# mysql -urepuser -prepuser123 -h 192.168.56.110 -P3306 --server-public-key-path=/mysql/data/3306/data/public_key.pem
+# 由于repuser没有权限，所有在获取公钥后需要退出后重新使用root用户登录启动slave
+[root@mysql02 ~]# mysql -uroot -p123456
+```
+
+在slave上与master建立连接，从而同步
+
+```mysql
+mysql> stop slave;
+Query OK, 0 rows affected, 2 warnings (0.00 sec)
+
+mysql> change master to master_host='192.168.56.110',master_user='repuser',master_password='repuser123',master_log_file='binlog.000033',master_log_pos=157;
+Query OK, 0 rows affected, 8 warnings (0.04 sec)
+
+mysql> start slave;
+Query OK, 0 rows affected, 1 warning (0.01 sec)
+
+mysql> show slave status \G
+# show slave status的时候如果Last_IO_Error中出现如下的错误：error connecting to master 'repuser@192.168.56.110:3306' - retry-time: 60 retries: 9 message: Authentication plugin 'caching_sha2_password' reported error: Authentication requires secure connection.
+# 出现该错误的主要原因：
+# 解决方案：
+# 1、使用复制用户请求服务器公钥：
+# [root@mysql02 ~]# mysql -urepuser -prepuser123 -h 192.168.56.110 -P3306 --get-server-public-key
+# 2、重启mysql
+# [root@mysql02 ~]# systemctl stop mysqld.service
+# [root@mysql02 ~]# systemctl start mysqld.service
+# 3、重新登录myql
+# [root@mysql02 ~]# mysql -uroot -p123456
+# 4、mysql> stop slave;
+# 5、mysql> change master to master_host='192.168.56.110',master_user='repuser',master_password='repuser123',master_log_file='binlog.000033',master_log_pos=1270;
+# 6、mysql> start slave;
+# 7、mysql> show slave status \G
+# 查看工作线程，master上也可以用同样的命令查看
+mysql>  show processlist;
+```
+
+### 关机
+
+关机先关master节点，避免数据不一致问题
+
+主库
+
+```bash
+[root@mysql01 3306]# systemctl stop mysqld.service
+```
+
+从库
+
+```sql
+mysql> show processlist;
+mysql> stop slave;
+```
+
+```bash
+[root@mysql02 ~]# systemctl stop mysqld.service
+```
+
+### 开机
+
+开机也是先启master节点
+
+主库
+
+```bash
+[root@mysql01 3306]# systemctl start mysqld.service
+```
+
+从库
+
+```bash
+[root@mysql02 ~]# systemctl start mysqld.service
+```
 
 ## Canal
 

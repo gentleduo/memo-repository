@@ -413,7 +413,7 @@ log_timestamps=system
 [root@mysql01 3306]# touch /mysql/log/3306/log-error.err
 [root@mysql01 3306]# chown -R mysql:mysql /mysql
 # 初始化
-[root@mysql01 3306]# mysqld --defaults-file=/mysql/data/3306/my.cnf --initialize --user=mysql --basedir=/mysql/app/mysql --datadir=/mysql/data/3306/datar
+[root@mysql01 3306]# mysqld --defaults-file=/mysql/data/3306/my.cnf --initialize --user=mysql --basedir=/mysql/app/mysql --datadir=/mysql/data/3306/data
 ```
 
 ### 启动停止服务
@@ -1059,6 +1059,12 @@ mysql> ALTER USER 'root'@'localhost' IDENTIFIED BY '123456';
 
 # 设置远程登录
 # 赋予root用户远程登录的权限
+# GRANT 权限 ON 数据库.表 TO 用户名@登录主机 IDENTIFIED BY '密码';
+# WITH GRANT OPTION 这个选项表示该用户可以将自己拥有的权限授权给别人。注意：经常有人在创建操作用户的时候不指定WITH GRANT OPTION选项导致后来该用户不能使用GRANT命令创建用户或者给其它用户授权。
+# 撤销已经赋予给MySQL用户权限的权限
+# revoke跟grant的语法差不多，只需要把关键字“to”换成“from” 即可：
+# grant all on . to dba@localhost;
+# revoke all on . from dba@localhost;
 mysql> GRANT ALL PRIVILEGES ON *.* TO 'root'@'%' IDENTIFIED BY '123456' WITH GRANT OPTION;
 # 也可以通过修改user表：
 mysql> use mysql;
@@ -6663,9 +6669,9 @@ binlog_gtid_simple_recovery = ON
 [root@mysql02 ~]# chown -R mysql:mysql /mysql
 ```
 
-### 创建同步用户
+### 主库创建同步用户
 
-主库和从库都需要创建
+主库
 
 ```mysql
 mysql> create user 'repuser'@'%' identified by 'repuser123';
@@ -6713,8 +6719,66 @@ mysql> show master status;
 启动slave
 
 ```bash
-[root@mysql02 ~]# systemctl stop mysqld.service
+[root@mysql02 ~]# systemctl start mysqld.service
 ```
+
+```mysql
+mysql> change master to master_host='192.168.56.110',master_user='repuser',master_password='repuser123',master_log_file='binlog.000033',master_log_pos=157;
+Query OK, 0 rows affected, 8 warnings (0.04 sec)
+
+mysql> start slave;
+Query OK, 0 rows affected, 1 warning (0.01 sec)
+
+mysql> show slave status \G
+```
+
+### 验证
+
+登录主库
+
+```mysql
+mysql> CREATE DATABASE IF NOT EXISTS test_db;
+mysql> use test_db;
+mysql> create table `test_t1` (`id` int(10) not null,`name` varchar(255) null,primary key(`id`));
+mysql> insert into test_t1 values (1,'zhangsan'),(2,'lisi');
+```
+
+登录从库
+
+```mysql
+mysql> use test_db;
+mysql> select * from test_t1;
++----+----------+
+| id | name     |
++----+----------+
+|  1 | zhangsan |
+|  2 | lisi     |
++----+----------+
+```
+
+> 可能碰到的身份验证问题：
+>
+> mysql8.0之后身份验证插件发生了变化，默认会使用：caching_sha2_password，使用caching_sha2_password进行身份验证时，master在验证时需要公钥，但是对于该插件除非请求否则服务器不会发送公钥，所有必须从服务器请求基于RSA密钥对的密码交换所需的公共密钥。
+>
+> ```bash
+> # https://www.modb.pro/db/29919
+> # 解决方案一：
+> # 使用复制用户请求服务器公钥：
+> # 在这种情况下，服务器将RSA公钥发送给客户端，后者使用它来加密密码并将结果返回给服务器。插件使用服务器端的RSA私钥解密密码，并根据密码是否正确来接受或拒绝连接。
+> [root@mysql02 ~]# mysql -urepuser -prepuser123 -h 192.168.56.110 -P3306 --get-server-public-key
+> 
+> # 解决方案二：
+> # 使用复制用户请求服务器公钥：
+> [root@mysql02 ~]# mysql -urepuser -prepuser123 -h 192.168.56.110 -P3306 --server-public-key-path=/mysql/data/3306/data/public_key.pem
+> 
+> mysql> show slave status;
+> ERROR 1227 (42000): Access denied; you need (at least one of) the SUPER, REPLICATION CLIENT privilege(s) for this operation
+> 
+> # 由于repuser没有权限，所有在获取公钥后需要退出后重新使用root用户登录启动slave
+> [root@mysql02 ~]# mysql -uroot -p123456
+> ```
+
+
 
 使用复制用户请求服务器公钥：
 
@@ -6726,42 +6790,16 @@ mysql8.0之后身份验证插件发生了变化，默认会使用：caching_sha2
 # 使用复制用户请求服务器公钥：
 # 在这种情况下，服务器将RSA公钥发送给客户端，后者使用它来加密密码并将结果返回给服务器。插件使用服务器端的RSA私钥解密密码，并根据密码是否正确来接受或拒绝连接。
 [root@mysql02 ~]# mysql -urepuser -prepuser123 -h 192.168.56.110 -P3306 --get-server-public-key
+
 # 解决方案二：
 # 使用复制用户请求服务器公钥：
 [root@mysql02 ~]# mysql -urepuser -prepuser123 -h 192.168.56.110 -P3306 --server-public-key-path=/mysql/data/3306/data/public_key.pem
+
+mysql> show slave status;
+ERROR 1227 (42000): Access denied; you need (at least one of) the SUPER, REPLICATION CLIENT privilege(s) for this operation
+
 # 由于repuser没有权限，所有在获取公钥后需要退出后重新使用root用户登录启动slave
 [root@mysql02 ~]# mysql -uroot -p123456
-```
-
-在slave上与master建立连接，从而同步
-
-```mysql
-mysql> stop slave;
-Query OK, 0 rows affected, 2 warnings (0.00 sec)
-
-mysql> change master to master_host='192.168.56.110',master_user='repuser',master_password='repuser123',master_log_file='binlog.000033',master_log_pos=157;
-Query OK, 0 rows affected, 8 warnings (0.04 sec)
-
-mysql> start slave;
-Query OK, 0 rows affected, 1 warning (0.01 sec)
-
-mysql> show slave status \G
-# show slave status的时候如果Last_IO_Error中出现如下的错误：error connecting to master 'repuser@192.168.56.110:3306' - retry-time: 60 retries: 9 message: Authentication plugin 'caching_sha2_password' reported error: Authentication requires secure connection.
-# 出现该错误的主要原因：
-# 解决方案：
-# 1、使用复制用户请求服务器公钥：
-# [root@mysql02 ~]# mysql -urepuser -prepuser123 -h 192.168.56.110 -P3306 --get-server-public-key
-# 2、重启mysql
-# [root@mysql02 ~]# systemctl stop mysqld.service
-# [root@mysql02 ~]# systemctl start mysqld.service
-# 3、重新登录myql
-# [root@mysql02 ~]# mysql -uroot -p123456
-# 4、mysql> stop slave;
-# 5、mysql> change master to master_host='192.168.56.110',master_user='repuser',master_password='repuser123',master_log_file='binlog.000033',master_log_pos=1270;
-# 6、mysql> start slave;
-# 7、mysql> show slave status \G
-# 查看工作线程，master上也可以用同样的命令查看
-mysql>  show processlist;
 ```
 
 ### 关机

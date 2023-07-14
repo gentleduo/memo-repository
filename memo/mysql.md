@@ -356,7 +356,6 @@ log_bin_trust_function_creators = ON
 #enforce_gtid_consistency = ON
 #binlog_gtid_simple_recovery = ON
 
-
 # 使用半同步方式需要安装插件，安装方式有两种：
 # 1、通过install plugin的方式安装，如果有多台机器，则需要登录每一台mysql服务器进行安装
 # 2、将配置信息写入到配置文件my.cnf中
@@ -6742,8 +6741,11 @@ mysql> show master status;
 [root@mysql02 ~]# mysql -urepuser -prepuser123 -h 192.168.56.110 -P3306 --server-public-key-path=/mysql/data/3306/data/public_key.pem
 # 然后quit；重新登录本地的mysql
 [root@mysql02 ~]# mysql -uroot -p123456
+# 如果开启了GTID模式，则使用change master to命令的时候不需要指定master_log_file和master_log_pos，只需要指定MASTER_AUTO_POSITION=1即可
 mysql> change master to master_host='192.168.56.110',master_user='repuser',master_password='repuser123',master_log_file='binlog.000033',master_log_pos=157;
 Query OK, 0 rows affected, 8 warnings (0.04 sec)
+
+mysql> change master to master_host='192.168.56.110',master_user='repuser',master_password='repuser123',master_auto_position=1;
 
 mysql> start slave;
 Query OK, 0 rows affected, 1 warning (0.01 sec)

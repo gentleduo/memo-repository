@@ -356,6 +356,20 @@ log_bin_trust_function_creators = ON
 #enforce_gtid_consistency = ON
 #binlog_gtid_simple_recovery = ON
 
+
+# 使用半同步方式需要安装插件，安装方式有两种：
+# 1、通过install plugin的方式安装，如果有多台机器，则需要登录每一台mysql服务器进行安装
+# 2、将配置信息写入到配置文件my.cnf中
+# 半同步复制：master节点增加如下配置
+#plugin_dir=/mysql/app/mysql/lib/plugin/
+#plugin_load ="rpl_semi_sync_source=semisync_source.so"
+#rpl_semi_sync_source_enabled = 1
+
+# 半同步复制：slave节点增加如下配置
+#plugin_dir=/mysql/app/mysql/lib/plugin/
+#plugin_load ="rpl_semi_sync_replica=semisync_replica.so"
+#rpl_semi_sync_replica_enabled = 1
+
 ########innodb settings########
 # 根据您的服务器IOPS能力适当调整
 # 一般配普通SSD盘的话，可以调整到 10000 - 20000
@@ -6562,7 +6576,7 @@ mysql主从复制用途
 - master 会生成一个 log dump 线程，用来给从库I/O线程传输binlog；
 - slave重做中继日志中的事件，将改变反映它自己的数据。
 
-## 传统异步复制
+## 异步复制
 
 ### 配置参数
 
@@ -6723,6 +6737,11 @@ mysql> show master status;
 ```
 
 ```mysql
+# mysql8.0之后身份验证插件发生了变化，默认会使用：caching_sha2_password，使用caching_sha2_password进行身份验证时，master在验证时需要公钥，但是对于该插件除非请求否则服务器不会发送公钥，所有必须从服务器请求基于RSA密钥对的密码交换所需的公共密钥。
+# 首先使用复制用户请求服务器公钥，注意这里请求的是master节点的公钥，所以-h节点到后面跟的是master节点的ip
+[root@mysql02 ~]# mysql -urepuser -prepuser123 -h 192.168.56.110 -P3306 --server-public-key-path=/mysql/data/3306/data/public_key.pem
+# 然后quit；重新登录本地的mysql
+[root@mysql02 ~]# mysql -uroot -p123456
 mysql> change master to master_host='192.168.56.110',master_user='repuser',master_password='repuser123',master_log_file='binlog.000033',master_log_pos=157;
 Query OK, 0 rows affected, 8 warnings (0.04 sec)
 
@@ -6777,8 +6796,6 @@ mysql> select * from test_t1;
 > # 由于repuser没有权限，所有在获取公钥后需要退出后重新使用root用户登录启动slave
 > [root@mysql02 ~]# mysql -uroot -p123456
 > ```
-
-
 
 使用复制用户请求服务器公钥：
 
@@ -6838,6 +6855,302 @@ mysql> stop slave;
 ```bash
 [root@mysql02 ~]# systemctl start mysqld.service
 ```
+
+### 故障解决
+
+当需要全量从master节点同步数据时：
+
+主节点：
+
+```sql
+# reset之后，通过shwo master status命令可以看到binlog的位置回到的起始位置
+mysql> reset master;
+```
+
+从节点：
+
+```mysql
+mysql> stop slave;
+# 从节点的reset mater会清除Master_Info_File: mysql.slave_master_info表中保存的master节点的信息，
+# 通过show slave status可以看到Master_Info_File选项
+mysql> reset master;
+mysql> reset slave all;
+# 重新设置master节点binlog的位置信息
+mysql> change master to master_host='192.168.56.110',master_user='repuser',master_password='repuser123',master_log_file='binlog.000033',master_log_pos=157;
+mysql> start slave;
+```
+
+## 无损同步
+
+### 插件安装
+
+```mysql
+mysql> show variables like 'plugin_dir';
+```
+
+主库安装插件
+
+```mysql
+# 源服务器，旧术语： rpl_semi_sync_master插件（semisync_master.so或 semisync_master.dll库）
+# 源服务器，新术语（来自 MySQL 8.0.26）： rpl_semi_sync_source插件（semisync_source.so或 semisync_source.dll库）
+mysql> install plugin rpl_semi_sync_source soname 'semisync_source.so';
+```
+
+从库安装插件
+
+```mysql
+# 副本，旧术语： rpl_semi_sync_slave插件（semisync_slave.so或 semisync_slave.dll库）
+# 副本，新术语（来自 MySQL 8.0.26）： rpl_semi_sync_replica插件（semisync_replica.so或 semisync_replica.dll库）
+mysql> install plugin rpl_semi_sync_replica soname 'semisync_replica.so';
+```
+
+检查插件安装
+
+```mysql
+mysql> show plugins;
+```
+
+开启半同步复制
+
+主库激活半同步复制
+
+```mysql
+mysql> set global rpl_semi_sync_source_enabled=1;
+mysql> show variables like 'rpl_semi_sync_source_enabled';
+```
+
+从库激活半同步复制
+
+```mysql
+mysql> set global rpl_semi_sync_replica_enabled=1;
+mysql> show variables like 'rpl_semi_sync_replica_enabled';
+mysql> stop replica io_thread;
+mysql> start replica io_thread;
+```
+
+在主库中插入一条记录进行验证，可以看到Rpl_semi_sync_source_yes_tx的值为1
+
+```mysql
+mysql> insert into test_t1 values (5,'qianqi');
+mysql> show global status like 'rpl%';
++--------------------------------------------+-------+
+| Variable_name                              | Value |
++--------------------------------------------+-------+
+| Rpl_semi_sync_source_clients               | 1     |
+| Rpl_semi_sync_source_net_avg_wait_time     | 0     |
+| Rpl_semi_sync_source_net_wait_time         | 0     |
+| Rpl_semi_sync_source_net_waits             | 1     |
+| Rpl_semi_sync_source_no_times              | 0     |
+| Rpl_semi_sync_source_no_tx                 | 0     |
+| Rpl_semi_sync_source_status                | ON    |
+| Rpl_semi_sync_source_timefunc_failures     | 0     |
+| Rpl_semi_sync_source_tx_avg_wait_time      | 550   |
+| Rpl_semi_sync_source_tx_wait_time          | 550   |
+| Rpl_semi_sync_source_tx_waits              | 1     |
+| Rpl_semi_sync_source_wait_pos_backtraverse | 0     |
+| Rpl_semi_sync_source_wait_sessions         | 0     |
+| Rpl_semi_sync_source_yes_tx                | 1     |
++--------------------------------------------+-------+
+14 rows in set (0.00 sec)
+```
+
+### 参数解析
+
+#### 主库的半同步复制
+
+在主库执行show variables 命令，即可看到半同步复制主库端相应的系统变量：
+
+```mysql
+mysql> show variables like 'rpl_semi%';
++---------------------------------------------+------------+
+| Variable_name                               | Value      |
++---------------------------------------------+------------+
+| rpl_semi_sync_source_enabled                | ON         |
+| rpl_semi_sync_source_timeout                | 10000      |
+| rpl_semi_sync_source_trace_level            | 32         |
+| rpl_semi_sync_source_wait_for_replica_count | 1          |
+| rpl_semi_sync_source_wait_no_replica        | ON         |
+| rpl_semi_sync_source_wait_point             | AFTER_SYNC |
++---------------------------------------------+------------+
+6 rows in set (0.00 sec)
+```
+
+1. rpl_semi_sync_source_enabled
+
+   默认OFF，用于控制主库是否启用半同步复制，设置为ON，表示主库开启半同步复制
+
+2. rpl_semi_sync_source_timeout
+
+   默认10000毫秒（10秒），用于控制主库等待从库返回确认提交的超时时间，若超过对应的时间未收到从库的确认，则半同步复制将退化为异步复制
+
+3. rpl_semi_sync_source_trace_level
+
+   默认32，用于控制主库半同步复制调试跟踪级别，定义的级别共有4个，分别是:1、16、32和64
+
+4. rpl_semi_sync_source_wait_for_replica_count
+
+   默认1，用于控制主库在返回客户端会话前每个事务必须被多少个从库接收，默认是1，即主库收到一个从库接收到事务事件的确认信息后，即可进行提交事务并返回给客户端会话，该值越小，性能越好
+
+5. rpl_semi_sync_source_wait_no_replica
+
+   默认ON，即允许在超时时间内从库的数量小于rpl_semi_sync_source_wait_for_replica_count配置的值，只要在超时时间到期前有足够的从库确认事务，半同步复制就会继续
+
+6. rpl_semi_sync_source_wait_point
+
+   默认AFTER_SYNC，用于控制主库在向提交事务的客户端返回状态前等待接收事务的从库确认的时间点，该参数有两个值，分别是AFTER_SYNC和AFTER_COMMIT，不同的值，产生的影响不同：
+
+   **AFTER_COMMIT**
+
+   1. 当rpl_semi_sync_source_wait_point=after_commit时，事务的执行过程如图，由于先在存储引擎层进行提交，然后等待从库的确认，如果在从库确认的过程中，主库宕机了，此时，可能的情况有两种：
+
+      1. 事务还没发送到从库上
+
+         此时，客户端会收到事务提交失败的信息，客户端会重新提交该事务到新的主库上，当宕机的主库重新启动后，以从库的身份重新加入到该主从架构中，会发现该事务在从库中被提交了两次，一次是之前作为主的时候，一次是被新主库同步过来的。
+
+      2. 事务已经发送到从库上
+
+         此时，从库已经收到并应用了该事务，但是客户端仍然会收到事务提交失败的信息，重新提交该事务到新的主库上。
+
+      ![image](assets\mysql-134.png)
+
+      使用AFTER_COMMIT，事务在存储引擎层提交后，执行事务的客户端便收到返回信息，在提交到存储引擎之后和从库发出应答确认之前的这段时间，其他客户端可以看到已经提交的事务，如果此时发生错误，主从库切换后，之前可能看到数据的客户端发现在新主库看不到对应的数据了，比如下面的插入操作，会发生幻读。
+
+   ![image](assets\mysql-135.png)
+
+   ![image](assets\mysql-136.png)
+
+   **AFTER_SYNC**
+
+   当rpl_semi_sync_source_wait_point=after_sync时，事务的执行过程如图，”waiting slave dump“被调整到”storage commit“之前，即先等待从库的应答确认，然后再在存储引擎层进行事务的提交。
+
+   ![image](assets\mysql-137.png)
+
+   使用AFTER_SYNC，由于先收到从库的应答确认，然后再在存储引擎层提交事务，并返回给客户端，这样，在同样的时间，所有的客户端都可以看到已提交的数据，即使主库发生故障进行主从库切换，所有在主库提交的事务已经复制到从库，因此，从库的数据也是最新的，这种半同步方案也称为无损半同步复制。
+   ![image](assets\mysql-138.png)
+
+#### 从库的半同步复制
+
+在从库执行show variables 命令，即可看到半同步复制从库端相应的系统变量：
+
+```mysql
+mysql> show variables like 'rpl_semi%';
++-----------------------------------+-------+
+| Variable_name                     | Value |
++-----------------------------------+-------+
+| rpl_semi_sync_replica_enabled     | ON    |
+| rpl_semi_sync_replica_trace_level | 32    |
++-----------------------------------+-------+
+```
+
+1. rpl_semi_sync_replica_enabled
+
+   默认OFF，用于控制从库是否启用半同步复制，设置为ON，表示从库开启半同步复制
+
+2. rpl_semi_sync_replica_trace_level
+
+   默认32，用于控制从库半同步复制调试跟踪级别，定义的级别共有4个，分别是:1、16、32和64
+
+#### 监控半同步复制
+
+##### 主库的半同步复制状态
+
+在主库执行show status命令，即可看到半同步复制主库端相应的状态变量：
+
+```mysql
+mysql> show status like 'rpl_semi%';
++--------------------------------------------+-------+
+| Variable_name                              | Value |
++--------------------------------------------+-------+
+| Rpl_semi_sync_source_clients               | 1     |
+| Rpl_semi_sync_source_net_avg_wait_time     | 0     |
+| Rpl_semi_sync_source_net_wait_time         | 0     |
+| Rpl_semi_sync_source_net_waits             | 1     |
+| Rpl_semi_sync_source_no_times              | 0     |
+| Rpl_semi_sync_source_no_tx                 | 0     |
+| Rpl_semi_sync_source_status                | ON    |
+| Rpl_semi_sync_source_timefunc_failures     | 0     |
+| Rpl_semi_sync_source_tx_avg_wait_time      | 550   |
+| Rpl_semi_sync_source_tx_wait_time          | 550   |
+| Rpl_semi_sync_source_tx_waits              | 1     |
+| Rpl_semi_sync_source_wait_pos_backtraverse | 0     |
+| Rpl_semi_sync_source_wait_sessions         | 0     |
+| Rpl_semi_sync_source_yes_tx                | 1     |
++--------------------------------------------+-------+
+14 rows in set (0.00 sec)
+```
+
+1. Rpl_semi_sync_source_clients
+
+   连接到主库的半同步从库的数量
+
+2. Rpl_semi_sync_source_net_avg_wait_time
+
+   主库等待从库应答的平均时间（以微妙为单位），值一直是0，已被弃用
+
+3. Rpl_semi_sync_source_net_wait_time
+
+   主库等待从库应答的总时间（以微妙为单位），值一直是0，已被弃用
+
+4. Rpl_semi_sync_source_net_waits
+
+   主库等待从库应答的总次数
+
+5. Rpl_semi_sync_source_no_times
+
+   主库关闭半同步复制的次数，即当主库在指定时间内未收到从库的应答确认，就会退化为异步复制
+
+6. Rpl_semi_sync_source_no_tx
+
+   从库未成功确认的提交的次数
+
+7. Rpl_semi_sync_source_status
+
+   主库当前是否处于半同步复制状态，如果已启用插件，并且已经发生了提交确认，则该值为ON，如果插件未启用，或者由于提交确认超时，主库退化为异步复制，则该值为OFF
+
+8. Rpl_semi_sync_source_timefunc_failures
+
+   当调用时间函数（例如gettimeofday()）时，主库失败的次数
+
+9. Rpl_semi_sync_source_tx_avg_wait_time
+
+   主库等待每个事务的平均时间（以微秒为单位）
+
+10. Rpl_semi_sync_source_tx_wait_time
+
+    主库等待事务的总时间（以微秒为单位）
+
+11. Rpl_semi_sync_source_tx_waits
+
+    主库等待事务的总次数
+
+12. Rpl_semi_sync_source_wait_pos_backtraverse
+
+13. Rpl_semi_sync_source_wait_sessions
+
+    正在等待从库应答的会话数
+
+14. Rpl_semi_sync_source_yes_tx
+
+    从库已成功确认提交的次数
+
+##### 从库的半同步复制状态
+
+在从库执行show status 命令，即可看到半同步复制从库端相应的状态变量：
+
+```mysql
+mysql> show status like 'rpl_semi%';
++------------------------------+-------+
+| Variable_name                | Value |
++------------------------------+-------+
+| Rpl_semi_sync_replica_status | ON    |
++------------------------------+-------+
+1 row in set (0.00 sec)
+
+```
+
+1. Rpl_semi_sync_replica_status
+
+   显示当前从库是否运行半同步复制，如果插件已启用，并且复制I/O线程正在运行，则为ON，否则为OFF
 
 ## Canal
 

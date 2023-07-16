@@ -268,7 +268,8 @@ port=3306
 user = mysql
 # 主从复制的时候bind_address设置为0.0.0.0，表示接受所有服务器主机 IPv4 接口上的 TCP/IP 连接
 #bind_address= 192.168.56.110
-bind_address= 0.0.0.0
+# MGR模式下，不能绑定任何IP，下面这一行要注释掉
+# bind_address= 0.0.0.0
 # 软件安装路径
 basedir=/mysql/app/mysql
 datadir=/mysql/data/3306/data
@@ -359,16 +360,45 @@ log_bin_trust_function_creators = ON
 
 # 使用半同步方式需要安装插件，安装方式有两种：
 # 1、通过install plugin的方式安装，如果有多台机器，则需要登录每一台mysql服务器进行安装
-# 2、将配置信息写入到配置文件my.cnf中，但是这种方式在8.0.32版本中使用mysqld命令进行初始化的时候会报错。
+# 2、将配置信息写入到配置文件my.cnf中。
 # 半同步复制：master节点增加如下配置
-#plugin_dir=/mysql/app/mysql/lib/plugin/
-#plugin_load ="rpl_semi_sync_source=semisync_source.so"
-#rpl_semi_sync_source_enabled = 1
+# plugin_load_add ="rpl_semi_sync_source=semisync_source.so"
+# rpl_semi_sync_source_enabled = 1
 
 # 半同步复制：slave节点增加如下配置
-#plugin_dir=/mysql/app/mysql/lib/plugin/
-#plugin_load ="rpl_semi_sync_replica=semisync_replica.so"
-#rpl_semi_sync_replica_enabled = 1
+# plugin_load_add ="rpl_semi_sync_replica=semisync_replica.so"
+# rpl_semi_sync_replica_enabled = 1
+
+# MySQL group Replication模式
+binlog_checksum=NONE
+# 同时安装多个插件，验证下来，初始化的时候只能安装插件，不能配置group相关的参数，只有在初始化完成后，启动mysql并且修改完密码，然后设置group相关的参数后重启。
+plugin_load_add ="rpl_semi_sync_source=semisync_source.so;rpl_semi_sync_replica=semisync_replica.so;group_replication=group_replication.so"
+# MGR模式必须打开GTID
+gtid_mode = on
+enforce_gtid_consistency = 1
+log-slave-updates = 1
+binlog_gtid_simple_recovery=1
+relay_log = /mysql/log/3306/relaylog/relay.log
+master_info_repository=table
+relay_log_info_repository=table
+# 对每个事务获取write set并且用XXHASH64算法获取hash指
+transaction_write_set_extraction=XXHASH64
+# 组名，此处可拿select.uuid()生成，也可以写成下面的格式，只要是uuid的长度和格式就行了
+group_replication_group_name="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+# 在mysql启动时不自动启动组复制
+group_replication_start_on_boot=off
+# 本节点的ip地址和端口，注意该端口是组内成员之间的通信的端口，而不是mysql对外提供服务的端口
+group_replication_local_address= "192.168.56.110:33006"
+# 种子节点的IP和端口，新成员加入到集群的时候需要联系种子节点，启动集群的节点不使用该选项。
+group_replication_group_seeds="192.168.56.110:33006,192.168.56.111:33006,192.168.56.112:33006"
+# 是否启动集群，注意：该选项任何时候只能用于一个节点，通常情况下是启动集群的时候使用，启动之后需要关闭该选项，
+group_replication_bootstrap_group= off
+# 下面两个选项决定是不是多主复制
+# 多主的时候：
+group_replication_single_primary_mode=off
+group_replication_enforce_update_everywhere_checks=on
+# 单主的时候：
+group_replication_member_weight=50
 
 ########innodb settings########
 # 根据您的服务器IOPS能力适当调整
@@ -422,6 +452,8 @@ log_timestamps=system
 ```bash
 # 错误日志文件必须创建，否则无法执行初始化
 [root@mysql01 3306]# rm -rf /mysql/data/3306/data/*
+[root@mysql01 3306]# rm -rf /mysql/log/3306/binlog/*
+[root@mysql01 3306]# rm -rf /mysql/log/3306/relaylog/*
 [root@mysql01 3306]# rm -rf /mysql/log/3306/log-error.err 
 [root@mysql01 3306]# touch /mysql/log/3306/log-error.err
 [root@mysql01 3306]# chown -R mysql:mysql /mysql
@@ -7480,6 +7512,247 @@ mysql> set globalgtid_purged='3addb98f-7ea1-11e8-8f56-000c294eccb3:1-42,3addb98f
 # 2、重新mysqldump恢复，重配置。
 mysqldump -uroot -proot --set-gtid-purged=off --all-databases > all.sql
 ```
+
+## MySQL Group Replication
+
+### 多主模式
+
+第一个节点
+
+```mysql
+# 如果搭建MGR集群的时候进行了mysql数据库初始化操作，最好在改完密码后reset master和reset slave all;然后用新的密码登录后执行以下操作
+mysql> mysql -uroot -p123456
+mysql> set sql_log_bin=0;
+mysql> create user repuser@'%' identified by 'repuser123';
+mysql> grant replication slave,replication client on *.* to repuser@'%';
+mysql> create user repuser@'127.0.0.1' identified by 'repuser123';
+mysql> grant replication slave,replication client on *.* to repuser@'127.0.0.1';
+mysql> create user repuser@'localhost' identified by 'repuser123';
+mysql> grant replication slave,replication client on *.* to repuser@'localhost';
+mysql> flush privileges;
+mysql> set sql_log_bin=1;
+mysql> set global group_replication_recovery_get_public_key=on;
+mysql> change replication source to source_user='repuser', source_password='repuser123' for channel 'group_replication_recovery';
+mysql> set global group_replication_bootstrap_group=on;
+mysql> start group_replication;
+mysql> set global group_replication_bootstrap_group=off;
+mysql> select * from performance_schema.replication_group_members;
+```
+
+第二个节点
+
+```mysql
+# 如果搭建MGR集群的时候进行了mysql数据库初始化操作，最好在改完密码后reset master和reset slave all;然后用新的密码登录后执行以下操作
+mysql> mysql -uroot -p123456
+mysql> set sql_log_bin=0;
+mysql> create user repuser@'%' identified by 'repuser123';
+mysql> grant replication slave,replication client on *.* to repuser@'%';
+mysql> create user repuser@'127.0.0.1' identified by 'repuser123';
+mysql> grant replication slave,replication client on *.* to repuser@'127.0.0.1';
+mysql> create user repuser@'localhost' identified by 'repuser123';
+mysql> grant replication slave,replication client on *.* to repuser@'localhost';
+mysql> flush privileges;
+mysql> set sql_log_bin=1;
+mysql> set global group_replication_recovery_get_public_key=on;
+mysql> change replication source to source_user='repuser', source_password='repuser123' for channel 'group_replication_recovery';
+mysql> start group_replication;
+```
+
+第三个节点
+
+```mysql
+# 如果搭建MGR集群的时候进行了mysql数据库初始化操作，最好在改完密码后reset master和reset slave all;然后用新的密码登录后执行以下操作
+mysql> mysql -uroot -p123456
+mysql> set sql_log_bin=0;
+mysql> create user repuser@'%' identified by 'repuser123';
+mysql> grant replication slave,replication client on *.* to repuser@'%';
+mysql> create user repuser@'127.0.0.1' identified by 'repuser123';
+mysql> grant replication slave,replication client on *.* to repuser@'127.0.0.1';
+mysql> create user repuser@'localhost' identified by 'repuser123';
+mysql> grant replication slave,replication client on *.* to repuser@'localhost';
+mysql> flush privileges;
+mysql> set sql_log_bin=1;
+mysql> set global group_replication_recovery_get_public_key=on;
+mysql> change replication source to source_user='repuser', source_password='repuser123' for channel 'group_replication_recovery';
+mysql> start group_replication;
+mysql> select * from performance_schema.replication_group_members;
+```
+
+验证
+
+第一个节点：
+
+```mysql
+mysql> create database test_db1;
+Query OK, 1 row affected (0.01 sec)
+
+mysql> use test_db1;
+Database changed
+mysql> create table test_db1.test_t1 (id int primary key ,name varchar(40));
+Query OK, 0 rows affected (0.03 sec)
+
+mysql> insert into test_db1.test_t1 values(1,'itpux111'),(2,'itpux112'),(3,'itpux113'),(4,'itpux114'),(5,'itpux115');
+Query OK, 5 rows affected (0.02 sec)
+Records: 5  Duplicates: 0  Warnings: 0
+
+mysql> select * from test_db1.test_t1;
+```
+
+第二个节点：
+
+```mysql
+mysql> insert into test_db1.test_t1 values(21,'itpux111'),(22,'itpux112'),(23,'itpux113'),(24,'itpux114'),(25,'itpux115');
+mysql> select * from test_db1.test_t1;
+```
+
+第三个节点：
+
+```mysql
+mysql> insert into test_db1.test_t1 values(31,'itpux111'),(32,'itpux112'),(33,'itpux113'),(34,'itpux114'),(35,'itpux115');
+mysql> select * from test_db1.test_t1;
+```
+
+### 单主模式
+
+第一个节点：
+
+```mysql
+# 如果搭建MGR集群的时候进行了mysql数据库初始化操作，最好在改完密码后reset master和reset slave all;然后用新的密码登录后执行以下操作
+mysql> mysql -uroot -p123456
+mysql> set sql_log_bin=0;
+mysql> create user repuser@'%' identified by 'repuser123';
+mysql> grant replication slave,replication client on *.* to repuser@'%';
+mysql> create user repuser@'127.0.0.1' identified by 'repuser123';
+mysql> grant replication slave,replication client on *.* to repuser@'127.0.0.1';
+mysql> create user repuser@'localhost' identified by 'repuser123';
+mysql> grant replication slave,replication client on *.* to repuser@'localhost';
+mysql> flush privileges;
+mysql> set sql_log_bin=1;
+mysql> set global group_replication_recovery_get_public_key=on;
+mysql> change replication source to source_user='repuser', source_password='repuser123' for channel 'group_replication_recovery';
+mysql> set global group_replication_bootstrap_group=on;
+mysql> start group_replication;
+mysql> set global group_replication_bootstrap_group=off;
+mysql> select * from performance_schema.replication_group_members;
+```
+
+第二个节点：
+
+```mysql
+# 如果搭建MGR集群的时候进行了mysql数据库初始化操作，最好在改完密码后reset master和reset slave all;然后用新的密码登录后执行以下操作
+mysql> mysql -uroot -p123456
+mysql> set sql_log_bin=0;
+mysql> create user repuser@'%' identified by 'repuser123';
+mysql> grant replication slave,replication client on *.* to repuser@'%';
+mysql> create user repuser@'127.0.0.1' identified by 'repuser123';
+mysql> grant replication slave,replication client on *.* to repuser@'127.0.0.1';
+mysql> create user repuser@'localhost' identified by 'repuser123';
+mysql> grant replication slave,replication client on *.* to repuser@'localhost';
+mysql> flush privileges;
+mysql> set sql_log_bin=1;
+mysql> set global group_replication_recovery_get_public_key=on;
+mysql> change replication source to source_user='repuser', source_password='repuser123' for channel 'group_replication_recovery';
+mysql> start group_replication;
+```
+
+第三个节点：
+
+```mysql
+# 如果搭建MGR集群的时候进行了mysql数据库初始化操作，最好在改完密码后reset master和reset slave all;然后用新的密码登录后执行以下操作
+mysql> mysql -uroot -p123456
+mysql> set sql_log_bin=0;
+mysql> create user repuser@'%' identified by 'repuser123';
+mysql> grant replication slave,replication client on *.* to repuser@'%';
+mysql> create user repuser@'127.0.0.1' identified by 'repuser123';
+mysql> grant replication slave,replication client on *.* to repuser@'127.0.0.1';
+mysql> create user repuser@'localhost' identified by 'repuser123';
+mysql> grant replication slave,replication client on *.* to repuser@'localhost';
+mysql> flush privileges;
+mysql> set sql_log_bin=1;
+mysql> set global group_replication_recovery_get_public_key=on;
+mysql> change replication source to source_user='repuser', source_password='repuser123' for channel 'group_replication_recovery';
+mysql> start group_replication;
+mysql> select * from performance_schema.replication_group_members;
+```
+
+验证：
+
+主节点：
+
+```mysql
+mysql> create database test_db1;
+Query OK, 1 row affected (0.01 sec)
+
+mysql> use test_db1;
+Database changed
+mysql> create table test_db1.test_t1 (id int primary key ,name varchar(40));
+Query OK, 0 rows affected (0.03 sec)
+
+mysql> insert into test_db1.test_t1 values(1,'itpux111'),(2,'itpux112'),(3,'itpux113'),(4,'itpux114'),(5,'itpux115');
+Query OK, 5 rows affected (0.02 sec)
+Records: 5  Duplicates: 0  Warnings: 0
+
+mysql> select * from test_db1.test_t1;
+```
+
+
+
+```markdown
+rm -rf /mysql/data/3306/data/*
+rm -rf /mysql/log/3306/binlog/*
+rm -rf /mysql/log/3306/relaylog/*
+rm -rf /mysql/log/3306/log-error.err 
+touch /mysql/log/3306/log-error.err
+chown -R mysql:mysql /mysql
+
+vim /mysql/data/3306/my.cnf
+mysqld --defaults-file=/mysql/data/3306/my.cnf --initialize --user=mysql --basedir=/mysql/app/mysql --datadir=/mysql/data/3306/data
+vim /mysql/log/3306/log-error.err
+systemctl start mysqld.service
+mysql -uroot -p
+
+ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '123456';
+use mysql;
+update user set host='%' where user='root';
+flush privileges;
+reset master;
+reset slave all;
+quit;
+
+vim /mysql/data/3306/my.cnf
+systemctl restart mysqld.service
+
+mysql -uroot -p
+
+
+set sql_log_bin=0;
+create user repuser@'%' identified by 'repuser123';
+grant replication slave,replication client on *.* to repuser@'%';
+create user repuser@'127.0.0.1' identified by 'repuser123';
+grant replication slave,replication client on *.* to repuser@'127.0.0.1';
+create user repuser@'localhost' identified by 'repuser123';
+grant replication slave,replication client on *.* to repuser@'localhost';
+flush privileges;
+set sql_log_bin=1;
+set global group_replication_recovery_get_public_key=on;
+change replication source to source_user='repuser', source_password='repuser123' for channel 'group_replication_recovery';
+
+mysql -urepuser -prepuser123 -h 192.168.56.110 -P3306 --server-public-key-path=/mysql/data/3306/data/public_key.pem
+mysql -urepuser -prepuser123 -h 192.168.56.111 -P3306 --server-public-key-path=/mysql/data/3306/data/public_key.pem
+mysql -urepuser -prepuser123 -h 192.168.56.112 -P3306 --server-public-key-path=/mysql/data/3306/data/public_key.pem
+
+set global group_replication_bootstrap_group=on;
+start group_replication;
+set global group_replication_bootstrap_group=off;
+select * from performance_schema.replication_group_members;
+
+start group_replication;
+select * from performance_schema.replication_group_members;
+```
+
+
+
+
 
 ## Canal
 

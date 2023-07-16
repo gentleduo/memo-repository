@@ -224,6 +224,7 @@ libaio-0.3.109-13.el7.x86_64
 [root@mysql01 ~]# mkdir -p /mysql/data/3306/data
 [root@mysql01 ~]# mkdir -p /mysql/log/3306
 [root@mysql01 ~]# mkdir -p /mysql/log/3306/binlog
+[root@mysql01 ~]# mkdir -p /mysql/log/3306/relaylog
 # 解压
 [root@mysql01 ~]# cd /mysql/app/
 [root@mysql01 app]# tar zxfv mysql-8.0.32-el7-x86_64.tar.gz 
@@ -358,7 +359,7 @@ log_bin_trust_function_creators = ON
 
 # 使用半同步方式需要安装插件，安装方式有两种：
 # 1、通过install plugin的方式安装，如果有多台机器，则需要登录每一台mysql服务器进行安装
-# 2、将配置信息写入到配置文件my.cnf中
+# 2、将配置信息写入到配置文件my.cnf中，但是这种方式在8.0.32版本中使用mysqld命令进行初始化的时候会报错。
 # 半同步复制：master节点增加如下配置
 #plugin_dir=/mysql/app/mysql/lib/plugin/
 #plugin_load ="rpl_semi_sync_source=semisync_source.so"
@@ -420,7 +421,6 @@ log_timestamps=system
 
 ```bash
 # 错误日志文件必须创建，否则无法执行初始化
-[root@mysql01 3306]# touch /mysql/log/3306/log-error.err 
 [root@mysql01 3306]# rm -rf /mysql/data/3306/data/*
 [root@mysql01 3306]# rm -rf /mysql/log/3306/log-error.err 
 [root@mysql01 3306]# touch /mysql/log/3306/log-error.err
@@ -7153,6 +7153,136 @@ mysql> show status like 'rpl_semi%';
 1. Rpl_semi_sync_replica_status
 
    显示当前从库是否运行半同步复制，如果插件已启用，并且复制I/O线程正在运行，则为ON，否则为OFF
+
+## 主从切换
+
+主库
+
+```mysql
+# 设置主库为只读模式
+mysql> set global read_only=1;
+Query OK, 0 rows affected (0.00 sec)
+
+# 刷新二进制日志
+mysql> flush logs;
+Query OK, 0 rows affected (0.02 sec)
+
+mysql> show master status;
++---------------+----------+--------------+------------------+-------------------------------------------+
+| File          | Position | Binlog_Do_DB | Binlog_Ignore_DB | Executed_Gtid_Set                         |
++---------------+----------+--------------+------------------+-------------------------------------------+
+| binlog.000042 |      197 |              |                  | 438d20fa-1e3f-11ee-8ba9-08002768f4c6:1-24 |
++---------------+----------+--------------+------------------+-------------------------------------------+
+1 row in set (0.00 sec)
+```
+
+从库
+
+```mysql
+# 下面两种方式都用于判断主从是否一致
+mysql> show slave status\G
+# 用主库的文件在备库上查询，如果主库和从库的差距为零则表示双方数据一致，
+mysql> select master_pos_wait('binlog.000042',197);
++--------------------------------------+
+| master_pos_wait('binlog.000042',197) |
++--------------------------------------+
+|                                    0 |
++--------------------------------------+
+1 row in set, 1 warning (0.00 sec)
+# 确保所有线程都出于wait状态
+mysql> show processlist;
+mysql> stop slave;
+# RESET MASTER的作用
+# 删除binlog索引文件中列出的所有binlog文件
+# 清空binlog索引文件
+# 创建一个新的binlog文件
+# 清空系统变量gtid_purged和gtid_executed
+# 在MySQL 5.7.5 及后续版本中, RESET MASTER还会会清空 mysql.gtid_executed 数据表。
+mysql> reset master;
+# RESET MASTER的作用
+# 清除slave 复制时的master binlog的位置
+# 清空master info, relay log info
+# 删除所有的relay log文件，并创建一个新的relay log文件。
+# 重置复制延迟(CHANGE MASTER TO 的 MASTER_DELAY参数指定的)为0。
+# RESET SLAVE 不会改变gtid_executed or gtid_purged.
+# RESET SLAVE 不会改变复制连接使用的参数，例如master host, master port, master user, or master password
+# 如果要重置这些连接参数，需要使用命令 重置操作之后，就需要使用 CHANGE MASTER TO 重新指定复制连接参数。
+mysql> reset slave;
+mysql> show master status;
+```
+
+主库
+
+```mysql
+# 清除所有二进制日志
+mysql> reset master;
+Query OK, 0 rows affected (0.02 sec)
+# 清除所有中继日志
+mysql> reset slave;
+Query OK, 0 rows affected, 1 warning (0.00 sec)
+mysql> show master status;
+```
+
+修改my.cnf信息
+
+- 主库
+
+```bash
+[root@mysql01 ~]# cp /mysql/data/3306/my.cnf /mysql/data/3306/my.cnf.master
+[root@mysql01 ~]# vim /mysql/data/3306/my.cnf
+```
+
+- 从库
+
+```bash
+[root@mysql02 ~]# cp /mysql/data/3306/my.cnf /mysql/data/3306/my.cnf.slave
+[root@mysql01 ~]# vim /mysql/data/3306/my.cnf
+```
+
+重启主从
+
+```bash
+[root@mysql02 ~]# systemctl restart mysqld.service
+[root@mysql01 ~]# systemctl restart mysqld.service
+```
+
+新主库创建同步用户：由于同步用户有也会从老的主库同步至老的从库，所以不需要再次创建，只需要确实是否有同步用户即可
+
+```mysql
+mysql> select host,user,plugin from user;
+ERROR 1146 (42S02): Table 'test_db.user' doesn't exist
+mysql> select host,user,plugin from mysql.user;
++-----------+------------------+-----------------------+
+| host      | user             | plugin                |
++-----------+------------------+-----------------------+
+| %         | repuser          | caching_sha2_password |
+| %         | root             | mysql_native_password |
+| localhost | mysql.infoschema | caching_sha2_password |
+| localhost | mysql.session    | caching_sha2_password |
+| localhost | mysql.sys        | caching_sha2_password |
++-----------+------------------+-----------------------+
+5 rows in set (0.00 sec)
+```
+
+新从库连接主库
+
+```mysql
+mysql> change master to master_host='192.168.56.111',master_user='repuser',master_password='repuser123',master_auto_position=1;
+```
+
+获取公钥
+
+```bash
+[root@mysql01 ~]# mysql -urepuser -prepuser123 -h 192.168.56.111 -P3306 --server-public-key-path=/mysql/data/3306/data/public_key.pem
+[root@mysql01 ~]# mysql -uroot -p123456
+```
+
+启动slave
+
+```mysql
+mysql> start slave;
+mysql> show slave status\G
+```
 
 ## Canal
 

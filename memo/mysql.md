@@ -7284,6 +7284,119 @@ mysql> start slave;
 mysql> show slave status\G
 ```
 
+## 主从SQL及IO线程故障处理
+
+### SQL故障
+
+先在从库上创建一个用户：
+
+```mysql
+mysql> mysql -uroot -proot
+# 从库创建的用户不会同步给主库，所以在主库中还可以创建一模一样的用户
+mysql> create user 'repuser01'@'%' identified by 'repuser01';
+mysql> grant all privileges on *.* to 'repuser01'@'%';
+mysql> flush privileges;
+mysql> select user,host from mysql.user;
+```
+
+再到主库上去创建一个用户，这样冲突，就报错了
+
+```mysql
+mysql> mysql -uroot -proot
+# 主库创建的用户会同步给从库，所以从库执行创建用户的SQL时会报错
+mysql> create user 'repuser01'@'%' identified by 'repuser01';
+mysql> grant all privileges on *.* to 'repuser01'@'%';
+mysql> flush privileges;
+mysql> select user,host from mysql.user;
+mysql> insert into test_db.test_t1 values (5,'qianqi');
+mysql> commit;
+mysql> select * from test_db.test_t1;
+```
+
+从库查看报错信息：
+
+```mysql
+mysql> show slave status\G
+*************************** 1. row ***************************
+               Slave_IO_State: Waiting for source to send event
+                  Master_Host: 192.168.56.110
+                  Master_User: repuser
+                  Master_Port: 3306
+                Connect_Retry: 60
+              Master_Log_File: binlog.000003
+          Read_Master_Log_Pos: 1258
+               Relay_Log_File: relay.000004
+                Relay_Log_Pos: 367
+        Relay_Master_Log_File: binlog.000003
+             Slave_IO_Running: Yes
+            Slave_SQL_Running: No
+              Replicate_Do_DB: 
+          Replicate_Ignore_DB: 
+           Replicate_Do_Table: 
+       Replicate_Ignore_Table: 
+      Replicate_Wild_Do_Table: 
+  Replicate_Wild_Ignore_Table: 
+                   # 这里表示最后错误号
+                   Last_Errno: 1396
+                   # 这里可以看到，从库在执行ad8b4216-22ca-11ee-841b-08002768f4c6:3这个transcation的时候报错，并且该事务在master中的二进制位置为：binlog.000003.514
+                   Last_Error: Coordinator stopped because there were error(s) in the worker(s). The most recent failure being: Worker 1 failed executing transaction 'ad8b4216-22ca-11ee-841b-08002768f4c6:3' at master log binlog.000003, end_log_pos 514. See error log and/or performance_schema.replication_applier_status_by_worker table for more details about this failure or others, if any.
+                 Skip_Counter: 0
+          Exec_Master_Log_Pos: 197
+              Relay_Log_Space: 1628
+              Until_Condition: None
+               Until_Log_File: 
+                Until_Log_Pos: 0
+           Master_SSL_Allowed: No
+           Master_SSL_CA_File: 
+           Master_SSL_CA_Path: 
+              Master_SSL_Cert: 
+            Master_SSL_Cipher: 
+               Master_SSL_Key: 
+        Seconds_Behind_Master: NULL
+Master_SSL_Verify_Server_Cert: No
+                Last_IO_Errno: 0
+                Last_IO_Error: 
+               Last_SQL_Errno: 1396
+               Last_SQL_Error: Coordinator stopped because there were error(s) in the worker(s). The most recent failure being: Worker 1 failed executing transaction 'ad8b4216-22ca-11ee-841b-08002768f4c6:3' at master log binlog.000003, end_log_pos 514. See error log and/or performance_schema.replication_applier_status_by_worker table for more details about this failure or others, if any.
+  Replicate_Ignore_Server_Ids: 
+             Master_Server_Id: 1103306
+                  Master_UUID: ad8b4216-22ca-11ee-841b-08002768f4c6
+             Master_Info_File: mysql.slave_master_info
+                    SQL_Delay: 0
+          SQL_Remaining_Delay: NULL
+      Slave_SQL_Running_State: 
+           Master_Retry_Count: 86400
+                  Master_Bind: 
+      Last_IO_Error_Timestamp: 
+     Last_SQL_Error_Timestamp: 230716 11:55:50
+               Master_SSL_Crl: 
+           Master_SSL_Crlpath: 
+           Retrieved_Gtid_Set: ad8b4216-22ca-11ee-841b-08002768f4c6:3-6
+            Executed_Gtid_Set: 3b0a444d-22cb-11ee-b285-08002754b95e:1-3,
+ad8b4216-22ca-11ee-841b-08002768f4c6:1-2
+                Auto_Position: 1
+         Replicate_Rewrite_DB: 
+                 Channel_Name: 
+           Master_TLS_Version: 
+       Master_public_key_path: 
+        Get_master_public_key: 0
+            Network_Namespace: 
+1 row in set, 1 warning (0.00 sec)
+
+# 在master节点中执行如下命令查看具体的SQL内容
+mysql> show binlog events in 'binlog.000003'\G
+# 在slave中查看错误的详细信息
+mysql> select * from performance_schema.replication_applier_status_by_worker where LAST_ERROR_NUMBER=1396\G
+# 当出现从库有事务执行报错的时候，可以通过如下方式跳过该事务：
+mysql> stop slave
+mysql> set@@session.gtid_next='ad8b4216-22ca-11ee-841b-08002768f4c6:3';
+mysql> begin;
+mysql> commit;
+mysql> set @@session.gtid_next=automatic;
+mysql> start slave;
+mysql> show slave status \G
+```
+
 ## Canal
 
 canal是阿里巴巴的一个使用Java开发的开源项目，它是专门用来进行数据库同步的。

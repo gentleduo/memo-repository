@@ -7481,10 +7481,6 @@ mysql> set globalgtid_purged='3addb98f-7ea1-11e8-8f56-000c294eccb3:1-42,3addb98f
 mysqldump -uroot -proot --set-gtid-purged=off --all-databases > all.sql
 ```
 
-
-
-
-
 ## Canal
 
 canal是阿里巴巴的一个使用Java开发的开源项目，它是专门用来进行数据库同步的。

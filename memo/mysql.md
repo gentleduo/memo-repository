@@ -7199,14 +7199,14 @@ mysql> stop slave;
 # 清空系统变量gtid_purged和gtid_executed
 # 在MySQL 5.7.5 及后续版本中, RESET MASTER还会会清空 mysql.gtid_executed 数据表。
 mysql> reset master;
-# RESET MASTER的作用
+# RESET SLAVE的作用
 # 清除slave 复制时的master binlog的位置
 # 清空master info, relay log info
 # 删除所有的relay log文件，并创建一个新的relay log文件。
 # 重置复制延迟(CHANGE MASTER TO 的 MASTER_DELAY参数指定的)为0。
 # RESET SLAVE 不会改变gtid_executed or gtid_purged.
 # RESET SLAVE 不会改变复制连接使用的参数，例如master host, master port, master user, or master password
-# 如果要重置这些连接参数，需要使用命令 重置操作之后，就需要使用 CHANGE MASTER TO 重新指定复制连接参数。
+# 如果要重置这些连接参数，需要使用命令RESET SLAVE ALL重置操作之后，就需要使用CHANGE MASTER TO重新指定复制连接参数。
 mysql> reset slave;
 mysql> show master status;
 ```
@@ -7336,7 +7336,7 @@ mysql> show slave status\G
        Replicate_Ignore_Table: 
       Replicate_Wild_Do_Table: 
   Replicate_Wild_Ignore_Table: 
-                   # 这里表示最后错误号
+                   # 错误号
                    Last_Errno: 1396
                    # 这里可以看到，从库在执行ad8b4216-22ca-11ee-841b-08002768f4c6:3这个transcation的时候报错，并且该事务在master中的二进制位置为：binlog.000003.514
                    Last_Error: Coordinator stopped because there were error(s) in the worker(s). The most recent failure being: Worker 1 failed executing transaction 'ad8b4216-22ca-11ee-841b-08002768f4c6:3' at master log binlog.000003, end_log_pos 514. See error log and/or performance_schema.replication_applier_status_by_worker table for more details about this failure or others, if any.
@@ -7396,6 +7396,94 @@ mysql> set @@session.gtid_next=automatic;
 mysql> start slave;
 mysql> show slave status \G
 ```
+
+### IO线程故障
+
+从库还没拿到主库的记录后，而主库上的日志已经被删除了。
+
+从库
+
+```mysql
+# 先停止从库
+mysql> stop slave;
+Query OK, 0 rows affected, 1 warning (0.02 sec)
+```
+
+主库
+
+```mysql
+# gtid_executed:ad8b4216-22ca-11ee-841b-08002768f4c6:1-7
+mysql> show global variables like '%gtid%';
+# binlog.000003 1621
+mysql> show master status; 
+# binlog.000004 197
+mysql> flush logs;
+mysql> create table test_db.test_t2 (id int) engine=innodb;
+# binlog.000005 197
+mysql> flush logs;
+mysql> create table test_db.test_t3 (id int) engine=innodb;
+# binlog.000005 412
+mysql> show master status;
+mysql> purge binary logs to 'binlog.000005';
+# 显示gtid：ad8b4216-22ca-11ee-841b-08002768f4c6:1-8被删除了。
+mysql> show global variables like '%gtid%';
++----------------------------------+------------------------------------------+
+| Variable_name                    | Value                                    |
++----------------------------------+------------------------------------------+
+| binlog_gtid_simple_recovery      | ON                                       |
+| enforce_gtid_consistency         | ON                                       |
+| gtid_executed                    | ad8b4216-22ca-11ee-841b-08002768f4c6:1-9 |
+| gtid_executed_compression_period | 0                                        |
+| gtid_mode                        | ON                                       |
+| gtid_owned                       |                                          |
+| gtid_purged                      | ad8b4216-22ca-11ee-841b-08002768f4c6:1-8 |
+| session_track_gtids              | OFF                                      |
++----------------------------------+------------------------------------------+
+8 rows in set (0.01 sec)
+```
+
+从库
+
+```mysql
+mysql> start slave;
+# Last_IO_Errno: 13114
+# Last_IO_Error: Got fatal error 1236 from master when reading data from binary log: 'Cannot replicate because the master purged required binary logs. Replicate the missing transactions from elsewhere, or provision a new slave from backup. Consider increasing the master's binary log expiration period. The GTID set sent by the slave is '3b0a444d-22cb-11ee-b285-08002754b95e:1-3,ad8b4216-22ca-11ee-841b-08002768f4c6:1-7', and the missing transactions are 'ad8b4216-22ca-11ee-841b-08002768f4c6:8''
+mysql> show slave status\G
+mysql> stop slave;
+# 先重做一次主次
+mysql> change master to master_host='192.168.56.110',master_user='repuser',master_password='repuser123',master_auto_position=1;
+mysql> start slave;
+# Last_IO_Errno: 13114
+# Last_IO_Error: Got fatal error 1236 from master when reading data from binary log: 'Cannot replicate because the master purged required binary logs. Replicate the missing transactions from elsewhere, or provision a new slave from backup. Consider increasing the master's binary log expiration period. The GTID set sent by the slave is '3b0a444d-22cb-11ee-b285-08002754b95e:1-3,ad8b4216-22ca-11ee-841b-08002768f4c6:1-7', and the missing transactions are 'ad8b4216-22ca-11ee-841b-08002768f4c6:8''
+mysql> show slave status\G
+# 如果还是一样的错误，有两种方法解决
+# 1、忽略被删除的事务，强行同步，再通过验证工具对比补数据。
+mysql> stop slave;
+mysql> set global gtid_purged='ad8b4216-22ca-11ee-841b-08002768f4c6:8';
+mysql> start slave;
+mysql> show slave status\G
+# 如果在set global gtid_purged的时候报错：ERROR 1840 (HY000): @@GLOBAL.GTID_PURGED can only be setwhen@@GLOBAL.GTID_EXECUTED is empty，则执行如下操作：
+mysql> stop slave;
+mysql> reset master;
+mysql> set global gtid_purged='ad8b4216-22ca-11ee-841b-08002768f4c6:8';
+mysql> start slave;
+mysql> show slave status\G
+# 如果再不行，执行如下操作：
+mysql> stop slave;
+mysql> reset master;
+mysql> reset slave;
+mysql> set global gtid_purged='ad8b4216-22ca-11ee-841b-08002768f4c6:8';
+mysql> start slave;
+mysql> show slave status\G
+# 如果要忽略多个事务：
+mysql> set globalgtid_purged='3addb98f-7ea1-11e8-8f56-000c294eccb3:1-42,3addb98f-7ea1-11e8-8f56-000c294eccb3:1-43';
+# 2、重新mysqldump恢复，重配置。
+mysqldump -uroot -proot --set-gtid-purged=off --all-databases > all.sql
+```
+
+
+
+
 
 ## Canal
 

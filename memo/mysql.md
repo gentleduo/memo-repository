@@ -977,6 +977,61 @@ Query OK, 0 rows affected (0.00 sec)
 Enter password: 
 ```
 
+### 完整流程
+
+```markdown
+rm -rf /mysql/data/3306/data/*
+rm -rf /mysql/log/3306/binlog/*
+rm -rf /mysql/log/3306/relaylog/*
+rm -rf /mysql/log/3306/log-error.err 
+touch /mysql/log/3306/log-error.err
+chown -R mysql:mysql /mysql
+
+vim /mysql/data/3306/my.cnf
+mysqld --defaults-file=/mysql/data/3306/my.cnf --initialize --user=mysql --basedir=/mysql/app/mysql --datadir=/mysql/data/3306/data
+vim /mysql/log/3306/log-error.err
+systemctl start mysqld.service
+mysql -uroot -p
+
+ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '123456';
+use mysql;
+update user set host='%' where user='root';
+flush privileges;
+reset master;
+reset slave all;
+quit;
+
+vim /mysql/data/3306/my.cnf
+systemctl restart mysqld.service
+
+mysql -uroot -p
+
+set sql_log_bin=0;
+create user repuser@'%' identified by 'repuser123';
+grant replication slave,replication client on *.* to repuser@'%';
+create user repuser@'127.0.0.1' identified by 'repuser123';
+grant replication slave,replication client on *.* to repuser@'127.0.0.1';
+create user repuser@'localhost' identified by 'repuser123';
+grant replication slave,replication client on *.* to repuser@'localhost';
+flush privileges;
+set sql_log_bin=1;
+set global group_replication_recovery_get_public_key=on;
+change replication source to source_user='repuser', source_password='repuser123' for channel 'group_replication_recovery';
+
+#有可能会出现权限验证问题，所以最好通过下述命令获取下公钥
+mysql -urepuser -prepuser123 -h 192.168.56.110 -P3306 --server-public-key-path=/mysql/data/3306/data/public_key.pem
+mysql -urepuser -prepuser123 -h 192.168.56.111 -P3306 --server-public-key-path=/mysql/data/3306/data/public_key.pem
+mysql -urepuser -prepuser123 -h 192.168.56.112 -P3306 --server-public-key-path=/mysql/data/3306/data/public_key.pem
+
+set global group_replication_bootstrap_group=on;
+start group_replication;
+set global group_replication_bootstrap_group=off;
+select * from performance_schema.replication_group_members;
+
+start group_replication;
+select * from performance_schema.replication_group_members;
+```
+
 ## RPM安装
 
 ### 安装准备工作
@@ -7675,6 +7730,18 @@ mysql> start group_replication;
 mysql> select * from performance_schema.replication_group_members;
 ```
 
+查看主节点信息
+
+```mysql
+mysql> select b.member_id, b.member_host, b.member_port from performance_schema.global_status a join performance_schema.replication_group_members b on a.variable_value= b.member_id where a.variable_name= 'group_replication_primary_member';
++--------------------------------------+-------------+-------------+
+| member_id                            | member_host | member_port |
++--------------------------------------+-------------+-------------+
+| 7eb90521-243c-11ee-afb2-08002768f4c6 | mysql01     |        3306 |
++--------------------------------------+-------------+-------------+
+1 row in set (0.00 sec)
+```
+
 验证：
 
 主节点：
@@ -7695,64 +7762,114 @@ Records: 5  Duplicates: 0  Warnings: 0
 mysql> select * from test_db1.test_t1;
 ```
 
+下线主节点：
 
-
-```markdown
-rm -rf /mysql/data/3306/data/*
-rm -rf /mysql/log/3306/binlog/*
-rm -rf /mysql/log/3306/relaylog/*
-rm -rf /mysql/log/3306/log-error.err 
-touch /mysql/log/3306/log-error.err
-chown -R mysql:mysql /mysql
-
-vim /mysql/data/3306/my.cnf
-mysqld --defaults-file=/mysql/data/3306/my.cnf --initialize --user=mysql --basedir=/mysql/app/mysql --datadir=/mysql/data/3306/data
-vim /mysql/log/3306/log-error.err
-systemctl start mysqld.service
-mysql -uroot -p
-
-ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '123456';
-use mysql;
-update user set host='%' where user='root';
-flush privileges;
-reset master;
-reset slave all;
-quit;
-
-vim /mysql/data/3306/my.cnf
-systemctl restart mysqld.service
-
-mysql -uroot -p
-
-
-set sql_log_bin=0;
-create user repuser@'%' identified by 'repuser123';
-grant replication slave,replication client on *.* to repuser@'%';
-create user repuser@'127.0.0.1' identified by 'repuser123';
-grant replication slave,replication client on *.* to repuser@'127.0.0.1';
-create user repuser@'localhost' identified by 'repuser123';
-grant replication slave,replication client on *.* to repuser@'localhost';
-flush privileges;
-set sql_log_bin=1;
-set global group_replication_recovery_get_public_key=on;
-change replication source to source_user='repuser', source_password='repuser123' for channel 'group_replication_recovery';
-
-mysql -urepuser -prepuser123 -h 192.168.56.110 -P3306 --server-public-key-path=/mysql/data/3306/data/public_key.pem
-mysql -urepuser -prepuser123 -h 192.168.56.111 -P3306 --server-public-key-path=/mysql/data/3306/data/public_key.pem
-mysql -urepuser -prepuser123 -h 192.168.56.112 -P3306 --server-public-key-path=/mysql/data/3306/data/public_key.pem
-
-set global group_replication_bootstrap_group=on;
-start group_replication;
-set global group_replication_bootstrap_group=off;
-select * from performance_schema.replication_group_members;
-
-start group_replication;
-select * from performance_schema.replication_group_members;
+```bash
+[root@mysql01 ~]# systemctl stop mysqld.service
 ```
 
+再次查看主节点信息
 
+```mysql
+mysql> select b.member_id, b.member_host, b.member_port from performance_schema.global_status a join performance_schema.replication_group_members b on a.variable_value= b.member_id where a.variable_name= 'group_replication_primary_member';
++--------------------------------------+-------------+-------------+
+| member_id                            | member_host | member_port |
++--------------------------------------+-------------+-------------+
+| 1dcc2446-243d-11ee-af97-08002729e15a | mysql03     |        3306 |
++--------------------------------------+-------------+-------------+
+1 row in set (0.00 sec)
 
+mysql>  select * from performance_schema.replication_group_members;
++---------------------------+--------------------------------------+-------------+-------------+--------------+-------------+----------------+----------------------------+
+| CHANNEL_NAME              | MEMBER_ID                            | MEMBER_HOST | MEMBER_PORT | MEMBER_STATE | MEMBER_ROLE | MEMBER_VERSION | MEMBER_COMMUNICATION_STACK |
++---------------------------+--------------------------------------+-------------+-------------+--------------+-------------+----------------+----------------------------+
+| group_replication_applier | 1dcc2446-243d-11ee-af97-08002729e15a | mysql03     |        3306 | ONLINE       | PRIMARY     | 8.0.32         | XCom                       |
+| group_replication_applier | c0cc2837-243c-11ee-b102-08002754b95e | mysql02     |        3306 | ONLINE       | SECONDARY   | 8.0.32         | XCom                       |
++---------------------------+--------------------------------------+-------------+-------------+--------------+-------------+----------------+----------------------------+
+2 rows in set (0.00 sec)
+```
 
+新的主节点中插入数据
+
+```mysql
+mysql> insert into test_db1.test_t1 values(6,'itpux116');
+```
+
+重新启动下线的节点
+
+```bash
+[root@mysql01 ~]# systemctl start mysqld.service
+# 可能会出现权限认证问题，所以先获取下公钥
+[root@mysql01 ~]# mysql -urepuser -prepuser123 -h 192.168.56.111 -P3306 --server-public-key-path=/mysql/data/3306/data/public_key.pem
+[root@mysql01 ~]# mysql -urepuser -prepuser123 -h 192.168.56.112 -P3306 --server-public-key-path=/mysql/data/3306/data/public_key.pem
+```
+
+```mysql
+mysql> start group_replication;
+```
+
+### 在线修改Single-Maste 为Multi-Master模式
+
+停止两台从节点的组复制
+
+```mysql
+mysql> stop GROUP_REPLICATION;
+mysql> set global group_replication_single_primary_mode=false;
+mysql> set global group_replication_enforce_update_everywhere_checks=true;
+```
+
+停止掉主节点的组复制·
+
+```mysql
+mysql> stop GROUP_REPLICATION;
+mysql> set global group_replication_single_primary_mode=false;
+mysql> set global group_replication_enforce_update_everywhere_checks=true;
+# 启动Multi-Master模式的组复制
+mysql> set global group_replication_bootstrap_group=on;
+mysql> start GROUP_REPLICATION;
+mysql> set global group_replication_bootstrap_group=off;
+```
+
+从节点
+
+```mysql
+mysql> stop GROUP_REPLICATION;
+mysql> insert into test_db1.test_t1 values(8,'itpux118');
+mysql> insert into test_db1.test_t1 values(9,'itpux119');
+mysql> insert into test_db1.test_t1 values(10,'itpux120');
+mysql> select * from test_db1.test_t1;
+
+mysql> select * from performance_schema.replication_group_members;
++---------------------------+--------------------------------------+-------------+-------------+--------------+-------------+----------------+----------------------------+
+| CHANNEL_NAME              | MEMBER_ID                            | MEMBER_HOST | MEMBER_PORT | MEMBER_STATE | MEMBER_ROLE | MEMBER_VERSION | MEMBER_COMMUNICATION_STACK |
++---------------------------+--------------------------------------+-------------+-------------+--------------+-------------+----------------+----------------------------+
+| group_replication_applier | 1dcc2446-243d-11ee-af97-08002729e15a | mysql03     |        3306 | ONLINE       | PRIMARY     | 8.0.32         | XCom                       |
+| group_replication_applier | 7eb90521-243c-11ee-afb2-08002768f4c6 | mysql01     |        3306 | ONLINE       | PRIMARY     | 8.0.32         | XCom                       |
+| group_replication_applier | c0cc2837-243c-11ee-b102-08002754b95e | mysql02     |        3306 | ONLINE       | PRIMARY     | 8.0.32         | XCom                       |
++---------------------------+--------------------------------------+-------------+-------------+--------------+-------------+----------------+----------------------------+
+3 rows in set (0.03 sec)
+```
+
+### 重启
+
+配置文件不变的情况下mysql或者系统重启后，MGR的启动方式如下；
+
+主节点：
+
+```mysql
+mysql> set global group_replication_bootstrap_group=on;
+mysql> start group_replication;
+mysql> set global group_replication_bootstrap_group=off;
+```
+
+从节点：
+
+```mysql
+# 可能会出现权限认证问题，所以先获取下公钥
+[root@mysql01 ~]# mysql -urepuser -prepuser123 -h 192.168.56.111 -P3306 --server-public-key-path=/mysql/data/3306/data/public_key.pem
+[root@mysql01 ~]# mysql -urepuser -prepuser123 -h 192.168.56.112 -P3306 --server-public-key-path=/mysql/data/3306/data/public_key.pem
+mysql> start group_replication;
+```
 
 ## Canal
 

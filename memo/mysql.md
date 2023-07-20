@@ -1,4 +1,4 @@
-# MySQL安装
+#  MySQL安装
 
 ## 二进制安装
 
@@ -987,6 +987,7 @@ rm -rf /mysql/log/3306/log-error.err
 touch /mysql/log/3306/log-error.err
 chown -R mysql:mysql /mysql
 
+# MySQL group Replication模式下，初始化时，先安装插件，MGR对应的参数不能设置，否则可能会报错
 vim /mysql/data/3306/my.cnf
 mysqld --defaults-file=/mysql/data/3306/my.cnf --initialize --user=mysql --basedir=/mysql/app/mysql --datadir=/mysql/data/3306/data
 vim /mysql/log/3306/log-error.err
@@ -1001,6 +1002,7 @@ reset master;
 reset slave all;
 quit;
 
+# MGR模式下，设置相应的参数
 vim /mysql/data/3306/my.cnf
 systemctl restart mysqld.service
 
@@ -7371,6 +7373,18 @@ mysql> start slave;
 mysql> show slave status\G
 ```
 
+## 主从同步
+
+从备份恢复的时候，需要从备份文件中找到gtid编号（在通过mysqldump进行备份的时候，加master-data参数会输出最后一个gtid），跳过已经执行过的gtid编号。
+
+```mysql
+mysql> reset master;
+mysql> reset slave;
+mysql> set @MYSQLDUMP_TEMP_LOG_BIN = @@SESSION.SQL_LOG_BIN;
+mysql> set @@SESSION.SQL_LOG_BIN= 0;
+mysql> set @@GLOBAL.GTID_PURGED='e5de0648-5bcf-11e8-9806-000c292834b0:1-3';set mysql> mysql> @@SESSION.SQL_LOG_BIN = @MYSQLDUMP_TEMP_LOG_BIN;
+```
+
 ## 主从SQL及IO线程故障处理
 
 ### SQL故障
@@ -7740,6 +7754,8 @@ mysql> select b.member_id, b.member_host, b.member_port from performance_schema.
 | 7eb90521-243c-11ee-afb2-08002768f4c6 | mysql01     |        3306 |
 +--------------------------------------+-------------+-------------+
 1 row in set (0.00 sec)
+# 查看当前节点只读状态，0：读/写；1：只读
+mysql> select @@read_only, @@super_read_only;
 ```
 
 验证：
@@ -7860,15 +7876,22 @@ mysql> select * from performance_schema.replication_group_members;
 mysql> set global group_replication_bootstrap_group=on;
 mysql> start group_replication;
 mysql> set global group_replication_bootstrap_group=off;
+mysql> select * from performance_schema.replication_group_members;
 ```
 
 从节点：
 
 ```mysql
 # 可能会出现权限认证问题，所以先获取下公钥
-[root@mysql01 ~]# mysql -urepuser -prepuser123 -h 192.168.56.111 -P3306 --server-public-key-path=/mysql/data/3306/data/public_key.pem
-[root@mysql01 ~]# mysql -urepuser -prepuser123 -h 192.168.56.112 -P3306 --server-public-key-path=/mysql/data/3306/data/public_key.pem
+[root@mysql02 ~]# mysql -urepuser -prepuser123 -h 192.168.56.110 -P3306 --server-public-key-path=/mysql/data/3306/data/public_key.pem
+# 使用root登录mysql，启动group_replication
 mysql> start group_replication;
+mysql> select * from performance_schema.replication_group_members;
+# 可能会出现权限认证问题，所以先获取下公钥
+[root@mysql03 ~]# mysql -urepuser -prepuser123 -h 192.168.56.110 -P3306 --server-public-key-path=/mysql/data/3306/data/public_key.pem
+# 使用root登录mysql，启动group_replication
+mysql> start group_replication;
+mysql> select * from performance_schema.replication_group_members;
 ```
 
 ## Canal

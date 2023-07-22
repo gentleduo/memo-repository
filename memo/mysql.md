@@ -6473,7 +6473,7 @@ mysqldump -uroot -proot itpuxdb yg --where="employee_id < 105" > itpuxdb13.sql
 mysqldump -uroot -proot -R -E --all-databases > fullbak14.sql
 
 #导出数据库（数据一致+导出权限+刷新日志）
-mysqldump -uroot -proot --single-transaction --master-data=2 --flush-logs --flush-privileges --routines --all-databases > fullbak15.sql
+mysqldump -uroot -proot --single-transaction --master-data=2 --flush-logs --flush-privileges --events --routines --all-databases > fullbak15.sql
 
 #导入所有库
 mysql -uroot -p < 11.sql
@@ -8062,13 +8062,419 @@ cd to /usr/local/canal/bin for continue
 | tableName       | 表名                   | commodity                                                    |
 | timestamp       | 执行时间戳             | 1553701139000                                                |
 
+# MySQL高可用及负载均衡
 
+## keepalived
 
+keepalived是在Linux系统下的一个轻量级的高可用解决方案，是使用C语言编写的，在 Keepalived 中实现了一组检查器，可以根据服务集群中服务器的健康状态，自动的进行动态主备切换、管理。
 
+VRRP（Virtual Router Redundancy Protocol）虚拟路由器冗余协议，是一种容错的主备模式的协议，保证当主机的下一跳路由出现故障时，由另一台路由器来代替出现故障的路由器进行工作，通过VRRP可以在网络发生故障时透明的进行设备切换而不影响主机之间的数据通信。
 
+Keepalived软件主要是通过VRRP协议实现高可用功能，在安装keepalived的服务器主机上会在配置文件中设置一个虚拟IP，当该keepalived节点为主节点且正常运行时，设置的虚拟Ip就会在该节点生效且绑定在该主机的网卡上，而其他备用主机设置的虚拟IP就不会生效。当测到主keepalived节点出现故障时，备用keepalived节点检会进行抢占提供服务，抢占成功的keepalived节点就会将配置的虚拟IP绑定在自己的网卡上，这样对外部用户来说虚拟IP提供的服务是一直可用的，当故障服务器被修复后可以正常工作时Keepalived会自动的将该服务器加入到服务器群中。在整个过程中，故障检测、故障服务器剔除以及修复后的服务器重新上线这些操作都是由keepalived自动完成，运维人员只需要关注故障服务器的修复。
 
+### 安装
 
+1、下载keepalived 安装包 下载地址
+`http://www.keepalived.org`
 
+```bash
+# 依赖软件
+[root@middleware01 soft]# yum install gcc -y
+[root@middleware01 soft]# yum install openssl-devel -y
+[root@middleware01 soft]# yum -y install libnl libnl-devel -y
+[root@middleware01 soft]# tar -xzvf keepalived-2.2.8.tar.gz
+[root@middleware01 soft]# cd keepalived-2.2.8
+[root@middleware01 keepalived-2.2.8]# ./configure --prefix=/usr/local/keepalived --sysconf=/etc
+[root@middleware01 keepalived-2.2.8]# make && make install
+# 把keepalived.conf.sample复制一份重命名
+[root@middleware01 keepalived-2.2.8]# cp /etc/keepalived/keepalived.conf.sample /etc/keepalived/keepalived.conf
+# 修改keepalived.conf，
+[root@middleware01 keepalived-2.2.8]# systemctl start keepalived.service
+```
+
+### keepalived.conf
+
+```ini
+! Configuration File for keepalived
+
+global_defs {
+   notification_email {
+     380197443@qq.com
+   }
+   notification_email_from 380197443@qq.com
+   smtp_server stmp.qq.com
+   smtp_connect_timeout 30
+   router_id mysql-master
+   vrrp_skip_check_adv_addr
+   vrrp_strict
+   vrrp_garp_interval 0
+   vrrp_gna_interval 0
+}
+
+vrrp_instance VI_1 {
+    state MASTER
+    interface enp0s8
+    virtual_router_id 139
+    priority 100
+    advert_int 1
+    authentication {
+        auth_type PASS
+        auth_pass 1111
+    }
+    virtual_ipaddress {
+        192.168.56.139
+    }
+}
+
+virtual_server 192.168.56.139 3306 {
+    delay_loop 6
+    lb_algo rr
+    lb_kind DR
+    persistence_timeout 0
+    protocol TCP
+
+    #real_server 192.168.56.110 3306 {
+    #    weight 1
+    #    TCP_CHECK {
+    #        connect_timeout 3
+    #        nb_get_retry 3
+    #        delay_before_retry 3
+    #        connect_port 3306
+    #    }
+    #}
+
+    real_server 192.168.56.111 3306 {
+        weight 1
+        TCP_CHECK {
+            connect_timeout 3
+            nb_get_retry 3
+            delay_before_retry 3
+            connect_port 3306
+        }
+    }
+
+    real_server 192.168.56.112 3306 {
+        weight 1
+        TCP_CHECK {
+            connect_timeout 3
+            nb_get_retry 3
+            delay_before_retry 3
+            connect_port 3306
+        }
+    }
+}
+```
+
+## LVS
+
+LVS（Linux Virtual Server）Linux虚拟服务器，是一个虚拟的服务器集群系统。LVS在Linux内核中实现了基于IP的内容请求分发的负载均衡调度解决方案，属于四层负载均衡。
+
+LVS将请求均衡地转移到不同的服务器上执行，且调度器自动屏蔽掉服务器的故障，从而将一组服务器构成一个高性能的、高可用的虚拟服务器。在使用LVS负载均衡时，用户的请求都会被LVS调度器转发到真实服务器，真实服务器在处理完请求后将数据发送给用户时会有多种方式（三种）可以选择，整个服务器集群的结构对客户是透明的。
+
+LVS的三种工作模式：
+
+### NAT模式
+
+NAT（Network Address Translation）网络地址转换，通过修改数据报头，使得内网中的IP可以和外部网络进行通信。LVS负载调度器使用两块不同的网卡配置不同的IP地址，网卡一设置为公网IP负责与外部通信，网卡二设置内网IP负责与内网服务通信。
+
+外部用户通过访问LVS调度器的公网IP发送服务请求，LVS调度器接受请求后，将请求数据进行转换，通过内网IP的网卡设备，根据调度策略将数据转发给内部服务，内部服务处理完成将响应数据再返回给LVS调度器，LVS调度器再将数据转换通过公网IP的网卡设备将响应结果返回给请求用户。
+
+以上描述的就是一个基于NAT工作模式的LVS调度，这种模式的瓶颈在于LVS调度器，因为所有的请求数据和响应数据都需要经过LVS来进行转换处理，当大流量到来时，LVS调度器就成了一个短板，限制整个集群服务性能的上限。
+
+### TUN模式
+
+TUN模式与NAT的不同在于，TUN模式下LVS调度器只负责接受请求，而真实服务器进行响应请给用户。LVS调度器与真实服务器建立IP隧道，IP隧道它可以将原始数据包封装并将新的源地址及端口、目标地址及端口添加新的包头中，将封装后的数据通过隧道转发给后端的真实服务器，真实服务器在收到请求数据包后直接给外部用户响应数据，这种模式下要求真实服务器具有直接外部用户通信的能力。
+
+外部用户访问LVS调度器发送服务请求，LVS调度器接收请求后，将请求数据转换，根据调度策略将数据转发给服务集群真实服务器，真实服务器在处理完成后，就直接与外部请求用户通信，直接将响应结果返回给请求用户。
+
+以上描述就是一个基于TUN工作模式的LVS调度，这种模式下LVS调度器就只负责请求的负载均衡转发，而处理数据的响应则全部由真实服务器来直接和用户通信了。在实际环境中，请求的数据量往往是小于响应的数据量，所以仅仅将请求数据让LVS来转发，好处就是LVS调度器的压力减少很多，可以承载更大的流量，同时真实服务器的性能也能得到充分利用，缺点就是真实服务器需要与外部网络用户直接通信，在安全上会存在一定风险。
+
+### DR模式
+
+DR模式是在TUN模式的基础上又进行了改造，在DR模式下LVS调度器与真实服务器共享一个虚拟IP，且调度器的虚拟IP对外暴露，而真实服务器的虚拟IP地址将配置在Non-ARP的网络设备上，这种网络设备不会向外广播自己的MAC及对应的IP地址，这样即保证了真实服务器可以接受虚拟IP的网络请求也让真实服务器所绑定的虚拟IP对外部网络部是不可见的。
+
+外部用户通过访问虚拟IP将请求数据包发送到调度器，调度器根据调度策略确定转发的真实服务器后，在不修改数据报文的情况下，将数据帧的MAC地址修改为选出的真实服务器的MAC地址，通过交换机将该数据帧发给真实服务器，之后真实服务器在处理完后进行数据响应时，会将虚拟IP封装在数据包中，再经过路由将数据返回给外部用户，在这整个过程中，真实服务器对外部用户不可见，外部用户只能看到虚拟IP的地址
+
+在DR模式下因为真实服务器给外部用户回应的数据包设置的源IP是虚拟IP地址，又因为真实服务器的虚拟IP不对外暴露，这样外部用户在通过虚拟IP访问时，就访问到了调度器的虚拟IP地址，就实现了整个集群对外部用户透明。
+
+## keepalived + LVS
+
+环境：
+
+- DS1(MASTER)：192.168.56.130
+- DS1(BACKUP)：192.168.56.131
+- RS1：192.168.56.111:3306 MySQL
+- RS1：192.168.56.112:3306 MySQL
+- VIP：192.168.56.139
+
+RS1、RS2
+
+sysctl.conf中增加如下两项配置
+
+```properties
+net.ipv4.conf.enp0s8.arp_ignore = 1
+net.ipv4.conf.enp0s8.arp_announce = 2
+net.ipv4.conf.all.arp_ignore = 1
+net.ipv4.conf.all.arp_announce = 2
+```
+
+增加虚拟IP和静态路由
+
+```bash
+[root@mysql02 ~]# ifconfig lo:0 192.168.56.139 broadcast 192.168.56.139 netmask 255.255.255.255 up
+[root@mysql02 ~]# route add -host 192.168.56.139 dev lo:0
+# 在实验结束后记得删除增加的虚拟IP和路由规则
+[root@mysql02 ~]# ifconfig lo:0 down
+[root@mysql02 ~]# route del 192.168.56.139 > /dev/null 2>&1
+```
+
+DS1、DS2
+
+sysctl.conf中增加如下两项配置
+
+```properties
+net.ipv4.ip_nonlocal_bind=1
+net.ipv4.ip_forward=1
+```
+
+keepalived.conf
+
+```properties
+! Configuration File for keepalived
+
+global_defs {
+   notification_email {
+     380197443@qq.com
+   }
+   notification_email_from 380197443@qq.com
+   smtp_server stmp.qq.com
+   smtp_connect_timeout 30
+   router_id mysql-master
+   vrrp_skip_check_adv_addr
+   vrrp_strict
+   vrrp_garp_interval 0
+   vrrp_gna_interval 0
+}
+
+vrrp_instance VI_1 {
+    # DS2：state BACKUP
+    state MASTER
+    interface enp0s8
+    virtual_router_id 139
+    # DS2：priority 80
+    priority 100
+    advert_int 1
+    authentication {
+        auth_type PASS
+        auth_pass 1111
+    }
+    virtual_ipaddress {
+        192.168.56.139
+    }
+}
+
+virtual_server 192.168.56.139 3306 {
+    delay_loop 6
+    lb_algo rr
+    lb_kind DR
+    persistence_timeout 0
+    protocol TCP
+
+    real_server 192.168.56.111 3306 {
+        weight 1
+        TCP_CHECK {
+            connect_timeout 3
+            nb_get_retry 3
+            delay_before_retry 3
+            connect_port 3306
+        }
+    }
+
+    real_server 192.168.56.112 3306 {
+        weight 1
+        TCP_CHECK {
+            connect_timeout 3
+            nb_get_retry 3
+            delay_before_retry 3
+            connect_port 3306
+        }
+    }
+}
+```
+
+启动keepalived
+
+```bash
+[root@middleware01 app]# systemctl start keepalived.service
+```
+
+测试：
+
+登录：192.168.56.110，访问MySQL
+
+```bash
+# 可以看到请求被随机打在不同的MySQL服务器上
+[root@mysql01 ~]# mysql -uroot -p123456 -h192.168.56.139 -e "select @@hostname;"
+mysql: [Warning] Using a password on the command line interface can be insecure.
++------------+
+| @@hostname |
++------------+
+| mysql02    |
++------------+
+[root@mysql01 ~]# mysql -uroot -p123456 -h192.168.56.139 -e "select @@hostname;"
+mysql: [Warning] Using a password on the command line interface can be insecure.
++------------+
+| @@hostname |
++------------+
+| mysql03    |
++------------+
+[root@mysql01 ~]# mysql -uroot -p123456 -h192.168.56.139 -e "select @@hostname;"
+mysql: [Warning] Using a password on the command line interface can be insecure.
++------------+
+| @@hostname |
++------------+
+| mysql02    |
++------------+
+[root@mysql01 ~]# mysql -uroot -p123456 -h192.168.56.139 -e "select @@hostname;"
+mysql: [Warning] Using a password on the command line interface can be insecure.
++------------+
+| @@hostname |
++------------+
+| mysql03    |
++------------+
+```
+
+## HAProxy
+
+### 安装
+
+1、首先下载haproxy
+
+https://www.haproxy.org/
+
+2、查看当前linux内核版本
+
+这里需要使用uname -r查看系统版本,centos6.X需要使用TARGET=linux26,  centos7.x使用linux31 
+
+3、执行make TARGET=linux31 PREFIX=/usr/local/haproxy命令
+
+4、执行make install PREFIX=/usr/local/haproxy
+
+```bash
+[root@middleware02 soft]# tar -zxvf haproxy-2.8.0.tar.gz 
+[root@middleware02 soft]# uname -r
+3.10.0-1160.71.1.el7.x86_64
+[root@middleware02 soft]# cd haproxy-2.8.0
+[root@middleware02 haproxy-2.8.0]# make TARGET=linux31 PREFIX=/usr/local/haproxy
+[root@middleware02 haproxy-2.8.0]# make install PREFIX=/usr/local/haproxy
+# 查看版本
+[root@middleware01 haproxy-2.8.0]# /usr/local/haproxy/sbin/haproxy -v
+```
+
+## MGR-Keepalived-HAProxy
+
+RS1、RS2、RS3
+
+创建检测所使用的用户
+
+```mysql
+mysql> DROP USER 'haproxy_check'@'192.168.56.130';
+mysql> DROP USER 'haproxy_check'@'192.168.56.131';
+mysql> DROP USER 'haproxy_check'@'192.168.56.139';
+# 由于mysql8的加密方式变了，所以这里必须指定原有的加密方式：mysql_native_password，并且要设置密码永不过期
+mysql> CREATE USER 'haproxy_check'@'192.168.56.130' IDENTIFIED WITH mysql_native_password PASSWORD EXPIRE NEVER;
+mysql> CREATE USER 'haproxy_check'@'192.168.56.131' IDENTIFIED WITH mysql_native_password PASSWORD EXPIRE NEVER;
+mysql> CREATE USER 'haproxy_check'@'192.168.56.139' IDENTIFIED WITH mysql_native_password PASSWORD EXPIRE NEVER;
+mysql> GRANT USAGE on *.* to haproxy_check@'192.168.56.130';
+mysql> GRANT USAGE on *.* to haproxy_check@'192.168.56.131';
+mysql> GRANT USAGE on *.* to haproxy_check@'192.168.56.139';
+mysql> flush privileges;
+```
+
+DS1、DS2
+
+sysctl.conf中增加如下两项配置
+
+```properties
+net.ipv4.ip_nonlocal_bind=1
+net.ipv4.ip_forward=1
+```
+
+创建haproxy用户
+
+```bash
+[root@middleware01 haproxy]# useradd -r -s /sbin/nologin haproxy
+```
+
+修改haproxy配置文件
+
+```bash
+[root@middleware01 haproxy]# vi /usr/local/haproxy/haproxy.cfg
+```
+
+haproxy.cfg
+
+```properties
+global
+    log 127.0.0.1 local0 notice
+    #user haproxy
+    #group haproxy
+    daemon
+    #quiet
+    # nbproc is not supported any more since HAProxy 2.
+    #nbproc 1
+    pidfile /usr/local/haproxy/haproxy.pid
+    defaults
+    log global
+    retries 3
+    option dontlognull
+    option redispatch
+    maxconn 2000
+    timeout queue 1m
+    timeout http-request 10s
+    timeout connect 10s
+    timeout server 1m
+    timeout client 1m
+    timeout http-keep-alive 10s
+    timeout check 10s
+    balance roundrobin
+listen mysql_slave_wgpt_lb1
+    bind 192.168.56.139:3306
+    mode tcp
+    option mysql-check user haproxy_check
+    stats hide-version
+    balance roundrobin
+    server mysql110 192.168.56.110:3306 weight 1 check inter 2000 rise 2 fall 5 maxconn 300
+    server mysql111 192.168.56.111:3306 weight 1 check inter 2000 rise 2 fall 5 maxconn 300
+    server mysql112 192.168.56.112:3306 weight 1 check inter 2000 rise 2 fall 5 maxconn 300
+listen haproxy_stats
+    mode http
+    bind *:8888
+    option httplog
+    stats refresh 5s
+    stats uri /haproxy-stat
+    stats realm www.itpux.com moritor
+    stats realm Haproxy Manager
+    stats auth haproxy:haproxy
+```
+
+启动keepalived
+
+```bash
+[root@middleware01 app]# systemctl start keepalived.service
+```
+
+测试
+
+```bash
+[root@mysql01 app]# mysql -uroot -p123456 -h192.168.56.139 -e "select @@hostname;"
+mysql: [Warning] Using a password on the command line interface can be insecure.
++------------+
+| @@hostname |
++------------+
+| mysql02    |
++------------+
+```
 
 
 

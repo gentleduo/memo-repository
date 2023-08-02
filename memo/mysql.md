@@ -8364,7 +8364,7 @@ https://www.haproxy.org/
 [root@middleware02 soft]# tar -zxvf haproxy-2.8.0.tar.gz 
 [root@middleware02 soft]# uname -r
 3.10.0-1160.71.1.el7.x86_64
-[root@middleware02 soft]# cd haproxy-2.8.0
+    [root@middleware02 soft]# cd haproxy-2.8.0
 [root@middleware02 haproxy-2.8.0]# make TARGET=linux31 PREFIX=/usr/local/haproxy
 [root@middleware02 haproxy-2.8.0]# make install PREFIX=/usr/local/haproxy
 # 查看版本
@@ -8378,16 +8378,16 @@ RS1、RS2、RS3
 创建检测所使用的用户
 
 ```mysql
-mysql> DROP USER 'haproxy_check'@'192.168.56.130';
-mysql> DROP USER 'haproxy_check'@'192.168.56.131';
-mysql> DROP USER 'haproxy_check'@'192.168.56.139';
+mysql> DROP USER 'haproxy_check'@'192.168.56.120';
+mysql> DROP USER 'haproxy_check'@'192.168.56.121';
+mysql> DROP USER 'haproxy_check'@'192.168.56.129';
 # 由于mysql8的加密方式变了，所以这里必须指定原有的加密方式：mysql_native_password，并且要设置密码永不过期
-mysql> CREATE USER 'haproxy_check'@'192.168.56.130' IDENTIFIED WITH mysql_native_password PASSWORD EXPIRE NEVER;
-mysql> CREATE USER 'haproxy_check'@'192.168.56.131' IDENTIFIED WITH mysql_native_password PASSWORD EXPIRE NEVER;
-mysql> CREATE USER 'haproxy_check'@'192.168.56.139' IDENTIFIED WITH mysql_native_password PASSWORD EXPIRE NEVER;
-mysql> GRANT USAGE on *.* to haproxy_check@'192.168.56.130';
-mysql> GRANT USAGE on *.* to haproxy_check@'192.168.56.131';
-mysql> GRANT USAGE on *.* to haproxy_check@'192.168.56.139';
+mysql> CREATE USER 'haproxy_check'@'192.168.56.120' IDENTIFIED WITH mysql_native_password PASSWORD EXPIRE NEVER;
+mysql> CREATE USER 'haproxy_check'@'192.168.56.121' IDENTIFIED WITH mysql_native_password PASSWORD EXPIRE NEVER;
+mysql> CREATE USER 'haproxy_check'@'192.168.56.129' IDENTIFIED WITH mysql_native_password PASSWORD EXPIRE NEVER;
+mysql> GRANT USAGE on *.* to haproxy_check@'192.168.56.120';
+mysql> GRANT USAGE on *.* to haproxy_check@'192.168.56.121';
+mysql> GRANT USAGE on *.* to haproxy_check@'192.168.56.129';
 mysql> flush privileges;
 ```
 
@@ -8403,13 +8403,170 @@ net.ipv4.ip_forward=1
 创建haproxy用户
 
 ```bash
-[root@middleware01 haproxy]# useradd -r -s /sbin/nologin haproxy
+[root@loadbalance01 haproxy]# useradd -r -s /sbin/nologin haproxy
+```
+
+DS1的keepalived.conf
+
+```properties
+! Configuration File for keepalived
+
+global_defs {
+    notification_email {
+      380197443@qq.com
+    }
+    notification_email_from 380197443@qq.com
+    smtp_server stmp.qq.com
+    smtp_connect_timeout 30
+    router_id mysql-master
+}
+
+vrrp_script chk_haproxy {
+    script "/etc/keepalived/scripts/check_haproxy.sh"
+    interval 2
+    weight 2
+}
+
+vrrp_instance VI_1 {
+    state MASTER
+    interface enp0s8
+    virtual_router_id 129
+    priority 100
+    nopreempt
+    virtual_ipaddress {
+        192.168.56.129
+    }
+
+    track_script {
+        chk_haproxy
+    }
+    notify_master /etc/keepalived/scripts/haproxy_master.sh
+    notify_backup /etc/keepalived/scripts/haproxy_backup.sh
+    notify_fault /etc/keepalived/scripts/haproxy_fault.sh
+    notify_stop /etc/keepalived/scripts/haproxy_stop.sh
+}
+```
+
+DS2的keepalived.conf
+
+```properties
+! Configuration File for keepalived
+
+global_defs {
+    notification_email {
+      380197443@qq.com
+    }
+    notification_email_from 380197443@qq.com
+    smtp_server stmp.qq.com
+    smtp_connect_timeout 30
+    router_id mysql-master
+}
+
+vrrp_script chk_haproxy {
+    script "/etc/keepalived/scripts/check_haproxy.sh"
+    interval 2
+    weight 2
+}
+
+vrrp_instance VI_1 {
+    state BACKUP
+    interface enp0s8
+    virtual_router_id 129
+    priority 80
+    nopreempt
+    virtual_ipaddress {
+        192.168.56.129
+    }
+
+    track_script {
+        chk_haproxy
+    }
+    notify_master /etc/keepalived/scripts/haproxy_master.sh
+    notify_backup /etc/keepalived/scripts/haproxy_backup.sh
+    notify_fault /etc/keepalived/scripts/haproxy_fault.sh
+    notify_stop /etc/keepalived/scripts/haproxy_stop.sh
+}
+```
+
+check_haproxy.sh
+
+```bash
+#!/bin/bash
+STARTHAPROXY="/usr/local/haproxy/sbin/haproxy -f /usr/local/haproxy/haproxy.cfg"
+#STOPKEEPALIVED="systemctl stop keepalived"
+LOGFILE="/etc/keepalived/scripts/keepalived-haproxy-state.log"
+echo "[check_haproxy status]" >> $LOGFILE
+A=`ps -C haproxy --no-header |wc -l`
+echo "[check_haproxy status]" >> $LOGFILE
+date >> $LOGFILE
+if [ $A -eq 0 ];then
+echo $STARTHAPROXY >> $LOGFILE
+$STARTHAPROXY >> $LOGFILE 2>&1
+sleep 5
+fi
+if [ `ps -C haproxy --no-header |wc -l` -eq 0 ];then
+exit 0
+else
+exit 1
+fi
+```
+
+haproxy_master.sh
+
+```bash
+#!/bin/bash
+STARTHAPROXY=`/usr/local/haproxy/sbin/haproxy -f /usr/local/haproxy/haproxy.cfg`
+STOPHAPROXY=`ps -ef |grep sbin/haproxy| grep -v grep|awk '{print $2}'|xargskill -s 9`
+LOGFILE="/etc/keepalived/scripts/keepalived-haproxy-state.log"
+echo "[master]" >> $LOGFILE
+date >> $LOGFILE
+echo "Being master...." >> $LOGFILE 2>&1
+echo "stop haproxy...." >> $LOGFILE 2>&1
+$STOPHAPROXY >> $LOGFILE 2>&1
+echo "start haproxy...." >> $LOGFILE 2>&1
+$STARTHAPROXY >> $LOGFILE 2>&1
+echo "haproxy stared ..." >> $LOGFILE
+```
+
+haproxy_backup.sh
+
+```bash
+#!/bin/bash
+STARTHAPROXY=`/usr/local/haproxy/sbin/haproxy -f /usr/local/haproxy/haproxy.cfg`
+STOPHAPROXY=`ps -ef |grep sbin/haproxy| grep -v grep|awk '{print $2}'|xargskill -s 9`
+LOGFILE="/etc/keepalived/scripts/keepalived-haproxy-state.log"
+echo "[master]" >> $LOGFILE
+date >> $LOGFILE
+echo "Being master...." >> $LOGFILE 2>&1
+echo "stop haproxy...." >> $LOGFILE 2>&1
+$STOPHAPROXY >> $LOGFILE 2>&1
+echo "start haproxy...." >> $LOGFILE 2>&1
+$STARTHAPROXY >> $LOGFILE 2>&1
+echo "haproxy stared ..." >> $LOGFILE
+```
+
+haproxy_fault.sh
+
+```bash
+#!/bin/bash
+LOGFILE=/etc/keepalived/scripts/keepalived-haproxy-state.log
+echo "[fault]" >> $LOGFILE
+date >> $LOGFILE
+```
+
+haproxy_stop.sh
+
+```bash
+#!/bin/bash
+LOGFILE=/etc/keepalived/scripts/keepalived-haproxy-state.log
+echo "[stop]" >> $LOGFILE
+date >> $LOGFILE
 ```
 
 修改haproxy配置文件
 
 ```bash
-[root@middleware01 haproxy]# vi /usr/local/haproxy/haproxy.cfg
+[root@loadbalance01 haproxy]# vi /usr/local/haproxy/haproxy.cfg
 ```
 
 haproxy.cfg
@@ -8439,7 +8596,7 @@ global
     timeout check 10s
     balance roundrobin
 listen mysql_slave_wgpt_lb1
-    bind 192.168.56.139:3306
+    bind 192.168.56.129:3306
     mode tcp
     option mysql-check user haproxy_check
     stats hide-version
@@ -8461,13 +8618,13 @@ listen haproxy_stats
 启动keepalived
 
 ```bash
-[root@middleware01 app]# systemctl start keepalived.service
+[root@loadbalance01 app]# systemctl start keepalived.service
 ```
 
 测试
 
 ```bash
-[root@mysql01 app]# mysql -uroot -p123456 -h192.168.56.139 -e "select @@hostname;"
+[root@mysql01 app]# mysql -uroot -p123456 -h192.168.56.129 -e "select @@hostname;"
 mysql: [Warning] Using a password on the command line interface can be insecure.
 +------------+
 | @@hostname |

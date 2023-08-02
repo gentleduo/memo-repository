@@ -16124,6 +16124,16 @@ Endpoint协处理器类似传统数据库中的存储过程，客户端可以调
 
 为所有table 加载了一个 cp class，可以用” ,”分割加载多个 class
 
+将代码放在HBase的类路径上。一种简单的方法是将jar（包含代码和所有依赖项）放入HBase的安装目录lib/中。
+
+重启Hbase生效。
+
+静态卸载：
+
+- 从hbase-site.xml中删除协处理器的元素，包括子元素。
+- 重启HBase。
+- 从类路径或HBase的lib/目录中删除协处理器的JAR文件。
+
 #### 动态加载
 
 启用表 aggregation，只对特定的表生效。通过 HBase Shell 来实现。

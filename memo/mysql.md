@@ -8633,6 +8633,291 @@ mysql: [Warning] Using a password on the command line interface can be insecure.
 +------------+
 ```
 
+## MySQL Router
+
+### 单机
+
+ 安装
+
+```bash
+[root@middleware01 soft]# tar -zxvf mysql-router-8.0.34-linux-glibc2.17-x86_64.tar.gz -C /mysql/app
+[root@middleware01 soft] cd /mysql/app
+[root@middleware01 app]# mv mysql-router-8.0.34-linux-glibc2.17-x86_64/ mysqlrouter
+[root@middleware01 soft]# mkdir -p /mysql/app/mysqlrouter/etc/
+[root@middleware01 soft]# mkdir -p /mysql/log/mysqlrouter/
+[root@middleware01 soft]# chown -R mysql:mysql /mysql/app/mysqlrouter
+[root@middleware01 soft]# chown -R mysql:mysql /mysql/log/mysqlrouter
+[root@middleware01 soft]# echo "PATH=\$PATH:/mysql/app/mysqlrouter/bin:$HOME/bin" >>/etc/profile
+[root@middleware01 soft]# source /etc/profile
+[root@middleware01 app]# vi /usr/lib/systemd/system/mysqlrouter.service
+```
+
+mysqlrouter.service
+
+```ini
+[Unit]
+Description=MySQL Router
+After=syslog.target
+After=network.target
+[Service]
+Type=simple
+User=mysql
+Group=mysql
+ExecStart=/mysql/app/mysqlrouter/bin/mysqlrouter -c /mysql/app/mysqlrouter/etc/mysqlrouter.conf
+PrivateTmp=true
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+[root@middleware01 app]# vim /mysql/app/mysqlrouter/etc/mysqlrouter.conf
+```
+
+```ini
+[DEFAULT]
+logging_folder = /mysql/log/mysqlrouter
+plugin_folder = /mysql/app/mysqlrouter/lib/mysqlrouter
+config_folder = /mysql/app/mysqlrouter
+runtime_folder = /mysql/app/mysqlrouter/run
+[logger]
+#level = INFO
+level = DEBUG
+[routing:read_write]
+bind_address = 192.168.56.130
+#bind_address = 0.0.0.0
+bind_port = 7001
+mode = read-write
+destinations = 192.168.56.110:3306,192.168.56.111:3306
+max_connections = 1024
+max_connect_errors = 10000
+client_connect_timeout = 9
+[routing:read_only]
+bind_address = 192.168.56.130
+#bind_address = 0.0.0.0
+bind_port = 7002
+mode = read-only
+destinations = 192.168.56.111:3306,192.168.56.112:3306
+max_connections = 1024
+max_connect_errors = 10000
+client_connect_timeout = 9
+[keepalive]
+interval = 60
+```
+
+启动
+
+```bash
+[root@middleware01 app]# systemctl start mysqlrouter.service
+```
+
+验证
+
+```bash
+[root@middleware01 app]# mysql -uroot -p123456 -h192.168.56.130 -P7001 -e "select @@hostname;" 
+[root@middleware01 app]# mysql -uroot -p123456 -h192.168.56.130 -P7002 -e "select @@hostname;" 
+```
+
+### 双机高可用
+
+middleware01：
+
+```bash
+[root@middleware01 keepalived]# echo "net.ipv4.ip_nonlocal_bind=1" >> /etc/sysctl.conf
+[root@middleware01 keepalived]# echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf
+[root@middleware01 keepalived]# sysctl -p
+```
+
+mysqlrouter.service
+
+```ini
+[DEFAULT]
+logging_folder = /mysql/log/mysqlrouter
+plugin_folder = /mysql/app/mysqlrouter/lib/mysqlrouter
+config_folder = /mysql/app/mysqlrouter
+runtime_folder = /mysql/app/mysqlrouter/run
+[logger]
+#level = INFO
+level = DEBUG
+[routing:read_write]
+#bind_address = 192.168.56.130
+bind_address = 0.0.0.0
+bind_port = 7001
+mode = read-write
+destinations = 192.168.56.110:3306,192.168.56.111:3306
+max_connections = 1024
+max_connect_errors = 10000
+client_connect_timeout = 9
+[routing:read_only]
+#bind_address = 192.168.56.130
+bind_address = 0.0.0.0
+bind_port = 7002
+mode = read-only
+destinations = 192.168.56.111:3306,192.168.56.112:3306
+max_connections = 1024
+max_connect_errors = 10000
+client_connect_timeout = 9
+[keepalive]
+interval = 60
+```
+
+keepalived.conf
+
+```ini
+! Configuration File for keepalived
+
+global_defs {
+    notification_email {
+      380197443@qq.com
+    }
+    notification_email_from 380197443@qq.com
+    smtp_server stmp.qq.com
+    smtp_connect_timeout 30
+    router_id mysql-master
+}
+
+vrrp_instance VI_1 {
+    state MASTER
+    interface enp0s8
+    virtual_router_id 139
+    priority 100
+    nopreempt
+    authentication {
+        auth_type PASS
+        auth_pass itpux
+    }
+    virtual_ipaddress {
+        192.168.56.139/24
+    }
+}
+```
+
+middleware02：
+
+```bash
+[root@middleware02 keepalived]# echo "net.ipv4.ip_nonlocal_bind=1" >> /etc/sysctl.conf
+[root@middleware02 keepalived]# echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf
+[root@middleware02 keepalived]# sysctl -p
+```
+
+mysqlrouter.service
+
+```ini
+[DEFAULT]
+logging_folder = /mysql/log/mysqlrouter
+plugin_folder = /mysql/app/mysqlrouter/lib/mysqlrouter
+config_folder = /mysql/app/mysqlrouter
+runtime_folder = /mysql/app/mysqlrouter/run
+[logger]
+#level = INFO
+level = DEBUG
+[routing:read_write]
+#bind_address = 192.168.56.131
+bind_address = 0.0.0.0
+bind_port = 7001
+mode = read-write
+destinations = 192.168.56.110:3306,192.168.56.111:3306
+max_connections = 1024
+max_connect_errors = 10000
+client_connect_timeout = 9
+[routing:read_only]
+#bind_address = 192.168.56.131
+bind_address = 0.0.0.0
+bind_port = 7002
+mode = read-only
+destinations = 192.168.56.111:3306,192.168.56.112:3306
+max_connections = 1024
+max_connect_errors = 10000
+client_connect_timeout = 9
+[keepalive]
+interval = 60
+```
+
+keepalived.conf
+
+```ini
+! Configuration File for keepalived
+
+global_defs {
+    notification_email {
+      380197443@qq.com
+    }
+    notification_email_from 380197443@qq.com
+    smtp_server stmp.qq.com
+    smtp_connect_timeout 30
+    router_id mysql-master
+}
+
+vrrp_instance VI_1 {
+    state BACKUP
+    interface enp0s8
+    virtual_router_id 139
+    priority 90
+    nopreempt
+    authentication {
+        auth_type PASS
+        auth_pass itpux
+    }
+    virtual_ipaddress {
+        192.168.56.139/24
+    }
+}
+```
+
+启动
+
+```bash
+[root@middleware01 keepalived]# systemctl start keepalived
+[root@middleware01 keepalived]# systemctl start mysqlrouter.service
+[root@middleware02 keepalived]# systemctl start keepalived
+[root@middleware02 keepalived]# systemctl start mysqlrouter.service
+```
+
+验证
+
+```bash
+[root@mysql01 ~]# mysql -uroot -p123456 -h192.168.56.139 -P7001 -e "select @@hostname;"
+[root@mysql01 ~]# mysql -uroot -p123456 -h192.168.56.139 -P7002 -e "select @@hostname;"
+# 重启一台：middleware01
+[root@middleware01 keepalived]# reboot
+# 192.168.56.139会自动切换至middleware02，并且通过IP：192.168.56.139还是可以访问
+[root@middleware02 keepalived]# ip a
+1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1000
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+       valid_lft forever preferred_lft forever
+    inet6 ::1/128 scope host 
+       valid_lft forever preferred_lft forever
+2: enp0s3: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc pfifo_fast state UP group default qlen 1000
+    link/ether 08:00:27:60:2e:b5 brd ff:ff:ff:ff:ff:ff
+    inet 10.0.2.15/24 brd 10.0.2.255 scope global noprefixroute dynamic enp0s3
+       valid_lft 59635sec preferred_lft 59635sec
+    inet6 fe80::a1be:312f:4d66:ee24/64 scope link noprefixroute 
+       valid_lft forever preferred_lft forever
+3: enp0s8: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc pfifo_fast state UP group default qlen 1000
+    link/ether 08:00:27:6b:a7:bc brd ff:ff:ff:ff:ff:ff
+    inet 192.168.56.131/24 brd 192.168.56.255 scope global noprefixroute enp0s8
+       valid_lft forever preferred_lft forever
+    inet 192.168.56.139/24 scope global secondary enp0s8
+       valid_lft forever preferred_lft forever
+    inet6 fe80::8a2:d9d6:fefa:4ee5/64 scope link tentative noprefixroute dadfailed 
+       valid_lft forever preferred_lft forever
+    inet6 fe80::5f4f:9c6:5bb3:b11c/64 scope link noprefixroute 
+       valid_lft forever preferred_lft forever
+[root@mysql01 ~]# mysql -uroot -p123456 -h192.168.56.139 -P7001 -e "select @@hostname;"
+mysql: [Warning] Using a password on the command line interface can be insecure.
++------------+
+| @@hostname |
++------------+
+| mysql01    |
++------------+
+[root@mysql01 ~]# mysql -uroot -p123456 -h192.168.56.139 -P7002 -e "select @@hostname;" 
+mysql: [Warning] Using a password on the command line interface can be insecure.
++------------+
+| @@hostname |
++------------+
+| mysql03    |
+```
+
 
 
 

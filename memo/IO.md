@@ -6085,6 +6085,8 @@ for ((i=0;i< 1000;i++)); do date; curl --local-port 54539  http://192.168.56.110
 
 # 从网络到分布式
 
+## 基础命令
+
 ```bash
 #exec命令可以用来替代当前shell；换句话说，并没有启动子shell。使用这一命令时任何环境都将被清除，并重新启动一个shell。
 #exec command
@@ -6162,6 +6164,92 @@ PING 192.168.88.88 (192.168.88.88) 56(84) bytes of data.
 
 # 删除虚拟网卡
 [root@server02 ~]# ifconfig enp0s8:1 down
+```
+
+arp_ignore和arp_announce参数都和ARP协议相关，主要用于控制系统返回arp响应和发送arp请求时的动作。这两个参数很重要，特别是在LVS的DR场景下，它们的配置直接影响到DR转发是否正常。
+
+## arp_ignore
+
+arp_ignore参数的作用是控制系统在收到外部的arp请求时，是否要返回arp响应。arp_ignore参数常用的取值主要有0，1，2，3~8较少用到：
+
+- 0：响应任意网卡上接收到的对本机IP地址的arp请求（包括环回网卡上的地址），而不管该目的IP是否在接收网卡上。
+- 1：只响应目的IP地址为接收网卡上的本地地址的arp请求。（当将该本地地址同时绑定到环回网卡上时也不会响应）
+- 2：只响应目的IP地址为接收网卡上的本地地址的arp请求，并且arp请求的源IP必须和接收网卡同网段。
+- 3：如果ARP请求数据包所请求的IP地址对应的本地地址其作用域（scope）为主机（host），则不回应ARP响应数据包，如果作用域为全局（global）或链路（link），则回应ARP响应数据包。
+- 4~7：保留未使用
+- 8：不回应所有的arp请求
+
+示例：
+
+（1）当arp_ignore参数配置为0时，eth1网卡上收到目的IP为环回网卡IP的arp请求，但是eth1也会返回arp响应，把自己的mac地址告诉对端。
+
+![image](assets\io-19.png)
+
+（2）当arp_ignore参数配置为1时，eth1网卡上收到目的IP为环回网卡IP的arp请求，发现请求的IP不是自己网卡上的IP，不会回arp响应。
+
+![image](assets\io-20.png)
+
+## arp_announce
+
+arp_announce的作用是控制系统在对外发送arp请求时，如何选择arp请求数据包的源IP地址。（比如系统准备通过网卡发送一个数据包a，这时数据包a的源IP和目的IP一般都是知道的，而根据目的IP查询路由表，发送网卡也是确定的，故源MAC地址也是知道的，这时就差确定目的MAC地址了。而想要获取目的IP对应的目的MAC地址，就需要发送arp请求。arp请求的目的IP自然就是想要获取其MAC地址的IP，而arp请求的源IP是什么呢？ 可能第一反应会以为肯定是数据包a的源IP地址，但是这个也不是一定的，arp请求的源IP是可以选择的，控制这个地址如何选择就是arp_announce的作用）arp_announce参数常用的取值有0，1，2。
+
+- 0：允许使用任意网卡上的IP地址作为arp请求的源IP，通常就是使用数据包a的源IP。
+- 1：尽量避免使用不属于该发送网卡子网的本地地址作为发送arp请求的源IP地址。
+- 2：忽略IP数据包的源IP地址，选择该发送网卡上最合适的本地地址作为arp请求的源IP地址。
+
+示例：
+
+（1）当arp_announce参数配置为0时，系统要发送的IP包源地址为eth1的地址，IP包目的地址根据路由表查询判断需要从eth2网卡发出，这时会先从eth2网卡发起一个arp请求，用于获取目的IP地址的MAC地址。该arp请求的源MAC自然是eth2网卡的MAC地址，但是源IP地址会选择eth1网卡的地址。
+
+![image](assets\io-21.png)
+
+（2）当arp_announce参数配置为2时，eth2网卡发起arp请求时，源IP地址会选择eth2网卡自身的IP地址。
+
+![image](assets\io-22.png)
+
+## LVS
+
+ LVS（Linux Virtual Server）即Linux虚拟服务器，是由章文嵩博士主导的开源负载均衡项目，目前LVS已经被集成到Linux内核模块中。
+
+arp_ignore和arp_announce参数在DR模式下的作用
+
+arp_ignore
+
+因为DR模式下，每个真实服务器节点都要在环回网卡上绑定虚拟服务IP。这时候，如果客户端对于虚拟服务IP的arp请求广播到了各个真实服务器节点，如果arp_ignore参数配置为0，则各个真实服务器节点都会响应该arp请求，此时客户端就无法正确获取LVS节点上正确的虚拟服务IP所在网卡的MAC地址。假如某个真实服务器节点A的网卡eth1响应了该arp请求，客户端把A节点的eth1网卡的MAC地址误认为是LVS节点的虚拟服务IP所在网卡的MAC，从而将业务请求消息直接发到了A节点的eth1网卡。这时候虽然因为A节点在环回网卡上也绑定了虚拟服务IP，所以A节点也能正常处理请求，业务暂时不会受到影响。但时此时由于客户端请求没有发到LVS的虚拟服务IP上，所以LVS的负载均衡能力没有生效。造成的后果就是，A节点一直在单节点运行，业务量过大时可能会出现性能瓶颈。所以DR模式下要求arp_ignore参数要求配置为1。
+
+arp_announce
+
+每个机器或者交换机中都有一张arp表，该表用于存储对端通信节点IP地址和MAC地址的对应关系。当收到一个未知IP地址的arp请求，就会再本机的arp表中新增对端的IP和MAC记录；当收到一个已知IP地址（arp表中已有记录的地址）的arp请求，则会根据arp请求中的源MAC刷新自己的arp表。如果arp_announce参数配置为0，则网卡在发送arp请求时，可能选择的源IP地址并不是该网卡自身的IP地址，这时候收到该arp请求的其他节点或者交换机上的arp表中记录的该网卡IP和MAC的对应关系就不正确，可能会引发一些未知的网络问题，存在安全隐患。所以DR模式下要求arp_announce参数要求配置为2。
+
+arp_ignore和arp_announce参数分别有all,default,lo,eth1,eth2...等对应不同网卡的具体参数。当all和具体网卡的参数值不一致时，取较大值生效。
+
+一般只需修改all和某个具体网卡的参数即可（取决于你需要修改哪个网卡）。下面以修改lo网卡为例：
+
+1. 修改/etc/sysctl.conf文件，然后sysctl -p刷新到内存。
+
+```properties
+net.ipv4.conf.all.arp_ignore=1
+net.ipv4.conf.lo.arp_ignore=1
+net.ipv4.conf.all.arp_announce=2
+net.ipv4.conf.lo.arp_announce=2
+```
+
+2. 使用sysctl -w直接写入内存：
+
+```properties
+sysctl -w net.ipv4.conf.all.arp_ignore=1
+sysctl -w net.ipv4.conf.lo.arp_ignore=1
+sysctl -w net.ipv4.conf.all.arp_announce=2
+sysctl -w net.ipv4.conf.lo.arp_announce=2
+```
+
+3. 修改/proc文件系统：
+
+```properties
+echo "1">/proc/sys/net/ipv4/conf/all/arp_ignore
+echo "1">/proc/sys/net/ipv4/conf/lo/arp_ignore
+echo "2">/proc/sys/net/ipv4/conf/all/arp_announce
+echo "2">/proc/sys/net/ipv4/conf/lo/arp_announce
 ```
 
 

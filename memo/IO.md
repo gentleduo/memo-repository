@@ -6180,7 +6180,7 @@ listening on enp0s8, link-type EN10MB (Ethernet), capture size 262144 bytes
 19:44:37.849082 ARP, Request who-has 192.168.56.101 (08:00:27:12:04:78) tell 192.168.56.1, length 46
 19:44:37.849108 ARP, Reply 192.168.56.101 is-at 08:00:27:12:04:78, length 28
 19:44:50.749824 ARP, Request who-has 1.1.1.2 tell 192.168.56.101, length 28
-# 可以看到arp请求回复的mac地址是server02中enp0s8网卡的mac地址，所以证明其实lo网卡是不会接收到其他网卡上的数据包的，这里配置了一个1.1.1.2地址，只是骗骗内核，告诉内核该机器上存在这个地址。内核就认为这台机器上有这个地址。
+# 可以看到arp请求回复的mac地址是server02中enp0s8网卡的mac地址，所以证明其实lo网卡是不会接收到其他网卡上的数据包的，这里配置了一个1.1.1.2地址，只是骗骗内核，告诉内核该机器上存在这个地址。内核就认为这台机器上有这个地址。但是其实arp回复的mac地址都是能跟外部网络通信的真实网卡的mac地址。
 19:44:50.750112 ARP, Reply 1.1.1.2 is-at 08:00:27:9f:f2:71, length 46
 
 # 实验2：
@@ -6200,7 +6200,7 @@ PING 1.1.1.2 (1.1.1.2) 56(84) bytes of data.
 64 bytes from 1.1.1.2: icmp_seq=1 ttl=64 time=0.454 ms
 64 bytes from 1.1.1.2: icmp_seq=2 ttl=64 time=0.501 ms
 64 bytes from 1.1.1.2: icmp_seq=3 ttl=64 time=0.270 ms
-# 回环网卡上没有抓到数据包，lo网卡是自己跟自己玩的，不会接收外部网卡的数据包，能和对方通信，只是欺骗内核而已。
+# 回环网卡上没有抓到数据包，lo网卡是自己跟自己玩的，不会接收外部网卡的数据包，跟对方通信的都是真实网卡。
 [root@server02 ~]# tcpdump -i lo -nn icmp
 tcpdump: verbose output suppressed, use -v or -vv for full protocol decode
 listening on lo, link-type EN10MB (Ethernet), capture size 262144 bytes

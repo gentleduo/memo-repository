@@ -6087,6 +6087,8 @@ for ((i=0;i< 1000;i++)); do date; curl --local-port 54539  http://192.168.56.110
 
 ## 基础命令
 
+arp命令
+
 ```bash
 #exec命令可以用来替代当前shell；换句话说，并没有启动子shell。使用这一命令时任何环境都将被清除，并重新启动一个shell。
 #exec command
@@ -6100,73 +6102,170 @@ for ((i=0;i< 1000;i++)); do date; curl --local-port 54539  http://192.168.56.110
 # ARP（Address Resolution Protocol）地址解析协议。IP数据包经常通过以太网进行发送，以32位的IP地址作为源/目的地址。但是以太网设备不能识别IP地址，他们是以48位的以太网地址传输以太网数据包的。ARP就是用来实现这种地址转换的协议
 # arp -a 显示arp缓冲区的所有条目
 # arp -n 查看arp表，并且用ip显示而不是主机名称
-# arp -d 删除arp表
+# arp -d 删除arp表（只能一个一个删除）
 # arp -s 192.168.1.120 08:00:27:7e:b8:08 设置指定的主机的IP地址与 MAC 地址的静态映射；
 # arp -i eth0 -d 192.168.1.120 删除指定网卡上的arp表
 [root@server01 ~]# arp -an
 ```
 
-
+虚拟网卡添加
 
 ```bash
+# 虚拟网卡添加有两种方式：
+# 方法1：添加别名网卡ifconfig enp0s8:0 1.1.1.2/24
+# 方法2：添加辅助ip，ip add a 1.1.1.2/24 dev enp0s8
 # 在server02增加一块虚拟网卡，（虚拟网卡的MAC地址跟原来的enp0s8一样）
-[root@server02 ~]# ifconfig enp0s8:1  192.168.88.88 up
-[root@server02 ~]# ifconfig 
-enp0s3: flags=4163<UP,BROADCAST,RUNNING,MULTICAST>  mtu 1500
-        inet 10.0.2.15  netmask 255.255.255.0  broadcast 10.0.2.255
-        inet6 fe80::3263:8e79:76e2:d5cc  prefixlen 64  scopeid 0x20<link>
-        ether 08:00:27:f6:84:cd  txqueuelen 1000  (Ethernet)
-        RX packets 259  bytes 26715 (26.0 KiB)
-        RX errors 0  dropped 0  overruns 0  frame 0
-        TX packets 274  bytes 22844 (22.3 KiB)
-        TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
+# 通过方法1添加虚拟网卡
+[root@server02 ~]# ifconfig enp0s8:1 192.168.88.88 up
+# 删除通过方法1添加的虚拟网卡
+[root@server02 ~]# ifconfig enp0s8:1 down
+# 通过方法2添加虚拟网卡
+[root@server02 ~]# ip addr add 1.1.1.2/24 dev lo
+# 删除通过方法2添加的虚拟网卡
+[root@server02 ~]# ip addr del 1.1.1.2/24 dev lo
+```
 
-enp0s8: flags=4163<UP,BROADCAST,RUNNING,MULTICAST>  mtu 1500
-        inet 192.168.56.102  netmask 255.255.255.0  broadcast 192.168.56.255
-        inet6 fe80::b326:ffd3:334b:c26  prefixlen 64  scopeid 0x20<link>
-        ether 08:00:27:9f:f2:71  txqueuelen 1000  (Ethernet)
-        RX packets 307  bytes 35395 (34.5 KiB)
-        RX errors 0  dropped 0  overruns 0  frame 0
-        TX packets 209  bytes 36848 (35.9 KiB)
-        TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
+添加路由规则
 
-enp0s8:1: flags=4163<UP,BROADCAST,RUNNING,MULTICAST>  mtu 1500
-        inet 192.168.88.88  netmask 255.255.255.0  broadcast 192.168.88.255
-        ether 08:00:27:9f:f2:71  txqueuelen 1000  (Ethernet)
-
-lo: flags=73<UP,LOOPBACK,RUNNING>  mtu 65536
-        inet 127.0.0.1  netmask 255.0.0.0
-        inet6 ::1  prefixlen 128  scopeid 0x10<host>
-        loop  txqueuelen 1  (Local Loopback)
-        RX packets 74  bytes 3922 (3.8 KiB)
-        RX errors 0  dropped 0  overruns 0  frame 0
-        TX packets 74  bytes 3922 (3.8 KiB)
-        TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
-
+```bash
 # 在server01中必须增加一条路由规则，才能ping通在server02中增加的虚拟网卡
 # -net:目标地址是一个网络。
 # -host:目标地址是一个主机。
 # netmask:当添加一个网络路由时，需要使用网络掩码。
-[root@server01 ~]# route add -host 192.168.88.88 gw 192.168.56.102
-[root@server01 ~]# route -n
-Kernel IP routing table
-Destination     Gateway         Genmask         Flags Metric Ref    Use Iface
-0.0.0.0         10.0.2.2        0.0.0.0         UG    100    0        0 enp0s3
-10.0.2.0        0.0.0.0         255.255.255.0   U     100    0        0 enp0s3
-192.168.56.0    0.0.0.0         255.255.255.0   U     100    0        0 enp0s8
-192.168.88.88   192.168.56.102  255.255.255.255 UGH   0      0        0 enp0s8
-[root@server01 ~]# ping 192.168.88.88                             
-PING 192.168.88.88 (192.168.88.88) 56(84) bytes of data.
-64 bytes from 192.168.88.88: icmp_seq=1 ttl=64 time=0.443 ms
-64 bytes from 192.168.88.88: icmp_seq=2 ttl=64 time=0.316 ms
+# gw : 路由数据包通过的网关
+# dev：为路由指定的网络接口
+# 添加路由并指定网关
+[root@server01 ~]# route add -host 192.168.88.88 gw 192.168.56.101
 # 删除路由
-[root@server01 ~]# route del 192.168.88.88
-
-# 删除虚拟网卡
-[root@server02 ~]# ifconfig enp0s8:1 down
+[root@server01 ~]# route del -host 192.168.88.88 gw 192.168.56.101 
+# 添加路由并指定网络接口
+[root@server01 ~]# route add -net 1.1.1.0/24 dev enp0s8
+# 删除路由
+[root@server01 ~]# route del -net 1.1.1.0/24 dev enp0s8
 ```
 
 arp_ignore和arp_announce参数都和ARP协议相关，主要用于控制系统返回arp响应和发送arp请求时的动作。这两个参数很重要，特别是在LVS的DR场景下，它们的配置直接影响到DR转发是否正常。
+
+## 回环网卡上配置ip
+
+回环网卡不会接收到外部网络发过来的数据包
+
+```bash
+# 实验1：
+# 在server02的回环网卡上配置一个虚拟ip
+[root@server02 ~]# ip addr add 1.1.1.2/24 dev lo
+# 所有的arp_ignore配置都是0
+[root@server02 ~]# sysctl -a | grep arp_ignore
+net.ipv4.conf.all.arp_ignore = 0
+net.ipv4.conf.default.arp_ignore = 0
+net.ipv4.conf.enp0s3.arp_ignore = 0
+net.ipv4.conf.enp0s8.arp_ignore = 0
+net.ipv4.conf.lo.arp_ignore = 0
+# 在server01上配置到1.1.1.0/24网段的路由
+[root@server01 ~]# route add -net 1.1.1.0/24 dev enp0s8 
+# 删除arp缓存
+[root@server01 ~]# arp -d 1.1.1.2
+[root@server01 ~]# arp -d 192.168.56.102
+# 使用tcpdump抓取arp报文
+[root@server01 ~]# tcpdump -i enp0s8 -nn arp
+# 从server01 ping 1.1.1.2
+[root@server01 ~]# ping 1.1.1.2
+PING 1.1.1.2 (1.1.1.2) 56(84) bytes of data.
+64 bytes from 1.1.1.2: icmp_seq=1 ttl=64 time=0.536 ms
+64 bytes from 1.1.1.2: icmp_seq=2 ttl=64 time=0.376 ms
+# 查看tcp报文
+[root@server01 ~]# tcpdump -i enp0s8 -nn arp
+tcpdump: verbose output suppressed, use -v or -vv for full protocol decode
+listening on enp0s8, link-type EN10MB (Ethernet), capture size 262144 bytes
+19:44:37.849082 ARP, Request who-has 192.168.56.101 (08:00:27:12:04:78) tell 192.168.56.1, length 46
+19:44:37.849108 ARP, Reply 192.168.56.101 is-at 08:00:27:12:04:78, length 28
+19:44:50.749824 ARP, Request who-has 1.1.1.2 tell 192.168.56.101, length 28
+# 可以看到arp请求回复的mac地址是server02中enp0s8网卡的mac地址，所以证明其实lo网卡是不会接收到其他网卡上的数据包的，这里配置了一个1.1.1.2地址，只是骗骗内核，告诉内核该机器上存在这个地址。内核就认为这台机器上有这个地址。
+19:44:50.750112 ARP, Reply 1.1.1.2 is-at 08:00:27:9f:f2:71, length 46
+
+# 实验2：
+# 在上述配置的基础上删除arp缓存
+[root@server01 ~]# arp -d 1.1.1.2
+[root@server01 ~]# arp -d 192.168.56.102
+# 在server02上通过tcpdump命令分别抓取enp0s8和lo上的报文
+[root@server02 ~]# tcpdump -i enp0s8 -nn icmp
+tcpdump: verbose output suppressed, use -v or -vv for full protocol decode
+listening on enp0s8, link-type EN10MB (Ethernet), capture size 262144 bytes
+[root@server02 ~]# tcpdump -i lo -nn icmp
+tcpdump: verbose output suppressed, use -v or -vv for full protocol decode
+listening on lo, link-type EN10MB (Ethernet), capture size 262144 bytes
+# 从server01 ping 1.1.1.2
+[root@server01 ~]# ping 1.1.1.2
+PING 1.1.1.2 (1.1.1.2) 56(84) bytes of data.
+64 bytes from 1.1.1.2: icmp_seq=1 ttl=64 time=0.454 ms
+64 bytes from 1.1.1.2: icmp_seq=2 ttl=64 time=0.501 ms
+64 bytes from 1.1.1.2: icmp_seq=3 ttl=64 time=0.270 ms
+# 回环网卡上没有抓到数据包，lo网卡是自己跟自己玩的，不会接收外部网卡的数据包，能和对方通信，只是欺骗内核而已。
+[root@server02 ~]# tcpdump -i lo -nn icmp
+tcpdump: verbose output suppressed, use -v or -vv for full protocol decode
+listening on lo, link-type EN10MB (Ethernet), capture size 262144 bytes
+# 所有的数据包都是通过enp0s8
+[root@server02 ~]# tcpdump -i enp0s8 -nn icmp
+tcpdump: verbose output suppressed, use -v or -vv for full protocol decode
+listening on enp0s8, link-type EN10MB (Ethernet), capture size 262144 bytes
+20:08:21.856977 IP 192.168.56.101 > 1.1.1.2: ICMP echo request, id 4547, seq 1, length 64
+20:08:21.856995 IP 1.1.1.2 > 192.168.56.101: ICMP echo reply, id 4547, seq 1, length 64
+20:08:22.856919 IP 192.168.56.101 > 1.1.1.2: ICMP echo request, id 4547, seq 2, length 64
+20:08:22.856962 IP 1.1.1.2 > 192.168.56.101: ICMP echo reply, id 4547, seq 2, length 64
+```
+
+arp_ignore用来控制接受到arp请求的网卡，是否返回arp相应
+
+```bash
+# 实验3：
+# 虚拟网卡及路由设置跟上面的实验保持不变的情况下，删除server01的arp缓存
+[root@server01 ~]# arp -d 1.1.1.2
+[root@server01 ~]# arp -d 192.168.56.102
+# 将server02的内核参数arp_ignore设置为：1
+# 只要修all即可，因为：arp_ignore分别有all,default,lo,eth1,eth2...等对应不同网卡的具体参数。当all和具体网卡的参数值不一致时，取较大值生效。
+[root@server02 ~]# sysctl -w net.ipv4.conf.all.arp_ignore=1
+net.ipv4.conf.all.arp_ignore = 1
+# 在server02上使用tcpdump抓取arp请求的报文：
+# 由上面的实验1和实验2可以lo网卡是不接受数据包的，所有的数据包都是通过真实的网卡接受，所以这里抓取的是enp0s8上的报文
+[root@server02 ~]# tcpdump -i enp0s8 -nn arp
+tcpdump: verbose output suppressed, use -v or -vv for full protocol decode
+listening on enp0s8, link-type EN10MB (Ethernet), capture size 262144 bytes
+# 从server01 ping 1.1.1.2
+[root@server01 ~]# ping 1.1.1.2
+PING 1.1.1.2 (1.1.1.2) 56(84) bytes of data.
+From 192.168.56.101 icmp_seq=1 Destination Host Unreachable
+From 192.168.56.101 icmp_seq=2 Destination Host Unreachable
+From 192.168.56.101 icmp_seq=3 Destination Host Unreachable
+From 192.168.56.101 icmp_seq=4 Destination Host Unreachable
+# 可以看到因为arp_ignore设置成了1，所以enp0s8虽然收到了arp请求，并且也知道IP：1.1.1.2是存在的，但是由于虚拟IP：1.1.1.2不是绑定在enp0s8网卡上，所以不会回复；而server02没有回复arp请求，那么server01就获取不到目标IP的mac地址，也就无法进行通信了。
+[root@server02 ~]# tcpdump -i enp0s8 -nn arp
+tcpdump: verbose output suppressed, use -v or -vv for full protocol decode
+listening on enp0s8, link-type EN10MB (Ethernet), capture size 262144 bytes
+20:18:43.367290 ARP, Request who-has 192.168.56.102 (08:00:27:9f:f2:71) tell 192.168.56.1, length 46
+20:18:43.367330 ARP, Reply 192.168.56.102 is-at 08:00:27:9f:f2:71, length 28
+20:18:45.248242 ARP, Request who-has 1.1.1.2 tell 192.168.56.101, length 46
+20:18:46.249570 ARP, Request who-has 1.1.1.2 tell 192.168.56.101, length 46
+20:18:47.252180 ARP, Request who-has 1.1.1.2 tell 192.168.56.101, length 46
+
+# 实验4：
+# 删除server02中绑定在lo网卡上的虚拟IP
+[root@server02 ~]# ip addr del 1.1.1.2/24 dev lo
+# 将虚拟IP重新绑定到server02的enp0s8网卡上
+[root@server02 ~]# ip addr add 1.1.1.2/24 dev enp0s8
+# 将server02的内核参数arp_ignore设置为：1
+[root@server02 ~]# sysctl -w net.ipv4.conf.all.arp_ignore=1
+net.ipv4.conf.all.arp_ignore = 1
+# 删除server01的arp缓存
+[root@server01 ~]# arp -d 1.1.1.2
+[root@server01 ~]# arp -d 192.168.56.102
+# 从server01 ping 1.1.1.2
+# 虽然server02的arp_ignore为1，但是由于虚拟IP绑定在enp0s8网卡上(即接收到arp请求的网卡上)，所以还是会回复该arp请求，那么server01还是能获取到1.1.1.2对应的mac地址，因此能ping通。
+[root@server01 ~]# ping 1.1.1.2           
+PING 1.1.1.2 (1.1.1.2) 56(84) bytes of data.
+64 bytes from 1.1.1.2: icmp_seq=1 ttl=64 time=0.447 ms
+64 bytes from 1.1.1.2: icmp_seq=2 ttl=64 time=0.964 ms
+64 bytes from 1.1.1.2: icmp_seq=3 ttl=64 time=0.841 ms
+```
 
 ## arp_ignore
 

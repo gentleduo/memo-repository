@@ -430,6 +430,7 @@ server01
 ```bash
 # server01作为负载均衡服务器，在enp0s8上配置VIP
 [root@server01 ~]# ifconfig enp0s8:1 192.168.56.200/24
+[root@server01 ~]# yum install ipvsadm -y
 ```
 
 server02
@@ -441,8 +442,18 @@ server02
 [root@server02 ~]# echo 1 > /proc/sys/net/ipv4/conf/all/arp_ignore   
 [root@server02 ~]# echo 2 > /proc/sys/net/ipv4/conf/all/arp_announce
 # server02作为真实服务器，在回环网卡上配置VIP
-# 这里掩码需要配置成32位的原因：这是由于lo设备的特殊性导致， 如果lo绑定192.168.56.200/24，则该设备会响应该网段所有IP(192.168.56.1~192.168.56.254) 的请求，而不是只响应192.168.56.200这一个地址。
+# 这里掩码需要配置成32位的原因：这是由于lo设备的特殊性导致， 如果lo绑定192.168.56.200/24，则该设备会接受该网段所有IP(192.168.56.1~192.168.56.254) 的请求，但是由于掩码为24位，可以看做回环网卡上的IP为192.168.56.0(内核认为自己没有该网段的任何一个IP)所以又无法响应请求，造成网络问题。
+# 而如果lo绑定192.168.56.200/32，则只会接受192.168.56.200的请求，并且也可以回复
+# 可以通过如下实验证明
+# 在server03上 增加一个虚拟网卡：ip addr add 192.168.56.200/24 dev lo
+# 并且在通过 tcpdump -i enp0s8 -nn arp抓取arp报文
+# 然后在server02上 ping 192.168.56.200
+# 观察server03抓取到的arp报文，可以收到arp包，但是没有响应
 [root@server02 ~]# ifconfig lo:1 192.168.56.200 netmask 255.255.255.255
+[root@server02 ~]# yum install httpd -y
+[root@server02 ~]# systemctl start httpd
+[root@server02 ~]# vim /var/www/html/index.html
+from 192.168.56.102
 ```
 
 server03
@@ -453,5 +464,50 @@ server03
 [root@server03 ~]# echo 1 > /proc/sys/net/ipv4/conf/all/arp_ignore   
 [root@server03 ~]# echo 2 > /proc/sys/net/ipv4/conf/all/arp_announce
 [root@server03 ~]# ifconfig lo:1 192.168.56.200 netmask 255.255.255.255
+[root@server03 ~]# yum install httpd -y  
+[root@server03 ~]# systemctl start httpd
+[root@server03 ~]# vim /var/www/html/index.html
+from 192.168.56.103
+```
+
+server01
+
+```bash
+# 集群服务相关
+# -A:添加
+# -t:TCP协议集群
+# -u:UDP协议集群
+# -s:调度算法
+[root@server01 ~]# ipvsadm -A -t 192.168.56.200:80 -s rr
+[root@server01 ~]# ipvsadm -ln
+IP Virtual Server version 1.2.1 (size=4096)
+Prot LocalAddress:Port Scheduler Flags
+  -> RemoteAddress:Port           Forward Weight ActiveConn InActConn
+TCP  192.168.56.200:80 rr
+# RS(Real Server)相关
+# -a:添加
+# -t:事先定义好的集群服务
+# -r:RS的地址，可包含{IP[:port]}，只有支持端口映射的LVS类型才允许此处使用跟集群服务不同的端口
+# LVS类型：
+# -g:DR(默认类型)
+# -i:TUN
+# -m:NAT
+# -w:指定RS的权重
+[root@server01 ~]# ipvsadm -a -t 192.168.56.200:80 -r 192.168.56.102 -g -w 1
+[root@server01 ~]# ipvsadm -a -t 192.168.56.200:80 -r 192.168.56.103 -g -w 1 
+[root@server01 ~]# ipvsadm -ln
+IP Virtual Server version 1.2.1 (size=4096)
+Prot LocalAddress:Port Scheduler Flags
+  -> RemoteAddress:Port           Forward Weight ActiveConn InActConn
+TCP  192.168.56.200:80 rr
+  -> 192.168.56.102:80            Route   1      0          0         
+  -> 192.168.56.103:80            Route   1      0          0 
+# 观察负载均衡器上lvs窥看数据包传输层的状态标志位
+[root@server01 ~]# ipvsadm -lnc
+IPVS connection entries
+pro expire state       source             virtual            destination
+TCP 03:51  ESTABLISHED 192.168.56.1:56954 192.168.56.200:80  192.168.56.102:80
+TCP 01:58  FIN_WAIT    192.168.56.1:57322 192.168.56.200:80  192.168.56.102:80
+TCP 14:59  ESTABLISHED 192.168.56.1:57326 192.168.56.200:80  192.168.56.103:80
 ```
 

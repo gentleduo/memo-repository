@@ -491,7 +491,9 @@ server01
 # -t:TCP协议集群
 # -u:UDP协议集群
 # -s:调度算法
+# -p:超时时间,开启持久化服务，开启它则表示在指定时间内，来自同一IP的请求都会转发到后端同一台真实服务器上
 [root@server01 ~]# ipvsadm -A -t 192.168.56.200:80 -s rr
+# 使用命令查看IPVS的规则：ipvsadm -S -n
 [root@server01 ~]# ipvsadm -ln
 IP Virtual Server version 1.2.1 (size=4096)
 Prot LocalAddress:Port Scheduler Flags
@@ -559,4 +561,270 @@ lo网卡 192.168.56.1 & 255.255.255.0 = 192.168.56.0
 enp0s8网卡 192.168.56.1 & 255.255.255.0 = 192.168.56.0
 
 然后，根据IP最长匹配原则，不会走最后的默认网关：10.0.2.2 ，而且由于&运算后发现目标IP和主机在同一网段内，因此会走最后两条路由规则，而且这两条其实都会匹配成功，但是，由于是环回网卡一种特殊的网络接口，不与任何实际设备连接，而是完全由软件实现。而且lo环回网卡离内核进，所以在路由表中排在enp0s8之上，所以数据包会走lo环回接口。而环回接口有一个特点，就是接收到的数据包又会发回给本机，也就是说回环网卡是自己和自己玩，因此如果走的是环回接口发送数据包，永远也发不出去，因此不能让数据包走环回接口，所以需要将掩码设置成255.255.255.255。所以需要将掩码设置成255.255.255.255，这样192.168.56.1与192.168.56.200的Genmask进行&操作之后的结果为192.168.56.1，不等于Destination：192.168.56.200，那么将不会走这条路由规则，而会从enp0s8发送数据包。然后通过enp0s8向交换机广播，获取192.168.56.1地址的MAC地址，将数据包发送过去就完成了相应的过程。
+
+## LVS高可用
+
+LVS环境机器信息如下：
+
+- VIP：192.168.56.200
+- DIP：192.168.56.120
+- DIP：192.168.56.121
+- RIP：192.168.56.102
+- RIP：192.168.56.103
+
+loadbalance01
+
+```bash
+[root@loadbalance01 ~]# yum install keepalived ipvsadm -y
+[root@loadbalance01 ~]# cd /etc/keepalived/
+[root@loadbalance01 keepalived]# cp keepalived.conf keepalived.conf_BAK
+[root@loadbalance01 keepalived]# vim keepalived.conf
+```
+
+keepalived.conf
+
+```properties
+! Configuration File for keepalived
+
+global_defs {
+    notification_email {
+      380197443@qq.com
+    }
+    notification_email_from 380197443@qq.com
+    smtp_server stmp.qq.com
+    smtp_connect_timeout 30
+    router_id mysql-master
+}
+# 虚拟路由冗余协议
+vrrp_instance VI_1 {
+    state BACKUP
+    interface enp0s8
+    # 同一虚拟路由里面的master和backup，id号必须相同
+    virtual_router_id 200
+    priority 100
+    # VIP 抢占与非抢占
+    # 抢占：即当高优先级的主机恢复在线后，会抢占低先级的主机的master角色，默认情况下是抢占模式
+    # 影响：抢占容易造成网络抖动
+    # 建议：设置为非抢占模式 nopreempt ，即高优级主机恢复后，并不会抢占低优先级主机的master角色。nopreempt只加在优先级高的keepalived就可以了。
+    # 非抢占不再有主从之分，全部都为BACKUP，并且配置文件中添加nopreempt，用来标识为非抢占模式
+    # 总结：配置非抢占模式时，所有所有keepalived的state必须是BACKUP，非抢占功能只需要在优先级高的keepalived服务器上加即可。
+    nopreempt
+    # 心跳间隔时间
+    advert_int 1
+    authentication {
+        auth_type PASS
+        auth_pass 1111
+    }
+    virtual_ipaddress {
+        192.168.56.200/24 dev enp0s8 label enp0s8:1
+    }
+}
+
+virtual_server 192.168.56.200 80 {
+    delay_loop 6
+    # 调度算法
+    lb_algo rr
+    # 负载均衡类型
+    lb_kind DR
+    # 超时时间，开启持久化服务，开启它则表示在指定时间内，来自同一IP的请求都会转发到后端同一台真实服务器上
+	# 正常情况下LVS会保证同一个TCP链接数据包会发往同一个真实服务器。
+	# 例如:（192.168.80.1:49165 192.168.80.120:8080 192.168.80.136:8080）LVS会记录这个TCP链接的【原IP与端口，目标IP与端口】，后续的数据包会发送到192.168.80.136:8080。
+	# 但是如果设置了persistence_timeout那么在这个时间段内，当前IP地址下所有的TCP链接数据包都会被发送到同一个真实服务器。假设客户端使用5个端口 建立了5个TCP链接，那么这5个链接会被发往相同的后端服务器，反之亦然。
+	# 测试的时候设置为0，生产环境中根据业务场景设置合适的时间。
+    persistence_timeout 0
+    protocol TCP
+
+    real_server 192.168.56.102 80 {
+        weight 1
+        # 对后端server进程健康检查
+        HTTP_GET {
+            url {
+              path /
+              status_code 200
+            }
+            connect_timeout 3
+            retry 3
+            delay_before_retry 3
+        }
+    }
+    
+    real_server 192.168.56.103 80 {
+        weight 1
+        # 对后端server进程健康检查
+        HTTP_GET {
+            url {
+              path /
+              status_code 200
+            }
+            connect_timeout 3
+            retry 3
+            delay_before_retry 3
+        }
+    }
+}
+```
+
+```bash
+[root@loadbalance01 keepalived]# systemctl start keepalived
+[root@loadbalance01 keepalived]# ipvsadm -S -n
+-A -t 192.168.56.200:80 -s rr
+-a -t 192.168.56.200:80 -r 192.168.56.102:80 -g -w 1
+-a -t 192.168.56.200:80 -r 192.168.56.103:80 -g -w 1
+```
+
+loadbalance02
+
+```bash
+[root@loadbalance02 keepalived]# yum install keepalived ipvsadm -y
+[root@loadbalance02 ~]# cd /etc/keepalived/
+[root@loadbalance02 keepalived]# cp keepalived.conf keepalived.conf_BAK
+[root@loadbalance02 keepalived]# vim keepalived.conf
+```
+
+keepalived.conf
+
+```properties
+! Configuration File for keepalived
+
+global_defs {
+    notification_email {
+      380197443@qq.com
+    }
+    notification_email_from 380197443@qq.com
+    smtp_server stmp.qq.com
+    smtp_connect_timeout 30
+    router_id mysql-master
+}
+# 虚拟路由冗余协议
+vrrp_instance VI_1 {
+    state BACKUP
+    interface enp0s8
+    # 同一虚拟路由里面的master和backup，id号必须相同
+    virtual_router_id 200
+    priority 90
+    # 心跳间隔时间
+    advert_int 1
+    authentication {
+        auth_type PASS
+        auth_pass 1111
+    }
+    virtual_ipaddress {
+        192.168.56.200/24 dev enp0s8 label enp0s8:1
+    }
+}
+
+virtual_server 192.168.56.200 80 {
+    delay_loop 6
+    # 调度算法
+    lb_algo rr
+    # 负载均衡类型
+    lb_kind DR
+    # 超时时间，开启持久化服务，开启它则表示在指定时间内，来自同一IP的请求都会转发到后端同一台真实服务器上
+    # 正常情况下LVS会保证同一个TCP链接数据包会发往同一个真实服务器。
+    # 例如:（192.168.80.1:49165 192.168.80.120:8080 192.168.80.136:8080）LVS会记录这个TCP链接的【原IP与端口，目标IP与端口】，后续的数据包会发送到192.168.80.136:8080。
+    # 但是如果设置了persistence_timeout那么在这个时间段内，当前IP地址下所有的TCP链接数据包都会被发送到同一个真实服务器。假设客户端使用5个端口 建立了5个TCP链接，那么这5个链接会被发往相同的后端服务器，反之亦然。
+    # 测试的时候设置为0，生产环境中根据业务场景设置合适的时间。
+    persistence_timeout 0
+    protocol TCP
+
+    real_server 192.168.56.102 80 {
+        weight 1
+        # 对后端server进程健康检查
+        HTTP_GET {
+            url {
+              path /
+              status_code 200
+            }
+            connect_timeout 3
+            retry 3
+            delay_before_retry 3
+        }
+    }
+    
+    real_server 192.168.56.103 80 {
+        weight 1
+        # 对后端server进程健康检查
+        HTTP_GET {
+            url {
+              path /
+              status_code 200
+            }
+            connect_timeout 3
+            retry 3
+            delay_before_retry 3
+        }
+    }
+}
+```
+
+```bash
+[root@loadbalance02 keepalived]# systemctl start keepalived 
+[root@loadbalance02 keepalived]# ipvsadm -S -n
+-A -t 192.168.56.200:80 -s rr
+-a -t 192.168.56.200:80 -r 192.168.56.102:80 -g -w 1
+-a -t 192.168.56.200:80 -r 192.168.56.103:80 -g -w 1
+```
+
+server02
+
+```bash
+# 修改arp_ignore和arp_announce
+[root@server02 ~]# echo 1 > /proc/sys/net/ipv4/conf/enp0s8/arp_ignore    
+[root@server02 ~]# echo 2 > /proc/sys/net/ipv4/conf/enp0s8/arp_announce  
+[root@server02 ~]# echo 1 > /proc/sys/net/ipv4/conf/all/arp_ignore   
+[root@server02 ~]# echo 2 > /proc/sys/net/ipv4/conf/all/arp_announce
+[root@server02 ~]# ifconfig lo:1 192.168.56.200 netmask 255.255.255.255
+```
+
+server03
+
+```bash
+[root@server03 ~]# echo 1 > /proc/sys/net/ipv4/conf/enp0s8/arp_ignore
+[root@server03 ~]# echo 2 > /proc/sys/net/ipv4/conf/enp0s8/arp_announce
+[root@server03 ~]# echo 1 > /proc/sys/net/ipv4/conf/all/arp_ignore   
+[root@server03 ~]# echo 2 > /proc/sys/net/ipv4/conf/all/arp_announce
+[root@server03 ~]# ifconfig lo:1 192.168.56.200 netmask 255.255.255.255
+```
+
+模拟后端真是服务器宕机：
+
+```bash
+# 停止server02的httpd服务
+[root@server02 ~]# systemctl stop httpd
+```
+
+```bash
+# 可以看到DS服务器会将宕机的server02节点从真实服务器列表中剔除
+[root@loadbalance01 ~]# ipvsadm -S -n
+-A -t 192.168.56.200:80 -s rr
+-a -t 192.168.56.200:80 -r 192.168.56.103:80 -g -w 1
+```
+
+```bash
+# 可以看到DS服务器会将宕机的server02节点从真实服务器列表中剔除
+[root@loadbalance02 keepalived]# ipvsadm -S -n
+-A -t 192.168.56.200:80 -s rr
+-a -t 192.168.56.200:80 -r 192.168.56.103:80 -g -w 1
+```
+
+```bash
+# 重新启动server02的httpd服务
+[root@server02 ~]# systemctl start httpd
+```
+
+```bash
+# DS服务器的真实服务器列表中server02节点重新被添加进来了
+[root@loadbalance01 ~]# ipvsadm -S -n
+-A -t 192.168.56.200:80 -s rr
+-a -t 192.168.56.200:80 -r 192.168.56.102:80 -g -w 1
+-a -t 192.168.56.200:80 -r 192.168.56.103:80 -g -w 1
+```
+
+```bash
+# DS服务器的真实服务器列表中server02节点重新被添加进来了
+[root@loadbalance02 keepalived]# ipvsadm -S -n
+-A -t 192.168.56.200:80 -s rr
+-a -t 192.168.56.200:80 -r 192.168.56.102:80 -g -w 1
+-a -t 192.168.56.200:80 -r 192.168.56.103:80 -g -w 1
+```
 

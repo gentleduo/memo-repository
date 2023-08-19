@@ -596,6 +596,7 @@ global_defs {
     router_id mysql-master
 }
 # 虚拟路由冗余协议
+# Keepalived工作原理：通过vrrp：虚拟路由冗余协议实现。
 vrrp_instance VI_1 {
     state BACKUP
     interface enp0s8
@@ -696,6 +697,7 @@ global_defs {
     router_id mysql-master
 }
 # 虚拟路由冗余协议
+# Keepalived工作原理：通过vrrp：虚拟路由冗余协议实现。
 vrrp_instance VI_1 {
     state BACKUP
     interface enp0s8

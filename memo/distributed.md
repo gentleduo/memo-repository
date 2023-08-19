@@ -786,7 +786,63 @@ server03
 [root@server03 ~]# ifconfig lo:1 192.168.56.200 netmask 255.255.255.255
 ```
 
-模拟后端真是服务器宕机：
+模拟LVS服务器宕机：
+
+```bash
+# 当前VIP在loadbalance02节点上，
+[root@loadbalance02 keepalived]# ip a
+1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1000
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+       valid_lft forever preferred_lft forever
+    inet6 ::1/128 scope host 
+       valid_lft forever preferred_lft forever
+2: enp0s3: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc pfifo_fast state UP group default qlen 1000
+    link/ether 08:00:27:00:37:ea brd ff:ff:ff:ff:ff:ff
+    inet 10.0.2.15/24 brd 10.0.2.255 scope global noprefixroute dynamic enp0s3
+       valid_lft 81317sec preferred_lft 81317sec
+    inet6 fe80::a1be:312f:4d66:ee24/64 scope link noprefixroute 
+       valid_lft forever preferred_lft forever
+3: enp0s8: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc pfifo_fast state UP group default qlen 1000
+    link/ether 08:00:27:8a:08:e9 brd ff:ff:ff:ff:ff:ff
+    inet 192.168.56.121/24 brd 192.168.56.255 scope global noprefixroute enp0s8
+       valid_lft forever preferred_lft forever
+    inet 192.168.56.200/24 scope global secondary enp0s8:1
+       valid_lft forever preferred_lft forever
+    inet6 fe80::8a2:d9d6:fefa:4ee5/64 scope link tentative noprefixroute dadfailed 
+       valid_lft forever preferred_lft forever
+    inet6 fe80::5f4f:9c6:5bb3:b11c/64 scope link noprefixroute 
+       valid_lft forever preferred_lft forever
+# stop掉loadbalance02上的keepalived服务
+[root@loadbalance02 keepalived]# systemctl stop keepalived
+```
+
+```bash
+# VIP漂移至loadbalance01，并且对前端应用无感
+[root@loadbalance01 ~]# ip a
+1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1000
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+       valid_lft forever preferred_lft forever
+    inet6 ::1/128 scope host 
+       valid_lft forever preferred_lft forever
+2: enp0s3: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc pfifo_fast state UP group default qlen 1000
+    link/ether 08:00:27:c6:05:47 brd ff:ff:ff:ff:ff:ff
+    inet 10.0.2.15/24 brd 10.0.2.255 scope global noprefixroute dynamic enp0s3
+       valid_lft 85277sec preferred_lft 85277sec
+    inet6 fe80::a1be:312f:4d66:ee24/64 scope link noprefixroute 
+       valid_lft forever preferred_lft forever
+3: enp0s8: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc pfifo_fast state UP group default qlen 1000
+    link/ether 08:00:27:70:cd:6b brd ff:ff:ff:ff:ff:ff
+    inet 192.168.56.120/24 brd 192.168.56.255 scope global noprefixroute enp0s8
+       valid_lft forever preferred_lft forever
+    inet 192.168.56.200/24 scope global secondary enp0s8:1
+       valid_lft forever preferred_lft forever
+    inet6 fe80::8a2:d9d6:fefa:4ee5/64 scope link noprefixroute 
+       valid_lft forever preferred_lft forever
+```
+
+模拟后端真实服务器宕机：
 
 ```bash
 # 停止server02的httpd服务

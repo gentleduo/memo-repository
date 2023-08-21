@@ -912,3 +912,132 @@ server03
 -a -t 192.168.56.200:80 -r 192.168.56.103:80 -g -w 1
 ```
 
+## VRRP协议
+
+VRRP，全称 Virtual Router Redundancy Protocol，中文名为虚拟路由器冗余协议，VRRP 的出现就是为了解决静态路由的单点故障问题，VRRP 是通过一种竞选机制来将路由的任务交给某台 VRRP 路由器的。
+
+VRRP 早期是用来解决交换机、路由器等设备单点故障的，下面是交换机、路由的 Master 和 Backup 切换原理描述，同样适用于 Keepalived 的工作原理。
+
+在一组 VRRP 路由器集群中，有多台路由 VRRP 路由器，但是这么多台物理的机器并不是同时工作的，而是由一台称为 Master 机器负责路由工作，其他的机器都是 Backup。 Master 角色并非一成不变的，VRRP 会让每个 VRRP 路由参与竞选，最终获胜的就是 Master 。获胜的 Master 有一些特权，比如拥有虚拟路由器的 IP 地址等，拥有系统资源的 Master 负责转发给网关地址的包和响应 ARP 请求。
+
+VRRP 通过竞选机制来实现虚拟路由器的功能，所有的协议报文都是通过 IP 多播（Multicast）包（默认的多播地址 224.0.0.18）形式发送的。虚拟路由器由 VRID （范围 0-255）和一组 IP 地址组成，对外表现为一个周知的 MAC 地址：00-00-5E-00-10-{VRID}。所以，在一个虚拟路由器中，不管谁是 Master，对外都是相同的 MAC 和 IP （称之为 VIP）。客户端主机并不需要因 Master 的改变而修改自己的路由设置。对它们来说，这种切换是透明的。
+
+在一组虚拟路由器中，只有作为 Master 的 VRRP 路由器会一直发送 VRRP 广播包（VRRP Advertisement messages），此时 Backup 不会抢占 Master。当 Master 不可用时，Backup 就收不到来自 Master 的广播包了，此时多台 Backup 中优先级别最高的路由器会抢占为 Master。这种抢占是非常快速的（可能只有1秒甚至更少），以保证服务的连续性。出于安全性考虑，VRRP 数据包使用了加密协议进行了加密。
+
+总结：
+
+1. VRRP，全称 Virtual Router Redundancy Protocol，中文名为虚拟路由冗余协议，VRRP的出现是为了解决静态路由的单点故障。
+2. VRRP 是通过一种竞选协议机制来将路由任务交给某台 VRRP 路由器的。
+3. VRRP 用 IP 多播的方式（默认多播地址（224.0.0.18 )）实现高可用对之间通信。
+4. 工作时主节点发包，备节点接包，当备节点接收不到主节点发的数据包的时候，就启动接管程序接管主节点的资源。备节点可以有多个，通过优先级竞选，但一般 Keepalived 系统运维工作中都是一对。
+5. VRRP 使用了加密协议加密数据，但 Keepalived 官方目前还是推荐用明文的方式配置认证类型和密码。
+
+Keepalived 服务的工作原理：Keepalived 高可用对之间是通过 VRRP 进行通信的，VRRP 是通过竞选机制来确定主备的，主的优先级高于备，因此，工作时主会优先获得所有的资源，备节点处于等待状态，当主挂了的时候，备节点由于接收不到vrrp心跳包了，备节点就会接管主节点的资源，然后顶替主节点对外提供服务。在keepalive服务对之间，只有作为主的服务器会一直发送VRRP广播包，告诉备它还活着，此时备就不会抢占主，当主不可用时，备监听不到主发送的广播包时，就会启动相关服务接管资源，保证业务的连续性，接管的速度最快可以小于1秒。
+
+比如：Keepalived+Nginx实现高可用（HA）
+
+1、方案规划
+
+| VIP            | IP             | 主机名   | Nginx端口 |
+| -------------- | -------------- | -------- | --------- |
+| 192.168.56.200 | 192.168.56.101 | server01 | 80        |
+| 192.168.56.200 | 192.168.56.102 | server02 | 80        |
+
+两台服务器的VIP为：192.168.56.200
+
+分别在两台WEB服务器安装nginx和keepalived
+
+2、配置
+
+192.168.56.101
+
+```properties
+global_defs {
+   router_id nginx_01  #标识本节点的名称，通常为hostname
+}
+
+## vrrp_script是用来配置本机服务（如nginx）健康状态检查脚本的，当检查的服务发生故障时，可以配置降低优先级，配置调用则在vrrp_instance中的track_script段；
+## 如果脚本执行结果为0,并且weight配置的值大于0,则优先级相应的增加。如果脚本执行结果非0,并且weight配置的值小于0,则优先级相应的减少。其他情况,维持原本配置的优先级,即配置文件中priority对应的值。
+vrrp_script chk_nginx {
+       script "/etc/keepalived/nginx_check.sh"
+       interval 2  # 每2秒检测一次nginx的运行状态
+       weight -20  # 失败一次，将自己的优先级-20
+}
+
+vrrp_instance VI_1 {
+    state MASTER                 # 状态，主节点为MASTER，备份节点为BACKUP
+    interface enp0s8             # 绑定VIP的网络接口，通过ifconfig查看自己的网络接口
+    virtual_router_id 51         # 虚拟路由的ID号,两个节点设置必须一样,可选IP最后一段使用,相同的VRID为一个组,他将决定多播的MAC地址
+    mcast_src_ip 192.168.56.101  # 本机IP地址
+    priority 100                 # 节点优先级，值范围0～254，MASTER要比BACKUP高
+    advert_int 1                 # 组播信息发送时间间隔，两个节点必须设置一样，默认为1秒
+    # 设置验证信息，两个节点必须一致
+    authentication {
+        auth_type PASS
+        auth_pass 1111
+    }    
+    # 虚拟IP，两个节点设置必须一样。可以设置多个，一行写一个
+    virtual_ipaddress {     
+       192.168.56.200
+    }
+
+    track_script {
+       chk_nginx  # nginx存活状态检测脚本
+    }
+}
+```
+
+192.168.56.102
+
+```properties
+global_defs {
+   router_id nginx_01  #标识本节点的名称，通常为hostname
+}
+
+## vrrp_script是用来配置本机服务（如nginx）健康状态检查脚本的，当检查的服务发生故障时，可以配置降低优先级，配置调用则在vrrp_instance中的track_script段；
+## 如果脚本执行结果为0,并且weight配置的值大于0,则优先级相应的增加。如果脚本执行结果非0,并且weight配置的值小于0,则优先级相应的减少。其他情况,维持原本配置的优先级,即配置文件中priority对应的值。
+vrrp_script chk_nginx {
+       script "/etc/keepalived/nginx_check.sh"
+       interval 2  # 每2秒检测一次nginx的运行状态
+       weight -20  # 失败一次，将自己的优先级-20
+}
+
+vrrp_instance VI_1 {
+    state BACKUP                 # 状态，主节点为MASTER，备份节点为BACKUP
+    interface enp0s8             # 绑定VIP的网络接口，通过ifconfig查看自己的网络接口
+    virtual_router_id 51         # 虚拟路由的ID号,两个节点设置必须一样,可选IP最后一段使用,相同的VRID为一个组,他将决定多播的MAC地址
+    mcast_src_ip 192.168.56.102  # 本机IP地址
+    priority 90                  # 节点优先级，值范围0～254，MASTER要比BACKUP高
+    advert_int 1                 # 组播信息发送时间间隔，两个节点必须设置一样，默认为1秒
+    # 设置验证信息，两个节点必须一致
+    authentication {
+        auth_type PASS
+        auth_pass 1111
+    }    
+    # 虚拟IP，两个节点设置必须一样。可以设置多个，一行写一个
+    virtual_ipaddress {     
+       192.168.56.200
+    }
+
+    track_script {
+       chk_nginx  # nginx存活状态检测脚本
+    }
+}
+```
+
+3、检测脚本
+
+分别在主备服务器/etc/keepalived目录下创建nginx_check.sh脚本，并为其添加执行权限chmod +x /etc/keepalived/nginx_check.sh。用于keepalived定时检测nginx的服务状态，如果nginx停止了，会尝试重新启动nginx，如果启动失败，会将keepalived进程杀死，将vip漂移到备份机器上。（这里实现vrrp协议的是keepalived，所以只有keepalived进程挂了或者服务器宕机了vip才会漂移到备份节点，所以必须使用脚本检测nginx的状态，当检测到nginx挂了后kill掉keepalived进程），
+
+```bash
+#!/bin/bash
+A=`ps -C nginx --no-header | wc -l`
+if [ $A -eq 0 ];then
+    /opt/nginx/sbin/nginx #尝试重新启动nginx
+    sleep 2  #睡眠2秒
+    if [ `ps -C nginx --no-header | wc -l` -eq 0 ];then
+        killall keepalived #启动失败，将keepalived服务杀死。将vip漂移到其它备份节点
+    fi
+fi
+```
+

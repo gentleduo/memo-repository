@@ -215,11 +215,11 @@ Zookeeper官网：https://zookeeper.apache.org/
 
 # 修改如下内容
 #配置文件内容讲解：
-#心跳时间，用于配置服务器最小时间的单位(默认值2000ms),心跳检测时间通常是该单位的倍数。如客户端与服务端之间的会话超时时间在2tickTime~20tickTime之间。
+#这个时间是作为ZooKeeper服务器之间或客户端与服务器之间维持心跳的时间间隔，也就是每个tickTime时间就会发送一个心跳。单位为毫秒。
 tickTime=2000
-#用于配置leader服务器等待Follewer服务器启动，并完成数据同步的时间，默认为10，表示10*tickTime
+#这个配置项是用来配置Leader接受Follower 初始化连接时最长能忍受多少个心跳时间间隔数。当已经超过10个心跳的时间（也就是 tickTime）长度后 Leader还没有收到Follower的返回信息，那么表明这个Follower连接失败。
 initLimit=10
-#在运行过程中，Leader负责与ZK集群中所有机器进行通信，例如通过一些心跳检测机制，来检测机器的存活状态。如果Leader发出心跳包在syncLimit之后，还没有从Follower那里收到响应，那么就认为这个Follower已经不在线了。默认为5，表示5*tickTime
+#这个配置项标识Leader与Follower之间发送消息，请求和应答时间长度，最长不能超过多少个tickTime的时间长度
 syncLimit=5
 # 保留多少个快照
 autopurge.snapRetainCount=3
@@ -227,6 +227,10 @@ autopurge.snapRetainCount=3
 autopurge.purgeInterval=1
 dataDir=/opt/zookeeper/data
 dataLogDir=/opt/zookeeper/log
+#这个端口就是客户端连接 ZooKeeper服务器的端口，ZooKeeper会监听这个端口，接受客户端的访问请求。
+clientPort=2181
+#最大的客户端连接数，默认为60
+maxClientCnxns=60
 # 集群中服务器地址
 # 其中id为一个数字，表示zk进程的id，这个id也是dataDir目录下myid文件的内容
 # host是该zk进程所在的IP地址，port1表示follower和leader交换消息所使用的端口，port2表示选举leader所使用的端口。

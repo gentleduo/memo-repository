@@ -207,6 +207,10 @@ Alt + Insert
 
 Alt + Enter
 
+## switch枚举快速生成
+
+Alt + Enter
+
 ## 单行注释或多行注释
 
 Ctrl + / 或 Ctrl + Shift + /

@@ -21683,7 +21683,7 @@ https://archive.apache.org/dist/flink/
 
 独立模式，Flink自带集群
 
-![image](D:\gentleduo\memo-repository\memo\assets\bigdata-2.png)
+![image](assets\bigdata-2.png)
 
 - client客户端提交任务给JobManager
 - JobManager负责Flink集群计算资源管理，并分发任务给TaskManager执行
@@ -21776,7 +21776,7 @@ export PATH=$PATH:$FLINK_HOME/bin
 
 从上述架构图中，可发现JobManager存在单点故障，一旦JobManager出现意外，整个集群无法工作。所以，为了确保集群的高可用，需要搭建Flink的HA。
 
-![image](D:\gentleduo\memo-repository\memo\assets\bigdata-3.png)
+![image](assets\bigdata-3.png)
 
 在flink-conf.yaml中添加zookeeper配置
 
@@ -22008,7 +22008,7 @@ yarn-session提供两种模式: 会话模式和分离模式
 启动yarn-session
 
 ```bash
-# -n 表示申请2个容器，
+# -n 表示申请多少个容器，
 # -s 表示每个容器启动多少个slot
 # -tm 表示每个TaskManager申请1024M内存
 # -d 表示以后台程序方式运行

@@ -3293,7 +3293,7 @@ file locks                      (-x) unlimited
 # rss - 最大持久设置大小（KB）
 # stack - 最大堆栈大小（KB）
 # cpu - 最大CPU时间（min）
-# noproc - 进程最大数量，注意最大进程数在/etc/security/limits.d/20-nproc.conf这个配置文件中也有设置，所以必须两边都改才会生效。
+# nproc - 进程最大数量，注意最大进程数在/etc/security/limits.d/20-nproc.conf这个配置文件中也有设置，所以必须两边都改才会生效。
 # as - 地址空间限制（KB）
 # maxlogins - 此用户的最大登录数量
 # maxsyslogins - 在系统上登录的最大数目

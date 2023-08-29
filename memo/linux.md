@@ -2823,6 +2823,26 @@ cat /etc/sysctl.conf
 
 vm.swappiness=10
 
+## NUMA技术
+
+所谓物理内存，就是安装在机器上的，实打实的内存设备（不包括硬件cache），被CPU通过总线访问。在多核系统中，如果物理内存对所有CPU来说没有区别，每个CPU访问内存的方式也一样，则这种体系结构被称为Uniform Memory Access(UMA)。
+
+如果物理内存是分布式的，由多个cell组成（比如每个核有自己的本地内存），那么CPU在访问靠近它的本地内存的时候就比较快，访问其他CPU的内存或者全局内存的时候就比较慢，这种体系结构被称为Non-Uniform Memory Access(NUMA)。
+
+以上是硬件层面上的NUMA，而作为软件层面的Linux，则对NUMA的概念进行了抽象。即便硬件上是一整块连续内存的UMA，Linux也可将其划分为若干的node。同样，即便硬件上是物理内存不连续的NUMA，Linux也可将其视作UMA。
+
+所以，在Linux系统中，你可以基于一个UMA的平台测试NUMA上的应用特性。从另一个角度，UMA就是只有一个node的特殊NUMA，所以两者可以统一用NUMA模型表示。
+
+![image](assets\linux-70.jpg)
+
+传统的SMP（对称多处理器）中，所有处理器都共享系统总线，因此当处理器的数目增大时，系统总线的竞争冲突加大，系统总线将成为瓶颈，所以目前SMP系统的CPU数目一般只有数十个，可扩展能力受到极大限制。NUMA技术有效结合了SMP系统易编程性和MPP（大规模并行）系统易扩展性的特点，较好解决了SMP系统的可扩展性问题，已成为当今高性能服务器的主流体系结构之一。
+
+在NUMA系统中，当Linux内核收到内存分配的请求时，它会优先从发出请求的CPU本地或邻近的内存node中寻找空闲内存，这种方式被称作local allocation，local allocation能让接下来的内存访问相对底层的物理资源是local的。
+
+每个node由一个或多个zone组成（我们可能经常在各种对虚拟内存和物理内存的描述中迷失，但以后你见到zone，就知道指的是物理内存），每个zone又由若干page frames组成（一般page frame都是指物理页面）。
+
+![image](assets\linux-71.jpg)
+
 # Linux进程管理与监控
 
 ## 进程的概念与分类

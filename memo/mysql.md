@@ -3461,7 +3461,48 @@ start transaction;
 commit;
 ```
 
+Binlog是MySQL的逻辑操作日志，广泛应用于复制和恢复。从MySQL 5.1开始，如果打开语句级Binlog，就不支持RC和Read-Committed隔离级别，如果想使用RC，则必须使用Mixed或Row两种格式的Binlog。原因在于Binlog语句的顺序以commit为序，而实际在DB执行上不同隔离级别下执行顺序不一定和Binlog语句顺序一致！
 
+实验1：
+
+![image](assets\mysql-8.jpg)
+
+从以上测试可知，RC隔离级别下，会话2的删除操作会影响会话1的结果，由于Binlog语句是以commit为序，语句级Binlog记录上述操作日志将会是这样：
+
+```sql
+#会话2
+set transaction_isolation='read-committed';
+delete from t1 where c1 = 2;
+commit;
+ 
+#会话1
+set transaction_isolation='read-committed';
+ 
+Begin;
+ 
+update t2 set c2 = 3 where c1 in (select c1 from t1); 
+update t2 set c2 = 4 where c1 in (select c1 from t1);
+select * from t2;
++------+------+
+| c1   | c2   |
++------+------+
+|    1 |    4 |
+|    2 |    2 |
++------+------+
+2 rows in set (0.00 sec)
+ 
+commit;
+```
+
+可以看出在RC隔离级别下，语句级Binlog在DR上执行的结果不正确。出现不一致的根本原因在于：Binlog要求SQL串行化，而RC隔离级别下做不到串行化，做不到可重复读！
+
+实验2：
+
+![image](assets\mysql-9.jpg)
+
+在RR隔离级别下，当会话2执行delete语句时会被对话1阻塞，直到会话1提交commit。delete被阻塞的原因在于：会话1语句update t2 set c2 = 3 where c1 in (select c1 from t1)会先在t1的记录上S锁，接着在t2的满足条件的记录上X锁。由于会话1没提交，会话2的delete语句需要等待会话1的S锁释放，于是阻塞。因此，在RR中，以上测试会话1、会话2的依次执行，与Binlog的顺序一致，从而保证DB/DR一致。
+
+> 总结：在RR隔离级别中，如果update或者delete的条件中包含查询其他表的操作，那么也会对其他表中相应的记录上锁。在其他表上的加锁方式跟RR隔离级别一样，即：如果检索条件有索引（包括主键索引）的时候，默认加锁方式是next-key锁；如果检索条件没有索引，更新数据时会锁住整张表。
 
 ## 4、锁详解
 

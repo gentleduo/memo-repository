@@ -14580,6 +14580,12 @@ BucketCache的通常部署是通过一个管理类来设置两个缓存层:由Lr
 4. ROW 使用场景：假设有2个Hfile文件hf1和hf2， hf1包含kv1（r1 cf:q1 v）、kv2（r2 cf:q1 v） hf2包含kv3（r3 cf:q1 v）、kv4（r4 cf:q1 v） 如果设置了CF属性中的bloomfilter（布隆过滤器）为ROW，那么get(r1)时就会过滤hf2，get(r3)就会过滤hf1 。
 5. ROWCOL使用场景：假设有2个Hfile文件hf1和hf2， hf1包含kv1（r1 cf:q1 v）、kv2（r2 cf:q1 v） hf2包含kv3（r1 cf:q2 v）、kv4（r2 cf:q2 v） 如果设置了CF属性中的bloomfilter为ROW，无论get(r1,q1)还是get(r1,q2)，都会读取hf1+hf2；而如果设置了CF属性中的bloomfilter为ROWCOL，那么get(r1,q1)就会过滤hf2，get(r1,q2)就会过滤hf1。
 
+>总结：一个Hfile包含一个块索引和一个布隆过滤器，当用户随机查找一个rowkey时，通过布隆过滤器来判断Hfile中是否包含该rowkey，如果包含的话继续通过块索引来判断该rowkey在Hfile的哪一个数据块中，但是块索引是由每个数据块的第一行数据的rowkey组成的，所以直接命中索引的概率是很小的；如果没命中索引可能是通过rowkey在块索引的区间，加载相应的数据块并遍历，确认该数据块中是否存在rowkey对应的数据。
+>
+>比如：
+>
+>块索引的数据为：R001,R050,R100，而要查询的rowkey是R020，由于Hfile中的数据都是有序的，数据如果存在的话肯定只有可能存在R001所在的块中，所以Hbase会加载R001对应的数据块并遍历，确认该数据块中是否存在R020对应的数据。
+
 #### 优化2
 
 HFile 的合并
@@ -15056,9 +15062,7 @@ hbase-site.xml
 
 指定垃圾回收器需要注意的细节：
 
-在$HBASE_HOME/bin/hbase文件中会去判断HBASE_OPTS这个环境变量是否为空，如果为空就会根据jdk的版本去设置相应的垃圾回收器，而且HBase在启动的时候会读取HBASE_OPTS的JVM启动参数，并根据HBASE_OPTS的参数给HMaster和RegionServer设置相同的GC。如果再给HBASE_MASTER_OPTS和
-
-HBASE_REGIONSERVER_OPTS设置其他的GC类型，就需要注意新生代和老年代垃圾收集器的匹配问题了。否则会报错：Conflicting collector combinations in option list; please refer to the release notes for the combinations allowed（选项列表中有冲突的收集器组合）
+在$HBASE_HOME/bin/hbase文件中会去判断HBASE_OPTS这个环境变量是否为空，如果为空就会根据jdk的版本去设置相应的垃圾回收器，而且HBase在启动的时候会读取HBASE_OPTS的JVM启动参数，并根据HBASE_OPTS的参数给HMaster和RegionServer设置相同的GC。如果再给HBASE_MASTER_OPTS和HBASE_REGIONSERVER_OPTS设置其他的GC类型，就需要注意新生代和老年代垃圾收集器的匹配问题了。否则会报错：Conflicting collector combinations in option list; please refer to the release notes for the combinations allowed（选项列表中有冲突的收集器组合）
 
 比如：jdk版本为8的时候，HBASE_OPTS默认会设置GC为：UseConcMarkSweepGC，如果在HBASE_REGIONSERVER_OPTS再设置：GC为G1就会报垃圾收集器不能配合使用的错误
 

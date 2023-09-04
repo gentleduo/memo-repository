@@ -14459,7 +14459,7 @@ LSM树由两个或以上的存储结构组成，比如在论文中为了方便�
 
 ### BlockCache
 
-一个RegionServer只有一个BlockCache。之前画的架构图上是没有标出BlockCache的，这是因为之前的图上出现的都是数据存储必需的组成部分，而BlockCache不是数据存储的必须组成部分，它只是用来优化读取性能的。BlockCache名称中的Block指的是HBase的Block。BlockCache的工作原理跟其他缓存一样：读请求到HBase之后先尝试查询BlockCache，如果获取不到就去HFile（StoreFile）和Memstore中去获取。如果获取到了则在返回数据的同时把Block块缓存到BlockCache中。BlockCache默认是开启的。BlockCache的实现方案：
+一个RegionServer只有一个BlockCache。之前画的架构图上是没有标出BlockCache的，这是因为之前的图上出现的都是数据存储必需的组成部分，而BlockCache不是数据存储的必须组成部分，它只是用来优化读取性能的。BlockCache名称中的Block指的是HBase的Block。BlockCache默认是开启的。BlockCache的实现方案：
 
 #### LRUBlock Cache
 
@@ -14575,7 +14575,6 @@ BucketCache的通常部署是通过一个管理类来设置两个缓存层:由Lr
 细节：
 
 1. 对于hbase而言，当选择采用布隆过滤器之后，HBase会在生成StoreFile（HFile）时包含一份布隆过滤器结构的数据，称其为MetaBlock；MetaBlock与DataBlock（真实的KeyValue数据）一起由LRUBlockCache维护。所以，开启bloomfilter会有一定的存储及内存cache开销。但是在大多数情况下，这些负担相对于布隆过滤器带来的好处是可以接受的。
-2. 在读取数据时，hbase会首先在布隆过滤器中查询，根据布隆过滤器的结果，再在MemStore中查询，最后再在对应的HFile中查询。
 3. 采用ROW还是ROWCOL布隆过滤器？这取决于用户的使用模式。如果用户只做行扫描，使用更加细粒度的行加列布隆过滤器不会有任何的帮助，这种场景就应该使用行级布隆过滤器。当用户不能批量更新特定的一行，并且最后的使用存储文件都含有该行的一部分时，行加列级的布隆过滤器更加有用。
 4. ROW 使用场景：假设有2个Hfile文件hf1和hf2， hf1包含kv1（r1 cf:q1 v）、kv2（r2 cf:q1 v） hf2包含kv3（r3 cf:q1 v）、kv4（r4 cf:q1 v） 如果设置了CF属性中的bloomfilter（布隆过滤器）为ROW，那么get(r1)时就会过滤hf2，get(r3)就会过滤hf1 。
 5. ROWCOL使用场景：假设有2个Hfile文件hf1和hf2， hf1包含kv1（r1 cf:q1 v）、kv2（r2 cf:q1 v） hf2包含kv3（r1 cf:q2 v）、kv4（r2 cf:q2 v） 如果设置了CF属性中的bloomfilter为ROW，无论get(r1,q1)还是get(r1,q2)，都会读取hf1+hf2；而如果设置了CF属性中的bloomfilter为ROWCOL，那么get(r1,q1)就会过滤hf2，get(r1,q2)就会过滤hf1。
@@ -14592,7 +14591,7 @@ HFile 的合并
 
 ##### 小合并 
 
-Minor Compaction:合并一般发生在 Memstore 刷写为 HFile 时, 达到阈值则产生一次合并, 常见如果刷写的 HFile 太小则合并
+Minor Compaction:合并一般发生在 Memstore 刷写为 HFile 时, 达到阈值则产生一次合并, 如果刷写的 HFile 太小则合并
 
 ##### 全合并
 
@@ -14607,19 +14606,15 @@ Major Compaction:全合并一般周期性发生, 例如 24 小时, 合并期间�
 
 读优化
 
-##### 一级缓存(BlockCache)
+通过BlockCache和Memstore，优化读性能。具体Hbase的读写数据流程，参照《读写过程》章节
 
 MySQL的B+树并不是把数据直接存放在树中, 而是把数据组成页(Page) 然后再存入B+树, MySQL中最小的数据存储单元是Page
 
-HBase也一样, 其最小的存储单元叫做Block, Block会被缓存在BlockCache中, 读数据时, 优先从BlockCache中读取
+HBase也一样, 其最小的存储单元叫做Block, Block会被缓存在BlockCache中
 
 BlockCache是RegionServer级别的
 
 BlockCache叫做读缓存, 因为BlockCache缓存的数据是读取返回结果给客户端时存入的
-
-##### 二级缓存:
-
-当查找数据时, 会先查内存, 后查磁盘, 然后汇总返回，因为写是写在Memstore中, 所以从Memstore就能立刻读取最新状态，Memstore没有的时候, 扫描HFile, 通过布隆过滤器优化读性能。
 
 ### 总结
 
@@ -14774,7 +14769,7 @@ RegionScanner会根据列族构建StoreScanner，有多少列族就构建多少S
 
 1. 构建StoreFileScanner：每个StoreScanner会为当前该Store中每个HFile构造一个StoreFileScanner，用于实际执行对应文件的检索。同时会为对应Memstore构造一个MemstoreScanner，用于执行该Store中Memstore的数据检索。
 
-2. 过滤淘汰StoreFileScanner：根据Time Range以及RowKey Range对StoreFileScanner以及MemstoreScanner进行过滤，淘汰肯定不存在待检索结果的Scanner。上图中StoreFile3因为检查RowKeyRange不存在待检索Rowkey所以被淘汰。
+2. 过滤淘汰StoreFileScanner：根据Time Range以及RowKey Range对StoreFileScanner以及MemstoreScanner进行过滤（期间会用到布隆过滤器），淘汰肯定不存在待检索结果的Scanner。上图中StoreFile3因为检查RowKeyRange不存在待检索Rowkey所以被淘汰。
 
 3. Seek rowkey：所有StoreFileScanner开始做准备工作，在负责的HFile中定位到满足条件的起始Row（由于hbase的索引只保存每个block的起始rowkey，所以seek的作用只能找到对象rowkey对应的块）。Seek过程（此处略过Lazy Seek优化）也是一个很核心的步骤，它主要包含下面三步：
    1. 定位Block Offset：在Blockcache中读取该HFile的索引树结构，根据索引树检索对应RowKey所在的Block的Block Offset和Block Size
@@ -14907,7 +14902,7 @@ hbase.hstore.compaction.min.size：表示文件大小小于该值的store file �
 
 hbase.hstore.compaction.max.size：表示文件大小大于该值的store file 一定会被minor compaction排除
 
-hbase.hstore.compaction.ratio：将store file 按照文件年龄排序（older to younger），minor compaction总是从older store file开始选择
+hbase.hstore.compaction.ratio：当前文件大小<比当前文件更新的所有文件的大小总和*ratio才参与合并
 
 观察确认：
 
@@ -14918,6 +14913,22 @@ hbase.hstore.compaction.ratio：将store file 按照文件年龄排序（older t
 （1）Minor Compaction设置：hbase.hstore.compaction.min设置不能太小，又不能设置太大，因此建议设置为5～6；hbase.hstore.compaction.max.size = RegionSize / hbase.hstore.compaction.min
 
 （2）Major Compaction设置：大Region读延迟敏感业务（ 100G以上）通常不建议开启自动Major Compaction，手动低峰期触发。小Region或者延迟不敏感业务可以开启Major Compaction，但建议限制流量；
+
+> 例：
+>
+> hbase.hstore.compaction.ratio = 1.0f
+> hbase.hstore.compaction.min = 3 (files)
+> hbase.hstore.compaction.max = 5 (files)
+> hbase.hstore.compaction.min.size = 10 (bytes)
+> hbase.hstore.compaction.max.size = 1000 (bytes)
+>
+> store中hfile大小由老到新为：100, 50, 23, 12,12
+>
+> 100：sum(50, 23, 12, 12) * 1.0 = 97，不满足当前文件大小<比当前文件更新的所有文件的大小总和*ratio。
+> 50：sum(23, 12, 12) * 1.0 = 47，不满足当前文件大小<比当前文件更新的所有文件的大小总和*ratio。
+> 23 : sum(12, 12) * 1.0 = 24,满足条件。
+> 12：前面23的文件满足条件，而该文件小于hbase.hstore.compaction.max.size，所以满足条件。
+> 12：前面23的文件满足条件，而该文件小于hbase.hstore.compaction.max.size，所以满足条件。
 
 #### 数据本地率是否太低？
 
@@ -14994,7 +15005,8 @@ export HBASE_REGIONSERVER_OPTS="$HBASE_REGIONSERVER_OPTS $HBASE_JMX_BASE -Dcom.s
 hbase-site.xml
 
 ```xml
-<!--在阻止新更新和强制刷新之前，区域服务器中所有memstore的最大大小。默认为堆的40%(0.4)。更新将被阻塞并强制刷新，直到区域服务器中所有memstore的大小达到hbase.regionserver.global.memstore.size.lower.limit。-->
+<!-- 当单个HRegionServer上的的所有的HRegion对应的所有的Memstore之和超过了hbase.regionserver.global.memstore.size.lower.limit * hbase.regionserver.global.memstore.size * hbase_heapsize，会强制进行flush操作，而且还会阻塞更新(这是最不希望看到的，因为阻塞了这个HRegionServer上的更新操作，将会影响在这个HRegionServer上所有的HRegion的读写)。默认情况下， hbase.regionserver.global.memstore.size的大小为堆大小的40%的。-->
+<!-- 举个例子，如果我们 HBase 堆内存总共是 32G，按照默认的比例，那么触发 RegionServer 级别的 Flush 是 RS 中所有的 MemStore 占用内存为：32 * 0.4 * 0.95 = 12.16G。 -->
 <property>
     <name>hbase.regionserver.global.memstore.size</name>
     <value>0.4</value>
@@ -15030,20 +15042,19 @@ export HBASE_REGIONSERVER_OPTS="$HBASE_REGIONSERVER_OPTS $HBASE_JMX_BASE -Dcom.s
 hbase-site.xml
 
 ```xml
-<!-- false：当从L1中移除时，块将移到L2。当一个块被缓存时，它首先被缓存在L1中。去寻找一个缓存块时，首先在L1中查找，如果没有找到，然后搜索L2。这种部署格式为原始L1+L2。注意:这个L1+L2模式从2.0.0移除。 -->
-<!-- true：严格的数据缓存LruBlockCache将缓存INDEX/META块，BucketCache缓存DATA块。 -->
+<!-- 从HBase 2.0.0 开始，L1与L2的概念便被弃用。当BucketCache启用时，数据块（DATA blocks）会一直保存于BucketCache；INDEX/BLOOM块会保存于LRUBlockCache的堆内存。cacheDetaInL1 的配置也被移除。 -->
+<!-- BucketCache的块缓存可以被部署为off-heap，文件，或mmaped文件这三种模式（通过hbase.bucketcache.ioengine配置）。设置为offheap会让BucketCache在堆外内存管理block cache。设置为file:PATH_TO_FILE（EMR里默认为files:/mnt/hbase/bucketcache），会直接让BucketCache使用文件缓存（如果卷是SSD之类的高速盘的话，会比较有用）。从2.0.0 开始，使用多个文件路径也是可以的。若是在需要较大Cache 的场景下，这个配置很有用。在设置时的基本配置为：files:PATH_TO_FILE1, PATH_TO_FILE2, PATH_TO_FILE3。BucketCache可以也可以配置为使用一个mmapped文件。配置ioengine为mmap:PATH_TO_FILE即可。 -->
+<!-- 在hbase 2.0.0之前，也可以设置多级缓存（绕过CombinedBlockCache策略），将BucketCache设置为严格的L2 缓存，LruBlockCache为L1缓存。在这种配置中，设置 hbase.bucketcache.combinedcache.enable 为false即可。在这种模式下，当L1缓存内容被清除（置换）时，会将置换出的块放入L2。当一个块被缓存时，首先被缓存在L1。当我们去查询一个缓存块时，首先在L1查，若是没找到，则再搜索L2。我们将此部署方法称为Raw L1+L2。需要注意的是，这个L1+L2模式已经在hbase 2.0.0 以后被移除了。当BucketCache被使用时，它会严格的将DATA块缓存放入BucketCache，而INDEX/META块则被放入LruBlockCache。 -->
 <property>
     <name>hbase.bucketcache.combinedcache.enabled</name>
     <value>true</value>
 </property>
-<!-- 设置hbase.bucketcache.ioengine和hbase.bucketcache.size > 0，启用组合块缓存。-->
-<!-- 编辑RegionServer的hbase-env.sh，并将HBASE_OFFHEAPSIZE设置为大于所需的堆外大小的值-->
-<!-- 存储桶缓存内容的位置。其中之一:offheap, file, files, mmap或pmem。注意：不在支持heap，默认值为none-->
 <property>
     <name>hbase.bucketcache.ioengine</name>
     <value>offheap</value>
 </property>
 <!-- 使用了bucketcache作为blockcache的一部分,那么heap中用于blockcache的百分比可以减小 -->
+<!-- 在BucketCache模式下，堆内存用于保存INDEX/BLOOM块 -->
 <property>
     <name>hfile.block.cache.size</name>
     <value>0.20</value>

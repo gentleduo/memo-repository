@@ -1319,6 +1319,11 @@ HotSpot JVM把年轻代分为了三部分：1个Eden区和2个Survivor区（分�
    其中using thread-local object allocation下面就是采用的java垃圾收集器
    比如Mark Sweep Compact GC、Concurrent Mark-Sweep GC、Garbage-First (G1) GC等
 
+>UseParNewGC和UseParallelGC的区别：
+>
+>（1）UseParNewGC：并发串行收集器，它是工作在新生代的垃圾收集器，它只是将串行收集器多线程化，除了这个并没有太多创新之处，而且它们共用了相当多的代码。它与串行收集器一样，也是独占式收集器，在收集过程中，应用程序会全部暂停。但它却是许多运行在Server模式下的虚拟机中首选的新生代收集器，其中有一个与性能无关但很重要的原因是，除了Serial收集器外，目前只有它能与CMS收集器配合工作。
+>（2）UseParallelGC：并行收集器，同时运行在多个cpu之间，物理上的并行收集器，跟上面的收集器一样也是独占式的，但是它最大化的提高程序吞吐量，同时缩短程序停顿时间，另外它不能与CMS收集器配合工作。
+
 ## GC常用参数
 
 ### 通用参数
@@ -1702,3 +1707,9 @@ Top命令找出CPU占用较高的Java线程信息
 11. jstat -compiler pid  JIT
 
 12. jstat -printcompilation pid  HotSpot编译统计
+
+## jinfo
+
+查看当前JVM运行的参数
+
+jinfo -flags pid

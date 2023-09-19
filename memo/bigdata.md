@@ -15027,12 +15027,12 @@ hbase-site.xml
     <name>hbase.hregion.memstore.block.multiplier</name>
     <value>4</value>
     <description>Block updates if memstore has hbase.hregion.memstore.block.multiplier times hbase.hregion.memstore.flush.size bytes. Useful preventing runaway memstore during spikes in update traffic. Without an upper-bound, memstore fills such that when it flushes the resultant flush files take a long time to compact or split, or worse, we OOME.</description>
+</property>
 <!-- memstore的flush线程数，在put高负载场景下可以适当调大，默认值为2。 -->
 <property>
     <name>hbase.hstore.flusher.count</name>
     <value>2</value>
     <description>The number of flush threads. With fewer threads, the MemStore flushes will be queued. With more threads, the flushes will be executed in parallel, increasing the load on HDFS, and potentially causing more compactions.</description>
-</property>
 </property>
 <!-- 如果任何一个Store中存在超过此数量的StoreFile（每次刷新MemStore都会写入一个StoreFile），则该Store的memstore的flush将被阻止(这就是memstore中数据会堆积到超过阈值的原因)，直到完成压缩，或者直到超过hbase.hstore.blockingWaitTime。在put高负载场景下可以适当调大。默认值为16。-->
 <property>

@@ -15016,6 +15016,30 @@ hbase-site.xml
     <name>hfile.block.cache.size</name>
     <value>0.4</value>
 </property>
+<!-- 如果memstore的大小超过此字节数，Memstore将刷新到磁盘。默认:134217728byte-->
+<property>
+    <name>hbase.hregion.memstore.flush.size</name>
+    <value>134217728</value>
+    <description>Memstore will be flushed to disk if size of the memstore exceeds this number of bytes. Value is checked by a thread that runs every hbase.server.thread.wakefrequency.</description>
+</property>
+<!-- 当一个region里的memstore超过memstore.size*multiplier倍大小时，会阻塞该region的所有请求，进行flush，释放内存。 默认:4-->
+<property>
+    <name>hbase.hregion.memstore.block.multiplier</name>
+    <value>4</value>
+    <description>Block updates if memstore has hbase.hregion.memstore.block.multiplier times hbase.hregion.memstore.flush.size bytes. Useful preventing runaway memstore during spikes in update traffic. Without an upper-bound, memstore fills such that when it flushes the resultant flush files take a long time to compact or split, or worse, we OOME.</description>
+</property>
+<!-- 如果任何一个Store中存在超过此数量的StoreFile（每次刷新MemStore都会写入一个StoreFile），则该Store的memstore的flush将被阻止(这就是memstore中数据会堆积到超过阈值的原因)，直到完成压缩，或者直到超过hbase.hstore.blockingWaitTime。-->
+<property>
+    <name>hbase.hstore.blockingStoreFiles</name>
+    <value>16</value>
+    <description>If more than this number of StoreFiles exist in any one Store (one StoreFile is written per flush of MemStore), updates are blocked for this region until a compaction is completed, or until hbase.hstore.blockingWaitTime has been exceeded.</description>
+</property>
+<!-- 达到hbase.hstore.blockingStoreFiles定义的StoreFile限制后，区域将阻止更新的时间。经过这段时间后，即使压缩尚未完成，该区域也将停止阻止更新。-->
+<property>
+    <name>hbase.hstore.blockingWaitTime</name>
+    <value>16</value>
+    <description>The time for which a region will block updates after reaching the StoreFile limit defined by hbase.hstore.blockingStoreFiles. After this time has elapsed, the region will stop blocking updates even if a compaction has not been completed.</description>
+</property>
 ```
 
 ### 读多写少型规划

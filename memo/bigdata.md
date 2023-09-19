@@ -15210,13 +15210,7 @@ master启动进行以下步骤：
 
 4. hbase.regionserver.global.memstore.size.lower.limit（默认：堆大小 * 0.4 * 0.95）
 
-   默认值为none，表示在强制flush之前，RegionServer中所有memstores的最大大小。默认为hbase.regionserver.global.memstore.size大小的95%。该配置中的默认值被有意地保留为空，为了当存在旧的hbase.regionserver.global.memstore.lowerLimit属性情况下，使用旧的属性值 。
-
-   当整个RegionServer中所有写入MemStore的数据大小总和超过低水位阈值，RegionServer开始强制执行flush，先flush MemStore最大的Region，再flush次大的，依次执行。如果此时写入吞吐量依然很高，导致总MemStore的数据大小超过高水位阈值：hbase.regionserver.global.memstore.size，RegionServer会阻塞所有写入请求并强制执行flush，直至总MemStore大小下降到低水位阈值。一旦出现RegionServer写入出现阻塞，查看日志中是否存在关键字Blocking updates on，如果存在说明当前RegionServer总MemStore内存大小超过了高水位阀值。
-
-   高水位阈值 = hbase.regionserver.global.memstore.size
-
-   低水位阈值 = hbase.regionserver.global.memstore.size * hbase.regionserver.global.memstore.size.lower.limit
+   当单个HRegionServer上的的所有的HRegion对应的所有的Memstore之和超过了hbase.regionserver.global.memstore.size.lower.limit * hbase.regionserver.global.memstore.size * hbase_heapsize，会强制进行flush操作，而且还会阻塞更新(这是最不希望看到的，因为阻塞了这个HRegionServer上的更新操作，将会影响在这个HRegionServer上所有的HRegion的读写)。默认情况下， hbase.regionserver.global.memstore.size的大小为堆大小的40%的。举个例子，如果我们 HBase 堆内存总共是 32G，按照默认的比例，那么触发 RegionServer 级别的 Flush 是 RS 中所有的 MemStore 占用内存为：32 * 0.4 * 0.95 = 12.16G。
 
 5. hbase.hregion.preclose.flush.size（默认为：5M）
 

@@ -15046,6 +15046,16 @@ hbase-site.xml
     <value>90000</value>
     <description>The time for which a region will block updates after reaching the StoreFile limit defined by hbase.hstore.blockingStoreFiles. After this time has elapsed, the region will stop blocking updates even if a compaction has not been completed.</description>
 </property>
+<!-- RS中small compactions线程池的大小。默认值 1，一般建议调整到2~5 -->
+<property>
+    <name>hbase.regionserver.thread.compaction.small</name>
+    <value>4</value>
+</property>
+<!-- RS中large compactions线程池的大小。默认值 1 -->
+<property>
+    <name>hbase.regionserver.thread.compaction.large</name>
+    <value>1</value>
+</property>
 ```
 
 ### 读多写少型规划

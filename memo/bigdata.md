@@ -14602,6 +14602,8 @@ Major Compaction:全合并一般周期性发生, 例如 24 小时, 合并期间�
 - 对照 LSM树, Memstore 是 Level 0, Memstore 刷写的 HFile 就是 Level 1, Major Compaction 后是 Level 2
 - 通过把合并分为两种, 会将 IO 分散在不同的时间片, 让 HBase 的运行更加流畅, 性能也更加好
 
+>minor是小范围内的合并文件，只合并部分。目的在于把小文件积累成大文件。因为没有全量数据，所以对于一个key的删除操作还是需要保留标记，无法物理删除。major compact把列族中的所有文件合并为一个，目的在于使key的修改和删除，最终在物理上生效。因为major compact操作的是此列族的全量数据，所以可以做物理删除。但是也由于是全量数据，执行起来耗费时间也会比价长，所以hbase对major compact做了时间间隔限制。
+
 #### 优化3
 
 读优化
@@ -15046,25 +15048,30 @@ hbase-site.xml
     <value>90000</value>
     <description>The time for which a region will block updates after reaching the StoreFile limit defined by hbase.hstore.blockingStoreFiles. After this time has elapsed, the region will stop blocking updates even if a compaction has not been completed.</description>
 </property>
-<!-- 执行单次Minor Compaction过程可以被选择的HFile的最大数量 -->
+<!-- 在hbase的Minor Compaction中分为small和large(注意：这两种都是属于Minor Compaction)，评估单个compaction为small或者large的判断依据为是否超过hbase.regionserver.thread.compaction.throttle值。为了防止large compaction长时间执行阻塞其他small compaction，hbase将这两种compaction进行了分离处理，每种compaction会分配独立的线程池。-->
 <property>
-    <name>hbase.hstore.compaction.max</name>
-    <value>64</value>
+    <name>hbase.regionserver.thread.compaction.throttle</name>
+    <value>2684354560</value>
 </property>
 <!-- RS中small compactions线程池的大小。默认值 1，一般建议调整到2~5 -->
 <property>
     <name>hbase.regionserver.thread.compaction.small</name>
-    <value>4</value>
+    <value>8</value>
 </property>
 <!-- RS中large compactions线程池的大小。默认值 1 -->
 <property>
     <name>hbase.regionserver.thread.compaction.large</name>
-    <value>1</value>
+    <value>4</value>
 </property>
-<!-- 设置执行Compaction(Major && Minor)操作的阈值，默认是3，如果想降低过频繁的合并操作，可以稍微调大一点，对于HBase负载较重的系统，可以设置成5。默认值 1 -->
+<!-- 设置执行Compaction(Major && Minor)操作的阈值，默认是3，如果想降低过频繁的合并操作，可以稍微调大一点，对于HBase负载较重的系统，可以设置成8。默认值为空值，代码逻辑结果为3 -->
 <property>
-    <name>hbase.hstore.compactionThreshold</name>
+    <name>hbase.hstore.compaction.min</name>
     <value>8</value>
+</property>
+<!-- 执行单次Minor Compaction过程可以被选择的HFile的最大数量，无论符合条件的StoreFile数量有多少。 实际上，hbase.hstore.compaction.max的值控制完成单次压缩所需的时间长度。 将其设置得较大意味着压缩中包含更多的 StoreFile。 默认值 10。-->
+<property>
+    <name>hbase.hstore.compaction.max</name>
+    <value>64</value>
 </property>
 ```
 

@@ -15073,6 +15073,11 @@ hbase-site.xml
     <name>hbase.hstore.compaction.max</name>
     <value>64</value>
 </property>
+<!-- 此设置定义保持打开状态以应答对用户请求的线程数。通常的配置规则是：当每次请求的数据量较大时（如接近MB的单词put，cache较大的scan操作）应将此数字保持在较低水平；当每次请求负载较小时(gets, small puts, ICVs, deletes)，则把该值配置较大。正在进行的查询的总大小受 hbase.ipc.server.max.callqueue.size 设置的限制。典型的配置场景是网站后端的HBase集群，这种场景下大多数为读请求，很少写请求，因此这种场景可以把该值配置到最大也是安全的。如果单个请求的数据量很大，并且将该值配置的很大时，put并发量很高时，会给内存造成很大压力，甚至有可能触发内存溢出。可以通过查看rpc.logging（regionserver打开DEBUG日志级别），根据在排队的线程数量消耗的内存大小来判断hbase.regionserver.handler.count配置是否过大或者过小。 -->
+<property>
+    <name>hbase.regionserver.handler.count</name>
+    <value>30</value>
+</property>
 ```
 
 ### 读多写少型规划

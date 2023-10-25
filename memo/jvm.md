@@ -1482,8 +1482,32 @@ Top命令找出CPU占用较高的Java线程信息
 
 1. 第一步：首先使用top找出占用CPU较高的进程ID 
 2. 第二步：使用top -H -p pid查看该进程里占用CPU较高的线程ID 
-3. 第三步：把得到的线程ID转成16进制
+3. 第三步：把得到的线程ID转成16进制：printf ""%x\n" 12399
 4. 第四步：在线程堆栈里找出线程ID对应的代码块，jstack -l 1541 | grep 0x610 -A 20
+
+>linux下查看线程数的方法
+>
+>1.通过/proc伪文件系统
+>
+>```bash
+># 其中Threads后面跟的就是线程数。
+>[root@server01 ~]# cat /proc/{pid}/status
+># 或者：通过
+>[root@server01 ~]# ls /proc/{pid}/task | wc -l
+>```
+>
+>2.top命令后面跟-H，会打印出所有线程列表
+>
+>```bash
+>[root@server01 ~]# top -H
+>[root@server01 ~]# top -H -p {pid}
+>```
+>
+>3.ps 后面加上H，能打印某个进程的所有线程
+>
+>```bash
+>[root@server01 ~]# ps hH p {pid} | wc -l
+>```
 
 ## jconsole
 

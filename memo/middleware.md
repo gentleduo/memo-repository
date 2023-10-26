@@ -1419,6 +1419,114 @@ upstream中的keepalive设置
 
 - nginx没有打开和后端的长连接，即：没有设置proxy_http_version 1.1;和proxy_set_header Connection "keep-alive";从而导致后端server每次关闭连接，高并发下就会出现server端出现大量TIME_WAIT
 
+## nginx性能分析
+
+```nginx
+user  nginx;
+#worker_processes  auto;
+worker_processes  40;
+worker_rlimit_nofile 655360;
+error_log  /var/log/nginx/error.log notice;
+pid        /var/run/nginx.pid;
+
+events {
+    #worker_connections  1024;
+    use epoll;
+    worker_connections  10240;
+}
+
+http {
+    include       /etc/nginx/mime.types;
+    default_type  application/octet-stream;
+
+    log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
+                      '$status $body_bytes_sent "$http_referer" '
+                      '"$http_user_agent" "$http_x_forwarded_for" '
+                      '"$request_time" "$upstream_addr" '
+                      '"$upstream_http_connection" "$upstream_http_keep_alive" '
+                      '"$upstream_response_time" "$upstream_connect_time" "$upstream_header_time"';
+
+    access_log  /var/log/nginx/access.log  main;
+
+    sendfile        on;
+    #tcp_nopush     on;
+
+    keepalive_timeout  60s 60s;
+    #keepalive_timeout  120;
+    keepalive_requests  10000;
+    #keepalive_time 1h;
+    #gzip  on;
+
+    include /etc/nginx/conf.d/*.conf;
+}
+```
+
+nginx内置变量请参考nginx官方文档：http://nginx.org/en/docs/
+
+### request_time
+
+单位为秒。
+官网描述：request processing time in seconds with a milliseconds resolution; time elapsed between the first bytes were read from the client and the log write after the last bytes were sent to the client。
+指的就是从接受用户请求的第一个字节到发送完响应数据的时间，即$request_time包括接收客户端请求数据的时间、后端程序响应的时间、发送响应数据给客户端的时间(不包含写日志的时间)。
+
+### upstream_response_time
+
+单位为秒。
+官网描述：keeps time spent on receiving the response from the upstream server; the time is kept in seconds with millisecond resolution. Times of several responses are separated by commas and colons like addresses in the $upstream_addr variable.。
+是指从Nginx向后端建立连接开始到接受完数据然后关闭连接为止的时间。
+从上面的描述可以看出，$request_time肯定比$upstream_response_time值大；尤其是在客户端采用POST方式提交较大的数据，响应体比较大的时候。在客户端网络条件差的时候，$request_time还会被放大。
+
+### upstream_connect_time
+
+单位为秒。
+keeps time spent on establishing a connection with the upstream server (1.9.1); the time is kept in seconds with millisecond resolution. In case of SSL, includes time spent on handshake. Times of several connections are separated by commas and colons like addresses in the $upstream_addr variable.
+跟后端server建立连接的时间，如果是到后端使用了加密的协议，该时间将包括握手的时间。
+
+### upstream_header_time
+
+单位为秒。
+keeps time spent on receiving the response header from the upstream server (1.7.10); the time is kept in seconds with millisecond resolution. Times of several responses are separated by commas and colons like addresses in the $upstream_addr variable.
+接收后端server响应头的时间。
+
+![image](assets\middleware-63.png)
+
+### 场景举例
+
+1. 场景1：nginx日志出现大量超时报警，这个时候发现$upstream_header_time正常，但是$request_time、$upstream_response_time很大
+
+   上游程序执行较慢、或发送数据量大，需要排查执行程序的相关慢日志
+
+2. 场景2：同样是ngxin日志出现大量超时报警，这个时候发现$request_time很大，但是$upstream_response_time正常
+
+   $upstream_response_time正常，说明程序执行完毕且正常返回，那么这个时候需要验证是数据返回过慢还是日志打印出现了阻塞。
+
+   原因：
+
+   1. 数据返回慢可以通过抓包分析，通常来说是用户网络原因引起的；
+   2. 日志打印出现阻塞，可能是机器io出现了问题，这个一般很容易发现；
+   3. 还有可能是nginx配置了相关参数，导致了延迟关闭，这里只要根据问题现象一步一步排查即可。
+   4. 也可能返回给客户端是https，大数据加解密耗时
+
+3. 场景3：$upstream_connect_time很大
+
+   可能是网络通信出现了问题；
+
+4. 场景4：$upstream_header_time很小，但是$upstream_response_time很大
+
+   可能是数据回写nginx出现了问题。
+
+5. 场景5：$upstream_response_time比$request_time 大
+
+   一般情况下request_time比upstream_response_time大，因为如果用户端网络状况较差，或者传递数据本身较大，再考虑到当使用POST方式传参时Nginx会先把request body缓存起来而这些耗时都会累积到［用户请求］头上去。因为用户端的状况通常千差万别无法控制 ，所以并不应该被纳入到测试和调优的范畴里面。更值得关注的应该是upstream_response_time。
+
+   那为什么会出现$upstream_response_time比$request_time大的情况呢？nginx.org官网有个说明：https://forum.nginx.org/read.php?21,284448,284450#msg-284450。$ upstream_response_time由clock_gettime(CLOCK_MONOTONIC_COARSE)计算，默认情况下，它可以过去4毫秒，相反，$ request_time由gettimeofday()计算。 所以最终upstream_response_time可能比response_time更大。那问题又来了，为什么两个时间不用同一个函数计算呢？可能有以下几个原因：
+
+   1. clock_gettime比gettimeofday更加精确
+   2. 但是gettimeofday比clock_gettime效率更高，gettimeofday走的是vsyscall[1]（虚拟系统粗糙的描述就是不经过内核进程的切换就可以调用一段预定好的内核代码），没有线程切换的开销。
+   3. clock_gettime本身的执行就非常耗费时间，其大概的调用路径是：clock_gettime -> sys_call -> sys_clock_gettime -> getnstimeofday -> read_tsc -> native_read_tsc
+
+   可能是Nginx为了效率，在某些操作比较多的时间计算上调用的是gettimeofday函数。
+
 # Kafka
 
 ## 消息队列

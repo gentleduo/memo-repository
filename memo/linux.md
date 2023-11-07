@@ -2489,6 +2489,8 @@ LVM，是Logical Volume Manager的缩写，中文意思是逻辑卷管理，它�
 ![image](assets\linux-13.png)
 
 ```bash
+# 安装lvm2
+[root@server01 proc]# yum -y install lvm2
 # 创建pv
 [root@server01 ~]# pvcreate /dev/sdb1 /dev/sdb2 /dev/sdc1
 # 查看pv信息
@@ -2502,7 +2504,7 @@ LVM，是Logical Volume Manager的缩写，中文意思是逻辑卷管理，它�
 # 创建lv，-L后面跟lv的大小
 [root@server01 ~]# lvcreate -L 25G -n lv1 vg1
 # 创建lv，-l后面跟的是PE的数量
-[root@server01 ~]# lvcreate -L 1278 -n lv2 vg1
+[root@server01 ~]# lvcreate -l 1278 -n lv2 vg1
 # 查看lv信息
 [root@server01 ~]# lvdisplay
 # 格式化lv1
@@ -2513,6 +2515,10 @@ LVM，是Logical Volume Manager的缩写，中文意思是逻辑卷管理，它�
 [root@server01 ~]# mount /dev/vg1/lv1 /data1
 # 挂载lv2
 [root@server01 ~]# mount /dev/vg1/lv2 /data2
+# xfs
+[root@server01 ~]# echo "/dev/vg1/lv1 /data1               xfs    defaults        0 0" >> /etc/fstab
+# ext4
+[root@server01 ~]# echo "/dev/vg1/lv2 /data2               ext4    defaults        0 0" >> /etc/fstab
 #########################################################################################
 # 扩充vg
 [root@server01 ~]# vgextend vg1 /dev/sdc2
@@ -2520,11 +2526,11 @@ LVM，是Logical Volume Manager的缩写，中文意思是逻辑卷管理，它�
 # 扩充lv1
 [root@server01 ~]# lvextend -l +1000 /dev/vg1/lv1
 # 在线调整大小
-[root@server01 ~]# xfs_growfs /data1
+[root@server01 ~]# xfs_growfs /dev/mapper/vg1-lv1
 # 扩充lv2
 [root@server01 ~]# lvextend -L +10G /dev/vg1/lv2
 # 在线调整大小
-[root@server01 ~]# resize2fs /dev/vg1/lv2
+[root@server01 ~]# resize2fs /dev/mapper/vg1-lv2
 #########################################################################################
 # 删除lv
 [root@server01 ~]# umount /data1

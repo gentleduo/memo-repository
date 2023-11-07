@@ -2519,6 +2519,15 @@ LVM，是Logical Volume Manager的缩写，中文意思是逻辑卷管理，它�
 [root@server01 ~]# echo "/dev/vg1/lv1 /data1               xfs    defaults        0 0" >> /etc/fstab
 # ext4
 [root@server01 ~]# echo "/dev/vg1/lv2 /data2               ext4    defaults        0 0" >> /etc/fstab
+# 新机器安装，通过lvm挂载目录示例：
+[root@localhost proc]# yum -y install lvm2
+[root@localhost proc]# pvcreate /dev/sdb
+[root@localhost proc]# vgcreate datavg /dev/sdb
+[root@localhost proc]# lvcreate -n datalv -L 19.9G datavg
+[root@localhost proc]# mkfs.xfs /dev/datavg/datalv
+[root@localhost proc]# mkdir /data
+[root@localhost proc]# mount /dev/datavg/datalv /data
+[root@localhost proc]# echo "/dev/datavg/datalv /data               xfs    defaults        0 0" >> /etc/fstab
 #########################################################################################
 # 扩充vg
 [root@server01 ~]# vgextend vg1 /dev/sdc2

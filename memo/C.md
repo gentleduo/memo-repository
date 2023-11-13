@@ -6,6 +6,7 @@
 2. GNU是一个操作系统，GCC的初衷是为GNU操作系统专门编写的一款编译器，GNU系统是彻底的自由软件。此处，“自由”的含义是它尊重用户的自由；
 3. GCC是以GPL许可证所发行的自由软件，也是GNU计划的关键部分。GCC的初衷是为GNU操作系统专门编写一款编译器，现已被大多数类Unix操作系统（如Linux、BSD、MacOS X等）采纳为标准的编译器，甚至在微软的Windows上也可以使用GCC。GCC支持多种计算机体系结构芯片，如x86、ARM、MIPS等，并已被移植到其他多种硬件平台；
 4. GCC原名为GNU C语言编译器（GNU C Compiler），只能处理C语言。但其很快扩展，变得可处理C++，后来又扩展为能够支持更多编程语言，如Fortran、Pascal、Objective -C、Java、Ada、Go以及各类处理器架构上的汇编语言等，所以改名GNU编译器套件（GNU Compiler Collection）
+5. 官网：https://gcc.gnu.org/
 
 gcc所支持后缀名解释 
 
@@ -65,7 +66,7 @@ gcc -E ./test.c -o test.i
 生成汇编代码；检查语法错误,并生成汇编文件
 
 ```sh
-#-S 说明只进行到编译阶
+#-S 说明只进行到编译阶段
 gcc -S test.c -o test.s
 ```
 
@@ -486,7 +487,7 @@ linux下静态库的后缀名为.a文件，这时使用静态库来链接使用�
 1. 编译： gcc main.c -o main -L . -l myhello 与链接静态库使用方法相同
 2. 运行：动态链接是在运行时才进行的。执行./main程序时，可能报错，因为程序在运行时，会在/usr/lib和/lib等目录中查找需要的动态库文件。若找到，则载入动态库，否则将提示类似这样的错误：`error while loading shared libraries: libmyhello.so: cannot open shared object file: No such file or directory`而终止程序运行。
 3. 程序运行时有三种方式加载动态库路径（按优先级来）：
-   1. 把库拷贝到/usr/lib和/lib目录下。(如果还是报错的话执行： export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/lib)
+   1. 把库拷贝到/usr/lib(64位的操作系统为:/usr/lib64)和/lib(64位的操作系统为:/lib64)目录下。(如果还是报错的话执行： export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/lib)
    2. 在LD_LIBRARY_PATH环境变量中加上库所在路径。（常用）例如动态库libmyhello.so在/home/ting/lib目录下，以bash为例，使用命令：export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/home/ting/lib
    3. 修改/etc/ld.so.conf文件，把库所在的路径加到文件末尾，并执行ldconfig刷新。这样，加入的目录下的所有库文件都可见。
 4. Linux动态链接库的搜索路径按优先级排序为：

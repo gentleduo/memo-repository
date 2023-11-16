@@ -2490,11 +2490,9 @@ SPI全称为：Service Provider Interface，是JDK内置的一种服务提供发
 
 当服务的提供者提供了一种接口的实现之后，需要在classpath下的META-INF/services/目录里创建一个以服务接口命名的文件，这个文件里的内容就是这个接口的具体的实现类。当其他的程序需要这个服务的时候，就可以通过查找这个jar包（一般都是以jar包做依赖）的META-INF/services/中的配置文件，配置文件中有接口的具体实现类名，可以根据这个类名进行加载实例化后便可以使用该服务了。JDK中查找服务实现的工具类是：java.util.ServiceLoader
 
-# 虚引用
+# 强软弱虚引用
 
-虚引用需要java.lang.ref.PhantomReference类来实现，虚引用顾名思义，就是形同虚设，与其他几种引用都不同，虚引用并不会决定对象的生命周期。如果一个对象被虚引用持有，那么它就像没有没有被任何引用一样，在任何时候都可能被垃圾回收器回收。虚引用不能单独使用也不能通过它访问对象，虚引用必须和引用队列（ReferenceQueue）联合使用。
 
-虚引用的主要作用是跟踪对象被垃圾回收的状态，仅仅是提供了一种确保对象被finalize以后，做某些事情的机制。PhantomRefernce的get方法总是返回null,因此无法访问对应的引用对象。
 
 ```mermaid
 classDiagram
@@ -2505,78 +2503,230 @@ classDiagram
 	PhantomReference --|> Reference
 ```
 
-```java
-package org.duo;
+## 强引用
 
-import java.lang.ref.ReferenceQueue;
+强引用是最普遍的一种引用，代码中99.9999%都是强引用
+
+```java
+package org.duo.study.reference;
+
+public class StrongReferenceDemo {
+
+    class Student {
+
+        // 在实际开发中，千万不要重写finalize方法
+        @Override
+        protected void finalize() throws Throwable {
+            System.out.println("Student 被回收了");
+        }
+    }
+
+    public static void main(String[] args) {
+
+        // 这种就是强引用了，只要某个对象有强引用与之关联，这个对象永远不会被回收，即使内存不足，JVM宁愿抛出OOM，也不会去回收。
+        Object o = new Object();
+        // 当强引用和对象之间的关联被中断了，就可以被回收了。可以手动把关联给中断了，方法也特别简单：
+        o = null;
+
+        // 可以手动调用GC，看看如果强引用和对象之间的关联被中断了，资源会不会被回收，为了更方便、更清楚的观察到回收的情况，需要新写一个类，然后重写finalize方法
+        StrongReferenceDemo strongReferenceDemo = new StrongReferenceDemo();
+        Student student = strongReferenceDemo.new Student();
+        student = null;
+        System.gc();
+    }
+}
+
+```
+
+## 软引用
+
+软引用就是把对象用SoftReference包裹一下，当需要从软引用对象获得包裹的对象，只要get一下就可以了；软引用有什么特点呢： 当内存不足，会触发JVM的GC，如果GC后，内存还是不足，就会把软引用的包裹的对象给干掉，也就是只有在内存不足，JVM才会回收该对象。软引用到底有什么用呢？比较适合用作缓存，当内存足够，可以正常的拿到缓存，当内存不够，就会先干掉缓存，不至于马上抛出OOM。
+
+```java
+package org.duo.study.reference;
+
+import java.lang.ref.SoftReference;
+
+public class SoftReferenceDemo {
+
+    public static void main(String[] args) {
+        // 运行程序，带上一个参数：-Xmx20M
+        SoftReference<byte[]> softReference = new SoftReference<byte[]>(new byte[1024 * 1024 * 10]);
+        System.out.println(softReference.get());
+        System.gc();
+        // 可以很清楚的看到手动完成GC后，软引用对象包裹的byte[]还活的好好的
+        System.out.println(softReference.get());
+        byte[] bytes = new byte[1024 * 1024 * 10];
+        // 但是当我们创建了一个10M的byte[]后，最大堆内存不够了，所以把软引用对象包裹的byte[]给干掉了，如果不干掉，就会抛出OOM。
+        System.out.println(softReference.get());
+    }
+}
+```
+
+## 弱引用
+
+弱引用的使用和软引用类似，只是关键字变成了WeakReference，弱引用的特点是不管内存是否足够，只要发生GC，都会被回收。
+
+```java
+package org.duo.study.reference;
+
 import java.lang.ref.WeakReference;
+
+public class WeakReferenceDemo {
+
+    public static void main(String[] args) {
+        WeakReference<byte[]> weakReference = new WeakReference<byte[]>(new byte[1]);
+        System.out.println(weakReference.get());
+        System.gc();
+        System.out.println(weakReference.get());
+    }
+}
+```
+
+## 虚引用
+
+虚引用需要java.lang.ref.PhantomReference类来实现，虚引用顾名思义，就是形同虚设，PhantomRefernce的get方法总是返回null，即无法通过虚引用来获取对一个对象的真实引用；虚引用的特点之二就是 虚引用必须与ReferenceQueue一起使用，当GC准备回收一个对象，如果发现它还有虚引用，就会在回收之前，把这个虚引用加入到与之关联的ReferenceQueue中。在NIO中，就运用了虚引用管理堆外内存。
+
+虚引用应用1：
+
+```java
+package org.duo.study.reference;
+
+import java.lang.ref.PhantomReference;
+import java.lang.ref.Reference;
+import java.lang.ref.ReferenceQueue;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Scanner;
 
 public class ReferenceQueueDemo {
 
     public static void main(String[] args) {
 
-        Object o1 = new Object();
-        ReferenceQueue<Object> referenceQueue = new ReferenceQueue<>();
-        // 相当于WeakReference:weakReference对象引用了Object:o1
-        WeakReference<Object> weakReference = new WeakReference<>(o1,referenceQueue);
-        System.out.println("***************GC回收前***************");
-        System.out.println(o1);
-        System.out.println(weakReference);
-        // PhantomRefernce的get方法总是返回null,因此无法访问对应的引用对象
-        System.out.println(weakReference.get());
-        System.out.println(referenceQueue.poll());
+        ReferenceQueue queue = new ReferenceQueue();
+        List<byte[]> bytes = new ArrayList<>();
+        PhantomReference<Object> reference = new PhantomReference<Object>(new Object(), queue);
+        // 第一个线程往集合里面塞数据，随着数据越来越多，肯定会发生GC。 第二个线程死循环，从queue里面拿数据，如果拿出来的数据不是null，就打印出来。
+        new Thread(() -> {
+            for (int i = 0; i < 100; i++) {
+                bytes.add(new byte[1024 * 1024]);
+            }
+        }).start();
 
-        System.out.println("***************启动GC***************");
-        o1 = null;
-        System.gc();
+        // 当发生GC，虚引用就会被回收，并且会把回收的通知放到ReferenceQueue中。
+        new Thread(() -> {
+            while (true) {
+                Reference poll = queue.poll();
+                if (poll != null) {
+                    System.out.println("虚引用被回收了：" + poll);
+                }
+            }
+        }).start();
+        Scanner scanner = new Scanner(System.in);
+        scanner.hasNext();
+    }
+}
+```
+
+虚引用应用2：
+
+```java
+package org.duo.study.reference;
+
+import sun.misc.Cleaner;
+import sun.misc.Unsafe;
+
+import java.lang.reflect.Field;
+
+public class BusinessHandler {
+
+    //sun.misc.Cleaner继承java.lang.ref.PhantomReference
+    //java.lang.ref.Reference的tryHandlePending方法会执行sun.misc.Cleaner的clean方法
+    //sun.misc.Cleaner的clean方法会调用在Cleaner.create时传递的Runnable线程的run方法
+    //所以在类中使用Cleaner可以回收对象创建的堆外内存，防止内存泄露
+    private final Cleaner cleaner;
+    // getUnsafe()被设计成只能从启动类加载器(Bootstrap Class Loader)加载
+    // 自己直接调用时会抛出SecurityException
+    // private static final Unsafe unsafe = Unsafe.getUnsafe();
+
+    long address;
+
+    public Cleaner cleaner() {
+        return cleaner;
+    }
+
+    //引用Unsafe需使用如下反射方式，否则会抛出异常java.lang.SecurityException: Unsafe
+    public static Unsafe reflectGetUnsafe() throws NoSuchFieldException, IllegalAccessException {
+        Field theUnsafe = Unsafe.class.getDeclaredField("theUnsafe");
+        theUnsafe.setAccessible(true);//禁止访问权限检查（访问私有属性时需要加上）
+        return (Unsafe) theUnsafe.get(null);
+    }
+
+    public BusinessHandler(int cap) {
+
+        // 初始化时通过Unsafe分配堆外内存
+        long base = 0;
         try {
-            Thread.sleep(500); //确保GC都执行完了
-        } catch (InterruptedException e) {
+            base = BusinessHandler.reflectGetUnsafe().allocateMemory(cap);
+            BusinessHandler.reflectGetUnsafe().setMemory(base, cap, (byte) 0);
+        } catch (NoSuchFieldException e) {
+            e.printStackTrace();
+        } catch (IllegalAccessException e) {
             e.printStackTrace();
         }
-        // GC回收后会将WeakReference对象添加到ReferenceQueue引用队列。
-        System.out.println(o1);
-        System.out.println(weakReference);
-        System.out.println(weakReference.get());
-        System.out.println(referenceQueue.poll());
+        address = base;
+        // 当BusinessHandler被垃圾回收的时候，就会把PhantomReference虚引用对象：Cleaner放入ReferenceQueue队列，用Reference线程调用clean方法完成回调方法，此时便可以释放该对象中保存的堆外内存了；
+        // Cleaner继承PhantomReference、PhantomReference继承Reference；
+        // Cleaner中维护一个ReferenceQueue队列，且该队列为static final，一个JVM就一个；
+        // 当对象需要在被GC回收前进行一些额外的clean操作时，可以定义一个Cleaner类型的成员变量，并通过Cleaner.create进行初始化，然后选择传入Runnable线程，Runnable线程中的run方法则是GC回收前需要进行额外处理的逻辑；
+        // 并且一个JVM内的所有的Cleaner对象都会以队列的形式保存在Cleaner类的静态成员变量ReferenceQueue队列中；
+        // Reference中的静态块会启动ReferenceHandler线程；
+        // ReferenceHandler线程的run方法是死循环，会遍历Cleaner类的静态成员变量ReferenceQueue队列中的Cleaner对象，并调用tryHandlePending方法；
+        // tryHandlePending会调用Cleaner的clean方法；
+        // 而Cleaner在执行clean的时候会回调Cleaner.create是传递进去的Runnable线程的run方法从而完成GC回收前的额外处理的逻辑。
+        this.cleaner = Cleaner.create(this, new BusinessHandler.Deallocator(address));
+        ;
+    }
+
+    private static class Deallocator
+            implements Runnable {
+
+        private long address;
+
+        private Deallocator(long address) {
+            this.address = address;
+        }
+
+        @Override
+        public void run() {
+
+            System.out.println("free Memory begin......");
+            if (address == 0) {
+                return;
+            }
+            try {
+                BusinessHandler.reflectGetUnsafe().freeMemory(address);
+            } catch (NoSuchFieldException e) {
+                e.printStackTrace();
+            } catch (IllegalAccessException e) {
+                e.printStackTrace();
+            }
+            address = 0;
+            System.out.println("free Memory end......");
+        }
     }
 }
 ```
 
 ```java
-package org.duo;
+package org.duo.study.reference;
 
-import java.lang.ref.PhantomReference;
-import java.lang.ref.ReferenceQueue;
-
-public class PhantomReferenceTest {
-
-    Object o1 = new Object();
-    ReferenceQueue<Object> referenceQueue = new ReferenceQueue<>();
-    // 相当于PhantomReference:phantomReference对象引用了Object:o1
-    PhantomReference<Object> phantomReference = new PhantomReference<>(o1, referenceQueue);
-
-    public void start() {
-        new Thread(() -> {
-            System.out.println("phantomReference.get() = " + phantomReference.get());
-            PhantomReference<Object> curReference = null;
-//            try {
-//                // ReferenceQueue的Remove、poll是阻塞方法。
-//                // 当垃圾回收器决定对PhantomReference对象进行回收时，会将其插入ReferenceQueue中。
-//                curReference = (PhantomReference<Object>) referenceQueue.remove();
-//            } catch (InterruptedException e) {
-//                e.printStackTrace();
-//            }
-            curReference = (PhantomReference<Object>) referenceQueue.poll();
-            System.out.println("虚引用被回收，curReference" + curReference);
-        }).start();
-    }
+public class AppMain {
 
     public static void main(String[] args) {
-        PhantomReferenceTest test = new PhantomReferenceTest();
-        System.out.println(test.phantomReference);
-        test.start();
-        test.o1 = null;
+
+        BusinessHandler businessHandler = new BusinessHandler(1024);
+        businessHandler = null;
         System.gc();
         try {
             Thread.sleep(500); //确保GC都执行完了
@@ -2584,7 +2734,6 @@ public class PhantomReferenceTest {
             e.printStackTrace();
         }
     }
-
 }
 ```
 

@@ -772,7 +772,7 @@ Thread.sleep(0)的作用，就是触发操作系统立刻重新进行一次CPU�
 | isInterrupted | 判断某个线程是否已被发送过中断请求。（线程的中断状态不受该方法的影响） |
 | interrupt     | 中断线程，将会设置该线程的中断状态位，即设置为true，         |
 
-Java的中断是一种协作机制。也就是说调用线程对象的interrupt方法并不一定就中断了正在运行的线程，它只是要求线程自己在合适的时机中断自己。每个线程都有一个boolean的中断状态（这个状态不在Thread的属性上），interrupt方法仅仅只是将该状态置为true。对正常运行的线程调用interrupt()并不能终止他，只是改变了interrupt标示符。一般说来，如果一个方法声明抛出InterruptedException，表示该方法是可中断的,比如wait,sleep,join，也就是说可中断方法会对interrupt调用做出响应（例如sleep响应interrupt的操作包括清除中断状态，抛出InterruptedException）,异常都是由可中断方法自己抛出来的，并不是直接由interrupt方法直接引起的。JVM会不断的轮询监听阻塞在Object.wait,Thread.sleep等方法上的线程的interrupted标志位，发现其设置为true后，会停止阻塞并抛出InterruptedException异常。
+Java的中断是一种协作机制。也就是说调用线程对象的interrupt方法并不一定就中断了正在运行的线程，它只是要求线程自己在合适的时机中断自己。每个线程都有一个boolean的中断状态（这个状态不在Thread的属性上），interrupt方法仅仅只是将该状态置为true。对正常运行的线程调用interrupt()并不能终止他，只是改变了interrupt标示符。一般说来，如果一个方法声明抛出InterruptedException，表示该方法是可中断的,比如wait,sleep,join，也就是说可中断方法会对interrupt调用做出响应（例如sleep响应interrupt的操作包括清除中断状态，抛出InterruptedException）,异常都是由可中断方法自己抛出来的，并不是直接由interrupt方法直接引起的。JVM会不断的轮询监听阻塞在Object.wait,Thread.sleep等方法上的线程的interrupted标志位，发现其设置为true后，会停止阻塞并抛出InterruptedException异常，同时将中断标示位重新设置为false。
 
 1. 没有任何语言方面的需求一个被中断的线程应该终止。中断一个线程只是为了引起该线程的注意，被中断线程可以决定如何应对中断。
 2. 对于处于sleep，join等操作的线程，如果被调用interrupt()后，会抛出InterruptedException，然后线程的中断标志位会由true重置为false，因为线程为了处理异常已经重新处于就绪状态。

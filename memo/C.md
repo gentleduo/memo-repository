@@ -564,6 +564,211 @@ ldd查看某个可运行程序在运行时所要用的动态库.so：ldd ./examp
 
 当动态库和静态库同名存在时，默认使用的是动态库。也就是不会将静态库编译到可执行文件中去。
 
+## 强/弱符号和强/弱引⽤
+
+### 符号定义
+
+在编程中经常碰到符号重复定义的情况，当在一个作用域内重复定义同一个变量时，编译器会报错；注意，这里针对于同一作用域才会有冲突，如果是不同作用域，比如全局和局部，即使是相同变量名，也是不会报错的，编译器会默认根据一定的优先级处理，总是更小作用域的变量覆盖更大作用域的变量，前提是这两个变量的作用域是包含与被包含的关系。在C语言中，作用域的分类方式是代码作用域和文件作用域，文件作用域即定义在函数之外的变量可以跨文件访问，代码作用域指的是花括号限定的作用域，它不仅仅限于函数体，在C99中将其扩展到了for，while，if语句所控制的代码，甚至可以在函数内以单独的花括号存在。比如：
+
+```c
+int main() {
+
+    {
+        int x = 1;
+    }
+    x = 2 ;
+
+}
+```
+
+上面的代码编译时会报错：define.c:6:5: error: ‘x’ undeclared (first use in this function)
+
+在C语言中，可以简单的认为花括号是文件内作用域的分隔符。
+
+### 强符号和弱符号
+
+对于C/C++而言，编译器默认函数和已初始化的全局变量为强符号，而未初始化的全局变量为弱符号，在编程者没有显式指定时，编译器对强弱符号的定义会有一些默认行为，同时开发者也可以对符号进行指定，使用`"__attribute__((weak))"`来声明一个符号为弱符号。定义一个相同的变量，当两者不全是强符号时，gcc在编译时并不会报错，而是遵循一定的规则进行取舍：
+
+1. 当两者都为强符号时，报错：redefinition of 'xxx'
+2. 当两者为⼀强⼀弱时，选取强符号的值
+3. 当两者同时为弱时，选择其中占⽤空间较⼤的符号，这个其实很好理解，编译器不知道编程者的⽤意，选择占⽤空间⼤的符号⾄少不会造成诸如溢出、越界等严重后果。
+
+在默认的符号类型情况下，强符号和弱符号是可以共存的，类似于这样：
+
+```c
+int x;
+int x = 1;
+```
+
+编译不会报错，在编译时x的取值将会是1。但是使⽤`__attribute__((weak))`将强符号转换为弱符号，却不能与⼀个强符号共存，类似于这样：
+
+```c
+int __attribute__((weak)) x = 0;
+int x = 1;
+```
+
+编译器将报重复定义错误。
+
+### 强引⽤和弱引⽤
+
+编译器在编译阶段只负责将源⽂件编译成⽬标⽂件(即⼆进制⽂件)，然后由链接器对所有⼆进制⽂件进⾏链接操作。在分离式编译中，当编译器检查到当前使⽤的函数或者变量在本模块中仅有声明⽽没有定义时，编译器直接使⽤这个符号，将⼯作转交给链接器，链接器则负责根据这些信息找到这些函数或者变量的实体地址，因为在程序执⾏时，程序必须确切地知道每个函数和全局变量的地址。如果没有找到该符号的实体，就会报undefined reference错误，这种符号之间的引⽤被称为强引⽤。编译器默认所有的变量和函数为强引⽤，同时编程者可以使⽤`__attribute__((weakref))`来声明⼀个函数，注意这⾥是声明⽽不是定义，既然是引⽤，那么就是使⽤其他模块中定义的实体，对于函数⽽⾔，我们可以使⽤这样的写法：`__attribute__((weakref)) void func(void);`,然后在函数中调⽤func()，如果func()没有被定义，则func的值为0，如果func被定义，则调⽤相应func。但是如下写法在现在的编译系统中，虽然编译通过但是写法却是错误的：
+
+```c
+__attribute__((weakref)) void func(void);
+void main(void)
+{
+    if(func) {func();}
+}
+```
+
+warning: ‘weakref’ attribute should be accompanied with an ‘alias’ attribute [-Wattributes]。警告显⽰：weakref需要伴随着⼀个别名才能正常使⽤。在官⽅⽂档中是这样指出的：
+
+The weakref attribute marks a declaration as a weak reference. Without arguments, it should be accompanied by an alias attribute naming the target symbol. Optionally, the target may be given as an argument to weakref itself. In either case, we At present, a declaration to which weakref is attached can only be static.
+
+贴出稍为重要的部分，通俗地解释就是：weakref需要伴随着⼀个别名，别名不需要带函数参数，如果对象函数没有定义，我们可以使⽤别名来实现函数的定义⼯作，如果不指定别名,weakref作⽤等于weak。weakref的声明必须为静态。
+
+### 强/弱符号和强/弱引⽤的作⽤
+
+#### 弱符号
+
+test.c
+
+```c
+#include<stdio.h>
+
+void __attribute__ ((weak)) weak_func(void)
+{
+    printf("defualt weak func is running\n");
+}
+
+void test_func(void)
+{
+    weak_func();
+}
+```
+
+test.h
+
+```c
+void test_func(void);
+```
+
+main.c
+
+```c
+#include<stdio.h>
+#include "test.h"
+void weak_func(void)
+{
+    printf("custom strong func override!\n");
+}
+int main()
+{
+    test_func();
+    return 0;
+}
+```
+
+编译执行
+
+```bash
+# 将test.c编译成静态库;
+[root@server01 3]# gcc -c test.c -o test.o
+[root@server01 3]# ar -rsc libtest.a test.o
+# 编译main.c:
+# -L表⽰指定静态库的⽬录，如果不指定⽬录，编译器会去系统⽬录查找，如果系统⽬录没有将报错。
+# -l表⽰链接对应的静态库，在linux下静态库的名称统⼀为libxxx.a，在链接时只需要使⽤-lxxx即可。
+[root@server01 3]# gcc main.c -L. -ltest -o test
+# 在test库中定义了weak_func函数，且weak_func是⼀个弱符号，且在test_func中被调⽤，然后在main.c中重新定义了test_func函数，且是个强符号，所以在链接时，链接器选择链接main.c中的test_func函数。如果将main.c中weak_func函数定义去掉，它的执⾏结果将是：defualt weak func is running!
+[root@server01 3]# ./test
+custom strong func override!
+```
+
+#### 弱引用
+
+test.c
+
+```c
+#include <stdio.h>
+static __attribute__((weakref("test"))) void weak_ref(void);
+void test_func(void)
+{
+        if(weak_ref){
+                weak_ref();
+        }
+        else{
+                printf("weak ref function is null\n");
+        }
+}
+```
+
+test.h
+
+```c
+void test_func(void);
+```
+
+main.c
+
+```c
+#include <stdio.h>
+#include <stdarg.h>
+#include "test.h"
+void test(void)
+{
+        printf("running custom weak ref function!\n");
+}
+int main()
+{
+        test_func();
+        return 0;
+}
+```
+
+编译执行
+
+```bash
+# 将test.c编译成静态库;
+[root@server01 3-2]# gcc -c test.c -o test.o
+[root@server01 3-2]# ar -rsc libtest.a test.o
+# 编译main.c:
+[root@server01 3-2]# gcc main.c -L. -ltest -o test
+# 在test静态库中仅仅声明了静态的weak_ref函数，且声明时使⽤了函数别名test，因为是静态声明，这个函数名的作⽤域被限定在本模块内，所以即使是在其他模块中定义了weak_ref函数，也⽆法影响到当前模块中的weak_ref函数。官⽅提供的⽅法是可以定义它的别名函数来代替，如上所⽰weak_ref的别名为test，所以在main.c中定义了test函数就相当于定义了weak_ref函数，所以在test_func的判断分⽀中，test_func中不为null，执⾏if(test_func)分⽀，如果在main.c中去除weak_ref的定义，函数的执⾏结果是这样的:weak ref function is null
+[root@server01 3-2]# ./test
+```
+
+#### 总结
+
+这种弱符号和弱引用对于库来说十分有用，比如库中定义的弱符号可以被用户定义的强符号所覆盖，从而使得程序可以使用自定义版本的库函数；或者程序可以对某些扩展功能模块的引用定义为弱引用，当将扩展模块与程序模块在一起时，功能模块就可以正常使用，如果去掉某些功能模块，那么程序也可以正常链接，只是缺少了相应的功能，这使得程序的功能更加容易裁剪和组合。比如：在Linux程序的设计中，如果一个程序被设计成可以支持单线程或多线程的模式，就可以通过弱引用的方法来判断当前的程序是链接到了单线程的Glibc库还是多线程的Glibc库（在编译时有-lpthread选项），从而执行单线程版本的程序或多线程版本的程序。可以在程序中定义一个pthread_create函数的弱符号，然后判断是否链接到pthread库从而决定执行多线程版本还是单线程版本：
+
+thread.c
+
+```c
+#include<stdio.h>
+#include<pthread.h>
+
+int pthread_create(pthread_t*,const pthread_attr_t*,void *(*)(void *), void *) __attribute__ ((weak));
+
+int main () {
+
+    if (pthread_create) {
+        printf("This is multi-thread version!\n");
+    } else {
+        printf("This is single-thread version!\n");
+    }
+
+}
+```
+
+```bash
+[root@server01 3-2]# gcc thread.c -o pt
+[root@server01 3-2]# ./pt
+This is single-thread version!
+[root@server01 3-2]# gcc thread.c -lpthread -o pt
+[root@server01 3-2]# ./pt 
+This is multi-thread version!
+```
+
 # Makefile
 
 ## Make

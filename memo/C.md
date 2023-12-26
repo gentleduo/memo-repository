@@ -769,6 +769,116 @@ This is single-thread version!
 This is multi-thread version!
 ```
 
+## C语言内联汇编
+
+内联汇编称为inline assembly，GCC支持在C代码中直接嵌入汇编代码，所以称为GCC inline assembly。C语言不支持寄存器操作，汇编语言可以，所以自然就想到了在C语言中嵌入内联汇编提升“战斗力”的方式，通过内联汇编，C程序员可以实现C语言无法表达的功能，这样使开发能力大为提升。内联汇编按格式分为两大类，一类是最简单的基本内联汇编，另一类是复杂一些的扩展内联汇编，在介绍它们之前，其实还有一点点头疼的事，内联汇编中所用的汇编语言，其语法是AT&T，并不是咱们熟悉的Intel汇编语法，GCC只支持它，所以还得了解下AT&T。其实不论是Intel语法或者是AT&T语法，其在某一个平台上编译出来的机器码是一样的，其本质没有区别，只是表达方式有点区别。
+
+AT&T首先在UNIX中使用，可当初UNIX并不是在x86处理器上开发的，最初是在PDP-11机器上开发的，后来又移植到VA X和68000的处理器上，所以AT&T的语法自然更接近于这些处理器的特性。虽然UNIX后来又移植到x86上了，但还是要尊重UNIX圈内的习惯，其汇编语法接近于那些前辈处理器上的语法，这就是AT&T语法。无论语法怎么改变，汇编语言中指令关键字不能有太大的出入，名字非常接近，只是在指令名字的最后加上了操作数大小后缀，b表示一字节，w表示二字节，l表示四字节，比如压栈指令，在Intel语法中是 push ，在AT&T语法中是 pushl ，最后这个l表示要压栈的数据长度是4字节，在了解Intel语法的情况下，基本能看懂AT&T语法，他们的主要差别是语法风格。
+
+![image](assets\c-10.png)
+
+上表未列出两种语法在内存寻址之间的区别：
+在Intel语法中，立即数就是普通的数字，如果让立即数成为内存地址，需要将他用中括号括起来，才能表示以立即数为地址的内存
+而AT&T认为，内存地址既然是数字，那数字理所应当的也应该被当做内存地址，所以数字优先被认为是内存地址，也就是说，操作数如果是数字，则统统按照以该数字为地址的内存来访问。这样的话我们想要单纯的表示立即数就要在前面加一个 $ 。
+Intel语法有很多的寻址方式，包括直接寻址，基址寻址，变址寻址，基址变址寻址，而且不知道是不是开始学的时候就是Intel语法，所以觉得Intel语法是很直接的一种寻址方式。
+
+在AT&T中内存寻址有着固定的格式：segreg(段基址):base_address(offset_address,index,size)
+
+此格式对应的表达式为：segreg(段基址):base_address+offset_address+index*size)
+
+看上去格式有些怪异，但其实这是一种“通用”格式，格式中短短的几个成员囊括了它所有内存寻址的方式，任意一种内存寻址方式，其格式都是这个通用格式的子集，都是格式中各种成员的组合。下面介绍下这些成员项。
+
+1. base_address是基地址，可以为整数、变量名，可正可负。
+2. offset_address是偏移地址，index是索引值，这两个必须是那8个通用寄存器之一。
+3. size是个长度，只能是1、2、4、8。
+
+下面看看内存寻址中有哪些方式，注意，这些方式都是上面通用格式的一部分。
+
+1. 直接寻址：此寻址中只有base_address项，后面括号中的内容全不要，base_address便为内存啦，比如 movl $225,0xc00008F0 ，或者用变量名 mov $6,var
+
+2. 寄存器间接寻址： 此寻址中只有offset_address项，即格式为（offset_address），要记得，offset_address只能是通用寄存器。寄存器中是地址，不要忘记格式中的圆括号，如mov (%eax),%ebx。
+
+3. 寄存器相对寻址：此寻址中有offset_address项和base_address项，即格式为base_address（offset_address）。这样得出的内存地址是基址+偏移地址之和。如movb -4(%ebx),%al。
+
+4. 变址寻址：此类寻址称为变址的原因是含有通用格式中的变量Index。因为index是size的倍数，所以有index的地方就有size。既然是变址，只要有index和size就成了，base_address和offset_address可有可无，注意，格式中没有的部分也要保留逗号来占位。一共有4种变址寻址组合，下面各举个例子:
+
+   - 无base_address，无offset_address：movl %eax,(,%esi,2)
+
+
+   - 无base_address，有offset_address：movl %eax,(%ebx,%esi,2)
+
+
+   - 有base_address，无offset_address：movl %eax,base_value(,%esi,2)
+
+
+   - 有base_address，有offset_address：movl %eax,base_value(%ebx,%esi,2)
+
+基本内联汇编
+
+基本内联汇编是最简单的内联形式，其格式为：asm [volatile] ("assembly code")  
+
+关键字asm用于声明内联汇编表达式，这是内联汇编固定的部分，不可少。asm和`__asm__`是一样的，是由gcc定义的宏：#define `__asm__` asm。gcc有一个优化选项 -O ，可以指定优化级别，当用 -O 来编译的时候，gcc按照自己的意图优化代码，说不定就会把自己写的代码改了(他认为你写的太烂了)，关键字volatile是可选项，它告诉gcc：“不要修改我写的汇编代码，请原样保留”，volatile和`__volatile__`是一样的，是由gcc定义的宏：#define `__volatile__` volatile。“assembly code”是咱们所写的汇编代码，它必须位于圆括号中，而且必须用双引号引起来。这是格式要求，只要满足了这个格式asm [volatile] (“”)，assembly code甚至可以为空。
+
+assembly code的规则：
+
+1. 指令必须用双引号引起来，无论双引号中是一条指令或多条指令。
+2. 一对双引号不能跨行，如果跨行需要在结尾用反斜杠’\'转义。
+3. 提醒一下，即使是指令分布在多个双引号中，gcc最终也要把它们合并到一起来处理，合并之后，指令间必须要有分隔符。所以，当指令在多个双引号中时，除最后一个双引号外，其余双引号中的代码最后一定要有分隔符，这和其他编程语言中表示代码结束的分隔符是一样的，
+
+示例：
+
+TinyHelloWorld.c
+
+```c
+char* str = "Hello World!\n";
+
+void print()
+{
+asm (
+        "movq $13, %%rdx \n\t"  /* rdx表示字符串长度，这里是13 */
+        "movq %0, %%rsi  \n\t"  /* rsi表示字符串地址 */
+        "movq $1, %%rdi  \n\t"  /* rdi表示标准输出，这里是控制台 */
+        "movq $1, %%rax  \n\t"  /* rax表示系统调用write */
+        "syscall  \n\t"
+        ::"r"(str));
+}
+
+void exit()
+{
+  //exit的系统调用号是60，只需将60写入eax寄存器，以及第一个参数(退出状态)写入rdi寄存器。
+  unsigned long syscall_nr = 60;
+  long exit_status = 0;
+  asm ("movq %0, %%rax \n\t"
+       "movq %1, %%rdi \n\t"
+       "syscall  \n\t"
+    : /* output parameters, we aren't outputting anything, no none */
+      /* (none) */
+    : /* input parameters mapped to %0 and %1, repsectively */
+      "m" (syscall_nr), "m" (exit_status)
+    : /* registers that we are "clobbering", unneeded since we are calling exit */
+      "rax", "rdi");
+}
+
+void nomain()
+{
+    print();
+    exit();
+}
+```
+
+```bash
+# -fno-builtin GCC编译器提供了很多内置函数（Built-in Function），它会把一些常用的C库函数替换成编译器的内置函数，以达到优化的功能。比如GCC会将只有字符串参数的printf函数替换成puts，以节省格式解析的时间。exit()函数也是GCC的内置函数之一，所以要使用-fno-builtin参数来关闭GCC内置函数功能。
+[root@server01 4-2]# gcc -c -fno-builtin TinyHelloWorld.c
+# -static 这个参数表示ld将使用静态链接的方式链接程序，而不是使用默认的动态链接的方式。
+# -e nomain 表示该程序的入口函数为：nomain
+# -o TinyHelloWorld 表示指定输出可执行文件名为：TinyHelloWorld
+[root@server01 4-2]# ld -static -e nomain -o TinyHelloWorld TinyHelloWorld.o
+[root@server01 4-2]# ./TinyHelloWorld 
+Hello World!
+[root@server01 4-2]# echo $?
+0
+```
+
 # Makefile
 
 ## Make

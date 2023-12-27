@@ -879,6 +879,15 @@ Hello World!
 0
 ```
 
+>在使用gcc -static进行静态链接的时候可能会出现错误：
+>
+>/usr/bin/ld: cannot find -lc
+>collect2: error: ld returned 1 exit status
+>
+>原因：在新版本的**linux 系统** 下安装 **glibc-devel、glibc和gcc-c++** 时，都不会安装**libc.a. \** 只安装**libc.so.** 所以当使用**-static** 时，**libc.a** C库不能使用。只能报错：**找不到libc了** 。
+>
+>解决方案： yum install -y glibc-static
+
 # Makefile
 
 ## Make

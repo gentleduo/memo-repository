@@ -903,7 +903,7 @@ Hello World!
 1. 由make工具创建的目标体（target），通常是目标文件或可执行文件
 2. 要创建的目标体所依赖的文件（dependency_file）
 3. 创建每个目标体时需要运行的命令（command）
-4. 注意:命令行前面必须是一个”TAB键”,否则编译错误为:*** missing separator.  Stop.
+4. 注意:命令行前面必须是一个”TAB键”(不能用4个空格代替),否则编译错误为:*** missing separator.  Stop.
 
 Makefile格式
 

@@ -924,7 +924,7 @@ f1.c
 ```c
 #include<stdio.h>
 
-int print1() {
+void print1() {
     printf("i'm f1.c\n");
 }
 ```
@@ -934,7 +934,7 @@ f2.c
 ```c
 #include<stdio.h>
 
-int print2() {
+void print2() {
     printf("i'm f2.c\n");
 }
 ```
@@ -949,7 +949,9 @@ void print2();
 main.c
 
 ```c
+// 尖括号：编译器会到系统路径下查找头文件；
 #include<stdio.h>
+// 双引号：编译器会首先在当前目录下查找头文件，如果没有找到，再到系统路径下查找。
 #include "head.h"
 
 int main() {
@@ -965,6 +967,8 @@ f1.o: f1.c
         gcc -c f1.c -o f1.o
 f2.o: f2.c
         gcc -c f2.c -o f2.o
+# 由于指定-c参数，那么gcc只会到汇编为止，不会进行链接，因此需要依赖f1.c和f2.c
+# main.c里面#include "head.h"了，并且由于-c参数不会进行链接因此main.c在编译的时候只有申明了print1和print2函数即可
 main.o: main.c
         gcc -c main.c -o main.o
 .PHONY: clean

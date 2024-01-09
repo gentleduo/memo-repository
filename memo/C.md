@@ -994,6 +994,112 @@ gcc f1.o f2.o main.o -o test
 [root@server01 make]#
 ```
 
+make clean
+
+1、make clean命令的执行过程
+
+```bash
+# 当前目录下的文件：
+[root@server01 make-file]# ll
+total 20
+-rw-r--r--. 1 root root  63 Jan  9 11:04 f1.c
+-rw-r--r--. 1 root root  63 Jan  9 11:04 f2.c
+-rw-r--r--. 1 root root  30 Jan  9 11:02 head.h
+-rw-r--r--. 1 root root  88 Jan  9 11:02 main.c
+-rw-r--r--. 1 root root 443 Jan  9 12:19 Makefile
+# 执行make clean会报错：
+# 由此可知make clean命令并不是执行完make后再执行clean，而是直接执行make文件中的clean段中的命令，可以理解为make clean就是一个命令，即：执行Makefile中的clean代码段
+[root@server01 make-file]# make clean
+rm *.o
+rm: cannot remove ‘*.o’: No such file or directory
+make: *** [clean] Error 1
+# 先执行make命令让它生成相应的.o文件
+[root@server01 make-file]# make
+gcc -c f1.c -o f1.o
+gcc -c f2.c -o f2.o
+gcc -c main.c -o main.o
+gcc f1.o f2.o main.o -o test
+[root@server01 make-file]# ll
+total 44
+-rw-r--r--. 1 root root   63 Jan  9 11:04 f1.c
+-rw-r--r--. 1 root root 1488 Jan  9 12:27 f1.o
+-rw-r--r--. 1 root root   63 Jan  9 11:04 f2.c
+-rw-r--r--. 1 root root 1488 Jan  9 12:27 f2.o
+-rw-r--r--. 1 root root   30 Jan  9 11:02 head.h
+-rw-r--r--. 1 root root   88 Jan  9 11:02 main.c
+-rw-r--r--. 1 root root 1424 Jan  9 12:27 main.o
+-rw-r--r--. 1 root root  443 Jan  9 12:19 Makefile
+-rwxr-xr-x. 1 root root 8632 Jan  9 12:27 test
+# 然后再执行make clean
+[root@server01 make-file]# make clean
+rm *.o
+[root@server01 make-file]# ll
+total 32
+-rw-r--r--. 1 root root   63 Jan  9 11:04 f1.c
+-rw-r--r--. 1 root root   63 Jan  9 11:04 f2.c
+-rw-r--r--. 1 root root   30 Jan  9 11:02 head.h
+-rw-r--r--. 1 root root   88 Jan  9 11:02 main.c
+-rw-r--r--. 1 root root  443 Jan  9 12:19 Makefile
+-rwxr-xr-x. 1 root root 8632 Jan  9 12:27 test
+```
+
+2、目录中存在clean文件时
+
+当makefile文件中不加.PHONY的时候
+
+```makefile
+test: f1.o f2.o main.o
+        gcc f1.o f2.o main.o -o test
+f1.o: f1.c
+        gcc -c f1.c -o f1.o
+f2.o: f2.c
+        gcc -c f2.c -o f2.o
+# 由于指定-c参数，那么gcc只会到汇编为止，不会进行链接，因此需要依赖f1.c和f2.c
+# main.c里面#include "head.h"了，并且由于-c参数不会进行链接因此main.c在编译的时候只有申明了print1和print2函数即可
+main.o: main.c
+        gcc -c main.c -o main.o
+#.PHONY: clean，下面的
+# 如果不加.PHONY: clean，下面的clean:会和test:、f1.o:、f2.o一样被当成要生成的目标文件
+clean:
+        rm *.o clean
+```
+
+```bash
+# 当前目录下的文件：
+[root@server01 make-file]# ll
+total 32
+-rw-r--r--. 1 root root    0 Jan  9 12:33 clean
+-rw-r--r--. 1 root root   63 Jan  9 11:04 f1.c
+-rw-r--r--. 1 root root   63 Jan  9 11:04 f2.c
+-rw-r--r--. 1 root root   30 Jan  9 11:02 head.h
+-rw-r--r--. 1 root root   88 Jan  9 11:02 main.c
+-rw-r--r--. 1 root root  450 Jan  9 12:33 Makefile
+-rwxr-xr-x. 1 root root 8632 Jan  9 12:33 test
+# 先执行make命令让它生成相应的.o文件
+[root@server01 make-file]# make
+gcc -c f1.c -o f1.o
+gcc -c f2.c -o f2.o
+gcc -c main.c -o main.o
+gcc f1.o f2.o main.o -o test
+[root@server01 make-file]# ll
+total 44
+-rw-r--r--. 1 root root    0 Jan  9 12:33 clean
+-rw-r--r--. 1 root root   63 Jan  9 11:04 f1.c
+-rw-r--r--. 1 root root 1488 Jan  9 12:35 f1.o
+-rw-r--r--. 1 root root   63 Jan  9 11:04 f2.c
+-rw-r--r--. 1 root root 1488 Jan  9 12:35 f2.o
+-rw-r--r--. 1 root root   30 Jan  9 11:02 head.h
+-rw-r--r--. 1 root root   88 Jan  9 11:02 main.c
+-rw-r--r--. 1 root root 1424 Jan  9 12:35 main.o
+-rw-r--r--. 1 root root  450 Jan  9 12:33 Makefile
+-rwxr-xr-x. 1 root root 8632 Jan  9 12:35 test
+# 然后再执行make clean
+# 会报错：提示clean文件是最新的
+# 这是因为在Makefile文件中没有加.PHONY: clean，那么clean:会被当成是要生成的目标文件，而当目录中存在clean文件时并且clean文件时最新的的时候，就会报错。
+[root@server01 make-file]# make clean
+make: `clean' is up to date.
+```
+
 在make过程成会生成很多编译结果文件.o，如果想在构建完成后删除这些中间的编译结果文件可以在Makefile文件的后面添加规则：clean: rm*.o，然后在make完之后再执行make clean；但是如果目录中出现了"clean"文件，则规则失效了：没有依赖文件，文件"clean"始终是最新的，命令永远不会执行（相当于make会认为这里的clean:跟前面f1.o: f1.c一样，需要生成clean文件，而此时目录中又有clean文件并且是最新的，所以后面的命令不会执行）；此时可以使用PHONY，告诉make后面跟着的名称不是指文件名，那么make xxxx 就表示执行xxxx :指定的命令，而不是要（make）生成xxxx
 
 ### 变量

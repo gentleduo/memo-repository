@@ -1134,6 +1134,51 @@ make: `clean' is up to date.
 
 在make过程成会生成很多编译结果文件.o，如果想在构建完成后删除这些中间的编译结果文件可以在Makefile文件的后面添加规则：clean: rm*.o，然后在make完之后再执行make clean；但是如果目录中出现了"clean"文件，则规则失效了：没有依赖文件，文件"clean"始终是最新的，命令永远不会执行（相当于make会认为这里的clean:跟前面f1.o: f1.c一样，需要生成clean文件，而此时目录中又有clean文件并且是最新的，所以后面的命令不会执行）；此时可以使用PHONY，告诉make后面跟着的名称不是指文件名，那么make xxxx 就表示执行xxxx :指定的命令，而不是要（make）生成xxxx
 
+3、make命令在执行时，会默认将所有的命令在终端上打印出来，"@“字符用于控制命令的输出，可以禁止当前命令打印到终端上，仅输出执行的结果(不影响命令本身的执行)，如果一个命令在前面加了”@“符号，那么该命令的执行结果不会显示在终端上，如果没有”@"符号,则该命令的执行结果会显示在终端上
+
+```makefile
+test: f1.o f2.o main.o
+        @gcc f1.o f2.o main.o -o test
+f1.o: f1.c
+        @gcc -c f1.c -o f1.o
+f2.o: f2.c
+        @gcc -c f2.c -o f2.o
+# 由于指定-c参数，那么gcc只会到汇编为止，不会进行链接，因此需要依赖f1.c和f2.c
+# main.c里面#include "head.h"了，并且由于-c参数不会进行链接因此main.c在编译的时候只有申明了print1和print2函数即可
+main.o: main.c
+        @gcc -c main.c -o main.o
+.PHONY: clean
+clean:
+        @gcc *.o clean
+```
+
+```bash
+[root@server01 make-file]# make
+[root@server01 make-file]# ll
+total 44
+drwxr-xr-x. 2 root root   22 Jan  9 17:34 1-1
+-rw-r--r--. 1 root root   63 Jan  9 11:04 f1.c
+-rw-r--r--. 1 root root 1488 Jan  9 17:38 f1.o
+-rw-r--r--. 1 root root   63 Jan  9 11:04 f2.c
+-rw-r--r--. 1 root root 1488 Jan  9 17:38 f2.o
+-rw-r--r--. 1 root root   30 Jan  9 11:02 head.h
+-rw-r--r--. 1 root root   88 Jan  9 11:02 main.c
+-rw-r--r--. 1 root root 1424 Jan  9 17:38 main.o
+-rw-r--r--. 1 root root  455 Jan  9 17:38 Makefile
+-rwxr-xr-x. 1 root root 8632 Jan  9 17:38 test
+[root@server01 make-file]# make clean
+[root@server01 make-file]# ll
+total 44
+drwxr-xr-x. 2 root root   22 Jan  9 17:34 1-1
+-rwxr-xr-x. 1 root root 8632 Jan  9 17:38 a.out
+-rw-r--r--. 1 root root   63 Jan  9 11:04 f1.c
+-rw-r--r--. 1 root root   63 Jan  9 11:04 f2.c
+-rw-r--r--. 1 root root   30 Jan  9 11:02 head.h
+-rw-r--r--. 1 root root   88 Jan  9 11:02 main.c
+-rw-r--r--. 1 root root  452 Jan  9 17:39 Makefile
+-rwxr-xr-x. 1 root root 8632 Jan  9 17:38 test
+```
+
 ### 变量
 
 定义变量的两种方式：

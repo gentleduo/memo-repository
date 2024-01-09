@@ -1386,6 +1386,23 @@ clean:
         rm *.o
 ```
 
+如果生成的目标名字和源文件中的任意一个相关联，则隐含规则生效：
+
+```makefile
+main: f1.o f2.o main.o
+.PHONY: clean
+clean:
+        @rm -rf *.o
+```
+
+```bash
+[root@server01 make-file]# make
+cc    -c -o main.o main.c
+cc    -c -o f1.o f1.c
+cc    -c -o f2.o f2.c
+cc   main.o f1.o f2.o   -o main
+```
+
 ### VPATH
 
 1. 在一些大的工程中，有大量的源文件，我们通常的做法是把这许多的源文件分类，并存放在不同的目录中。所以，当make需要去找寻文件的依赖关系时，你可以在文件前加上路径，但最好的方法是把一个路径告诉make，让make在自动去找。

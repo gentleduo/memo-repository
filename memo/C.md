@@ -1136,13 +1136,72 @@ make: `clean' is up to date.
 
 ### 变量
 
-使用变量的目的：用来代替一个文本字符串，创建变量VAR=var；变量使用$(VAR)。例如：
+定义变量的两种方式：
+
+简单方式：VAR: =var;
+
+使用“:=”定义的变量称为“简单展开变量（simply expanded variables）”，顾名思义，“:=”右边的表达式如果包含对变量的引用，则这些对变量的引用会直接展开，得到一个确切的值，并赋给“:=”左边的变量。这种定义和赋值的形式类似于C语言中对变量的赋值，举例来说：
+
+```makefile
+x := foo
+y := $(x) bar
+x := later
+# 这里加;相当于换行后加tab键
+one:;@echo $(x)
+two:;@echo $(y)          
+```
+
+```bash
+[root@server01 1-1]# make one
+later
+[root@server01 1-1]# make two
+foo bar
+```
+
+ 在y := $(x) bar 处，x 的值为foo ，故y 被赋值为foo bar ，随后x := later 更新了x 的值，最终x 的值为later ，y 的值为foo bar 。
+
+递归展开方式：VAR=var；
+
+使用“=”定义的变量称为“递归展开变量（recursively expanded variables）”，在使用“=”定义变量时，如果“=”右边存在对其他变量或函数的引用，这些引用并不会立即展开。在实际使用到递归展开变量时，递归展开变量才会展开，同时定义递归展开变量时使用的其他变量或函数的引用也会被展开，从而得到当前递归展开变量的值。在引用递归展开变量的地方，执行的是严格的文本替换过程，递归展开变量中的字符串原模原样的出现在引用变量的地方，而递归展开变量中对其他变量的引用，只会在递归展开变量被展开的同时被展开。例如：下面的例子将输出Huh?
+
+```makefile
+foo = $(bar)
+bar = $(ugh)
+ugh = Huh?
+all:;@echo $(foo)
+```
+
+```bash
+[root@server01 1-1]# make
+Huh?
+```
+
+在foo = $(bar) 处，foo 的定义使用了“=”，是一个递归展开变量，在这里bar 还没有定义，实际上bar 并也没有在这里定义foo 时展开。在bar = $(ugh) 处同理。而在echo $(foo) 处，引用了foo ，这时foo 被展开，发现bar 的引用，进而展开bar ，又发现了ugh 的引用，再展开ugh ，得到Huh? ，于是以此作为foo 的值进行输出。实际上，递归展开变量的值是它在整个Makefile中最后被指定的值，如下面的例子将输出Ha!：
+
+```makefile
+foo = $(bar)
+bar = $(ugh)
+ugh := Huh?
+all:;@echo $(foo)
+ugh := Ha!
+```
+
+```bash
+[root@server01 1-1]# make
+Ha!
+```
+
+变量使用：$(VAR)
+
+如果要用“$”则用"$$"来表示
+
+例如：
 
 ```makefile
 OBJS = kang.o yul.o
 CC = gcc
 CFLAGS = -Wall -O -g
-sunq : $(OBJS)
+sunq : $(OBJS) 
 $(CC) $(OBJS) -o sunq
 kang.o : kang.c kang.h
 $(CC) $(CFLAGS) -c kang.c -o kang.o

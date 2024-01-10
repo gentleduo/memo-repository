@@ -928,6 +928,203 @@ Hello World!
 2. Make工程管理器也就是个“自动编译管理器”，这里的“自动”是指它能够根据文件时间戳。自动发现更新过的文件而减少编译的工作量，同时，它通过读入Makefile文件的内容来执行大量的编译工作 
 3. Make将只编译改动的代码文件，而不用完全编译。
 
+### 普通目标的生成过程
+
+1. make会在当前目录下找名字叫“Makefile”或“makefile”的文件。
+2. 如果找到，它会找文件中的第一个出现的目标文件（标的target）
+3. 如果该目标不存在，或是目标所依赖的后面的文件（目标）的文件修改时间要比这个目标文件新，那么，他就会执行后面所定义的命令来生成目标文件。
+4. 如果目标所依赖的文件（标的）也不存在，那么make会在当前文件中找该标的依赖性，如果找到则再根据那一个规则生成 该依赖标的。（这有点像一个堆栈的过程）
+5. 这就是整个make的依赖性，make会一层又一层地去找文件的依赖关系，直到最终编译出第一个目标文件。(注意他只生成出第一个目标文件就结束)
+
+例如：
+
+在目录下有两个.c文件
+
+```bash
+[root@server01 1-2]# ll
+total 12
+-rw-r--r--. 1 root root  65 Jan 10 09:23 main.c
+-rw-r--r--. 1 root root 799 Jan 10 13:42 Makefile
+-rw-r--r--. 1 root root  65 Jan 10 13:39 test.c
+```
+
+Makefile的内容如下：
+
+```makefile
+main: main.o
+        @gcc -o $@ $<
+
+test: test.o
+        @gcc -o $@ $<
+
+%.o: %.c
+        @gcc -c $< -o $@
+
+.PHONY: clean
+clean:
+        @echo "clean section"
+        @-rm -f *.o
+```
+
+执行make命令后，发现生成了main这一个可执行文件
+
+```bash
+[root@server01 1-2]# make
+[root@server01 1-2]# ll
+total 28
+-rwxr-xr-x. 1 root root 8512 Jan 10 13:52 main
+-rw-r--r--. 1 root root   65 Jan 10 09:23 main.c
+-rw-r--r--. 1 root root 1496 Jan 10 13:52 main.o
+-rw-r--r--. 1 root root  143 Jan 10 13:52 Makefile
+-rw-r--r--. 1 root root   65 Jan 10 13:39 test.c
+```
+
+### 伪目标
+
+Makefile中还存在一种伪目标，“伪目标”并不是一个文件，只是一个标签，由于“伪目标”不是文件，一般没有依赖的文件，所以make无法生成它的依赖关系和决定它是否要执行。只有通过显示地指明这个“目标”才能让其生效。当然，“伪目标”的取名不能和文件名重名，不然其就失去了“伪目标”的意义了。当然，为了避免和文件重名的这种情况，也可以使用一个特殊的标记“.PHONY”来显示地指明一个目标是“伪目标”，向make说明，不管是否有这个文件，这个目标就是“伪目标”。
+
+比如：make clean
+
+```bash
+# 当前目录下的文件：
+[root@server01 make-file]# ll
+total 20
+-rw-r--r--. 1 root root  63 Jan  9 11:04 f1.c
+-rw-r--r--. 1 root root  63 Jan  9 11:04 f2.c
+-rw-r--r--. 1 root root  30 Jan  9 11:02 head.h
+-rw-r--r--. 1 root root  88 Jan  9 11:02 main.c
+-rw-r--r--. 1 root root 443 Jan  9 12:19 Makefile
+# 先执行make命令让它生成相应的.o文件，这个时候clean后面的命令是不会被执行的
+[root@server01 make-file]# make
+gcc -c f1.c -o f1.o
+gcc -c f2.c -o f2.o
+gcc -c main.c -o main.o
+gcc f1.o f2.o main.o -o test
+[root@server01 make-file]# ll
+total 44
+-rw-r--r--. 1 root root   63 Jan  9 11:04 f1.c
+-rw-r--r--. 1 root root 1488 Jan  9 12:27 f1.o
+-rw-r--r--. 1 root root   63 Jan  9 11:04 f2.c
+-rw-r--r--. 1 root root 1488 Jan  9 12:27 f2.o
+-rw-r--r--. 1 root root   30 Jan  9 11:02 head.h
+-rw-r--r--. 1 root root   88 Jan  9 11:02 main.c
+-rw-r--r--. 1 root root 1424 Jan  9 12:27 main.o
+-rw-r--r--. 1 root root  443 Jan  9 12:19 Makefile
+-rwxr-xr-x. 1 root root 8632 Jan  9 12:27 test
+# 要运行“clean”这个目标，必须使用make clean
+[root@server01 make-file]# make clean
+rm *.o
+[root@server01 make-file]# ll
+total 32
+-rw-r--r--. 1 root root   63 Jan  9 11:04 f1.c
+-rw-r--r--. 1 root root   63 Jan  9 11:04 f2.c
+-rw-r--r--. 1 root root   30 Jan  9 11:02 head.h
+-rw-r--r--. 1 root root   88 Jan  9 11:02 main.c
+-rw-r--r--. 1 root root  443 Jan  9 12:19 Makefile
+-rwxr-xr-x. 1 root root 8632 Jan  9 12:27 test
+```
+
+目录中存在clean文件并且makefile文件中不加.PHONY的时候
+
+```makefile
+test: f1.o f2.o main.o
+        gcc f1.o f2.o main.o -o test
+f1.o: f1.c
+        gcc -c f1.c -o f1.o
+f2.o: f2.c
+        gcc -c f2.c -o f2.o
+# 由于指定-c参数，那么gcc只会到汇编为止，不会进行链接，因此需要依赖f1.c和f2.c
+# main.c里面#include "head.h"了，并且由于-c参数不会进行链接因此main.c在编译的时候只有申明了print1和print2函数即可
+main.o: main.c
+        gcc -c main.c -o main.o
+#.PHONY: clean
+# 如果不加.PHONY: clean，并且目录下存在clean文件的时候clean就失去伪目标的意义，就会被当做一个目标文件来生成，但是此时目录下存在clean文件，所以会报`clean' is up to date的错误
+clean:
+        rm *.o clean
+```
+
+```bash
+# 当前目录下的文件：
+[root@server01 make-file]# ll
+total 32
+-rw-r--r--. 1 root root    0 Jan  9 12:33 clean
+-rw-r--r--. 1 root root   63 Jan  9 11:04 f1.c
+-rw-r--r--. 1 root root   63 Jan  9 11:04 f2.c
+-rw-r--r--. 1 root root   30 Jan  9 11:02 head.h
+-rw-r--r--. 1 root root   88 Jan  9 11:02 main.c
+-rw-r--r--. 1 root root  450 Jan  9 12:33 Makefile
+-rwxr-xr-x. 1 root root 8632 Jan  9 12:33 test
+# 先执行make命令让它生成相应的.o文件
+[root@server01 make-file]# make
+gcc -c f1.c -o f1.o
+gcc -c f2.c -o f2.o
+gcc -c main.c -o main.o
+gcc f1.o f2.o main.o -o test
+[root@server01 make-file]# ll
+total 44
+-rw-r--r--. 1 root root    0 Jan  9 12:33 clean
+-rw-r--r--. 1 root root   63 Jan  9 11:04 f1.c
+-rw-r--r--. 1 root root 1488 Jan  9 12:35 f1.o
+-rw-r--r--. 1 root root   63 Jan  9 11:04 f2.c
+-rw-r--r--. 1 root root 1488 Jan  9 12:35 f2.o
+-rw-r--r--. 1 root root   30 Jan  9 11:02 head.h
+-rw-r--r--. 1 root root   88 Jan  9 11:02 main.c
+-rw-r--r--. 1 root root 1424 Jan  9 12:35 main.o
+-rw-r--r--. 1 root root  450 Jan  9 12:33 Makefile
+-rwxr-xr-x. 1 root root 8632 Jan  9 12:35 test
+# 然后再执行make clean
+# 会报错：提示clean文件是最新的
+# 这是因为在Makefile文件中没有加.PHONY: clean，那么clean:会被当成是要生成的目标文件，失去了“伪目标”的意义，而此时由于目录中存在clean文件并且clean文件时最新的的时候，就会报错。
+[root@server01 make-file]# make clean
+make: `clean' is up to date.
+```
+
+Makefile中的第一个目标会被作为其默认目标，总是会被执行。可以利用这种特性生成多个可执行文件（伪目标同样可以作为“默认目标”）。比如：Makefile需要一口气生成若干个可执行文件，但只想简单地敲一个make完事，并且，所有的目标文件都写在一个Makefile中，那么可以使用这个特性：
+
+目录存在两个.c文件
+
+```bash
+[root@server01 1-2]# ll
+total 12
+-rw-r--r--. 1 root root  65 Jan 10 09:23 main.c
+-rw-r--r--. 1 root root 158 Jan 10 14:24 Makefile
+-rw-r--r--. 1 root root  65 Jan 10 13:39 test.c
+```
+
+Makefile中的第一个目标会被作为其默认目标，总是会被执行，并且该目标依赖于其它两个目标
+
+```makefile
+all:main test
+
+main: main.o
+        @gcc -o $@ $<
+
+test: test.o
+        @gcc -o $@ $<
+
+%.o: %.c
+        @gcc -c $< -o $@
+
+.PHONY: clean
+clean:
+        @echo "clean section"
+        @-rm -f *.o             
+```
+
+执行make后，main和test就两个可执行文件就都会被生成
+
+```bash
+[root@server01 1-2]# ll
+total 44
+-rwxr-xr-x. 1 root root 8512 Jan 10 14:42 main
+-rw-r--r--. 1 root root   65 Jan 10 09:23 main.c
+-rw-r--r--. 1 root root 1496 Jan 10 14:42 main.o
+-rw-r--r--. 1 root root  158 Jan 10 14:24 Makefile
+-rwxr-xr-x. 1 root root 8512 Jan 10 14:42 test
+-rw-r--r--. 1 root root   65 Jan 10 13:39 test.c
+-rw-r--r--. 1 root root 1496 Jan 10 14:42 test.o
+```
+
 ## Makefile
 
  Makefile是Make读入的唯一配置文件 
@@ -1004,6 +1201,8 @@ f2.o: f2.c
 main.o: main.c
         gcc -c main.c -o main.o
 .PHONY: clean
+# 执行make命令后，clean后的命令本来是要执行的，但clean作为目标， 没有找到对应的依赖文件， 所以不执行。如果要强制单独让clean后面的命令执行可以用：make clean
+# 但是如果把clean放在最开始的位置， 那么会被当成目标， 执行make的时候， clean下面的语句会被执行。
 clean:
         rm *.o test
 ```
@@ -1026,115 +1225,7 @@ gcc f1.o f2.o main.o -o test
 [root@server01 make]#
 ```
 
-make clean
-
-1、make clean命令的执行过程
-
-```bash
-# 当前目录下的文件：
-[root@server01 make-file]# ll
-total 20
--rw-r--r--. 1 root root  63 Jan  9 11:04 f1.c
--rw-r--r--. 1 root root  63 Jan  9 11:04 f2.c
--rw-r--r--. 1 root root  30 Jan  9 11:02 head.h
--rw-r--r--. 1 root root  88 Jan  9 11:02 main.c
--rw-r--r--. 1 root root 443 Jan  9 12:19 Makefile
-# 执行make clean会报错：
-# 由此可知make clean命令并不是执行完make后再执行clean，clean也不是make的参数，而是在Makefile中如有：install:的语句，那么就执行install:后面的语句。
-[root@server01 make-file]# make clean
-rm *.o
-rm: cannot remove ‘*.o’: No such file or directory
-make: *** [clean] Error 1
-# 先执行make命令让它生成相应的.o文件
-[root@server01 make-file]# make
-gcc -c f1.c -o f1.o
-gcc -c f2.c -o f2.o
-gcc -c main.c -o main.o
-gcc f1.o f2.o main.o -o test
-[root@server01 make-file]# ll
-total 44
--rw-r--r--. 1 root root   63 Jan  9 11:04 f1.c
--rw-r--r--. 1 root root 1488 Jan  9 12:27 f1.o
--rw-r--r--. 1 root root   63 Jan  9 11:04 f2.c
--rw-r--r--. 1 root root 1488 Jan  9 12:27 f2.o
--rw-r--r--. 1 root root   30 Jan  9 11:02 head.h
--rw-r--r--. 1 root root   88 Jan  9 11:02 main.c
--rw-r--r--. 1 root root 1424 Jan  9 12:27 main.o
--rw-r--r--. 1 root root  443 Jan  9 12:19 Makefile
--rwxr-xr-x. 1 root root 8632 Jan  9 12:27 test
-# 然后再执行make clean
-[root@server01 make-file]# make clean
-rm *.o
-[root@server01 make-file]# ll
-total 32
--rw-r--r--. 1 root root   63 Jan  9 11:04 f1.c
--rw-r--r--. 1 root root   63 Jan  9 11:04 f2.c
--rw-r--r--. 1 root root   30 Jan  9 11:02 head.h
--rw-r--r--. 1 root root   88 Jan  9 11:02 main.c
--rw-r--r--. 1 root root  443 Jan  9 12:19 Makefile
--rwxr-xr-x. 1 root root 8632 Jan  9 12:27 test
-```
-
-2、目录中存在clean文件时
-
-当makefile文件中不加.PHONY的时候
-
-```makefile
-test: f1.o f2.o main.o
-        gcc f1.o f2.o main.o -o test
-f1.o: f1.c
-        gcc -c f1.c -o f1.o
-f2.o: f2.c
-        gcc -c f2.c -o f2.o
-# 由于指定-c参数，那么gcc只会到汇编为止，不会进行链接，因此需要依赖f1.c和f2.c
-# main.c里面#include "head.h"了，并且由于-c参数不会进行链接因此main.c在编译的时候只有申明了print1和print2函数即可
-main.o: main.c
-        gcc -c main.c -o main.o
-#.PHONY: clean，下面的
-# 如果不加.PHONY: clean，下面的clean:会和test:、f1.o:、f2.o一样被当成要生成的目标文件
-clean:
-        rm *.o clean
-```
-
-```bash
-# 当前目录下的文件：
-[root@server01 make-file]# ll
-total 32
--rw-r--r--. 1 root root    0 Jan  9 12:33 clean
--rw-r--r--. 1 root root   63 Jan  9 11:04 f1.c
--rw-r--r--. 1 root root   63 Jan  9 11:04 f2.c
--rw-r--r--. 1 root root   30 Jan  9 11:02 head.h
--rw-r--r--. 1 root root   88 Jan  9 11:02 main.c
--rw-r--r--. 1 root root  450 Jan  9 12:33 Makefile
--rwxr-xr-x. 1 root root 8632 Jan  9 12:33 test
-# 先执行make命令让它生成相应的.o文件
-[root@server01 make-file]# make
-gcc -c f1.c -o f1.o
-gcc -c f2.c -o f2.o
-gcc -c main.c -o main.o
-gcc f1.o f2.o main.o -o test
-[root@server01 make-file]# ll
-total 44
--rw-r--r--. 1 root root    0 Jan  9 12:33 clean
--rw-r--r--. 1 root root   63 Jan  9 11:04 f1.c
--rw-r--r--. 1 root root 1488 Jan  9 12:35 f1.o
--rw-r--r--. 1 root root   63 Jan  9 11:04 f2.c
--rw-r--r--. 1 root root 1488 Jan  9 12:35 f2.o
--rw-r--r--. 1 root root   30 Jan  9 11:02 head.h
--rw-r--r--. 1 root root   88 Jan  9 11:02 main.c
--rw-r--r--. 1 root root 1424 Jan  9 12:35 main.o
--rw-r--r--. 1 root root  450 Jan  9 12:33 Makefile
--rwxr-xr-x. 1 root root 8632 Jan  9 12:35 test
-# 然后再执行make clean
-# 会报错：提示clean文件是最新的
-# 这是因为在Makefile文件中没有加.PHONY: clean，那么clean:会被当成是要生成的目标文件，而当目录中存在clean文件时并且clean文件时最新的的时候，就会报错。
-[root@server01 make-file]# make clean
-make: `clean' is up to date.
-```
-
-在make过程成会生成很多编译结果文件.o，如果想在构建完成后删除这些中间的编译结果文件可以在Makefile文件的后面添加规则：clean: rm*.o，然后在make完之后再执行make clean；但是如果目录中出现了"clean"文件，则规则失效了：没有依赖文件，文件"clean"始终是最新的，命令永远不会执行（相当于make会认为这里的clean:跟前面f1.o: f1.c一样，需要生成clean文件，而此时目录中又有clean文件并且是最新的，所以后面的命令不会执行）；此时可以使用PHONY，告诉make后面跟着的名称不是指文件名，那么make xxxx 就表示执行xxxx :指定的命令，而不是要（make）生成xxxx
-
-3、make命令在执行时，会默认将所有的命令在终端上打印出来，"@“字符用于控制命令的输出，可以禁止当前命令打印到终端上，仅输出执行的结果(不影响命令本身的执行)，如果一个命令在前面加了”@“符号，那么该命令的执行结果不会显示在终端上，如果没有”@"符号,则该命令的执行结果会显示在终端上
+make命令在执行时，会默认将所有的命令在终端上打印出来，"@“字符用于控制命令的输出，可以禁止当前命令打印到终端上，仅输出执行的结果(不影响命令本身的执行)，如果一个命令在前面加了”@“符号，那么该命令的执行结果不会显示在终端上，如果没有”@"符号,则该命令的执行结果会显示在终端上
 
 ```makefile
 test: f1.o f2.o main.o
@@ -1435,8 +1526,7 @@ main: main.o
         @echo "generate target"
         @gcc -o main $<
         @# 由于main的生成依赖main.o，所以编译器会根据下面的后缀规则通过main.c生成main.o
-        @# 没有命令的后缀规则没有任何意义，不会像模式规则一样覆盖隐式规则，所以下面及时注释掉后缀规则的命令，也可以可以正常生成main，因
-为会使用隐式规则：cc -c -o main.o main.c
+        @# 没有命令的后缀规则没有任何意义，不会像模式规则一样覆盖隐式规则，所以下面及时注释掉后缀规则的命令，也可以可以正常生成main，因为会使用隐式规则：cc -c -o main.o main.c
 #.c.o:
 #       @$(CC) -c $(CFLAGS) $< $(CPPFLAGS) -o $@
         @# 模式规则会覆盖隐式规则，所以将模式规则后面的命令注释掉，编译的时候会报错。
@@ -1508,7 +1598,7 @@ clean:
 
 ### VPATH
 
-1. 在一些大的工程中，有大量的源文件，我们通常的做法是把这许多的源文件分类，并存放在不同的目录中。所以，当make需要去找寻文件的依赖关系时，你可以在文件前加上路径，但最好的方法是把一个路径告诉make，让make在自动去找。
+1. 在一些大的工程中，有大量的源文件，通常的做法是把这许多的源文件分类，并存放在不同的目录中。所以，当make需要去找寻文件的依赖关系时，你可以在文件前加上路径，但最好的方法是把一个路径告诉make，让make在自动去找。
 2. Makefile文件中的特殊变量“VPATH”就是完成这个功能的，如果没有指明这个变量，make只会在当前的目录中去找寻依赖文件和目标文件。如果定义了这个变量，那么，make就会在当当前目录找不到的情况下，到所指定的目录中去找寻文件了。
 3. VPATH = src:../headers
 4. 上面的的定义指定两个目录，“src”和“../headers”，make会按照这个顺序进行搜索。目录由“冒号”分隔。（当然，当前目录永远是最高优先搜索的地方）

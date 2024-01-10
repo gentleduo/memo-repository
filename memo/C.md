@@ -1040,7 +1040,7 @@ total 20
 -rw-r--r--. 1 root root  88 Jan  9 11:02 main.c
 -rw-r--r--. 1 root root 443 Jan  9 12:19 Makefile
 # 执行make clean会报错：
-# 由此可知make clean命令并不是执行完make后再执行clean，而是直接执行make文件中的clean段中的命令，可以理解为make clean就是一个命令，即：执行Makefile中的clean代码段
+# 由此可知make clean命令并不是执行完make后再执行clean，clean也不是make的参数，而是在Makefile中如有：install:的语句，那么就执行install:后面的语句。
 [root@server01 make-file]# make clean
 rm *.o
 rm: cannot remove ‘*.o’: No such file or directory
@@ -1350,6 +1350,7 @@ $(CC) $(CFLAGS) -c $< -o $@
 ```makefile
 test: f1.o f2.o main.o
         gcc f1.o f2.o main.o -o test
+# 这下面三句会自动推导出：$(CC) -c $(CFLAGS) $(CPPFLAGS) -o $@ $<
 f1.o: f1.c
 f2.o: f2.c
 main.o: main.c
@@ -1389,6 +1390,11 @@ clean:
 如果生成的目标名字和源文件中的任意一个相关联，则隐含规则生效：
 
 ```makefile
+# 下面这条命令在f1.c、f2.c、mainc都存在的情况下自动推导出：
+# cc -c f1.c -o f1.o
+# cc -c f2.c -o f2.o
+# cc -c main.c -o main.o
+# cc f1.o f2.o main.o -o main
 main: f1.o f2.o main.o
 .PHONY: clean
 clean:
@@ -1401,6 +1407,103 @@ cc    -c -o main.o main.c
 cc    -c -o f1.o f1.c
 cc    -c -o f2.o f2.c
 cc   main.o f1.o f2.o   -o main
+```
+
+#### 后缀规则
+
+后缀规则是一种make定义隐式规则的旧式方式。模式规则更加通用、清晰，后缀规则已经被废弃。为了兼容旧的makefiles，GNU make依然支持后缀规则。后缀规则有两种形式：双后缀和单后缀。
+
+双后缀规则由一对后缀定义：target 后缀和源文件后缀。双后缀规则会匹配任意以 target 后缀结尾的文件。对应的隐式依赖是 target 文件名加上源文件后缀。例如：双后缀 .c.o （target 后缀和源文件后缀分别为 .o和 .c）等效于模式规则 %.o: %.c。
+
+单后缀规则由单个后缀定义，定义了源文件后缀。单后缀规则匹配任意文件，对应的隐式依赖为 target 结尾添加源文件后缀。例如，单后缀规则 .c 等效于模式规则 %: %.c
+
+例如：
+
+main.c
+
+```c
+#include<stdio.h>
+
+int main() {
+
+    printf("hello world!\n");
+}
+```
+
+```makefile
+main: main.o
+        @echo "generate target"
+        @gcc -o main $<
+        @# 由于main的生成依赖main.o，所以编译器会根据下面的后缀规则通过main.c生成main.o
+        @# 没有命令的后缀规则没有任何意义，不会像模式规则一样覆盖隐式规则，所以下面及时注释掉后缀规则的命令，也可以可以正常生成main，因
+为会使用隐式规则：cc -c -o main.o main.c
+#.c.o:
+#       @$(CC) -c $(CFLAGS) $< $(CPPFLAGS) -o $@
+        @# 模式规则会覆盖隐式规则，所以将模式规则后面的命令注释掉，编译的时候会报错。
+%.o: %.c
+        @gcc -c $< -o $@
+
+.PHONY: clean
+clean:
+        @-rm -f *.o
+```
+
+```bash
+[root@server01 1-2]# make
+cc    -c -o main.o main.c
+echo "generate target"
+generate target
+gcc -o main main.o
+```
+
+已知的后缀由特殊目标.SUFFIXES获取，.SUFFIXES也允许定义自己的后缀，例如：
+
+```makefile
+main: main.o
+        @echo "generate target"
+        @echo "default suffix: $(SUFFIXES)"
+        @gcc -o main $<
+        @# 由于main的生成依赖main.o，所以编译器会根据下面的后缀规则通过main.c生成main.o
+        @# 没有命令的后缀规则没有任何意义，不会像模式规则一样覆盖隐式规则，所以下面及时注释掉后缀规则的命令，也可以可以正常生成main，因为会使用隐式规则：cc -c -o main.o main.c
+#.c.o:
+#       @$(CC) -c $(CFLAGS) $< $(CPPFLAGS) -o $@
+        @# 模式规则会覆盖隐式规则，所以将模式规则后面的命令注释掉，编译的时候会报错。
+%.o: %.c
+        @gcc -c $< -o $@
+
+.PHONY: clean
+clean:
+        @-rm -f *.o
+```
+
+可以通过写 .SUFFIXES 规则来添加自定义后缀，例如：.SUFFIXES: .hack .win；表示将.hack、.win添加到后缀列表的尾部。
+
+如果想要删除默认后缀，而不是添加后缀，则可以写一条没有依赖的 .SUFFIXES 规则。该规则会清空 .SUFFIXES 的依赖。然后可以通过另一条 .SUFFIXES 规则添加后缀，如：
+
+.SUFFIXES: # Delete the default suffixes
+
+.SUFFIXES: .c .o .h # Define our suffix list
+
+make默认定义SUFFIXES变量，用来保存默认后缀列表，这个变量定义在读取任何makefiles文件之前。可以通过.SUFFIXES目标改变后缀列表（所以只会对后缀规则有影响），但是这并不会改变SUFFIXES变量。如下：
+
+```makefile
+.SUFFIXES:
+.SUFFIXES: .c .o .s .h
+main: main.o
+        @echo "generate target"
+        @echo "default suffix: $(SUFFIXES)"
+        @gcc -o main $<
+        @# 由于main的生成依赖main.o，所以编译器会根据下面的后缀规则通过main.c生成main.o
+        @# 没有命令的后缀规则没有任何意义，不会像模式规则一样覆盖隐式规则，所以下面及时注释掉后缀规则的命令，也可以可以正常生成main，因为会使用隐式规则：cc -c -o main.o main.c
+#.c.o:
+#       @$(CC) -c $(CFLAGS) $< $(CPPFLAGS) -o $@
+        @# 模式规则会覆盖隐式规则，所以将模式规则后面的命令注释掉，编译的时候会报错。
+%.o: %.c
+        @gcc -c $< -o $@
+
+.PHONY: clean
+clean:
+        @-rm -f *.o             
 ```
 
 ### VPATH

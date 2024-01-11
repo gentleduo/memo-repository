@@ -1728,6 +1728,18 @@ obj目录：
         $(CC) -o $@ $^
 ```
 
+## cmake、configure
+
+Linux经常会遇到两种安装方式：
+
+一种是：cmake … make make insatll 
+
+另一种就是：./configure make make install
+
+CMake是一个比make更高级的编译配置工具，它可以根据不同平台、不同的编译器，生成相应的Makefile。cmake的优点在于它不分平台，只要写好CMakeLists.txt文件，就可以在任何支持cmake的平台上获得其对应的Makefile文件，并且CMakeLists.txt文件的编写难度很低。（基本一个小时就能掌握如何编写自己的CMakeLists.txt）
+
+configure文件是一个脚本，里边有很多的脚本命令，它的作用跟cmake一样，都是生成Makefile文件。（configure是autocof库中的一个指令，必须预先安装autocof以及相应的依赖库）
+
 # 数据类型
 
 ## 基本类型

@@ -50,7 +50,7 @@ Gcc最基本的用法是∶gcc [options] [filenames]
 >
 >放在/lib和/usr/lib和/usr/local/lib里的库直接用-l参数就能链接了，但如果库文件没放在这三个目录里，而是放在其他目录里，只用-l参数的话，链接还是会出错，出错信息大概是：“/usr/bin/ld: cannot find -lxxx”，也就是链接程序ld在那3个目录里找不到libxxx.so，这时另外一个参数-L就派上用场了，比如常用的X11的库，它放在/usr/X11R6/lib目录下，我们编译时就要用-L/usr/X11R6/lib -lX11参数，-L参数跟着的是库文件所在的目录名。再比如把libtest.so放在/aaa/bbb/ccc目录下，那链接参数就是-L/aaa/bbb/ccc -ltest
 >
->**头文件搜索路径**
+>**头文件搜索路径的顺序**
 >
 >1. 去 -I( i 的大写 ) 指定的路径
 >2. 源程序头（#include ""）文件中指定的路径。（include后面跟双引号的话：编译器会首先在双引号内指定的路径下查找头文件，如果没有找到，再到系统路径下查找；系统路径即：/usr/include和/usr/local/include）

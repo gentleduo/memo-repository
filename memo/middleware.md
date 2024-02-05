@@ -3156,9 +3156,19 @@ export PATH=$PATH:$NODE_HOME/bin
 [root@server01 opt]# node -v
 [root@server01 opt]# npm -v
 # 下载并安装head插件
-[root@server01 opt]# git clone git://github.com/mobz/elasticsearch-head.git 
+[root@server01 opt]# git clone git://github.com/mobz/elasticsearch-head.git
+# http方式：
+[root@server01 opt]# git clone https://github.com/mobz/elasticsearch-head.git
 [root@server01 opt]# cd elasticsearch-head/
-[root@server01 elasticsearch-head]# npm install -g
+# npm install
+[root@server01 elasticsearch-head]# npm install
+# 如果在安装过程中比较慢，就翻墙或者将npm源换成国内的（但是这个方法测试下来不行）
+# npm config set registry=https://registry.npmjs.org       恢复为默认源
+# npm config set registry https://registry.npm.taobao.org  将npm设置为淘宝镜像
+# npm cache clean --force  清空缓存 
+# npm config get registry  查看当前cnpm源
+# 如果在安装过程中报错：npm ERR! Failed at the phantomjs-prebuilt@2.1.16 install script.，在执行如下安装命令：
+[root@server01 elasticsearch-head]# npm install phantomjs-prebuilt@2.1.16 --ignore-scripts
 # 配置elasticsearch，允许head插件远程访问
 [root@server01 config]# su elasticsearch
 [elasticsearch@server01 elasticsearch-head]$ cd /usr/local/elasticsearch/config/
@@ -3172,7 +3182,7 @@ http.cors.allow-origin: "*"
 #connect: {
 #		server: {
 #				options: {
-#						hostname: '远程主机IP'
+#						hostname: '*',
 #						port: 9100,
 #						base: '.',
 #						keepalive: true

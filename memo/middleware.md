@@ -3038,8 +3038,8 @@ redis集群环境搭建：
 ### Elasticsearch安装
 
 https://www.elastic.co/cn/downloads/elasticsearch
-https://www.elastic.co/cn/downloads/past-releases/elasticsearch-7-10-0
-https://www.elastic.co/cn/downloads/past-releases/kibana-7-10-0
+https://www.elastic.co/cn/downloads/past-releases/elasticsearch-7-10-1
+https://www.elastic.co/cn/downloads/past-releases/kibana-7-10-1
 
 目录结构：
 

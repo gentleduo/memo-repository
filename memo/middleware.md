@@ -3141,8 +3141,11 @@ ip             heap.percent ram.percent cpu load_1m load_5m load_15m node.role  
 ```bash
 # 安装node.js
 # 通过官网下载二进制安装包：https://nodejs.org/en/download/
+# 下载指定版本：https://nodejs.org/download/release/v10.16.3/
 # 解压安装包
 [root@server01 opt]# tar -xJf node-v10.16.3-linux-x64.tar.xz -C /opt
+# 移动到/usr/local/node目录下
+[root@server01 opt]# mv node-v10.16.3-linux-x64 /usr/local/node
 # 配置环境变量
 [root@server01 opt]# vim /etc/profile
 # 在文件最后面追加node.js环境变量
@@ -3153,7 +3156,7 @@ export PATH=$PATH:$NODE_HOME/bin
 [root@server01 opt]# node -v
 [root@server01 opt]# npm -v
 # 下载并安装head插件
-[root@server01 opt]# git clone git://github.com/mobz/elasticsearch-head.git
+[root@server01 opt]# git clone git://github.com/mobz/elasticsearch-head.git 
 [root@server01 opt]# cd elasticsearch-head/
 [root@server01 elasticsearch-head]# npm install -g
 # 配置elasticsearch，允许head插件远程访问

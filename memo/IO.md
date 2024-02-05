@@ -130,6 +130,105 @@ ls -i 命令列出整个目录文件，即文件名和 inode 号码：
 
 ## VFS
 
+## exec
+
+exec命令用于调用并执行指令的命令。exec将并不启动新的shell，而是用要被执行命令替换当前的shell进程，并且将老进程的环境清理掉，而且exec命令后的其它命令将不再执行。exec命令通常用在shell脚本程序中，可以调用其他的命令。如果在当前终端中使用命令，则当指定的命令执行完毕后会立即退出终端。不过，要注意一个例外，当exec命令来对文件描述符操作的时候，就不会替换shell，而且操作完成后，还会继续执行接下来的命令。
+
+| exec命令    | 作用                                                         |
+| ----------- | ------------------------------------------------------------ |
+| exec ls     | 在shell中执行ls，ls结束后不返回原来的shell中了               |
+| exec 3<file | 将file读入到文件描述符3中（此时，创建了文件描述符3）         |
+| exec 4>file | 将写入文件描述符4中的内容写入file中（此时，创建了文件描述符4） |
+| exec 5<&4   | 创建文件描述符4的拷贝文件描述符5                             |
+| exec 3<&-   | 关闭文件描述符3                                              |
+
+## /dev/tcp
+
+linux中的一个特殊文件：/dev/tcp,打开这个文件就类似于发出了一个socket调用，建立一个socket连接，读写这个文件就相当于在这个socket连接中传输数据。/dev/[tcp|upd]/host/port只要读取或者写入这个文件，相当于系统会尝试连接:host这台机器，对应port端口。如果主机以及端口存在，就建立一个socket连接。将在，/proc/self/fd目录下面，有对应的文件出现。(可以用来确认网络主机的端口是否打开)
+
+1. 打开/dev/tcp
+
+   以读写方式打开/dev/tcp，并指定服务器名为：www.csdn.net,端口号为：80,指定描述符为8。
+
+   ```bash
+   [root@server01 ~]# exec 8<>/dev/tcp/www.csdn.net/80
+   [root@server01 ~]# 
+   [root@server01 ~]# ls -lhat /proc/self/fd
+   total 0
+   lrwx------. 1 root root 64 Feb  5 13:36 0 -> /dev/pts/0
+   lrwx------. 1 root root 64 Feb  5 13:36 1 -> /dev/pts/0
+   lrwx------. 1 root root 64 Feb  5 13:36 2 -> /dev/pts/0
+   lr-x------. 1 root root 64 Feb  5 13:36 3 -> /proc/1478/fd
+   lrwx------. 1 root root 64 Feb  5 13:36 8 -> socket:[21082]
+   dr-x------. 2 root root  0 Feb  5 13:36 .
+   dr-xr-xr-x. 9 root root  0 Feb  5 13:36 ..
+   ```
+
+   要注意的是：/dev/tcp本身是不存在的
+
+2. 向文件中写入数据
+
+   ```bash
+   [root@server01 ~]# echo -e "GET / HTTP/1.1\r\nConnection: close\r\nHost: www.csdn.net\r\n\r\n" >&8
+   [root@server01 ~]# 
+   ```
+
+   GET请求发送给socket连接。
+
+3. 读文件
+
+   读取返回的信息：
+
+   ```bash
+   [root@server01 ~]# cat 0<&8
+   HTTP/1.1 521 
+   Date: Mon, 05 Feb 2024 05:49:05 GMT
+   Content-Type: text/html
+   Connection: close
+   Cache-Control: no-cache, no-store
+   Content-length: 1833
+   X-Request-Id: cf7aea194c05c810e7c94a3951af13fc
+   Server: WAF
+   
+   <html><body><script language="javascript"> window.onload=setTimeout("bx(143)", 200); function bx(XH) {var qo, mo="", no="", oo = [0xa0,0xaf,0x70,0x90,0xa9,0xa9,0xd0,0xf1,0x97,0x32,0xfb,0xc1,0xe1,0x08,0x2e,0x19,0x3d,0x62,0x83,0xc2,0xbe,0x00,0xa3,0x3e,0xd8,0x56,0xee,0x1b,0x38,0xda,0xfb,0x1c,0xc2,0xe3,0x03,0x24,0xbb,0xdc,0x82,0xa2,0x38,0x59,0x98,0xd3,0x8c,0x7e,0x1f,0x5c,0xfd,0x36,0x2a,0x4b,0x6b,0x24,0x5e,0xb3,0xed,0x29,0xe5,0x1d,0x8c,0x2d,0x67,0x1f,0x40,0x3d,0xf7,0x97,0x4f,0x07,0x5b,0x15,0x35,0x7c,0x1d,0xdf,0xff,0x3b,0xf4,0x3a,0xfd,0xb8,0x70,0x90,0x49,0x51,0x98,0xb7,0xef,0xac,0x24,0xdc,0x22,0x41,0x62,0xcd,0xf0,0xa7,0x60,0x02,0x32,0xd4,0xf5,0x98,0xd1,0x21,0xd9,0x96,0xdb,0x13,0x72,0xac,0x63,0x9d,0xd6,0xef,0x27,0x64,0x9c,0x55,0x8d,0xc8,0x03,0xc3,0xe6,0x05,0xa1,0x3a,0x5d,0xf6,0x75,0x98,0xb0,0xed,0x23,0x23,0x49,0xf0,0xb5,0x76,0xb0,0x67,0xa2,0xe7,0x99,0xfe,0x20,0xbf,0x05,0xbe,0x88,0x41,0x02,0xba,0xf4,0x6a,0x26,0xe0,0x1c,0xd7,0x61,0x1a,0x53,0x14,0x46,0x14,0x49,0xf3,0x30,0xf0,0x6c,0x0d,0x33,0x5a,0x79,0x19,0x3e,0xe3,0x21,0xe8,0x5e,0x7e,0x96,0x37,0xde,0x5a,0x20,0xc5,0xe8,0x81,0xaf,0xeb,0xac,0x43,0x64,0xc9,0x64,0x07,0x46,0x8c,0x1b,0x5d,0x99,0xb3,0xd8,0xc0,0x66,0x07,0x2d,0x47,0x1b,0xe2,0x83,0xa9,0xc9,0xa7,0xc2,0xe7,0x09,0xb0,0x44,0xde,0xa4,0x49,0x6f,0xb2,0xd2,0xf1,0x8c,0xaf,0x5e,0x84,0x2a,0x67,0xa9,0xaf,0xf5,0xfa,0x3b];qo = "qo=237; do{oo[qo]=(-oo[qo])&0xff; oo[qo]=(((oo[qo]>>1)|((oo[qo]<<7)&0xff))-91)&0xff;} while(--qo>=2);"; eval(qo);qo = 236; do { oo[qo] = (oo[qo] - oo[qo - 1]) & 0xff; } while (-- qo >= 3 );qo = 1; for (;;) { if (qo > 236) break; oo[qo] = ((((((oo[qo] + 108) & 0xff) + 223) & 0xff) << 2) & 0xff) | (((((oo[qo] + 108) & 0xff) + 223) & 0xff) >> 6); qo++;}po = ""; for (qo = 1; qo < oo.length - 1; qo++) if (qo % 5) po += String.fromCharCode(oo[qo] ^ XH);eval("qo=eval;qo(po);");} </script> </body></html>
+   ```
+
+   从socket读取返回信息，显示到标准输出
+
+4. 关闭文件
+
+   ```bash
+   # 注意关闭文件是，输入输出都需要关闭
+   [root@server01 ~]# exec 8<&-
+   [root@server01 ~]# exec 8>&-
+   [root@server01 ~]# ls -lhat /proc/self/fd
+   total 0
+   lrwx------. 1 root root 64 Feb  5 13:47 0 -> /dev/pts/0
+   lrwx------. 1 root root 64 Feb  5 13:47 1 -> /dev/pts/0
+   lrwx------. 1 root root 64 Feb  5 13:47 2 -> /dev/pts/0
+   lr-x------. 1 root root 64 Feb  5 13:47 3 -> /proc/1603/fd
+   dr-x------. 2 root root  0 Feb  5 13:47 .
+   dr-xr-xr-x. 9 root root  0 Feb  5 13:47 ..
+   ```
+
+5. 判断端口是否打开
+
+   ```bash
+   # 远程主机端口打开：
+   [root@localhost ~]# echo >/dev/tcp/www.csdn.net/80
+   # 远程主机端口关闭：
+   [root@localhost ~]# echo >/dev/tcp/www.csdn.net/81
+   -bash: connect: Connection refused
+   -bash: /dev/tcp/www.csdn.net/81: Connection refused
+   # 完整的命令：
+   [root@localhost ~]# echo >/dev/tcp/www.csdn.net/80 && echo "is open" || echo "is close" 
+   is open
+   [root@localhost ~]# echo >/dev/tcp/www.csdn.net/81 && echo "is open" || echo "is close" 
+   -bash: connect: Connection refused
+   -bash: /dev/tcp/www.csdn.net/81: Connection refused
+   is close
+   ```
+
 ## FD
 
 ### lsof

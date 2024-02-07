@@ -3210,7 +3210,9 @@ server.port: 5601
 server.host: "0.0.0.0"
 # es的服务器
 elasticsearch.hosts: ["http://192.168.56.110:9200","http://192.168.56.111:9200","http://192.168.56.112:9200"]
-# 启动用户使用elasticsearch的启动用户保持一致，不允许使用root用户启动
+# Kibana不支持root用户启动，如果要用root用户启动，就在后面加--allow-root
+[root@server01 kibana-7.10.1-linux-x86_64]# nohup ./bin/kibana --allow-root &
+# 要么就切换用户执行：
 [root@server01 opt]# su elasticsearch
 [elasticsearch@server01 opt]$ cd ./kibana-7.10.1-linux-x86_64/
 [elasticsearch@server01 kibana-7.10.1-linux-x86_64]$ nohup ./bin/kibana &
@@ -3244,6 +3246,8 @@ ip             heap.percent ram.percent cpu load_1m load_5m load_15m node.role  
 192.168.56.110           23          94   3    0.00    0.01     0.05 cdhilmrstw -      node-1
 192.168.56.111           52          88   1    0.00    0.01     0.05 cdhilmrstw *      node-2
 192.168.56.112           13          23   2    0.01    0.03     0.05 cdhilmrstw -      node-3
+# 集群配置信息查看
+[root@server01 elasticsearch-head]# curl -X GET 192.168.56.160:9200/_cluster/settings
 ```
 
 ### 脑裂现象
@@ -3593,7 +3597,7 @@ doc_values是elasticsearch中，对于倒排索引的部分缺点进行部分补
 
 2.得到文档1、2、3后，分析1、2、3的age字段，判断每个age的有多少人。
 
-在第二步中，如果只有倒排索引，则相当于已知文档ID，然后遍历整个倒排索引取获取文档1、2、3的term，即age值，然后合并并统计文档数。（由于单单通过倒排索引的话并不知道文档1、2、3中会包括哪些age值，所以必须遍历整个倒排索引）
+在第二步中，如果只有倒排索引，则相当于已知文档ID，然后遍历整个倒排索引表（age到文档ID的倒排索引表）取获文档1、2、3的term，即age值，然后合并并统计文档数。（由于单单通过倒排索引的话并不知道文档1、2、3中会包括哪些age值，并且没有以文档ID为索引的表，所以必须遍历整个倒排索引。比如：有1亿个文档，但是包含i这个term的只有1千个，但是如果只有age到文档ID的倒排索引的话，必须编列整个age到文档ID的倒排索引表，取到这1千个文档ID对应的age，然后才能聚合。）
 
 但是如果有doc_values之后，就很方便统计了。doc_values是和倒排索引同时建立的。同样按索引/类型/字段区分索引文件，doc_value生成数据为:
 
@@ -3606,7 +3610,7 @@ doc_values是elasticsearch中，对于倒排索引的部分缺点进行部分补
 有了doc_values的查询聚合过程如下:
 
 1. 执行query，查询about中包含i这个term的doc。得到文档1,2,3
-2. 得到文档1,2，3后，查询age对应的doc_values索引文件，将age合并，计数，得到25->1,32->2，返回结果。搜索和聚合是相互紧密缠绕的。搜索使用倒排索引查找文档，聚合操作收集和聚合 doc values 里的数据。
+2. 得到文档1,2,3后，通过查询以文档ID为索引的正排索引表，查询ID对应的age（查询走索引所以效率高），然后将age合并返回结果。
 
 ### Shard
 
@@ -10176,24 +10180,100 @@ es二阶段查询
 
 官网地址：https://www.elastic.co/guide/en/elasticsearch/reference/current/modules-node.html
 
-You define a node’s roles by setting `node.roles` in `elasticsearch.yml`. If you set `node.roles`, the node is only assigned the roles you specify. If you don’t set `node.roles`, the node is assigned the following roles（可以通过在 elasticsearch.yml 中设置 node.roles 来定义节点的角色。如果您设置 `node.roles`，则节点只会分配您指定的角色。如果您不设置 `node.roles`，节点将被分配以下角色：）:
+You define a node’s roles by setting `node.roles` in `elasticsearch.yml`. If you set `node.roles`, the node is only assigned the roles you specify. If you don’t set `node.roles`, the node is assigned the following roles（可以通过在 elasticsearch.yml 中设置 node.roles 来定义节点的角色。如果您设置 `node.roles`，则节点只会分配您指定的角色。如果您不设置 `node.roles`，节点将被分配以下除voting_only和coordinating以外的所有角色）:
 
 - `master`
+
+  集群层面的管理，例如创建或删除索引、跟踪哪些节点是集群的一部分，以及决定将哪些分片分配给哪些节点。主节点的path.data用于存储集群元数据信息，不可缺少。主节点主要存储的数据包括：集群中每个索引的索引元数据，集群层面的元数据。如果集群规模大、节点多之后，有必要独立设置专用候选主节点。
+
+  配置专用候选主节点配置：node.roles: [ master ]
+
 - `data`
+
+  数据节点用途：数据落地存储、数据增、删、改、查、搜索、聚合操作等处理操作。
+
+  数据节点硬件配置：CPU要求高、内存要求高、磁盘要求高。
+
+  专属数据节点好处：主节点和数据节点分离，各司其职。
+
+  数据节点的配置：node.roles: [ data ]
+
+  在Elastic多层（tires）冷热集群架构体系下，数据节点又可以细分为：
+
+  1. 内容数据节点（Content data node）
+  2. 热数据节点（Hot data node）
+  3. 温数据节点（Warm data node）
+
 - `data_content`
+
+  用途：处理写入和查询负载，具有较长的数据保留要求。
+  建议至少设置一个副本，以保证数据的高可用。
+  不属于数据流的系统索引或其他索引会自动分配到内容数据节点。
+
+  内容数据节点的配置：node.roles: [ data_content ]
+
 - `data_hot`
+
+  用途：保存最近、最常访问的时序数据。
+  推荐使用：SSD 磁盘，至少设置一个副本。
+
+  热数据节点的配置：node.roles: [ data_hot ]
+
 - `data_warm`
+
+  用途：保存访问频次低且很少更新的时序数据。
+
+  温数据节点的配置：node.roles: [ data_warm ]
+
 - `data_cold`
-- `data_frozen`
+
+  用途：保存不经常访问且通常不更新的时序数据。可存储可搜索快照。
+
+  冷数据节点的配置：node.roles: [ data_cold ]
+
 - `ingest`
+
+  用途：执行由预处理管道组成的预处理任务。
+
+  数据预处理节点的配置：node.roles: [ ingest ]
+
 - `ml`
+
+  用途：机器学习，系收费功能。
+
+  机器学习节点的配置：node.roles: [ ml, remote_cluster_client]
+
 - `remote_cluster_client`
+
+  用途：跨集群检索或跨集群复制。
+
+  远程节点的配置：node.roles: [ remote_cluster_client ]
+
 - `transform`
 
-If you set `node.roles`, ensure you specify every node role your cluster needs. Every cluster requires the following node roles（如果设置 node.roles，请确保指定集群所需的每个节点角色。每个集群都需要以下节点角色）:
+  用途：运行转换并处理转换 API 请求。
+
+  转换节点的配置：node.roles: [ transform, remote_cluster_client ]
+
+- `voting_only`
+
+  只能参与主节点的投票选举环节，但是自己不能被选举为master。高可用性(HA)集群需要至少三个符合主节点的节点，其中至少两个不是仅投票节点。这样即使其中一个节点发生故障，集群也能够选举出一个主节点。注意：只有具有master角色的节点才能被标记为voting_only角色。
+
+  创建仅投票节点：node.roles: [ master,  voting_only ]
+
+  既是数据节点也是投票节点：node.roles: [ data, master,  voting_only ]
+
+- `coordinating`
+
+  用途：类似智能负载均衡器，负责：路由分发请求、聚集搜索或聚合结果。
+  注意事项：在一个集群中添加太多的仅协调节点会增加整个集群的负担，因为当选的主节点必须等待来自每个节点的集群状态更新的确认。
+
+  配置仅协调节点：node.roles: [ ]
+
+If you set `node.roles`, ensure you specify every node role your cluster needs. Every cluster requires the following node roles（如果设置 node.roles，请确保指定集群所需的每个节点角色。一个ES集群必须有以下角色）:
 
 - `master`
-- `data_content` and `data_hot`OR`data`；首先在使用冷热集群的时候才在节点配置中使用data_content + data_hot或data_warm或data_cold或data_frozen的形式；另外在使用索引生命周期管理的时候，只需要将hot节点配置data_content + data_hot即可，其他的节点分别配置：data_warm、data_cold、data_frozen.....。而在数据流中则将所有的节点都配置data_content也是没有问题的。
+- `data_content` and `data_hot`OR`data`；首先在使用冷热集群的时候，data_hot、data_warm、data_cold要和data_content要一起配置。且data_hot、data_warm、data_cold不要和原有的data节点一起配置了。如果仅data_hot 不设置 data_content 会导致集群数据写入后无法落地。个人理解：data_hot, data_warm, data_cold 是标识性的节点，实际落地存储还得靠 data_content 角色。
 
 Some Elastic Stack features also require specific node roles:
 
@@ -10596,7 +10676,7 @@ ES的写入默认有延迟，可执行手动刷新
 // GET my_logs-000002/_mapping
 
 // 可以使用索引模板解决上述问题
-// PUT _template/my_template
+PUT _template/my_template
 {
   "index_patterns": [
     "my_logs-*"
@@ -10611,12 +10691,21 @@ ES的写入默认有延迟，可执行手动刷新
   }
 }
 
-// 在执行完索引模板后，可以再次触发滚动索引创建的条件
+// 创建滚动索引
+PUT /my_logs-000001
+{
+  "aliases": {
+    "logs_write": {}
+  }
+}
+
 // PUT logs_write/_bulk
 {"index":{}}
 {"title":"test data 1"}
 {"index":{}}
 {"title":"test data 2"}
+{"index":{}}
+{"title":"test data 3"}
 
 // POST /logs_write/_rollover
 {
@@ -10627,12 +10716,10 @@ ES的写入默认有延迟，可执行手动刷新
   }
 }
 
-// 此时my_logs-000001和my_logs-000003的mapping就一致了
-// GET my_logs-000001/_mapping
-// GET my_logs-000003/_mapping
+// 此时my_logs-000001和my_logs-000002的mapping就一致了
+GET my_logs-000001/_mapping
+GET my_logs-000002/_mapping
 ```
-
-
 
 #### 索引的生命周期管理
 
@@ -10760,7 +10847,7 @@ Delete阶段
         }
       },
       "delete": {
-        "min_age": "20s",
+        "min_age": "1",
         "actions": {
           "delete": {
             "delete_searchable_snapshot": true
@@ -10790,10 +10877,18 @@ Delete阶段
   ],
   "settings": {
     "number_of_shards": 1,
-    "number_of_replicas": 0,
+    "number_of_replicas": 1,
     "index.lifecycle.name": "test_ilm",
     "index.lifecycle.rollover_alias":"test-alias",
     "index.routing.allocation.require.hot_warm_cold": "hot"
+  },
+  "mappings": {
+    "properties": {
+      "title": {
+        "type": "text",
+        "analyzer": "english"
+      }
+    }
   }
 }
 ```
@@ -10833,7 +10928,47 @@ Delete阶段
     "indices.lifecycle.poll_interval": "1s" 
   }
 }
+
+// 删除别名
+// POST _aliases
+{
+  "actions": [
+    {
+      "remove": {
+        "index": "test_ilm_index-000001",
+        "alias": "test-alias"
+      }
+    },
+    {
+      "remove": {
+        "index": "test_ilm_index-000002",
+        "alias": "test-alias"
+      }
+    }
+  ]
+}
+
+// 删除索引
+// DELETE /test_ilm_index-000001
+// DELETE /test_ilm_index-000002
+
+// 删除ILM
+// DELETE _ilm/policy/test_ilm
+
+// 删除索引
+// DELETE /test
+
+// 删除模板
+// DELETE _template/my_template
+
+// 获取文档
+// GET test_ilm_index-000001/_doc/1
+
+// 查看节点自定义属性
+// GET _cat/nodeattrs
 ```
+
+
 
 # ClickHouse
 

@@ -10122,7 +10122,7 @@ if_seq_no和if_primary_term是用来并发控制的，和`_version`属于当前�
 
 ES的任意节点都可以作为协调节点(coordinating)接受请求，当协调节点接受到请求后进行一系列处理，然后通过_routing字段找到对应的primary shard，并将请求转发给primary shard。ES中的数据写入均发生在Primary Shard，当数据在Primary写入完成之后会同步到相应的Replica Shard。
 
-写一致性策略
+#### 写一致性策略
 
 ES 5.x 之后，一致性策略由 `wait_for_active_shards` 参数控制，默认为 wait_for_active_shards = 1，即只需要主分片写入成功即返回成功，有效值为all或正整数(最大值为索引中每个分片的配置副本的总数，即：number_of_replicas + 1)。
 
@@ -10153,6 +10153,72 @@ es宕机是否丢失数据主要看translog是否丢失数据， translog在写�
 >
 >因此，Segment Files（段文件）用于存储实际的索引数据，提供快速的搜索和检索性能。而 Translog（事务日志）用于持久化索引操作，保证数据的持久化和可恢复性。这两个机制一起工作，确保 Elasticsearch 具有高效的索引和可靠的数据恢复能力
 
+#### refresh
+
+![image](assets\middleware-64.png)
+
+在ES中，当写入一个新文档时，首先被写入到内存缓存中，默认每1秒将in-memory index buffer中的文档生成一个新的段并清空原有in-memory index buffer，新写入的段变为可读状态，但是还没有被完全提交。该新的段首先被写入文件系统缓存，保证段文件可以正常被正常打开和读取，后续再进行刷盘操作。由此可以看到，ES并不是写入文档后马上就可以搜索到，而是一个近实时的搜索（默认1s后）。文档写入内存缓存区中，默认每1s生成一个新的段，这个写入并打开一个新段的轻量的过程叫做refresh。
+
+#### flush
+
+即使通过每秒refresh实现了近实时搜索，但refresh无法保障数据安全，仍然需要经常进行完整提交来确保能从失败中恢复。flush就是一次完全提交的过程，一次完整的提交会将段刷到磁盘，并写入一个包含所有段列表的提交点。Elasticsearch在启动或重新打开一个索引的过程中使用这个提交点来判断哪些段隶属于当前分片，保证数据的安全。为此ES增加了一个translog，或者叫事务日志，在每一次对ES的变更操作除写入内存缓存外还会写入到translog中，translog周期性刷盘，保证变更的持久性。
+
+将translog中所有的段进行全量提交并对translog进行截断的操作叫做flush，flush操作期间会做的事项主要有：
+
+1. 强制refresh，将内存缓冲区所有文档写入一个新的段，写入到文件系统缓存并将旧的内存缓冲区被清空（refresh）
+2. 将最新的commit point写入磁盘
+3. 将文件系统缓存中的segment段通过fsync进行刷盘
+4. 删除老的translog，启动新translog
+
+```markdown
+# flush api的使用
+#一般来讲自动刷新就足够了，很少需要自己手动执行 flush 操作。
+POST /blogs/_flush
+# flush 相关参数设置
+# translog通过fsync刷盘的的频率，默认5s，不允许设置100ms以内
+index.translog.sync_interval
+
+# request(default)：默认每次请求（index, delete, update, or bulk request）后都进行fsync和commit
+# async：每间隔sync_interval进行一次fsync和commit
+index.translog.durability
+
+#  translog最大达到512MB的时候强制进行flush操作，flush后将commit point进行刷盘，保证数据安全
+index.translog.flush_threshold_size
+```
+
+flush的特点：
+
+1. refresh会清空内存缓存，但是不会清空translog；
+2. flush操作将文件系统缓存中的segment进行fsync刷盘，并更新commit point，老的translog被删除，启动新的translog；
+3. 当程序意外重启后，es首先找到commit point，然后通过translog重构commit point之后的segment
+
+对于flush操作，默认设置为：当 translog文件大小大于512MB，主动进行一次 flush。
+
+```markdown
+index.translog.flush_threshold_size=512mb；
+```
+
+索引数据的一致性通过translog保证。而translog文件本身默认是实时进行fsync和commit操作的。
+
+```markdown
+translog通过fsync刷盘的的频率，默认5s，不允许设置100ms以内
+index.translog.sync_interval
+
+request(default)：默认每次请求（index, delete, update, or bulk request）后都进行fsync和commit
+async：每间隔sync_interval进行一次fsync和commit
+index.translog.durability
+```
+
+#### translog
+
+translog就是ES的一个事务日志，当发生一个文档变更操作时，文档不仅会写入到内存缓存区也会同样记录到事务日志中，事务日志保证还没有被刷到磁盘的操作的进行持久化。translog持久化后保证即使意外断电或者ES程序重启，ES首先通过磁盘中最后一次提交点恢复已经落盘的段，然后将该提交点之后的变更操作通过translog进行重放，重构内存中的segment。translog也可以被用来实时CRUD搜索，当通过_id进行查询/更新/删除文档时，ES在检索该文档对应的segment时会优先检查translog中最近一次的变更操作，以便获取到最新版本的文档记录。
+
+translog基本流程：
+
+1. 一个文档被索引之后，就会被添加到内存缓冲区，并且追加到了translog，默认每秒refresh一次，refresh会清空内存缓存，但是不会清空translog；
+2. refresh操作不断发生，更多的文档被添加到内存缓冲区和追加到translog；
+3. translog默认实时fsync和commit，保证应用重启后先确认最后记录的commit point，commit point之后的变更操作通过落盘的translog进行重构恢复段，默认当translog太大（512MB）时，进行flush操作。
+
 ### 读原理
 
 ![image](assets\middleware-61.png)
@@ -10171,6 +10237,81 @@ es二阶段查询
 
 1. query阶段， 2,3,4为query阶段
 2. fetch阶段， 5,6为fetch阶段
+
+### 段合并原理
+
+#### 合并流程
+
+ElasticSearch写入数据时，数据是先写入memory buffer，然后定时（默认每隔1s）将memory buffer中的数据写入一个新的segment文件中，并进入File system cache（同时清空memory buffer），这个过程就叫做refresh；每个Segment事实上是一些倒排索引的集合，只有经历了refresh操作之后，数据才能变成可检索的。ElasticSearch每次refresh一次都会生成一个新的segment文件，这样下来segment文件会越来越多。那这样会导致什么问题呢？因为每一个segment都会占用文件句柄、内存、cpu资源，更加重要的是，每个搜索请求都必须访问每一个segment，这就意味着存在的segment越多，搜索请求就会变的更慢。
+
+>每个segment是一个包含正排（空间占比90~95%）+倒排（空间占比5~10%）的完整索引文件，每次搜索请求会将所有segment中的倒排索引部分加载到内存，进行查询和打分，然后将命中的文档号拿到正排中召回完整数据记录。如果不对segment做配置，就会导致查询性能下降
+
+ElasticSearch有一个后台进程专门负责segment的合并，定期执行merge操作，将多个小segment文件合并成一个segment，在合并时被标识为deleted的doc（或被更新文档的旧版本）不会被写入到新的segment中。合并完成后，然后将新的segment文件flush写入磁盘；然后创建一个新的commitpoint文件，标识所有新的segment文件，并排除掉旧的segement和已经被合并的小segment；然后打开新segment文件用于搜索使用，等所有的检索请求都从小的segment转到大segment上以后，删除旧的segment文件，这时候，索引里segment数量就下降了。
+
+>所有的过程都不需要干涉，es会自动在索引和搜索的过程中完成，合并的segment可以是磁盘上已经commit过的索引，也可以在内存中(File system cache)还未commit的segment：合并的过程中，不会打断当前的索引和搜索功能。
+
+#### 性能影响
+
+segment合并的过程，需要先读取小的segment，归并计算，再写一遍segment，最后还要保证刷到磁盘。可以说，合并大的segment需要消耗大量的I/O和CPU资源，同时也会对搜索性能造成影响。所以Elasticsearch在默认情况下会对合并线程进行资源限制，确保它不会对搜索性能造成太大影响。默认情况下，归并线程的限速配置indices.store.throttle.max_bytes_per_sec是20MB。对于写入量较大，磁盘转速较高，甚至使用SSD盘的服务器来说，这个限速是明显过低的。建议可以适当调大到100MB或者更高。设置方式如下：
+
+```json
+// PUT /_cluster/settings
+{
+    "persistent" : {
+        "indices.store.throttle.max_bytes_per_sec" : "100mb"
+    }
+}
+// 或者不限制：
+// PUT /_cluster/settings
+{
+    "transient" : {
+        "indices.store.throttle.type" : "none" 
+    }
+}
+```
+
+#### 强制合并
+
+ES的API也提供了命令来支持强制合并segment，即optimize命令，它可以强制一个分片shard合并成max_num_segments参数指定的段数量，一个索引它的segment数量越少，它的搜索性能就越高，通常会optimize成一个segment。但需要注意的是，optimize命令是没有限制资源的，也就是你系统有多少IO资源就会使用多少IO资源，这样可能导致一段时间内搜索没有任何响应，所以，optimize命令不要用在一个频繁更新的索引上面，针对频繁更新的索引es默认的合并进程就是最优的策略。如果你计划要optimize一个超大的索引，你应该使用shardallocation（分片分配）功能将这份索引给移动到一个指定的node机器上，以确保合并操作不会影响其他的业务或者es本身的性能。但是在特定场景下，optimize也颇有益处，比如在一个静态索引上（即索引没有写入操作只有查询操作）是非常适合用optimize来优化的。比如日志的场景下，日志基本都是按天，周，或者月来索引的，旧索引实质上是只读的，只要过了今天、这周或这个月就基本没有写入操作了，这个时候我们就可以通过optimize命令，来强制合并每个shard上索引只有一个segment，这样既可以节省资源，也可以大大提升查询性能。optimize的API：
+
+```makefile
+POST /log_index-2024-02-19/_forcemerge?max_num_segments=1
+```
+
+#### 性能设置
+
+1、查看某个索引中所有segment 的驻留内存情况：
+
+```makefile
+GET _cat/segments/log_index-2024-02-19?v&h=shard,segment,size,size.memory'
+```
+
+2、性能优化
+
+- 合并策略
+
+  合并线程是按照一定的运行策略来挑选segment进行归并的。主要有以下几条：
+
+  - index.merge.policy.floor_segment：默认 2MB，小于该值的segment会优先被归并。
+  - index.merge.policy.max_merge_at_once：默认一次最多归并10个segment
+  - index.merge.policy.max_merge_at_once_explicit：默认forcemerge时一次最多归并30个segment
+  - index.merge.policy.max_merged_segment：默认5GB，大于该值的segment，不用参与归并，forcemerge 除外
+
+- 设置延迟提交
+
+  根据上面的策略，也可以从另一个角度考虑如何减少segment归并的消耗以及提高响应的办法：加大refresh间隔，尽量让每次新生成的segment本身大小就比较大。这种方式主要通过延迟提交实现，延迟提交意味着数据从提交到搜索可见有延迟，具体需要结合业务配置，默认值1s；
+
+  ```json
+  // PUT /log_index-2024-02-19/_settings
+  {
+    "refresh_interval": "1s"
+  }
+  ```
+
+- 对特定字段field禁用norms和doc_values和stored：
+
+  norms、doc_values和stored字段的存储机制类似，每个field有一个全量的存储，对存储浪费很大。如果一个field不需要考虑其相关度分数，那么可以禁用norms，减少倒排索引内存占用量，字段粒度配置 omit_norms=true；如果不需要对field进行排序或者聚合，那么可以禁用doc_values字段；如果field只需要提供搜索，不需要返回则将stored设为false；
+
 
 ## 运维调优
 

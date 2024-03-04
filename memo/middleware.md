@@ -10308,9 +10308,9 @@ GET _cat/segments/log_index-2024-02-19?v&h=shard,segment,size,size.memory'
   }
   ```
 
-- 对特定字段field禁用norms和doc_values和stored：
+- 对特定字段field禁用norms、doc_values：
 
-  norms、doc_values和stored字段的存储机制类似，每个field有一个全量的存储，对存储浪费很大。如果一个field不需要考虑其相关度分数，那么可以禁用norms，减少倒排索引内存占用量，字段粒度配置 omit_norms=true；如果不需要对field进行排序或者聚合，那么可以禁用doc_values字段；如果field只需要提供搜索，不需要返回则将stored设为false；
+  norms、doc_values和stored字段的存储机制类似，每个field有一个全量的存储，对存储浪费很大。如果一个field不需要考虑其相关度分数，那么可以禁用norms，减少倒排索引内存占用量（"norms": false）；如果不需要对field进行排序或者聚合，那么可以禁用doc_values字段。
 
 
 ## 运维调优

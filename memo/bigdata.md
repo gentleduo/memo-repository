@@ -554,13 +554,13 @@ YARN中提供了一个叫做JobHistoryServer的守护进程，它属于YARN集�
 
 MR应用程序在运行时，是通过AM（MRAppMaster类）将日志写到HDFS中，会生成.jhist、.summary和`_conf.xml`文件。其中.jhist文件是MR程序的计数信息，.summary文件是作业的摘要信息，_conf.xml文件是MR程序的配置信息。MR应用程序启动时，会把作业信息存储到${yarn.app.mapreduce.am.staging-dir}/${user}/.staging/${job_id}目录下。yarn.app.mapreduce.am.staging-dir的默认路径为：/tmp/hadoop-yarn/staging
 
-![image](D:\gentleduo\memo-repository\memo\assets\bigdata-47.png)
+![image](assets\bigdata-47.png)
 
 ### MR应用程序运行完成时生成的信息
 
 MR应用程序运行完成后，作业信息会被临时移动到`${mapreduce.jobhistory.intermediate-done-dir}/${user}`目录下。
 
-![image](D:\gentleduo\memo-repository\memo\assets\bigdata-48.png)
+![image](assets\bigdata-48.png)
 
 ### MR应用程序最终的作业信息
 
@@ -3836,6 +3836,24 @@ localhost_access_log.txt
 --执行外部文件；注意这个sql文件必须放在当前用的目录下，比如root用户的话，那么sql文件必须放在/root目录下
 hive> source sql;
 ```
+
+> apache-hive-3.1.3，初始化启动报错：
+>
+> FAILED: Execution Error, return code 1 from org.apache.hadoop.hive.ql.exec.DDLTask. MetaException(message:An exception was thrown while adding/validating class(es) : You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near '[CHARACTER SET charset_name] [COLLATE collation_name] NULL,
+>     `VIEW_ORIGINAL_T' at line 14
+> java.sql.SQLSyntaxErrorException: You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near '[CHARACTER SET charset_name] [COLLATE collation_name] NULL,
+>     `VIEW_ORIGINAL_T' at line 14
+>
+> 解决办法：
+>
+> 手动初始化元数据库
+>
+> ```undefined
+> schematool -dbType mysql -initSchema
+> ```
+>
+> 【转】注意：当使用的 hive 是 2.x 之前的版本，不做初始化也是 OK 的，当 hive 第一次启动的 时候会自动进行初始化，只不过会不会生成足够多的元数据库中的表。在使用过程中会 慢慢生成。但最后进行初始化。如果使用的 2.x 版本的 Hive，那么就必须手动初始化元数据库！
+>
 
 ### 使用sql语句或者sql脚本进行交互
 

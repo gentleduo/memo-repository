@@ -566,3 +566,347 @@ archetype项目骨架加载慢的问题：
    - Server==>Configure...==>Tomcat Home:设置tomcat home目录
    - Deployment==>add==>Artifact...==>WebApp
 
+# Maven打包
+
+## maven-jar-plugin
+
+```xml
+<build>  
+    <plugins>  
+        <plugin>  
+            <groupId>org.apache.maven.plugins</groupId>  
+            <artifactId>maven-jar-plugin</artifactId>  
+            <version>2.6</version>  
+            <configuration>  
+                <archive>  
+                    <manifest>
+                        <!-- 会在MANIFEST.MF加上Class-Path项并配置依赖包 -->
+                        <addClasspath>true</addClasspath>
+                        <!-- 指定依赖包所在目录 -->
+                        <classpathPrefix>lib/</classpathPrefix>
+                        <!--指定MANIFEST.MF中的Main-Class-->
+                        <mainClass>com.xxg.Main</mainClass>
+                    </manifest>  
+                </archive>  
+            </configuration>  
+        </plugin>  
+        <plugin>  
+            <groupId>org.apache.maven.plugins</groupId>  
+            <artifactId>maven-dependency-plugin</artifactId>  
+            <version>2.10</version>  
+            <executions>  
+                <execution>  
+                    <id>copy-dependencies</id>  
+                    <phase>package</phase>  
+                    <goals>  
+                        <goal>copy-dependencies</goal>  
+                    </goals>  
+                    <configuration>  
+                        <outputDirectory>${project.build.directory}/lib</outputDirectory> 
+                    </configuration>  
+                </execution>  
+            </executions>  
+        </plugin>  
+  
+    </plugins>  
+</build>  
+```
+
+maven-jar-plugin用于生成META-INF/MANIFEST.MF文件的部分内容，例如下面是一个通过maven-jar-plugin插件生成的MANIFEST.MF文件片段：
+
+```ini
+Class-Path: lib/commons-logging-1.2.jar lib/commons-io-2.4.jar  
+Main-Class: com.xxg.Main  
+```
+
+只是生成MANIFEST.MF文件还不够，maven-dependency-plugin插件用于将依赖包拷贝到outputDirectory指定的位置，即lib目录下。配置完成后，通过mvn package指令打包，会在target目录下生成jar包，并将依赖包拷贝到target/lib目录下。指定了Main-Class，有了依赖包，那么就可以直接通过java -jar xxx.jar运行jar包。这种方式生成jar包有个缺点，就是生成的jar包太多不便于管理。
+
+## maven-assembly-plugin
+
+```xml
+<build>  
+    <plugins>  
+        <plugin>  
+            <groupId>org.apache.maven.plugins</groupId>  
+            <artifactId>maven-assembly-plugin</artifactId>  
+            <version>2.5.5</version>  
+            <configuration>  
+                <archive>  
+                    <manifest>  
+                        <mainClass>com.xxg.Main</mainClass>  
+                    </manifest>  
+                </archive>  
+                <descriptorRefs>  
+                    <descriptorRef>jar-with-dependencies</descriptorRef>  
+                </descriptorRefs>  
+            </configuration>  
+        </plugin>  
+    </plugins>  
+</build>  
+```
+
+打包方式：mvn package assembly:single；打包后会在target目录下生成一个xxx-jar-with-dependencies.jar文件，这个文件不但包含了自己项目中的代码和资源，还包含了所有依赖包的内容。所以可以直接通过java -jar来运行。此外还可以直接通过mvn package来打包，无需assembly:single，不过需要加上一些配置：
+
+```xml
+<build>  
+    <plugins>
+        <plugin>  
+            <groupId>org.apache.maven.plugins</groupId>  
+            <artifactId>maven-assembly-plugin</artifactId>  
+            <version>2.5.5</version>  
+            <configuration>  
+                <archive>  
+                    <manifest>  
+                        <mainClass>com.xxg.Main</mainClass>  
+                    </manifest>  
+                </archive>  
+                <descriptorRefs>  
+                    <descriptorRef>jar-with-dependencies</descriptorRef>  
+                </descriptorRefs>  
+            </configuration>  
+            <executions>  
+                <execution>  
+                    <id>make-assembly</id>  
+                    <phase>package</phase>  
+                    <goals>  
+                        <goal>single</goal>  
+                    </goals>  
+                </execution>  
+            </executions>  
+        </plugin>
+    </plugins>  
+</build>  
+```
+
+其中<phase>package</phase>、<goal>single</goal>即表示在执行package打包时，执行assembly:single，所以可以直接使用mvn package打包。不过，如果项目中用到spring Framework，用这种方式打出来的包运行时会出错。可以使用maven-shade-plugin或者spring-boot-maven-plugin解决：
+
+## maven-shade-plugin
+
+maven-plugin-shade 插件提供了两个能力：
+
+1. 把整个项目（包含它的依赖）都打包到一个 "uber-jar" 中
+
+   uber-jar 也叫做 fat-jar 或者 jar-with-dependencies，意思就是包含依赖的 jar。
+
+2. shade - 即重命名某些依赖的包
+
+   shade 意为遮挡，在此处可以理解为对依赖的 jar 包的重定向（主要通过重命名的方式）
+
+```xml
+<build>
+    <plugins>
+        <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-shade-plugin</artifactId>
+            <version>3.2.4</version>
+            <configuration>
+                <!-- 此处按需编写更具体的配置 -->
+            </configuration>
+            <executions>
+                <execution>
+                    <!-- 和 package 阶段绑定 -->
+                    <phase>package</phase>
+                    <goals>
+                        <goal>shade</goal>
+                    </goals>
+                </execution>
+            </executions>
+        </plugin>
+    </plugins>
+</build>
+```
+
+### includes
+
+使用 <includes> 排除不需要的依赖，示例如下：
+
+```xml
+<configuration>
+    <artifactSet>
+        <excludes>
+            <exclude>classworlds:classworlds</exclude>
+            <exclude>junit:junit</exclude>
+            <exclude>jmock:*</exclude>
+            <exclude>*:xml-apis</exclude>
+            <exclude>org.apache.maven:lib:tests</exclude>
+            <exclude>log4j:log4j:jar:</exclude>
+        </excludes>
+    </artifactSet>
+</configuration>
+```
+
+使用 `<filters>` 结合 `<includes>` & `<excludes>` 标签可实现更灵活的依赖选择，示例如下：
+
+```xml
+<configuration>
+    <filters>
+        <filter>
+            <artifact>junit:junit</artifact>
+            <includes>
+                <include>junit/framework/**</include>
+                <include>org/junit/**</include>
+            </includes>
+            <excludes>
+                <exclude>org/junit/experimental/**</exclude>
+                <exclude>org/junit/runners/**</exclude>
+            </excludes>
+        </filter>
+        <filter>
+            <artifact>*:*</artifact>
+            <excludes>
+                <exclude>META-INF/*.SF</exclude>
+                <exclude>META-INF/*.DSA</exclude>
+                <exclude>META-INF/*.RSA</exclude>
+            </excludes>
+        </filter>
+    </filters>
+</configuration>
+```
+
+除了可以通过自定义的 filters 来过滤依赖，此插件还支持自动移除项目中没有使用到的依赖，以此来最小化 jar 包的体积，只需要添加一项配置即可。示例如下：
+
+```xml
+<configuration>
+    <minimizeJar>true</minimizeJar>
+</configuration>
+```
+
+### 重定位class文件 
+
+如果最终的 jar 包被其他的项目所依赖的话，直接地引用此 jar 包中的类可能会导致类加载冲突，这是因为 classpath 中可能存在重复的 class 文件。为了解决这个问题，我们可以使用 shade 提供的重定位功能，把部分类移动到一个全新的包中。示例如下：
+
+```xml
+<configuration>
+    <relocations>
+        <relocation>
+            <pattern>org.codehaus.plexus.util</pattern>
+            <shadedPattern>org.shaded.plexus.util</shadedPattern>
+            <excludes>
+                <exclude>org.codehaus.plexus.util.xml.Xpp3Dom</exclude>
+                <exclude>org.codehaus.plexus.util.xml.pull.*</exclude>
+            </excludes>
+        </relocation>
+    </relocations>
+</configuration>
+```
+
+涉及标签：
+
+- `<pattern>`：原始包名
+- `<shadedPattern>`：重命名后的包名
+- `<excludes>`：原始包内不需要重定位的类，类名支持通配符
+
+例如，在上述示例中，我们把 org.codehaus.plexus.util 包内的所有子包及 class 文件（除了 ~.xml.Xpp3Dom 和 ~.xml.pull 包下的所有 class 文件）重定位到了 org.shaded.plexus.util 包内。当然，如果包内的大部分类我们都不需要，一个个排除就显得很繁琐了。此时我们也可以使用 `<includes>` 标签来指定我们仅需要的类，示例如下：
+
+```xml
+<project>
+    ...
+    <relocation>
+        <pattern>org.codehaus.plexus.util</pattern>
+        <shadedPattern>org.shaded.plexus.util</shadedPattern>
+        <includes>
+            <include>org.codehaud.plexus.util.io.*</include>
+        </includes>
+    </relocation>
+    ...
+</project>
+```
+
+### 生成可执行jar包
+
+使用 maven-plugin-shade 后，最终生成的 jar 包可以包含所有项目所需要的依赖。如果想生成可执行的jar则只需要指定 `<mainClass>` 启动类就可以了。示例如下：
+
+```xml
+<project>
+    ...
+    <configuration>
+        <transformers>
+            <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                <mainClass>org.sonatype.haven.HavenCli</mainClass>
+            </transformer>
+        </transformers>
+    </configuration>
+    ...
+</project>
+```
+
+jar包中默认会包含一个MANIFEST.MF文件，里面描述了一些jar包的信息。使用java自带的jar命令打包的时候可以指定MANIFEST.MF，其中也可以指定Main-Class来使得jar包可运行。那么使用shade来指定和直接在MANIFEST.MF文件中指定有什么区别呢？答案是没有区别，仔细观察可发现<mainClass>标签的父标签是<transformer>有一个implementation属性，其值为"~.ManifestResourceTransformer"，意思是Manifest资源文件转换器。上述示例只自指定了启动类，因此shade会自动生成一个包含Main-Class的MANIFEST.MF文件，然后在打jar包时指定这个文件。如果想要完全定制MANIFEST.MF文件则可以使用<manifestEntries>标签，示例如下：
+
+```xml
+<project>
+    ...
+    <configuration>
+        <transformers>
+            <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                <manifestEntries>
+                    <Main-Class>org.sonatype.haven.ExodusCli</Main-Class>
+                    <Build-Number>123</Build-Number>
+                </manifestEntries>
+            </transformer>
+        </transformers>
+    </configuration>
+    ...
+</project>
+```
+
+## spring-boot-maven-plugin
+
+maven-shade-plugin、spring-boot-maven-plugin这两种plugin打出的可执行的jar包，都是叫fat-jar(uber-jar)，区别如下：
+
+maven-shade-plugin打的fat-jar，所有的jar包全部展开了，只有class文件（它可以将多个JAR文件合并为一个JAR文件，并避免在运行时出现冲突。它通过重命名和打包类来解决冲突，从而使得项目能够轻松部署和运行。）。而spring-boot-maven-plugin打的包是jar in jar,重写了类加载器,类似war包
+
+```xml
+<build>
+    <!-- 生成的jar包或者war包的名称 -->
+    <finalName>springboot</finalName>
+    <plugins>
+        <!-- 解决 Description Resource Path Location Type Dynamic Web Module 3.0
+            requires Java 1.6 or newer -->
+        <!-- 这个maven插件同时解决了， maven update project JDK变回1.5 问题 -->
+        <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-compiler-plugin</artifactId>
+            <version>3.1</version>
+            <configuration>
+                <source>1.8</source>
+                <target>1.8</target>
+            </configuration>
+        </plugin>
+        <!-- 打成jar包部署或者直接使用java -jar命令的时候，提示了xxxxxx.jar中没有主清单属性： 主清单属性即：META-INF，其中META-INF文件夹下有一个MANIFEST.MF文件，该文件指明了程序的入口以及版本信息等内容 -->
+        <!-- 解决办法：在pom中添加一个SpringBoot的构建的插件，然后重新运行 mvn install即可。 -->
+        <!-- 即如果将SpringBoot打成jar运行，则需要添加一个spring-boot-maven-plugin到pom.xml中 -->
+        <plugin>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-maven-plugin</artifactId>
+            <!-- SpringBoot集成Jsp 以jar包的方式运行，必须指定spring-boot-maven-plugin的版本为1.4.2，其他版本不兼容 -->
+            <!-- <version>1.4.2.RELEASE</version> -->
+            <!--在不使用spring-boot-start-parent构建springboot应用的时候必须加入repackage配置后，maven打包时才会把第三方jar包一起打入 -->
+            <!-- 代表maven打包时会将外部引入的jar包（比如在根目录下或resource文件下新加外部jar包）打包到项目jar，在服务器上项目才能运行，不加此配置，本地可以运行，因为本地可以再lib下找到外部包，但是服务器上jar中是没有的。 -->
+            <!-- 并且外部引入的jar的scope必须设置为system -->
+            <executions>
+                <execution>
+                    <goals>
+                        <goal>repackage</goal>
+                    </goals>
+                </execution>
+            </executions>
+            <!-- executable设置为true表示在jar中添加启动脚本，制作在linux环境下可执行的jar。即：在linux环境下，通过chmod a+x后可以通过./app.jar的方式运行，但是这种打包方式将无法使用jar -xvf解压jar包（可以使用unzip命令进行解压） -->
+            <!-- executable设置为false的话，则是指定普通的可执行jar，通过java -jar命令运行，并且也可以通过jar -xvf解压jar包 -->
+            <!-- 仅在打算直接执行时才启用此选项，一般情况下都设置为false -->
+            <configuration>
+                <includeSystemScope>true</includeSystemScope>
+                <executable>false</executable>
+            </configuration>
+        </plugin>
+        <!-- war包打包插件 -->
+        <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-war-plugin</artifactId>
+            <configuration>
+                <failOnMissingWebXml>false</failOnMissingWebXml>
+            </configuration>
+        </plugin>
+    </plugins>
+</build>
+```
+

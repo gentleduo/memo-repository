@@ -8977,6 +8977,185 @@ mysql: [Warning] Using a password on the command line interface can be insecure.
 
 需要注意的是，批量插入并不是适用于所有情况的解决方案。在某些特定的场景下，单条插入可能更适合，例如需要实时处理插入请求或者需要确保数据的即时可用性等情况。此外，批量插入也需要考虑内存消耗和数据一致性等方面的问题。因此，在实际应用中，需要根据具体的需求和场景选择适合的插入方式。
 
+```java
+package org.duo.study.db;
+
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.SQLException;
+
+public class JDBCMain {
+
+    public static void main(String[] args) {
+
+
+        // 数据库URL，用户名和密码
+        //String url = "jdbc:mysql://192.168.56.110:3306/bulk_opt?characterEncoding=utf8&useSSL=false&allowMultiQueries=true&rewriteBatchedStatements=true";
+        // rewriteBatchedStatements是MySQL JDBC驱动程序中的一个连接属性，用于优化批量操作的性能。当这个参数被设置为true时，驱动程序会尝试将多个单独的SQL语句重写为一个批处理语句，从而减少与数据库之间的通信次数。作用：1、减少网络开销：通过将多个 SQL 语句合并为一个批处理命令，可以减少客户端与数据库之间的网络通信次数。2、提高插入/更新/删除性能：数据库通常能够更高效地处理批处理操作，因为它们可以一次性对多个记录进行操作，减少了数据库的开销。3、自动批处理：当你使用 PreparedStatement.addBatch() 和 Statement.executeBatch() 方法时，驱动程序会自动重写这些调用为批处理语句。
+        // 注意：MySQL的JDBC连接的url中要加rewriteBatchedStatements参数，并保证5.1.13以上版本的驱动，才能实现高性能的批量插入。MySQL JDBC驱动在默认情况下会无视executeBatch()语句，把我们期望批量执行的一组sql语句拆散，一条一条地发给MySQL数据库，批量插入实际上是单条插入，直接造成较低的性能。只有把rewriteBatchedStatements参数置为true, 驱动才会帮你批量执行SQL。另外这个选项对INSERT/UPDATE/DELETE都有效。
+        String url = "jdbc:mysql://192.168.56.110:3306/bulk_opt?characterEncoding=utf8&useSSL=false&rewriteBatchedStatements=true";
+        String user = "root";
+        String password = "123456";
+
+        // 连接对象
+        Connection connection = null;
+        PreparedStatement statement = null;
+        try {
+            // 加载数据库驱动
+            Class.forName("com.mysql.cj.jdbc.Driver");
+            // 建立连接
+            connection = DriverManager.getConnection(url, user, password);
+            connection.setAutoCommit(false);
+
+            String sql = "insert into t_customer_info(" +
+                    "        id," +
+                    "        name, age, sex," +
+                    "        education, address)" +
+                    "        values(?,?,?,?,?,?) ";
+
+            statement = connection.prepareStatement(sql);
+            for (int i = 0; i < 10000; i++) {
+                statement.setInt(1, i);
+                statement.setString(2, i + "a");
+                statement.setString(3, i + "b");
+                statement.setString(4, i + "c");
+                statement.setString(5, i + "d");
+                statement.setString(6, i + "e");
+                statement.addBatch();
+            }
+            long start = System.currentTimeMillis();
+            statement.executeBatch();
+            connection.commit();
+            connection.close();
+            statement.close();
+            System.out.println(System.currentTimeMillis() - start);
+
+        } catch (ClassNotFoundException e) {
+            e.printStackTrace();
+        } catch (SQLException e) {
+            e.printStackTrace();
+        } finally {
+            try {
+                if (statement != null && !statement.isClosed()) {
+                    // 关闭连接
+                    statement.close();
+                }
+                if (connection != null && !connection.isClosed()) {
+                    // 关闭连接
+                    connection.close();
+                }
+            } catch (SQLException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+}
+```
+
+源码分析：
+
+批量SQL针对的是增删改，在批量更新SQL操作的时候建议使用addBatch，这样效率是高些，数据量越大越能体现出来。Statement接口里有两个方法：
+
+| **方法名称** | **void addBatch(String sql)**                                | **int[] executeBatch()**                                     |
+| ------------ | ------------------------------------------------------------ | ------------------------------------------------------------ |
+| 方法解释     | 将给定的SQL命令添加到此Statement对象的当前命令列表中。通过调用方法executeBatch可以批量执行此列表中的命令。 | 将一批命令提交给数据库来执行，如果全部命令执行成功，则返回更新计数组成的数组。 |
+| 额外说明     |                                                              | 包含当前一批中每个命令的一个元素的更新计数所组成的数组（数组中的每个元素为：成功处理了命令后，执行命令所影响数据库中行数的更新计数）。数组的元素根据将命令添加到批中的顺序排序。 |
+
+ClientPreparedStatement实现了PreparedStatement接口，重写了addBatch()的方法，executeBatch()并没有重写。
+
+| **方法** | addBatch() ==> executeBatch()                     | **executeUpdate()**                                       |
+| -------- | ------------------------------------------------- | --------------------------------------------------------- |
+| 说明     | 把若干sql语句装载到一起，然后一次送到数据库执行。 | 一条一条发往数据库执行的 时间都消耗在数据库连接的传输上面 |
+|          |                                                   |                                                           |
+
+**ClientPreparedStatement#executeBatchInternal**
+
+```java
+@Override
+protected long[] executeBatchInternal() throws SQLException {
+    synchronized (checkClosed().getConnectionMutex()) {
+
+        if (this.connection.isReadOnly()) {
+            throw new SQLException(Messages.getString("PreparedStatement.25") + Messages.getString("PreparedStatement.26"),
+                    MysqlErrorNumbers.SQL_STATE_ILLEGAL_ARGUMENT);
+        }
+
+        if (this.query.getBatchedArgs() == null || this.query.getBatchedArgs().size() == 0) {
+            return new long[0];
+        }
+
+        // we timeout the entire batch, not individual statements
+        int batchTimeout = getTimeoutInMillis();
+        setTimeoutInMillis(0);
+
+        resetCancelledState();
+
+        try {
+            statementBegins();
+
+            clearWarnings();
+
+            if (!this.batchHasPlainStatements && this.rewriteBatchedStatements.getValue()) {
+
+                if (getQueryInfo().isRewritableWithMultiValuesClause()) {
+                    return executeBatchWithMultiValuesClause(batchTimeout);
+                }
+                /**
+                 * batchHasPlainStatements：如果批处理使用静态方式addBatch(String)添加sql语句，则该属性值为true，否则为false；但是一般SQL不是静态的，都是动态的。
+                 * rewriteBatchedStatements：JDBC连接时的参数
+                 * 只有当batchHasPlainStatements为false并且rewriteBatchedStatements为true的时候才会批量执行
+                 * 
+                 */
+                if (!this.batchHasPlainStatements && this.query.getBatchedArgs() != null
+                        && this.query.getBatchedArgs().size() > 3 /* cost of option setting rt-wise */) {
+                    /**
+                     * 如果是insert语句，满成条件情况下，会整合成形如："insert into xxx_table values (xx),(yy),(zz)..."这样的语句
+                     * 如果是update||delete语句，满成条件情况下，会整合成形如："update t set … where id = 1; update t set … where id = 2; update t set … where id = 3 ..."这样的语句
+                     * 然后分批次发送给MySQL(会有一次发送的package大小限制，所以需要拆分批次，可以通过修改my.ini的max_allowed_packet改变其最大值)
+                     */
+                    return executePreparedBatchAsMultiStatement(batchTimeout);
+                }
+            }
+            /**
+             * 如果上面的条件不成立会执行executeBatchSerially方法：
+             * 这个方法的注释：Executes the current batch of statements by executing them one-by-one.
+             * 一行一行的去执行SQL语句，而不是把batch的SQL发送到服务器
+             */
+            return executeBatchSerially(batchTimeout);
+        } finally {
+            this.query.getStatementExecuting().set(false);
+
+            clearBatch();
+        }
+    }
+}
+```
+
+**ClientPreparedStatement#addBatch**
+
+```java
+@Override
+public void addBatch() throws SQLException {
+    synchronized (checkClosed().getConnectionMutex()) {
+        QueryBindings queryBindings = ((PreparedQuery) this.query).getQueryBindings();
+        queryBindings.checkAllParametersSet();
+        this.query.addBatch(queryBindings.clone());
+    }
+}
+
+@Override
+public void addBatch(String sql) throws SQLException {
+    synchronized (checkClosed().getConnectionMutex()) {
+        this.batchHasPlainStatements = true;
+
+        super.addBatch(sql);
+    }
+}
+
+```
+
 ## 统计信息
 
 数据库统计信息在数据库管理系统中扮演着重要的角色，它的作用包括：

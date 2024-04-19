@@ -9103,9 +9103,9 @@ protected long[] executeBatchInternal() throws SQLException {
                     return executeBatchWithMultiValuesClause(batchTimeout);
                 }
                 /**
-                 * batchHasPlainStatements：如果批处理使用静态方式addBatch(String)添加sql语句，则该属性值为true，否则为false；但是一般SQL不是静态的，都是动态的。
+                 * batchHasPlainStatements：默认为false，如果使用静态方式addBatch(String)添加sql语句，则该属性被赋值为true；而使用addBatch()添加sql不会改变该变量的值。
                  * rewriteBatchedStatements：JDBC连接时的参数
-                 * 只有当batchHasPlainStatements为false并且rewriteBatchedStatements为true的时候才会批量执行
+                 * 综上所述：调用用户调用PrepareStatement的addBatch()并且rewriteBatchedStatements为true的时候才会批量执行
                  * 
                  */
                 if (!this.batchHasPlainStatements && this.query.getBatchedArgs() != null

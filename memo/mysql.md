@@ -5991,8 +5991,6 @@ show binlog events in 'duodb-binlog.000001' limit 5;
 show binlog events in 'duodb-binlog.000001' from 219 limit 3;
 ```
 
-
-
 ```bash
 # 如果日志太多可以通过参数指定输出某个数据库的日志，-d或者--database
 mysqlbinlog -d itpuxdb mysql-bin.000007
@@ -6005,6 +6003,74 @@ mysqlbinlog --base64-output=decode-rows -vv mysql-bin.000007
 mysqlbinlog --start-position=538 --stop-position=646 mysql-bin.000003
 # 获取从指定时间开始到指定时间结束的日志
 mysqlbinlog --start-datatime='2023-07-02 13:38:00' --stop-datatime='2023-07-02 14:38:00' mysql-bin.000003
+```
+
+BinLog日志分析实例：
+
+1、通过show binlog events定位想要分析的sql在日志中的起始点：
+
+```mysql
+mysql> show binlog events in 'binlog.000003';
+
+| binlog.000003 | 3248036 | Write_rows     |   1103306 |     3248106 | table_id: 90 flags: STMT_END_F                                                                                                                                                                                                                                              |
+| binlog.000003 | 3248106 | Rows_query     |   1103306 |     3248279 | # insert into t_customer_info(        id,        name, age, sex,        education, address)        values(9998,'9998a','9998b','9998c','9998d','9998e')                                                                                                                     |
+| binlog.000003 | 3248279 | Table_map      |   1103306 |     3248362 | table_id: 90 (bulk_opt.t_customer_info)                                                                                                                                                                                                                                     |
+| binlog.000003 | 3248362 | Write_rows     |   1103306 |     3248432 | table_id: 90 flags: STMT_END_F            
+```
+
+2、通过mysqlbinlog分析日志内容：
+
+```bash
+# -vv参数：
+# 1、可以看到完整sql语句，但是被注释掉了；（-v是看不到完整的sql的）
+# 2、完整sql的二进制表示；
+# 3、具体插入的数据，比-v要详细。
+# 4、如果增加--base64-output=decode-rows则不是输出完整sql的二进制表示
+[root@mysql01 binlog]# mysqlbinlog -vv --start-position=3248106 --stop-position=3248432 binlog.000003
+# The proper term is pseudo_replica_mode, but we use this compatibility alias
+# to make the statement usable on server versions 8.0.24 and older.
+/*!50530 SET @@SESSION.PSEUDO_SLAVE_MODE=1*/;
+/*!50003 SET @OLD_COMPLETION_TYPE=@@COMPLETION_TYPE,COMPLETION_TYPE=0*/;
+DELIMITER /*!*/;
+# at 157
+#240411  9:58:06 server id 1103306  end_log_pos 126 CRC32 0x3118a3d0    Start: binlog v 4, server v 8.0.32 created 240411  9:58:06 at startup
+ROLLBACK/*!*/;
+BINLOG '
+rkMXZg/K1RAAegAAAH4AAAAAAAQAOC4wLjMyAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAACuQxdmEwANAAgAAAAABAAEAAAAYgAEGggAAAAICAgCAAAACgoKKioAEjQA
+CigAAdCjGDE=
+'/*!*/;
+# at 3248106
+#240411 10:55:10 server id 1103306  end_log_pos 3248279 CRC32 0x121425a7        Rows_query
+# insert into t_customer_info(        id,        name, age, sex,        education, address)        values(9998,'9998a','9998b','9998c','9998d','9998e')
+# at 3248279
+#240411 10:55:10 server id 1103306  end_log_pos 3248362 CRC32 0xcbc21fb3        Table_map: `bulk_opt`.`t_customer_info` mapped to number 90
+# at 3248362
+#240411 10:55:10 server id 1103306  end_log_pos 3248432 CRC32 0x19fafbcf        Write_rows: table id 90 flags: STMT_END_F
+
+BINLOG '
+DlEXZh3K1RAArQAAAJeQMQCAAJVpbnNlcnQgaW50byB0X2N1c3RvbWVyX2luZm8oICAgICAgICBp
+ZCwgICAgICAgIG5hbWUsIGFnZSwgc2V4LCAgICAgICAgZWR1Y2F0aW9uLCBhZGRyZXNzKSAgICAg
+ICAgdmFsdWVzKDk5OTgsJzk5OThhJywnOTk5OGInLCc5OTk4YycsJzk5OThkJywnOTk5OGUnKacl
+FBI=
+DlEXZhPK1RAAUwAAAOqQMQAAAFoAAAAAAAEACGJ1bGtfb3B0AA90X2N1c3RvbWVyX2luZm8ABgP+
+/v7+/gr+MP4S/hL+Ev4SPgEBAAIBIbMfwss=
+DlEXZh7K1RAARgAAADCRMQAAAFoAAAAAAAEAAgAG/wAOJwAABTk5OThhBTk5OThiBTk5OThjBTk5
+OThkBTk5OThlz/v6GQ==
+'/*!*/;
+### INSERT INTO `bulk_opt`.`t_customer_info`
+### SET
+###   @1=9998 /* INT meta=0 nullable=0 is_null=0 */
+###   @2='9998a' /* STRING(48) meta=65072 nullable=1 is_null=0 */
+###   @3='9998b' /* STRING(18) meta=65042 nullable=1 is_null=0 */
+###   @4='9998c' /* STRING(18) meta=65042 nullable=1 is_null=0 */
+###   @5='9998d' /* STRING(18) meta=65042 nullable=1 is_null=0 */
+###   @6='9998e' /* STRING(18) meta=65042 nullable=1 is_null=0 */
+SET @@SESSION.GTID_NEXT= 'AUTOMATIC' /* added by mysqlbinlog */ /*!*/;
+DELIMITER ;
+# End of log file
+/*!50003 SET COMPLETION_TYPE=@OLD_COMPLETION_TYPE*/;
+/*!50530 SET @@SESSION.PSEUDO_SLAVE_MODE=0*/;
 ```
 
 ### 日志恢复数据
@@ -9111,7 +9177,7 @@ protected long[] executeBatchInternal() throws SQLException {
                 if (!this.batchHasPlainStatements && this.query.getBatchedArgs() != null
                         && this.query.getBatchedArgs().size() > 3 /* cost of option setting rt-wise */) {
                     /**
-                     * 如果是insert语句，满成条件情况下，会整合成形如："insert into xxx_table values (xx),(yy),(zz)..."这样的语句
+                     * 如果是insert语句，满成条件情况下，会整合成形如："insert into xxx_table values (xx),(yy),(zz)..."这样的语句 
                      * 如果是update||delete语句，满成条件情况下，会整合成形如："update t set … where id = 1; update t set … where id = 2; update t set … where id = 3 ..."这样的语句
                      * 然后分批次发送给MySQL(会有一次发送的package大小限制，所以需要拆分批次，可以通过修改my.ini的max_allowed_packet改变其最大值)
                      */

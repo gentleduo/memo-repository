@@ -1819,8 +1819,8 @@ This's
    3 Are you like awk
    # 使用多个分隔符：先使用空格分割，然后对分割结果再使用","分割
    [root@server01 opt]$ awk -F '[ ,]'  '{print $1,$2,$5}'   log.txt
-   2 this
-   3 Are
+   2 this test
+   3 Are awk
    ```
 
 2. awk -v # 设置变量。

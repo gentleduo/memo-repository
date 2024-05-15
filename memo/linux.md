@@ -1644,6 +1644,228 @@ Ctrl+w j
 把光标移到下一个的屏中。.
 Ctrl+w w  注：也可以按住cntl键，同时按下两次w键
 
+### sed
+
+每次读入一行来处理的，sed 适合简单的文本替换和搜索，sed读取一行，以行作为单位，进行处理
+
+#### 基本语法
+
+sed命令的命令格式：$ sed command file；其中，command部分是sed命令的精髓。command部分可以分为两块知识：一块是范围设定，一块是动作处理。
+
+范围设定，可以采用两种不同的方式来表达：
+
+1. 指定行数：比如'3,5'表示第3、第4和第5行；而'5,$'表示第5行至文件最后一行。
+2. 模式匹配：比如`/^[^dD]/`表示匹配行首不是以d或D开头的行。
+
+动作处理：
+
+1. d：表示删除行。
+2. p：打印该行。
+3. r：读取指定文件的内容。
+4. w：写入指定文件。
+5. a：在下面插入新行新内容。
+
+#### 实例
+
+1. 利用sed命令来删除文件中带字符"2"的行：sed '/2/d' roc.txt
+
+   这个命令的command部分是/2/d，而且它是用单引号括起来的。（sed命名中必须用单引号将command部分括起来。）/2/d中的d表示删除，意思是说，只要某行内容中含有字符2，就删掉这一行。（sed所谓的删除都是在模式空间中执行的，不会真正改动roc.txt原文件。）
+
+   sed会将模式空间里的行经过处理后输出到标准输出，这是默认的处理方式。也就是说，除非你使用“d”来删除此行，否则经过“模式空间”处理的行都是会被输出到标准输出（屏幕）上的。例：
+
+   ```bash
+   #原文件的内容
+   [root@server01 opt]$ cat roc.txt
+   1
+   2
+   #输出中出现了两个“2”
+   [root@server01 opt]$ sed '/2/p' roc.txt
+   1
+   2
+   2
+   #所有的原始文件内容都被输出来了，而且含有字符2的行被输出了两遍。这就是sed命令的工作原理，它会把经过处理的行先输出出来，然后再执行后面的动作。（在这里设定了p，表示打印此行。）这明显不符合要求。如果只是想让sed命令找到含有2的行再输出就需要加上-n选项
+   [root@server01 opt]$ sed -n '/2/p' roc.txt
+   2
+   #-n选项表示：除非是明确表明要输出的行，否则不要输出。-n选项经常和p配合使用，其含义就是，输出那些匹配的行。
+   ```
+
+2. 显示test文件的第10行到第20行的内容
+
+   ```bash
+   [root@server01 opt]$ sed -n '10,20p' test
+   ```
+
+3. 所有以d或D开头的行里的所有小写x字符变为大写X字符
+
+   ```bash
+   #这个用法表示在command部分采用了/AA/s/BB/CC/g的语法格式，这表示我们要匹配到文件中带有AA的行，并且将这些行中所有的BB替换成CC。
+   [root@server01 opt]$ sed '/^[dD]/s/x/X/g' test
+   ```
+
+4. 删除每行最后的两个字符
+
+   ```bash
+   [root@server01 opt]$ sed 's/..$//' test
+   ```
+
+5. 在sed命令中，&字符表示的是"之前被匹配的部分"
+
+   ```bash
+   #先展示文件的内容
+   [root@server01 opt]$ cat mysed.txt
+   Beijing
+   London
+   #使用&符号替换后的结果
+   [root@server01 opt]$ sed 's/B.*/&2008/' mysed.txt
+   Beijing2008
+   London
+   ```
+
+6. 在sed命令中，小括号'()'称之为"sed的预存储技术"，也就是命令中被"("和")"括起来的内容会被依次暂存起来，存储到\1、\2…里面。这样你就可以使用'\N'形式来调用这些预存储的内容了。
+
+   ```bash
+   [root@server01 opt]$ echo "hello world" | sed 's/\(hello\).*/world \1/'
+   world hello
+   ```
+
+7. -e选项来设置多个command
+
+   ```bash
+   #sed命令可以包含不只一个command。如果要包含多个command，只需在每个command前面分别加上一个-e选项即可。例：
+   #通过2个-e选项设置了两个command
+   [root@server01 opt]$ sed -n -e '1,2p' -e '4p' mysed.txt
+   Beijing 2003
+   Beijing 2004
+   Beijing 2006
+   #-e选项的后面要立即接command内容，不允许再夹杂其他选项。多个command之间，是按照在命令中的先后顺序来执行的。
+   ```
+
+#### 模式空间与保持空间
+
+模式空间：sed处理文本内容行的一个临时缓冲区，模式空间中的内容会主动打印到标准输出，并自动清空模式空间
+
+保持空间：sed处理文本内容行的另一个临时缓冲区，不同的是保持空间内容不会主动清空，也不会主动打印到标准输出，而是需要sed命令来进行处理
+
+模式空间与保持空间的关系
+
+模式空间：相当于流水线，文本行再模式空间中进行处理；
+保持空间：相当于仓库，在模式空间对数据进行处理时，可以把数据临时存储到保持空间；作为模式空间的一个辅助临时缓冲区，但又是相互独立，可以进行交互，命令可以寻址模式空间但是不能寻址保持空间。可以使用高级命令h,H,g,G与模式空间进行交互。
+
+>d        Delete pattern space.  Start next cycle.
+>		  删除pattern space的内容，开始下一个循环
+>
+>h H    Copy/append pattern space to hold space.
+>		  复制/追加pattern space的内容到hold space.（复制会覆盖原内容）
+>
+>g G    Copy/append hold space to pattern space.
+>		  复制/追加hold space的内容到pattern space.复制会覆盖原内容）
+>
+>x        Exchange the contents of the  hold  and  pattern spaces.
+>		  交换hold space和pattern space的内容.
+
+使用实例来验证模式空间和保持空间的关系，以及理解高级命令h,H,g,G的作用
+
+```bash
+[root@server01 opt]# cat num.txt 
+Three
+Two
+One
+# 注释：1!G：第一行不执行G命令
+# $!d：最后一行不执行d命令，即不删除模式空间一行
+[root@server01 opt]# sed '1!G;h;$!d' num.txt
+One
+Two
+Three
+```
+
+原理图：
+
+![image](assets\linux-72.png)
+
+总结模式空间与保持空间关系：保持空间是模式空间一个临时存放数据的缓冲区，协助模式空间进行数据处理
+
+### awk
+
+awk是逐行处理的，意思就是说：当awk处理一个文本时，会一行一行进行处理，处理完当前行，再处理下一行，awk默认以"换行符"为标记，识别每一行，也就是说，awk每次遇到"回车换行"就认为是当前行的结束，新的一行的开始，awk会按照用户指定的分隔符去分割当前行，如果没有指定分隔符，默认使用空格作为分隔符。（分割完的第一个字段为$1，第二个字段为$2依次类推，用$0表示当前处理的整个一行）
+
+#### 基本语法
+
+awk '{action}' {filenames} # 行匹配语句awk只能用单引号。例：
+
+```bash
+[root@server01 opt]$ cat log.txt
+2 this is a test
+3 Are you like awk
+This's a test
+10 There are orange,apple,mongo
+# 每行按空格或TAB分割（默认情况），输出文本中的1、4项
+[root@server01 opt]$ awk '{print $1,$4}' log.txt
+2 a
+3 like
+This's
+10 orange,apple,mongo
+```
+
+#### 实例
+
+1. awk -F #-F相当于内置变量FS, 指定分割字符。
+
+   ```bash
+   [root@server01 opt]$ cat log.txt的内容如下：
+   2,this,is,a,test
+   3 Are you like awk    
+   [root@server01 opt]$  awk -F, '{print $1,$2}'   log.txt
+   2 this
+   3 Are you like awk
+   # 使用多个分隔符：先使用空格分割，然后对分割结果再使用","分割
+   [root@server01 opt]$ awk -F '[ ,]'  '{print $1,$2,$5}'   log.txt
+   2 this
+   3 Are
+   ```
+
+2. awk -v # 设置变量。
+
+   ```bash
+   [root@server01 opt]$ cat log.txt
+   2 this is a test
+   3 Are you like awk
+   This's a test
+   10 There are orange,apple,mongo
+   [root@server01 opt]$ awk -va=1 '{print $1,$1+a}' log.txt
+   2 3
+   3 4
+   This's 1
+   10 11
+   [root@server01 opt]$ awk -va=1 '{print $1,$(1+a)}' log.txt
+   2 this
+   3 Are
+   This's a
+   10 There
+   [root@server01 opt]$ awk -va=1 -vb=s '{print $1,$1+a,$1b}' log.txt
+   2 3 2s
+   3 4 3s
+   This's 1 This'ss
+   10 11 10s
+   # $1+a：当两个变量都为数字的时候当数字运算，当有一方为String的时候当字符串拼接处理。
+   ```
+
+3. awk 'Pattern {action}' {filenames} # Pattern用来指定判断条件，{}中包含的是awk的动作，也就是awk对记录的操作，比如$3+$4或print。
+
+   ```bash
+   [root@server01 opt]$ awk '$1>2' log.txt    #命令
+   #输出
+   3 Are you like awk
+   This's a test
+   10 There are orange,apple,mongo
+   [root@server01 opt]$ awk '$1==2 {print $1,$3}' log.txt    #命令
+   #输出
+   2 is
+   例：
+   [root@server01 opt]$ awk '$1>2 && $2=="Are" {print $1,$2,$3}' log.txt    #命令
+   #输出
+   3 Are you
+   ```
+
 # Linux下软件的安装与管理
 
 ## 源码安装

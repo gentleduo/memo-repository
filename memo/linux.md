@@ -1678,16 +1678,48 @@ sed命令的命令格式：$ sed command file；其中，command部分是sed命�
    [root@server01 opt]$ cat roc.txt
    1
    2
-   #输出中出现了两个“2”
+   #输出中出现了两个“2”：默认会输出attern space中的内容，而-p参数又会再输出一遍经过sed命令处理过后模式空间返回的内容
    [root@server01 opt]$ sed '/2/p' roc.txt
    1
    2
    2
-   #所有的原始文件内容都被输出来了，而且含有字符2的行被输出了两遍。这就是sed命令的工作原理，它会把经过处理的行先输出出来，然后再执行后面的动作。（在这里设定了p，表示打印此行。）这明显不符合要求。如果只是想让sed命令找到含有2的行再输出就需要加上-n选项
+   #-n：抑制了pattern space的自动打印行为后，只会输出由于-p参数导致的输出
    [root@server01 opt]$ sed -n '/2/p' roc.txt
    2
-   #-n选项表示：除非是明确表明要输出的行，否则不要输出。-n选项经常和p配合使用，其含义就是，输出那些匹配的行。
+   #原文件的内容
+   [root@server01 opt]$ cat ceshi
+   Hello Java
+   Hello Linux
+   hello Python
+   Hello C++
+   #不符合条件的其他行也别打印出来了
+   [root@server01 opt]$ sed 's/Java/C/g' ceshi
+   Hello C
+   Hello Linux
+   hello Python
+   Hello C++
+   #抑制所有模式空间的输出
+   [root@server01 opt]$ sed -n 's/Java/C/g' ceshi
+   #输出sed命令处理过后模式空间返回的内容
+   [root@server01 opt]$ sed -n 's/Java/C/p' ceshi
+   Hello C
    ```
+
+   > sed命令对字符串的处理
+   >
+   > (1)  sed从输入文件中读第一行到pattern space，pattern space中原来的内容(空的)被第一行数据覆盖；
+   > (2)  然后通过sed命令对pattern space中的数据进行匹配处理，最后将匹配处理好的结果保存到patternspace中；
+   > (3)  最后输出pattern space中的内容。（即使不符合sed的处理条件也会被打印）
+   >
+   > 参数：
+   >
+   > -n 
+   >
+   > 抑制pattern space的自动打印行为：包括经过模式空间sed处理过后和经过模式空间没有经过sed处理的
+   >
+   > -p
+   >
+   > 输出的是经过sed命令处理过后模式空间返回的内容
 
 2. 显示test文件的第10行到第20行的内容
 

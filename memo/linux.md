@@ -1664,21 +1664,28 @@ sed命令的命令格式：$ sed command file；其中，command部分是sed命�
 3. r：读取指定文件的内容。
 4. w：写入指定文件。
 5. a：在下面插入新行新内容。
+6. n： 抑制pattern space的自动打印行为。
 
 #### 实例
 
-1. 利用sed命令来删除文件中带字符"2"的行：sed '/2/d' roc.txt
+1. sed命令对字符串的处理
 
-   这个命令的command部分是/2/d，而且它是用单引号括起来的。（sed命名中必须用单引号将command部分括起来。）/2/d中的d表示删除，意思是说，只要某行内容中含有字符2，就删掉这一行。（sed所谓的删除都是在模式空间中执行的，不会真正改动roc.txt原文件。）
+   (1)  sed从输入文件中读第一行到pattern space，pattern space中原来的内容(空的)被第一行数据覆盖；
+   (2)  然后通过sed命令对pattern space中的数据进行匹配处理，最后将匹配处理好的结果保存到pattern space中；
+   (3)  最后输出pattern space中的内容。（即使不符合sed的处理条件也会被打印）
 
-   sed会将模式空间里的行经过处理后输出到标准输出，这是默认的处理方式。也就是说，除非你使用“d”来删除此行，否则经过“模式空间”处理的行都是会被输出到标准输出（屏幕）上的。例：
+   参数：
+
+   -n 抑制pattern space的自动打印行为：包括经过模式空间sed处理过后和经过模式空间没有经过sed处理的
+
+   -p 输出的是经过sed命令处理过后模式空间返回的内容
 
    ```bash
    #原文件的内容
    [root@server01 opt]$ cat roc.txt
    1
    2
-   #输出中出现了两个“2”：默认会输出attern space中的内容，而-p参数又会再输出一遍经过sed命令处理过后模式空间返回的内容
+   #输出中出现了两个“2”：默认会输出pattern space中的内容，而-p参数又会再输出一遍经过sed命令处理过后模式空间返回的内容
    [root@server01 opt]$ sed '/2/p' roc.txt
    1
    2
@@ -1705,62 +1712,50 @@ sed命令的命令格式：$ sed command file；其中，command部分是sed命�
    Hello C
    ```
 
-   > sed命令对字符串的处理
-   >
-   > (1)  sed从输入文件中读第一行到pattern space，pattern space中原来的内容(空的)被第一行数据覆盖；
-   > (2)  然后通过sed命令对pattern space中的数据进行匹配处理，最后将匹配处理好的结果保存到patternspace中；
-   > (3)  最后输出pattern space中的内容。（即使不符合sed的处理条件也会被打印）
-   >
-   > 参数：
-   >
-   > -n 
-   >
-   > 抑制pattern space的自动打印行为：包括经过模式空间sed处理过后和经过模式空间没有经过sed处理的
-   >
-   > -p
-   >
-   > 输出的是经过sed命令处理过后模式空间返回的内容
+2. 利用sed命令来删除文件中带字符"2"的行：sed '/2/d' roc.txt
 
-2. 显示test文件的第10行到第20行的内容
+   这个命令的command部分是/2/d，而且它是用单引号括起来的。（sed命名中必须用单引号将command部分括起来。）/2/d中的d表示删除，意思是说，只要某行内容中含有字符2，就删掉这一行。（sed所谓的删除都是在模式空间中执行的，不会真正改动roc.txt原文件。）
+
+3. 显示test文件的第10行到第20行的内容
 
    ```bash
    [root@server01 opt]$ sed -n '10,20p' test
    ```
 
-3. 所有以d或D开头的行里的所有小写x字符变为大写X字符
+4. 所有以d或D开头的行里的所有小写x字符变为大写X字符
 
    ```bash
    #这个用法表示在command部分采用了/AA/s/BB/CC/g的语法格式，这表示我们要匹配到文件中带有AA的行，并且将这些行中所有的BB替换成CC。
    [root@server01 opt]$ sed '/^[dD]/s/x/X/g' test
    ```
 
-4. 删除每行最后的两个字符
+5. 删除每行最后的两个字符
 
    ```bash
    [root@server01 opt]$ sed 's/..$//' test
    ```
 
-5. 在sed命令中，&字符表示的是"之前被匹配的部分"
+6. 在sed命令中，&字符表示的是"之前被匹配的部分"
 
    ```bash
    #先展示文件的内容
    [root@server01 opt]$ cat mysed.txt
    Beijing
    London
-   #使用&符号替换后的结果
+   #&字符表示的是"之前被匹配的部分"
    [root@server01 opt]$ sed 's/B.*/&2008/' mysed.txt
    Beijing2008
    London
    ```
 
-6. 在sed命令中，小括号'()'称之为"sed的预存储技术"，也就是命令中被"("和")"括起来的内容会被依次暂存起来，存储到\1、\2…里面。这样你就可以使用'\N'形式来调用这些预存储的内容了。
+7. 在sed命令中，小括号'()'称之为"sed的预存储技术"，也就是命令中被"("和")"括起来的内容会被依次暂存起来，存储到\1、\2…里面。这样你就可以使用'\N'形式来调用这些预存储的内容了。
 
    ```bash
    [root@server01 opt]$ echo "hello world" | sed 's/\(hello\).*/world \1/'
    world hello
    ```
 
-7. -e选项来设置多个command
+8. -e选项来设置多个command
 
    ```bash
    #sed命令可以包含不只一个command。如果要包含多个command，只需在每个command前面分别加上一个-e选项即可。例：

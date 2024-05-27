@@ -78,7 +78,7 @@ PING 127.2.8 (127.2.0.8) 56(84) bytes of data.
 PING 127.2.10.11 (127.2.10.11) 56(84) bytes of data.
 64 bytes from 127.2.10.11: icmp_seq=1 ttl=64 time=0.019 ms
 
-# 回环网卡上设置一个ip地址1.2.3.1/24，发现都能1.2.3网段的任意ip都能ping通，这就是说，只要是在回环网卡上设置一个网络，ping其网络上的任意ip地址都能够ping通。
+# 回环网卡上设置一个ip地址1.2.3.1/24，发现1.2.3网段的任意ip都能ping通，这就是说，只要是在回环网卡上设置一个网络，ping其网络上的任意ip地址都能够ping通。
 [root@server03 ~]# ip addr add 1.2.3.1/24 dev lo
 [root@server03 ~]# ping 1.2.3.1
 PING 1.2.3.1 (1.2.3.1) 56(84) bytes of data.
@@ -191,7 +191,7 @@ arp_ignore用来控制接受到arp请求的网卡，是否返回arp相应
 [root@server01 ~]# arp -d 1.1.1.2
 [root@server01 ~]# arp -d 192.168.56.102
 # 将server02的内核参数arp_ignore设置为：1
-# 只要修all即可，因为：arp_ignore分别有all,default,lo,eth1,eth2...等对应不同网卡的具体参数。当all和具体网卡的参数值不一致时，取较大值生效。
+# 只要修改all即可，因为：arp_ignore分别有all,default,lo,eth1,eth2...等对应不同网卡的具体参数。当all和具体网卡的参数值不一致时，取较大值生效。
 [root@server02 ~]# sysctl -w net.ipv4.conf.all.arp_ignore=1
 net.ipv4.conf.all.arp_ignore = 1
 # 在server02上使用tcpdump抓取arp请求的报文：
@@ -328,7 +328,7 @@ DR 负载均衡模式数据分发过程中不修改 IP 地址，只修改 mac �
 - DS：Director Server。指的是前端负载均衡器节点。
 - RS：Real Server。后端真实的工作服务器。
 - VIP：向外部直接面向用户请求，作为用户请求的目标的IP地址。
-- DIP：Director Server IP，主要用于和内部主机通讯的IP地址。
+- DIP：Director Server IP，主要用于和内部主机通讯的IP地址。（Director Server的IP地址）
 - RIP：Real Server IP，后端服务器的IP地址。
 - CIP：Client IP，访问客户端的IP地址。
 

@@ -2101,8 +2101,8 @@ redis官网地址：https://redis.io/
 ### 下载安装包
 
 ```bash
-wget http://download.redis.io/releases/redis-3.2.8.tar.gz
-tar -zxvf redis-3.2.8.tar.gz -C /usr/local/
+wget http://download.redis.io/releases/redis-7.0.11.tar.gz
+tar -zxvf redis-7.0.11.tar.gz -C /usr/local/
 ```
 
 ### 安装C程序运行环境
@@ -2120,7 +2120,7 @@ yum -y install tcl
 ### 编译
 
 ```bash
-cd /usr/local/redis-3.2.8/
+cd /usr/local/redis-7.0.11/
 make  # 如果make失败的话，用：make MALLOC=libc
 make test && make install
 ```
@@ -2128,41 +2128,42 @@ make test && make install
 ### 创建相关目录
 
 ```bash
-mkdir -p /usr/local/redis-3.2.8/logs
-mkdir -p /usr/local/redis-3.2.8/redisdata
+mkdir -p /usr/local/redis-7.0.11/logs
+mkdir -p /usr/local/redis-7.0.11/redisdata
 ```
 
 ### redis.conf
 
 ```properties
-bind sever01
+bind 0.0.0.0
 daemonize yes
 pidfile /var/run/redis_6379.pid
-logfile "/usr/local/redis-3.2.8/logs/redis.log"
-dir /usr/local/redis-3.2.8/redisdata
+logfile "/usr/local/redis-7.0.11/logs/redis.log"
+dir /usr/local/redis-7.0.11/redisdata
+requirepass 123456
 ```
 
 ### 启动
 
 ```bash
-cd  /usr/local/redis-3.2.8/src
+cd  /usr/local/redis-7.0.11/src
 redis-server  ../redis.conf
 ```
 
 ### 连接
 
 ```bash
-cd  /usr/local/redis-3.2.8/src
+cd  /usr/local/redis-7.0.11/src
 redis-cli -h server01
 # 使用密码连接
-redis-cli -h 127.0.0.1 -p 6379 -a Passw0rd
+redis-cli -h 127.0.0.1 -p 6379 -a 123456
 ```
 
 ### 停止
 
 ```bash
 #.redis-cli -h IP -p 端口号 shutdown
-cd  /usr/local/redis-3.2.8/src
+cd  /usr/local/redis-7.0.11/src
 redis-cli -h server01 -p 6379 shutdown
 ```
 
@@ -3174,7 +3175,7 @@ export PATH=$PATH:$NODE_HOME/bin
 [elasticsearch@server01 elasticsearch-head]$ cd /usr/local/elasticsearch/config/
 [elasticsearch@server01 config]$ vim elasticsearch.yml
 # 在配置文件末尾添加如下内容，重新启动elasticsearch服务
-http.cors.enabled: true
+vim: true
 http.cors.allow-origin: "*"
 # 启动elasticsearch-head服务
 ## 修改/opt/elasticsearch-head/Gruntfile.js，设置远程访问，hostname: '*'表示允许所有的远程主机访问：

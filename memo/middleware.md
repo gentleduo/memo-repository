@@ -2135,7 +2135,7 @@ mkdir -p /usr/local/redis-7.0.11/redisdata
 ### redis.conf
 
 ```properties
-bind 0.0.0.0
+bind 0.0.0.0 -::1
 daemonize yes
 pidfile /var/run/redis_6379.pid
 logfile "/usr/local/redis-7.0.11/logs/redis.log"
@@ -2143,11 +2143,42 @@ dir /usr/local/redis-7.0.11/redisdata
 requirepass 123456
 ```
 
+>- bind用于绑定本机的网络接口（网卡），redis只接受来自绑定网络接口的请求。比如本机有两个网卡分别对应ip 1.1.1.1 ,2.2.2.2，配置bind 1.1.1.1，客户端288.30.3.3访问2.2.2.2将无法连接redis。
+>
+>- 如果不配置bind，redis将监听本机所有可用的网络接口。
+>
+>- 0.0.0.0，最特殊的一个ip地址，代表的是本机所有ip地址，不管有多少个网口，多少个ip，如果监听本机的0.0.0.0上的端口，就等于监听机器上的所有ip端口。换句话说，就是只要数据报目的地址是你机器上的一个ip地址，那么就能被接受。
+>
+>- `-` 当指定的网络接口不可用且其他网络接口可用时，不会启动失败。
+>
+>  当`17.0.0.1`为`无`效ip，以下配置以及`log`输出。
+>
+>  bind 0.0.0.0 -17.0.0.1
+>
+>  Warning: Could not create server TCP listening socket 17.0.0.1:6379: bind: Cannot assign requested address
+>
+>  ···省略···
+>
+>  Ready to accept connections
+
 ### 启动
 
 ```bash
 cd  /usr/local/redis-7.0.11/src
 redis-server  ../redis.conf
+```
+
+### 关闭防火墙
+
+```bash
+# 关闭防火墙
+[root@localhost ~]# systemctl stop firewalld.service
+# 开启防火墙
+[root@localhost ~]# systemctl start firewalld.service
+# 防火墙随系统开启启动
+[root@localhost ~]# systemctl enable firewalld.service
+# 开机禁用防火墙自启命令
+[root@localhost ~]# systemctl disable firewalld.service
 ```
 
 ### 连接

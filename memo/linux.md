@@ -1519,6 +1519,29 @@ tcp   0      0                     192.168.56.110:22                            
 Netid Recv-Q Send-Q               Local Address:Port                                Peer Address:Port
 ```
 
+### hostname
+
+#### 临时修改
+
+```bash
+# 1、使用hostname命令
+[root@redis-master ~]# hostname RedHat_test
+# 2、hostname的值来自内核参数/proc/sys/kernel/hostname，可以通过以下命令来修改内核参数，运行后立即生效，但是在系统重启后会丢失所做的修改
+[root@redis-master ~]# sysctl kernel.hostname=Test
+[root@redis-master ~]# echo redis-slave > /proc/sys/kernel/hostname
+```
+
+#### 永久修改
+
+```bash
+# 修改/etc/hostname文件（或者使用hostnamectl命令）。重启生效。
+[root@redis-master ~]# echo redis-master /etc/hostname
+[root@redis-master ~]# hostnamectl set-hostname redis-master
+# 并不是所有版本的主机名都存在于/etc/hostname文件，如Fedora发行版将主机名存在/etc/sysconfig/network文件中。所以，修改主机名时应注意区分是哪种linux发行版。
+# 修改/etc/sysconfig/network文件
+# 将文件中HOSTNAME=RedHat修改为HOSTNAME=RedHat_test
+```
+
 ## 文本编辑工具
 
 ### vi

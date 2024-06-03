@@ -495,6 +495,42 @@ Curator包含几个包：
 
 http://nginx.org/packages/centos/7/x86_64/RPMS/
 
+https://nginx.org/en/download.html
+
+## install
+
+```bash
+# gcc-c++
+[root@nginx01 ~]# yum install -y gcc-c++
+# 正则表达式相关
+[root@nginx01 ~]# yum install -y pcre pcre-devel
+# 压缩和解压缩
+[root@nginx01 ~]# yum install -y zlib zlib-devel
+# 安全加密相关
+[root@nginx01 ~]# yum install -y openssl openssl-devel
+# 创建下述目录
+[root@nginx01 local]# mkdir -p /var/temp/nginx
+# 解压
+[root@nginx01 local]# tar -zxvf nginx-1.24.0.tar.gz
+[root@nginx01 local]# cd nginx-1.24.0
+# 注意下面的安装目录不能指定为当前目录，否则会报错
+# 以下述为例，当前目录为：/usr/local/nginx-1.24.0 
+[root@nginx01 nginx-1.24.0]# ./configure \
+> --prefix=/usr/local/nginx \
+> --pid-path=/var/run/nginx/nginx.pid \
+> --lock-path=/var/lock/nginx.lock \
+> --error-log-path=/var/log/nginx/error.log \
+> --http-log-path=/var/log/nginx/access.log \
+> --with-http_gzip_static_module \
+> --http-client-body-temp-path=/var/temp/nginx/client \
+> --http-proxy-temp-path=/var/temp/nginx/proxy \
+> --http-fastcgi-temp-path=/var/temp/nginx/fastcgi \
+> --http-uwsgi-temp-path=/var/temp/nginx/uwsgi \
+> --http-scgi-temp-path=/var/temp/nginx/scgi
+[root@nginx01 nginx-1.24.0]# make
+[root@nginx01 nginx-1.24.0]# make install
+```
+
 命令
 
 nginx                                        # 启动Nginx

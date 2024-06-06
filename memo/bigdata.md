@@ -17665,7 +17665,7 @@ Spark中的Shuffle操作的特点
 
 reduceByKey这个算子本质上就是先按照Key分组,后对每一组数据进行reduce,所面临的挑战就是Key相同的所有数据可能分布在不同的Partition分区中,甚至可能在不同的节点中,但是它们必须被共同计算.为了让来自相同Key的所有数据都在reduceByKey的同一个reduce中处理,需要执行一个all-to-all的操作,需要在不同的节点(不同的分区)之间拷贝数据,必须跨分区聚集相同Key的所有数据,这个过程叫做Shuffle.
 
-![image](D:\gentleduo\memo-repository\memo\assets\bigdata-38.png)
+![image](assets\bigdata-38.png)
 
 Spark 的 Shuffle 发展大致有两个阶段: `Hash base shuffle` 和 `Sort base shuffle`
 
@@ -17677,7 +17677,7 @@ Spark 的 Shuffle 发展大致有两个阶段: `Hash base shuffle` 和 `Sort bas
 
 ###### Sort base shuffle
 
-![image](D:\gentleduo\memo-repository\memo\assets\bigdata-40.png)
+![image](assets\bigdata-40.png)
 
 对于Sort base shuffle 来说, 每个Map侧的分区只有一个输出文件, Reduce 侧的Task来拉取, 大致流程如下
 

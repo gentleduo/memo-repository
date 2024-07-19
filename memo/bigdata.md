@@ -32220,7 +32220,7 @@ Hudi具有两种类型的表：
 Copy-On-Write表只包含列式格式的Base文件，每次执行COMMIT操作会生成新版本的Base文件（从老的版本copy出一份然后再写入，即每次写的时候先复制原来的然后再写入新增的），最终执行COMPACTION操作时还是会生成列式格式的Base文件。所以，Copy-On-Write表存在写放大的问题，因为每次有更新操作都会重写（Rewrite）整个Base文件。
 通过官网给出的一个例子，来说明写入Copy-On-Write表，并进行查询操作的基本流程，如下图所示：
 
-![image](D:\gentleduo\memo-repository\memo\assets\bigdata-85.png)
+![image](assets\bigdata-85.png)
 
 上图中，每次执行INSERT或UPDATE操作，都会在Timeline上生成一个的COMMIT，同时对应着一个文件分片（File Slice）。如果是INSERT操作则生成文件分组的第一个新的文件分片，如果是UPDATE操作则会生成一个新版本的文件分片。
 写入过程中可以进行查询，如果查询COMMIT为10:10之前的数据，则会首先查询Timeline上最新的COMMIT，通过过滤掉只会小于10:10的数据查询出来，即把文件ID为1、2、3且版本为10:05的文件分片查询出来。

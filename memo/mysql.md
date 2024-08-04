@@ -9028,6 +9028,47 @@ mysql: [Warning] Using a password on the command line interface can be insecure.
 
 # 附录
 
+## JDBC
+
+```java
+package org.duo.study.db;
+
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.SQLException;
+
+public class JDBCMain {
+
+    public static void main(String[] args) {
+        
+        // MySQL 8.0默认推荐使用“sha256_password”和“caching_sha2_password”这两种认证插件。只有较老的MySQL版本仍然会使用“mysql_native_password”。如果使用“mysql_native_password”密码认证插件，不会出现“Public Key Retrieval is not allowed”错误。“Public Key Retrieval is not allowed”错误产生的原因：
+        // sha256_password”和“caching_sha2_password”这两种插件都是使用SHA256算法来对密码进行保护。这些插件的具体执行流程如下：
+        // 1、检查客户端是否禁用SSL/TLS加密传输；
+        // 2、如果客户端未禁用SSL/TLS加密传输，则客户端在进行认证时的认证报文（传输用户名和密码的报文）是使用TLS进行传输的，两种插件认为认证报文传输安全，不进行任何其他操作；
+        // 3、如果客户端禁用SSL/TLS加密传输，则客户端在进行认证时的认证报文（传输用户名和密码的报文）是使用明文进行传输的，两种插件认为认证报文传输不安全，会单独对明文报文中的密码使用RSA加密方式进行加密。
+        // 导致“Public Key Retrieval is not allowed”主要是由于当禁用SSL/TLS协议传输后，客户端会使用服务器的公钥进行传输，默认情况下客户端不会主动去找服务器拿公钥，此时就会出现上述错误。
+        // 出现Public Key Retrieval的场景可以概括为在禁用SSL/TLS协议传输且当前用户在服务器端没有登录缓存的情况下，客户端没有办法拿到服务器的公钥。具体的场景如下：
+        // 1、新建数据库用户，首次登录；
+        // 2、数据库的用户名、密码发生改变后登录；
+        // 3、服务器端调用FLUSH PRIVELEGES指令刷新服务器缓存。
+        // 针对上述错误，有如下的解决方案：
+        // 一、使用“sha256_password”和“caching_sha2_password”这两种认证插件时，代码侧需要改动：
+        // 1、在条件允许的情况下，不要禁用SSL/TLS协议，即不要在CLI客户端使用--ssl-mode=disabled，或在JDBC连接串中加入useSSL=false；
+        // 2、如果必须禁用SSL/TLS协议，则可以尝试使用CLI客户端登录一次MySQL数据库制造登录缓存；
+        // 3、如果必须禁用SSL/TLS协议，则可以通过增加如下参数允许客户端获得服务器的公钥：
+        //    在JDBC连接串中加入allowPublicKeyRetrieval=true参数；
+        //    在CLI客户端连接时加入--get-server-public-key参数；
+        //    在CLI客户端连接时加入--server-public-key-path=file_name参数，指定存放在本地的公钥文件。
+        // 二、使用mysql_native_password插件，数据库侧需要改动：
+        // 1、修改有问题的用户密码，使用旧版的mysql_native_password插件。
+        // 2、设置默认认证插件为旧版的mysql_native_password插件。
+        // prepStmtCacheSize=10000
+        String url = "jdbc:mysql://192.168.56.110:3306/bulk_opt?useSSL=false&allowPublicKeyRetrieval=true&useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useServerPrepStmts=true&cachePrepStmts=true&rewriteBatchedStatements=true";
+    }
+}
+```
+
 ## 批量插入
 
 数据库批量插入（Bulk Insert）相比单条插入（Single Insert）在性能上通常更好，主要有以下几个原因：

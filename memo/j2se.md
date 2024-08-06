@@ -2486,9 +2486,149 @@ public class DynamicProxyPerformanceTest {
 
 # Java SPI
 
-SPI全称为：Service Provider Interface，是JDK内置的一种服务提供发现机制。SPI是一种动态替换发现的机制，比如有个接口，需要运行时动态的给它添加实现，经常遇到的就是java.sql.Driver接口，不同厂商可以针对同一接口做出不同的实现，mysql和postgresql都有不同的实现提供给用户，而Java的SPI机制可以为某个接口寻找服务实现。SPI接口的定义在调用方，在概念上更依赖调用方；组织上位于调用方所在的包中，实现位于独立的包中。
+SPI全称为：Service Provider Interface，是一种服务发现机制，SPI允许第三方为某个接口提供实现，并将这些实现类配置在特定的目录下，ServiceLoader通过扫描这些目录，找到并加载实现类，然后实例化服务提供者，这里的“服务”通常指的是实现了某个接口的类。使用场景包括但不限于插件式架构、框架扩展、第三方库集成等。在这些场景中，核心代码定义了服务接口，而服务提供者（第三方或用户自定义）则实现了这些接口。通过ServiceLoader，核心代码可以在运行时动态地加载和使用这些服务提供者，而无需在编译时知道它们的存在。具体实现原理如下：
 
-当服务的提供者提供了一种接口的实现之后，需要在classpath下的META-INF/services/目录里创建一个以服务接口命名的文件，这个文件里的内容就是这个接口的具体的实现类。当其他的程序需要这个服务的时候，就可以通过查找这个jar包（一般都是以jar包做依赖）的META-INF/services/中的配置文件，配置文件中有接口的具体实现类名，可以根据这个类名进行加载实例化后便可以使用该服务了。JDK中查找服务实现的工具类是：java.util.ServiceLoader
+1. 查找配置文件：ServiceLoader在类路径（classpath）下的META-INF/services目录中查找以接口全限定名命名的文件。例如，如果接口名为com.example.MyService，则ServiceLoader会查找名为com.example.MyService的文件。
+2. 解析配置文件：找到文件后，ServiceLoader会读取文件内容。文件内容是一系列实现类的全限定名，每行一个。这些实现类就是服务提供者。
+3. 加载与实例化：对于每个在配置文件中找到的实现类名，ServiceLoader使用Java的类加载机制加载这些类，并创建它们的实例。这些实例被缓存在ServiceLoader内部，供后续使用。
+4. 懒加载机制：ServiceLoader采用懒加载的方式，即只有在首次调用iterator.hasNext()方法时才开始加载和实例化服务提供者。这种设计可以提高性能，尤其是在有大量服务提供者但只使用其中一部分的情况下。
+5. 缓存机制：加载过的服务提供者会被缓存起来，后续再次调用iterator()方法时，会返回与之前相同的实例。
+
+通过示例，演示了如何定义一个服务接口、实现该接口、配置服务提供者，以及使用ServiceLoader加载和使用这些服务提供者
+
+定义接口
+
+![image](assets\j2se-6.png)
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>org.duo</groupId>
+    <artifactId>BaseData</artifactId>
+    <version>1.0-SNAPSHOT</version>
+
+    <properties>
+        <maven.compiler.source>8</maven.compiler.source>
+        <maven.compiler.target>8</maven.compiler.target>
+    </properties>
+
+</project>
+```
+
+```java
+package org.duo.basedata;
+
+
+/**
+ * JDBC中定义的规范
+ */
+public interface Connection {
+
+    public String getUrl();
+}
+
+```
+
+创建服务提供者实现类，并在META-INF/services目录下创建名为org.duo.basedata.Connection的文件，并添加实现类的全限定名：org.duo.basedata.MySQLConnection
+
+![image](assets\j2se-7.png)
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>org.duo</groupId>
+    <artifactId>MySQLBaseData</artifactId>
+    <version>1.0-SNAPSHOT</version>
+
+    <properties>
+        <maven.compiler.source>8</maven.compiler.source>
+        <maven.compiler.target>8</maven.compiler.target>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.duo</groupId>
+            <artifactId>BaseData</artifactId>
+            <version>1.0-SNAPSHOT</version>
+        </dependency>
+    </dependencies>
+
+</project>
+```
+
+```java
+package org.duo.basedata;
+
+import org.duo.basedata.Connection;
+
+public class MySQLConnection implements Connection{
+
+    @Override
+    public String getUrl() {
+        System.out.println("mysql......");
+        return null;
+    }
+}
+
+```
+
+使用ServiceLoader加载和使用服务提供者
+
+![image](assets\j2se-8.png)
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>org.duo</groupId>
+    <artifactId>app</artifactId>
+    <version>1.0-release</version>
+    <properties>
+        <maven.compiler.source>8</maven.compiler.source>
+        <maven.compiler.target>8</maven.compiler.target>
+    </properties>
+    <dependencies>
+        <dependency>
+            <groupId>org.duo</groupId>
+            <artifactId>MySQLBaseData</artifactId>
+            <version>1.0-SNAPSHOT</version>
+        </dependency>
+    </dependencies>
+
+</project>
+```
+
+```java
+package org.duo.spi;
+
+import org.duo.basedata.Connection;
+
+import java.util.Iterator;
+import java.util.ServiceLoader;
+
+public class DbConnection {
+
+    public static void main(String[] args) {
+
+        ServiceLoader<Connection> load = ServiceLoader.load(Connection.class);
+        Iterator<Connection> iterator = load.iterator();
+        while (iterator.hasNext()){
+            Connection next = iterator.next();
+            next.getUrl();
+        }
+    }
+}
+```
 
 # 强软弱虚引用
 

@@ -9030,43 +9030,230 @@ mysql: [Warning] Using a password on the command line interface can be insecure.
 
 ## JDBC
 
+### Public Key Retrieval is not allowed
+
+MySQL 8.0默认推荐使用“sha256_password”和“caching_sha2_password”这两种认证插件。只有较老的MySQL版本仍然会使用“mysql_native_password”。如果使用“mysql_native_password”密码认证插件，不会出现“Public Key Retrieval is not allowed”错误。“Public Key Retrieval is not allowed”错误产生的原因：sha256_password”和“caching_sha2_password”这两种插件都是使用SHA256算法来对密码进行保护。这些插件的具体执行流程如下：
+
+1. 检查客户端是否禁用SSL/TLS加密传输；
+2. 如果客户端未禁用SSL/TLS加密传输，则客户端在进行认证时的认证报文（传输用户名和密码的报文）是使用TLS进行传输的，两种插件认为认证报文传输安全，不进行任何其他操作；
+3. 如果客户端禁用SSL/TLS加密传输，则客户端在进行认证时的认证报文（传输用户名和密码的报文）是使用明文进行传输的，两种插件认为认证报文传输不安全，会单独对明文报文中的密码使用RSA加密方式进行加密。
+
+导致“Public Key Retrieval is not allowed”主要是由于当禁用SSL/TLS协议传输后，客户端会使用服务器的公钥进行传输，默认情况下客户端不会主动去找服务器拿公钥，此时就会出现上述错误。出现Public Key Retrieval的场景可以概括为在禁用SSL/TLS协议传输且当前用户在服务器端没有登录缓存的情况下，客户端没有办法拿到服务器的公钥。具体的场景如下：
+
+1. 新建数据库用户，首次登录；
+2. 数据库的用户名、密码发生改变后登录；
+3. 服务器端调用FLUSH PRIVELEGES指令刷新服务器缓存。
+
+针对上述错误，有如下的解决方案：
+
+1. 使用“sha256_password”和“caching_sha2_password”这两种认证插件时，代码侧需要改动：
+   1. 在条件允许的情况下，不要禁用SSL/TLS协议，即不要在CLI客户端使用--ssl-mode=disabled，或在JDBC连接串中加入useSSL=false
+   2. 如果必须禁用SSL/TLS协议，则可以尝试使用CLI客户端登录一次MySQL数据库制造登录缓存
+   3. 如果必须禁用SSL/TLS协议，则可以通过增加如下参数允许客户端获得服务器的公钥
+      1. 在JDBC连接串中加入allowPublicKeyRetrieval=true参数
+      2. 在CLI客户端连接时加入--get-server-public-key参数
+      3. 在CLI客户端连接时加入--server-public-key-path=file_name参数，指定存放在本地的公钥文件
+2. 使用mysql_native_password插件，数据库侧需要改动
+   1. 修改有问题的用户密码，使用旧版的mysql_native_password插件
+   2. 设置默认认证插件为旧版的mysql_native_password插件
+
+### useSSL
+
+### allowPublicKeyRetrieval
+
+### useServerPrepStmts
+
+是否开启预编译
+
+PreparedStatement安全性能高，可以避免SQL注入；
+
+PreparedStatement简单不繁琐，不用进行字符串拼接；
+
+PreparedStatement性能高，在执行多个相同数据库DML操作时，可以减少sql语句的编译次数；
+
+### cachePrepStmts
+
+是否开启预编译缓存
+
+Connector/J 5.0.5及之后useServerPrepStmts默认false，就是默认没有开启预编译，需要手动设置才可以启用预编译，在开启预编译的同时要同时开启编译缓存才能带来些许的性能提升（cachePrepStmts一直默认为false）；
+
+### SQL注入
+
+SQL注入攻击指的是通过构建特殊的输入作为参数传入web应用程序，而这些输入大都是SQL语法里的一些组合，通过执行SQL语句进而执行攻击者所要的操作，其主要原因是程序中没有严格地过滤用户输入的数据，导致非法数据侵入系统。
+
 ```java
 package org.duo.study.db;
 
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.PreparedStatement;
-import java.sql.SQLException;
+import java.sql.*;
 
-public class JDBCMain {
+import java.util.Scanner;
+
+public class SQLInjection {
 
     public static void main(String[] args) {
-        
-        // MySQL 8.0默认推荐使用“sha256_password”和“caching_sha2_password”这两种认证插件。只有较老的MySQL版本仍然会使用“mysql_native_password”。如果使用“mysql_native_password”密码认证插件，不会出现“Public Key Retrieval is not allowed”错误。“Public Key Retrieval is not allowed”错误产生的原因：
-        // sha256_password”和“caching_sha2_password”这两种插件都是使用SHA256算法来对密码进行保护。这些插件的具体执行流程如下：
-        // 1、检查客户端是否禁用SSL/TLS加密传输；
-        // 2、如果客户端未禁用SSL/TLS加密传输，则客户端在进行认证时的认证报文（传输用户名和密码的报文）是使用TLS进行传输的，两种插件认为认证报文传输安全，不进行任何其他操作；
-        // 3、如果客户端禁用SSL/TLS加密传输，则客户端在进行认证时的认证报文（传输用户名和密码的报文）是使用明文进行传输的，两种插件认为认证报文传输不安全，会单独对明文报文中的密码使用RSA加密方式进行加密。
-        // 导致“Public Key Retrieval is not allowed”主要是由于当禁用SSL/TLS协议传输后，客户端会使用服务器的公钥进行传输，默认情况下客户端不会主动去找服务器拿公钥，此时就会出现上述错误。
-        // 出现Public Key Retrieval的场景可以概括为在禁用SSL/TLS协议传输且当前用户在服务器端没有登录缓存的情况下，客户端没有办法拿到服务器的公钥。具体的场景如下：
-        // 1、新建数据库用户，首次登录；
-        // 2、数据库的用户名、密码发生改变后登录；
-        // 3、服务器端调用FLUSH PRIVELEGES指令刷新服务器缓存。
-        // 针对上述错误，有如下的解决方案：
-        // 一、使用“sha256_password”和“caching_sha2_password”这两种认证插件时，代码侧需要改动：
-        // 1、在条件允许的情况下，不要禁用SSL/TLS协议，即不要在CLI客户端使用--ssl-mode=disabled，或在JDBC连接串中加入useSSL=false；
-        // 2、如果必须禁用SSL/TLS协议，则可以尝试使用CLI客户端登录一次MySQL数据库制造登录缓存；
-        // 3、如果必须禁用SSL/TLS协议，则可以通过增加如下参数允许客户端获得服务器的公钥：
-        //    在JDBC连接串中加入allowPublicKeyRetrieval=true参数；
-        //    在CLI客户端连接时加入--get-server-public-key参数；
-        //    在CLI客户端连接时加入--server-public-key-path=file_name参数，指定存放在本地的公钥文件。
-        // 二、使用mysql_native_password插件，数据库侧需要改动：
-        // 1、修改有问题的用户密码，使用旧版的mysql_native_password插件。
-        // 2、设置默认认证插件为旧版的mysql_native_password插件。
-        // prepStmtCacheSize=10000
+
+
+        Scanner scanner = new Scanner(System.in);
+        System.out.println("请输入用户名");
+        // 用户名随便输入
+        String username = scanner.next();
+        System.out.println("请输入密码");
+        // 密码输入：test'or'a'='a
+        String passwd = scanner.next();
+
         String url = "jdbc:mysql://192.168.56.110:3306/bulk_opt?useSSL=false&allowPublicKeyRetrieval=true&useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useServerPrepStmts=true&cachePrepStmts=true&rewriteBatchedStatements=true";
+        String user = "root";
+        String password = "123456";
+        // 连接对象
+        Connection connection = null;
+        Statement statement = null;
+        ResultSet resultSet = null;
+
+        try {
+            // 加载数据库驱动
+            Class.forName("com.mysql.cj.jdbc.Driver");
+            // 建立连接
+            connection = DriverManager.getConnection(url, user, password);
+            statement = connection.createStatement();
+            String sql = "select * from t_account_info where username = '" + username + "' and password ='" + passwd + "'";
+            // 这里的SQL语句是字符串拼接的，SQL语句拼接的内容破坏了SQL语句原有的判断逻辑，可以使用PreparedStatement解决
+            // select * from t_account_info where username = 'est' and password ='test'or'a'='a'
+            System.out.println(sql);
+            resultSet = statement.executeQuery(sql);
+            String res = "";
+            while (resultSet.next()) {
+                String name = resultSet.getString("username");
+                String pw = resultSet.getString("password");
+                int money = resultSet.getInt("money");
+                //System.out.println(name + " , " + pw + " , " + money);
+                res = "登录成功";
+            }
+            if (!"".equals(res)) {
+                System.out.println(res);
+            } else {
+                System.out.println("登录失败");
+            }
+        } catch (ClassNotFoundException e) {
+            e.printStackTrace();
+        } catch (SQLException e) {
+            e.printStackTrace();
+        } finally {
+            try {
+                if (resultSet != null && !resultSet.isClosed()) {
+                    // 关闭连接
+                    resultSet.close();
+                }
+                if (statement != null && !statement.isClosed()) {
+                    // 关闭连接
+                    statement.close();
+                }
+                if (connection != null && !connection.isClosed()) {
+                    // 关闭连接
+                    connection.close();
+                }
+            } catch (SQLException e) {
+                e.printStackTrace();
+            }
+        }
     }
 }
+
+```
+
+通过PreparedStatement防止注入攻击
+
+```java
+package org.duo.study.db;
+
+import java.sql.*;
+import java.util.Scanner;
+
+/**
+ * SELECT * FROM user WHERE userName = ? AND password = ?
+ * preparedStatement.setString(1,"zhangsan");
+ * preparedStatement.setString(2,"'anything'OR1=1");
+ * 会被转义为：
+ * SELECT * FROM user WHERE userName = 'zhangsan' AND password = '\'anything\'OR1=1'
+ * 而不是
+ * SELECT * FROM user WHERE userName = 'zhangsan' AND password = 'anything' OR 1=1
+ */
+public class PreSqlInjection {
+
+    public static void main(String[] args) {
+
+
+        Scanner scanner = new Scanner(System.in);
+        System.out.println("请输入用户名");
+        // 用户名随便输入
+        String username = scanner.next();
+        System.out.println("请输入密码");
+        // 密码输入：'test'or1=1
+        String passwd = scanner.next();
+
+        String url = "jdbc:mysql://192.168.56.110:3306/bulk_opt?useSSL=false&allowPublicKeyRetrieval=true&useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useServerPrepStmts=true&cachePrepStmts=true&rewriteBatchedStatements=true";
+        String user = "root";
+        String password = "123456";
+        // 连接对象
+        Connection connection = null;
+        PreparedStatement statement = null;
+        ResultSet resultSet = null;
+
+        try {
+            // 加载数据库驱动
+            Class.forName("com.mysql.cj.jdbc.Driver");
+            // 建立连接
+            connection = DriverManager.getConnection(url, user, password);
+            String sql = "select * from t_account_info where username = ? and password = ? ";
+            /**
+             * 1 使用PreparedStatement语句对象防止注入攻击；
+             * 2 PreparedStatement可以使用?作为参数的占位符；
+             * 3 使用?作为占位符，即使是字符串和日期类型，也不用单独在添加''了；
+             * 4 PreparedStatement防止注入攻击的原理：在set方法上会对单引号进行转义处理，也就是说?中的数据的单引号'会被转义成\'，这样单引号就不会破坏SQL语句的结构了；
+             * 5 也就是mysql驱动的PreparedStatement实现类的set方法内部做了单引号的转义，把单引号当做数据的一部分，
+             * 6 而Statement不能防止sql注入是因为它没有做转义，只是简单粗暴的直接拼接字符串
+             */
+            statement = connection.prepareStatement(sql);
+            statement.setString(1, username);
+            statement.setString(2, passwd);
+            resultSet = statement.executeQuery();
+            String res = "";
+            while (resultSet.next()) {
+                String name = resultSet.getString("username");
+                String pw = resultSet.getString("password");
+                int money = resultSet.getInt("money");
+                //System.out.println(name + " , " + pw + " , " + money);
+                res = "登录成功";
+            }
+            if (!"".equals(res)) {
+                System.out.println(res);
+            } else {
+                System.out.println("登录失败");
+            }
+        } catch (ClassNotFoundException e) {
+            e.printStackTrace();
+        } catch (SQLException e) {
+            e.printStackTrace();
+        } finally {
+            try {
+                if (resultSet != null && !resultSet.isClosed()) {
+                    // 关闭连接
+                    resultSet.close();
+                }
+                if (statement != null && !statement.isClosed()) {
+                    // 关闭连接
+                    statement.close();
+                }
+                if (connection != null && !connection.isClosed()) {
+                    // 关闭连接
+                    connection.close();
+                }
+            } catch (SQLException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+}
+
 ```
 
 ## 批量插入

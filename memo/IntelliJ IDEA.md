@@ -72,7 +72,7 @@ File==>Settings==>Appearance & Behavior==>Appearance==>Theme
 
 ## 字体
 
-File==>Settings==>Editor==>General==>Mouse Control==>Change font size with Ctrl + Mouse Wheel
+![image](assets\IntelliJ-IDEA-12.png)
 
 ## 鼠标悬浮在代码上有提示
 
@@ -85,6 +85,8 @@ File==>Settings==>Editor==>General==>Auto Import==>Java，勾选余下两项
 Add unambiguous imports on the fly（自动导包）
 
 Optimize imports on the fly（优化多余的包）
+
+![image](assets\IntelliJ-IDEA-15.png)
 
 ## 同一包下的类，超过指定个数的时候，导包合并为*
 
@@ -146,6 +148,12 @@ File==>Settings==>Build, Execution, Deployment==>Compiler，勾选余下两项
 Build project automatically
 
 Compile independent modules in parallel
+
+## 热部署
+
+![image](assets\IntelliJ-IDEA-13.png)
+
+![image](assets\IntelliJ-IDEA-14.png)
 
 ## 省电模式
 

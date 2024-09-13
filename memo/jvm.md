@@ -1534,7 +1534,7 @@ Top命令找出CPU占用较高的Java线程信息
 
 ## jmap
 
-1. 查看堆内存的配置和使用情况：jmap -heap 18230
+1. 查看堆内存的配置和使用情况：jmap -heap 18230（JDK17以后使用：jhsdb jmap --heap --pid 11424来代替）
 
    ```markdown
     Heap Configuration:

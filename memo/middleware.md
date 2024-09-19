@@ -3423,7 +3423,7 @@ graph LR;
 
 ![image](assets\middleware-1.png)
 
-考虑到频繁出现的term（所谓low cardinality的值），比如gender里的男或者女。如果有1百万个文档，那么性别为男的 posting list 里就会有50万个int值。用 Frame of Reference 编码进行压缩可以极大减少磁盘占用。这个优化对于减少索引尺寸有非常重要的意义。因为这个 FOR 的编码是有解压缩成本的。利用skip list(跳表)，除了跳过了遍历的成本，也跳过了解压缩这些压缩过的block的过程，从而节省了cpu。
+考虑到频繁出现的term（所谓low cardinality的值），比如gender里的男或者女。如果有1百万个文档，那么性别为男的 posting list 里就会有50万个int值。用 Frame of Reference 编码进行压缩可以极大减少磁盘占用。这个优化对于减少索引尺寸有非常重要的意义。因为这个 FOR 的编码是有解压缩成本的，利用skip list(跳表)，除了跳过了遍历的成本，也跳过了解压缩这些压缩过的block的过程，从而节省了cpu。
 
 ##### RBM: RoaringBitmap
 
@@ -4516,88 +4516,50 @@ source字段的作用：
 
 ![image](assets\middleware-23.png)
 
-在创建索引的时候通过mapping设置`_source_includes`和`_source_excludes`
+`_source`字段默认是存储的，可以通过设置`_source`的enabled属性关闭`_source`；什么情况下不用保留`_source`字段？如果某个字段内容非常多，业务里面只需要能对该字段进行搜索，最后返回文档id，查看文档内容会再次到mysql或者hbase中取数据，把大字段的内容存在Elasticsearch中只会增大索引，这一点文档数量越大结果越明显，如果一条文档节省几KB，放大到亿万级的量结果也是非常可观的。
 
-```bash
-# 通过设置_source的enabled属性关闭_source
-[elasticsearch@server03 elasticsearch]$ curl -X PUT -H "Content-type:application/json" server01:9200/product?pretty -d '{"settings": {"number_of_shards": 1,"number_of_replicas": 0},"mappings" :{"properties" : {"date":{"type":"text"},"desc":{"type":"text","analyzer":"english"},"name":{"type":"text","index":"false"},"price":{"type":"long"},"tags":{"type":"text","index":"true"}},"_source": {"enabled": false}}}'
+```json
+// DELETE /test_source
+
+// PUT /test_source/
 {
-  "acknowledged" : true,
-  "shards_acknowledged" : true,
-  "index" : "product"
-}
-# 插入数据
-[elasticsearch@server03 elasticsearch]$ curl -X PUT -H "Content-type:application/json" server01:9200/product/_doc/1?pretty -d '{"name":"lee","desc":"man","price":399,"tags":["lowbee","zhili"]}'
-{
-  "_index" : "product",
-  "_type" : "_doc",
-  "_id" : "1",
-  "_version" : 1,
-  "result" : "created",
-  "_shards" : {
-    "total" : 1,
-    "successful" : 1,
-    "failed" : 0
-  },
-  "_seq_no" : 0,
-  "_primary_term" : 1
-}
-# 查询结果中不包含_source信息
-[elasticsearch@server03 elasticsearch]$  curl -X GET -H "Content-type:application/json" server01:9200/product/_search?pretty
-{
-  "took" : 847,
-  "timed_out" : false,
-  "_shards" : {
-    "total" : 1,
-    "successful" : 1,
-    "skipped" : 0,
-    "failed" : 0
-  },
-  "hits" : {
-    "total" : {
-      "value" : 1,
-      "relation" : "eq"
+  "mappings": {
+    "_source": {
+      "enabled": false
     },
-    "max_score" : 1.0,
-    "hits" : [
-      {
-        "_index" : "product",
-        "_type" : "_doc",
-        "_id" : "1",
-        "_score" : 1.0
+    "properties": {
+      "title": {
+        "type": "text"
+      },
+      "author": {
+        "type": "text"
+      },
+      "content": {
+        "type": "text"
       }
-    ]
+    }
   }
 }
-# 删除索引product
-[elasticsearch@server03 elasticsearch]$ curl -X DELETE -H "Content-type:application/json" server01:9200/product  {"acknowledged":true}
-# 通过_source结合includes(包含的字段)，excludes(屏蔽的字段)，屏蔽部分字段
-[elasticsearch@server03 elasticsearch]$ curl -X PUT -H "Content-type:application/json" server01:9200/product?pretty -d '{"mappings":{"_source":{"includes":["name","price"],"excludes":["desc","tags"]}}}'
+
+// POST /test_source/_doc/1
 {
-  "acknowledged" : true,
-  "shards_acknowledged" : true,
-  "index" : "product"
+  "title": "我是中国人",
+  "author": "闻一多",
+  "content": "热爱共产党"
 }
-# 插入数据
-[elasticsearch@server03 elasticsearch]$ curl -X PUT -H "Content-type:application/json" server01:9200/product/_doc/1?pretty -d '{"name":"lee","desc":"man","price":399,"tags":["lowbee","zhili"]}'
+
+// GET test_source/_search
 {
-  "_index" : "product",
-  "_type" : "_doc",
-  "_id" : "1",
-  "_version" : 1,
-  "result" : "created",
-  "_shards" : {
-    "total" : 2,
-    "successful" : 2,
-    "failed" : 0
-  },
-  "_seq_no" : 0,
-  "_primary_term" : 1
+  "query": {
+    "match": {
+      "title": "中国人"
+    }
+  }
 }
-# 查询结果中，只包含includes中指定的字段
-[elasticsearch@server03 elasticsearch]$ curl -X GET -H "Content-type:application/json" server01:9200/product/_search?pretty
+
+// 从返回结果中可以看到，搜到了一条文档，但是禁用_source以后查询结果中不会再返回文档原始内容。
 {
-  "took" : 768,
+  "took" : 8,
   "timed_out" : false,
   "_shards" : {
     "total" : 1,
@@ -4610,58 +4572,65 @@ source字段的作用：
       "value" : 1,
       "relation" : "eq"
     },
-    "max_score" : 1.0,
+    "max_score" : 0.8630463,
     "hits" : [
       {
-        "_index" : "product",
+        "_index" : "test_source",
         "_type" : "_doc",
         "_id" : "1",
-        "_score" : 1.0,
-        "_source" : {
-          "price" : 399,
-          "name" : "lee"
-        }
+        "_score" : 0.8630463
       }
     ]
   }
 }
 ```
 
-在请求体中设置`_source_includes`和`_source_excludes`
+存储某几个字段的原始值，可以通过incudes参数来设置，同样，可以通过excludes参数排除某些字段：
 
-```bash
-# 删除索引
-[elasticsearch@server03 elasticsearch]$ curl -X DELETE -H "Content-type:application/json" server01:9200/product  {"acknowledged":true}
-# 创建索引
-[elasticsearch@server03 elasticsearch]$ curl -X PUT -H "Content-type:application/json" server01:9200/product?pretty -d '{"settings": {"number_of_shards": 1,"number_of_replicas": 0},"mappings" :{"properties" : {"date":{"type":"text"},"desc":{"type":"text","analyzer":"english"},"name":{"type":"text","index":"false"},"price":{"type":"long"},"tags":{"type":"text","index":"true"}}}}'                              
+```json
+// DELETE /test_source
+
+// PUT /test_source/
 {
-  "acknowledged" : true,
-  "shards_acknowledged" : true,
-  "index" : "product"
+  "mappings": {
+    "_source": {
+      "includes": [
+        "title",
+        "author"
+      ]
+    },
+    "properties": {
+      "title": {
+        "type": "text"
+      },
+      "author": {
+        "type": "text"
+      },
+      "content": {
+        "type": "text"
+      }
+    }
+  }
 }
-# 插入数据
-[elasticsearch@server03 elasticsearch]$ curl -X PUT -H "Content-type:application/json" server01:9200/product/_doc/1?pretty -d '{"name":"lee","desc":"man","price":399,"tags":["lowbee","zhili"]}'
+
+// POST /test_source/_doc/1
 {
-  "_index" : "product",
-  "_type" : "_doc",
-  "_id" : "1",
-  "_version" : 1,
-  "result" : "created",
-  "_shards" : {
-    "total" : 1,
-    "successful" : 1,
-    "failed" : 0
-  },
-  "_seq_no" : 0,
-  "_primary_term" : 1
+  "title": "我是中国人",
+  "author": "闻一多",
+  "content": "热爱共产党"
 }
-# 设置_source=false，则不返回_source
-[elasticsearch@server03 elasticsearch]$  curl -X GET -H "Content-type:application/json" server01:9200/product/_search?_source=false
-{"took":4,"timed_out":false,"_shards":{"total":1,"successful":1,"skipped":0,"failed":0},"hits":{"total":{"value":1,"relation":"eq"},"max_score":1.0,"hits":[{"_index":"product","_type":"_doc","_id":"1","_score":1.0}]}}
-# _source_includes:只返回部分字段
-[elasticsearch@server03 elasticsearch]$ curl -X GET -H "Content-type:application/json" server01:9200/product/_search?pretty -d '{"_source":"tags","query":{"match_all":{}}}'
+
+// GET test_source/_search
 {
-  "took" : 9,
+  "query": {
+    "match": {
+      "title": "中国人"
+    }
+  }
+}
+
+{
+  "took" : 3,
   "timed_out" : false,
   "_shards" : {
     "total" : 1,
@@ -4674,18 +4643,16 @@ source字段的作用：
       "value" : 1,
       "relation" : "eq"
     },
-    "max_score" : 1.0,
+    "max_score" : 0.8630463,
     "hits" : [
       {
-        "_index" : "product",
+        "_index" : "test_source",
         "_type" : "_doc",
         "_id" : "1",
-        "_score" : 1.0,
+        "_score" : 0.8630463,
         "_source" : {
-          "tags" : [
-            "lowbee",
-            "zhili"
-          ]
+          "author" : "闻一多",
+          "title" : "我是中国人"
         }
       }
     ]
@@ -4707,6 +4674,127 @@ source字段的作用：
 果对某个field做了索引，则可以查询。如果store：yes，则可以展示该field的值。
 是如果你存储了这个doc的数据（`_source` enable），即使store为no，仍然可以得到field的值（client去解析）。
 一个store设置为no的field，如果_source被disable，则只能检索不能展示
+
+```json
+// DELETE /test_source
+
+// 这里将_source的enabled设置为false，单独将title字段的store设置为true
+// PUT /test_source/
+{
+  "mappings": {
+    "_source": {
+      "enabled": false
+    },
+    "properties": {
+      "title": {
+        "type": "text",
+        "store": true
+      },
+      "author": {
+        "type": "text"
+      },
+      "content": {
+        "type": "text"
+      }
+    }
+  }
+}
+
+// POST /test_source/_doc/1
+{
+  "title": "我是中国人",
+  "author": "闻一多",
+  "content": "热爱共产党"
+}
+
+// 虽然没有保存title字段到_source，但是由于单独给title字段的store设置为了true，那么还是可以实现title字段的展示；
+// GET test_source/_search
+{
+  "query": {
+    "match": {
+      "title": "中国人"
+    }
+  },
+   "highlight": {
+      "fields": {
+         "title": {}
+      }
+   }
+}
+
+{
+  "took" : 7,
+  "timed_out" : false,
+  "_shards" : {
+    "total" : 1,
+    "successful" : 1,
+    "skipped" : 0,
+    "failed" : 0
+  },
+  "hits" : {
+    "total" : {
+      "value" : 1,
+      "relation" : "eq"
+    },
+    "max_score" : 0.8630463,
+    "hits" : [
+      {
+        "_index" : "test_source",
+        "_type" : "_doc",
+        "_id" : "1",
+        "_score" : 0.8630463,
+        "highlight" : {
+          "title" : [
+            "我是<em>中</em><em>国</em><em>人</em>"
+          ]
+        }
+      }
+    ]
+  }
+}
+
+// 由于_source的enabled属性被设置成了false，同时没有给content字段单独设置store属性，所以虽然能搜索出结果，但是无法进行展示；
+// GET test_source/_search
+{
+  "query": {
+    "match": {
+      "content": "热爱"
+    }
+  },
+   "highlight": {
+      "fields": {
+         "content": {}
+      }
+   }
+}
+
+{
+  "took" : 6,
+  "timed_out" : false,
+  "_shards" : {
+    "total" : 1,
+    "successful" : 1,
+    "skipped" : 0,
+    "failed" : 0
+  },
+  "hits" : {
+    "total" : {
+      "value" : 1,
+      "relation" : "eq"
+    },
+    "max_score" : 0.5753642,
+    "hits" : [
+      {
+        "_index" : "test_source",
+        "_type" : "_doc",
+        "_id" : "1",
+        "_score" : 0.5753642
+      }
+    ]
+  }
+}
+
+```
 
 ## 搜索和查询
 

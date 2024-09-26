@@ -58,6 +58,14 @@ $ git merge FETCH_HEAD
 因为FETCH_HEAD文件是所有branch共享的，所以切换至任意分支后执行git merge FETCH_HEAD都是将同一远程分支的同一版本的内容合并到该本地分支上
 
 创建分支命令：
+$ git checkout -b <new-branch-name> [<existing-branch>]
+<new-branch-name>：新分支的名称。
+<existing-branch>：可选参数，指定新分支的基于哪个现有分支创建。如果不指定，默认为当前所在的分支。
+“git checkout -b”命令实际上是“git branch”和“git checkout”两个命令的组合。它的功能包括：
+1.创建新分支：指定一个新分支名称，可以在仓库中创建一个全新的分支。
+2.切换到新分支：将工作目录切换到新创建的分支上，以便在该分支上进行工作。
+$ git checkout -b feature-branch origin/feature-branch
+创建一个本地分支feature-branch并与远程分支origin/feature-branch关联。
 $ git branch (branchname)
 切换分支命令: （git checkout -b (branchname)命令来创建新分支并立即切换到该分支下）
 $ git checkout (branchname)

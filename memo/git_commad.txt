@@ -10,6 +10,8 @@ $ git config --list
 $ git config --global user.name "gentleduo"
 $ git config --global user.email gentleduo@163.com
 
+$当某个文件被添加到暂存区或者本地仓库，此时会被标记为“跟踪状态”，此时Git就会代为管理这个文件，git ls-files 命令列出当前git仓库中被跟踪的文件列表
+$ git ls-files
 要从Git中移除某个文件，就必须要从已跟踪文件清单中移除，然后提交。可以用以下命令完成此项工作
 $ git rm <file>
 如果删除之前修改过并且已经放到暂存区域的话，则必须要用强制删除选项 -f

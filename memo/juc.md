@@ -78,6 +78,28 @@ B. 空间局部性：如果某个数据被访问，那么与它相邻的数据�
 
 大致可以得出结论，缓存层级越接近于CPUcore，容量越小，速度越快，同时其造价也更贵。所以为了支撑更多的热点数据，同时追求最高的性价比，多级缓存架构应运而生。
 
+```bash
+# Linux查看CPU的缓存的指令
+[root@vbox ~]# ll  /sys/devices/system/cpu/cpu0/cache/
+总用量 0
+drwxr-xr-x 2 root root 0 10月  2 12:18 index0
+drwxr-xr-x 2 root root 0 10月  2 12:18 index1
+drwxr-xr-x 2 root root 0 10月  2 12:18 index2
+drwxr-xr-x 2 root root 0 10月  2 12:18 index3
+# L1数据缓存
+[root@vbox ~]# cat  /sys/devices/system/cpu/cpu0/cache/index0/size 
+32K
+# L1指令缓存
+[root@vbox ~]# cat  /sys/devices/system/cpu/cpu0/cache/index1/size 
+32K
+# L2
+[root@vbox ~]# cat  /sys/devices/system/cpu/cpu0/cache/index2/size 
+256K
+# L3
+[root@vbox ~]# cat  /sys/devices/system/cpu/cpu0/cache/index3/size 
+4096K
+```
+
 ## CacheLine
 
 Cache又是由很多个「缓存行」(CacheLine)组成的。CacheLine是Cache和RAM交换数据的最小单位。Cache存储数据是固定大小为单位的，称为一个CacheEntry，这个单位称为CacheLine或CacheBlock。给定Cache容量大小和cache-line-size的情况下，它能存储的条目个数(number-of-cache-entries)就是固定的。因为Cache是固定大小的，所以它从主内存获取数据也是固定大小。对于X86来讲，是64Bytes。对于ARM来讲，较旧的架构的CacheLine是32Bytes，但一次内存访存只访问一半的数据也不太合适，所以它经常是一次填两个CacheLine，叫做DoubleFill。
@@ -200,15 +222,15 @@ public class CacheLinePadding {
 
 ## 总线锁
 
-在早期的CPU当中，是通过在总线上加LOCK#锁的形式来解决缓存不一致的问题。因为 CPU 和其他部件进行通信都是通过总线来进行的，如果对总线加锁的话，也就是说阻塞了其他 CPU 对其他部件访问（如内存），从而使得只能有一个 CPU 能使用内存。但是这种方式会有一个问题，由于在锁住总线期间，其他 CPU无法访问内存，导致效率低下。所以就出现了缓存一致性协议。
+在早期的CPU当中，是通过在总线上加LOCK#锁的形式来解决缓存不一致的问题。因为 CPU 和其他部件进行通信都是通过总线来进行的，如果对总线加锁的话，也就是说阻塞了其他 CPU 对其他部件访问（如内存），从而使得只能有一个 CPU 能使用内存。但是这种方式会有一个问题，由于在锁住总线期间，其他 CPU无法访问内存，导致效率低下。
 
 ## 缓存一致性协议(MESI)
 
-缓存一致性协议可以分为两类：“窥探（snooping）”协议和“基于目录的（directory-based）”协议，MESI协议属于一种"窥探协议"。窥探协议的基本思想所有cache与内存，cache与cache（是的，cache之间也会有数据传输）之间的传输都发生在一条共享的总线上，而所有的cpu都能看到这条总线，同一个指令周期中，只有一个cache可以读写内存，所有的内存访问都要经过仲裁（arbitrate）。窥探协议的思想是，cahce不但与内存通信时和总线打交道，而且它会不停地窥探总线上发生的数据交换，跟踪其他cache在做什么。所以当一个cache代表它所属的cpu去读写内存时，其它cpu都会得到通知，它们以此来使自己的cache保持同步。
+缓存一致性协议可以分为两类：“窥探（snooping）”协议和“基于目录的（directory-based）”协议，MESI协议属于一种"窥探协议"。窥探协议的基本思想：所有cache与内存，cache与cache（cache之间也会有数据传输）之间的传输都发生在一条共享的总线上，而所有的cpu都能看到这条总线，同一个指令周期中，只有一个cache可以读写内存，所有的内存访问都要经过仲裁（arbitrate）。窥探协议的思想是，cache不但与内存通信时和总线打交道，而且它会不停地窥探总线上发生的数据交换，跟踪其他cache在做什么。所以当一个cache代表它所属的cpu去读写内存时，其它cpu都会得到通知，它们以此来使自己的cache保持同步。
 
-并非所有情况都会使用缓存一致性协议，如被操作的数据不能被缓存在CPU内部或操作数据跨越多个缓存行(状态无法标识)，则处理器仍然会调用总线锁定
+并非所有情况都会使用缓存一致性协议，如被操作的数据不能被缓存在CPU内部或操作数据跨越多个缓存行(状态无法标识)，则处理器仍然会调用总线锁定。
 
-每个 Cache line 有两个标志位：dirty 和 valid 标志来标记缓存行的有4个状态，MESI是指4种状态的首字母。协议中最重要的内容有两部分：cache line的状态以及消息通知机制：
+每个Cache line有两个标志位：dirty和valid标志来标记缓存行的有4个状态，MESI是指4种状态的首字母。协议中最重要的内容有两部分：cache line的状态以及消息通知机制：
 
 ### Cache Line的状态
 
@@ -252,11 +274,13 @@ cpu有读取数据的动作，有独占的动作，有独占后更新数据的�
 7. cpu1 对地址0x0的数据执行原子(atomic)递增操作，发出Read Invalidate消息，cpu2将返回Read Response(而不是内存)，包含最新数据，并返回Invalidate ACK，同时cache line状态变为Invalid。最后cpu1获得独占权，cache line状态变为Modified，数据为递增后的数据，而内存中的数据仍然为过期状态。
 8. cpu1 加载0x8的数据，此时cache line将被替换，由于之前状态为Modified，因此需要先执行写回操作，此时内存中0x0的数据得以更新。
 
-这就是缓存一致性协议，一个状态机，仅此而已。因为该协议的存在，每个cpu就可以放心操作属于自己的cache，而不需要担心本地cache中的数据会不会已经被其他cpu修改。但在缓存一致性协议的框架下工作性能不高，但这并不是协议的问题，协议本身逻辑很严谨。性能差在哪里？假如某数据存在于其他cpu的cache中，那自己每次需要修改数据时，都需要发送ReadInvalidate消息，除了等待最新数据的返回，还需要等待其他cpu的InvalidateACK才能继续执行其他指令，这是一种同步行为，于是便有了cpu的优化：处理器指令重排(指令还未结束便去执行其它指令的行为称之为，指令重排)
+这就是缓存一致性协议，一个状态机，仅此而已。因为该协议的存在，每个cpu就可以放心操作属于自己的cache，而不需要担心本地cache中的数据会不会已经被其他cpu修改。但在缓存一致性协议的框架下工作性能不高，但这并不是协议的问题，协议本身逻辑很严谨。性能差在哪里？假如某数据存在于其他cpu的cache中，那自己每次需要修改数据时，都需要发送Read Invalidate消息，除了等待最新数据的返回，还需要等待其他cpu的Invalidate ACK才能继续执行其他指令，这是一种同步行为，于是便有了cpu的优化：处理器指令重排(指令还未结束便去执行其它指令的行为称之为，指令重排)
 
 ### 处理器指令重排
 
-指令重排的实现:硬件层面的优化——Store Buffer, Invalid Queue，以及软件层面的优化——内存屏障指令。
+指令重排的实现:硬件层面的优化——Store Buffer, Invalid Queue，以及解决Store Buffer, Invalid Queue引入带来的全局顺序性问题——内存屏障指令。
+
+![image](assets\juc-1.png)
 
 #### Store Buffer(存储缓存)
 
@@ -282,7 +306,7 @@ assert(b == 2);
 
 造成这个问题的根源在于对同一个cpu存在对a的两份拷贝，一份在cache，一份在store buffer，而cpu计算b=a+1时，a和b的值都来自cache。仿佛代码的执行顺序发生了变化：b = a + 1在a = 1之前执行。
 
-store buffer可能导致破坏程序顺序的问题，硬件工程师在store buffer的基础上，又实现了”store forwarding”技术: cpu可以直接从store buffer中加载数据，即支持将cpu存入store buffer的数据传递(forwarding)给后续的加载操作，而不经由cache。虽然解决了同一个cpu读写数据的问题，但是在并发程序中还是会有问题。例如有如下代码：
+store buffer可能导致破坏程序顺序的问题，硬件工程师在store buffer的基础上，又实现了”store forwarding”技术: cpu可以直接从store buffer中加载数据，即支持将cpu存入store buffer的数据传递(forwarding)给后续的加载操作，而不经由cache，从而提高了CPU的利用率，也能保证了在同一CPU，读写都能顺序执行。注意，这里的读写顺序执行说的是同一CPU，因为，store buffer 的引入并不能保证多CPU全局顺序执行。例如有如下代码：
 
 ```java
 //初始状态下，假设a，b值都为0，a存在于cpu1的cache中，b存在于cpu0的cache中，均为Exclusive状态，cpu0执行foo函数，cpu1执行bar函数
@@ -295,6 +319,8 @@ void bar() {
     assert(a == 1)
 }
 ```
+
+![image](assets\juc-2.jpg)
 
 可能出现如下操作序列:
 
@@ -309,7 +335,7 @@ void bar() {
 
 出现这个问题的原因在于cpu不知道a,b之间的数据依赖，cpu0对a的写入需要和其他cpu通信，因此有延迟，而对b的写入直接修改本地cache就行，因此b比a先在cache中生效，导致cpu1读到b=1时，a还存在于store buffer中。从代码的角度来看，仿佛foo函数中b = 1又在a = 1之前执行。
 
-foo函数的代码，即使是store forwarding也阻止不了它被cpu“重排”，虽然这并没有影响foo函数的正确性，但会影响到所有依赖foo函数赋值顺序的线程。到目前为止，可以发现”指令重排“的其中一个本质，cpu为了优化指令的执行效率，引入了store buffer（forwarding），而又因此导致了指令执行顺序的变化。要保证这种顺序一致性，靠硬件是优化不了了，需要在软件层面支持，没错，cpu提供了写屏障（write memory barrier）指令，Linux操作系统将写屏障指令封装成了smp_wmb()函数，cpu执行smp_mb()的思路是，会先把当前store buffer中的数据刷到cache之后，再执行屏障后的“写入操作”，该思路有两种实现方式: 一是简单地刷store buffer，但如果此时远程cache line没有返回，则需要等待，二是将当前store buffer中的条目打标，然后将屏障后的“写入操作”也写到store buffer中，cpu继续干其他的事，当被打标的条目全部刷到cache line，之后再刷后面的条目。以第二种实现逻辑为例，看看以下代码执行过程：
+foo函数的代码，即使是store forwarding也阻止不了它被cpu“重排”，虽然这并没有影响foo函数的正确性，但会影响到所有依赖foo函数赋值顺序的线程。到目前为止，可以发现”指令重排“的其中一个本质，cpu为了优化指令的执行效率，引入了store buffer（forwarding），而又因此导致了指令执行顺序的变化。要保证这种顺序一致性，靠硬件是优化不了了，需要在软件层面支持，硬件设计师给开发者提供了内存屏障（memory-barrier）指令，Linux操作系统将写屏障指令封装成了smp_wmb()函数，cpu执行smp_mb()的思路是，会先把当前store buffer中的数据刷到cache之后，再执行屏障后的“写入操作”，该思路有两种实现方式：一是等store buffer生效：等store buffer生效就是内存屏障后续的写必须等待store buffer里面的值都收到了对应的响应消息，都被写到缓存行里面；二是进store buffer排队：进store buffer排队就是内存屏障后续的写直接写到store buffer排队，等 store buffer前面的写全部被写到缓存行。两种方式都需要等，但是等store buffer生效是在CPU等，而进store buffer排队是进store buffer等。所以，进store buffer排队也会相对高效一些，大多数的系统采用的也是这种方式。以第二种实现逻辑为例，看看以下代码执行过程：
 
 ```java
 //初始状态下，假设a，b值都为0，a存在于cpu1的cache中，b存在于cpu0的cache中，均为Exclusive状态，cpu0执行foo函数，cpu1执行bar函数
@@ -343,7 +369,7 @@ void bar() {
 
 #### Invalidate Queues(失效队列)
 
-简单说处理器修改数据时，需要通知其它内核将该缓存中的数据置为Invalid（失效），我们将该数据放到了Store Bufferes处理。那收到失效指令的这些内核会立即处理这种失效消息吗？答案是不会的，因为就算是一个内核缓存了该数据并不意味着马上要用，这些内核会将失效通知放到Invalidate Queues，然后快速返回Invalidate Acknowledge消息。后续收到失效通知的内核将会从该queues中逐个处理该命令。
+简单说处理器修改数据时，需要通知其它内核将该缓存中的数据置为Invalid（失效），于是将该数据放到了Store Bufferes处理。那收到失效指令的这些内核会立即处理这种失效消息吗？答案是不会的，因为就算是一个内核缓存了该数据并不意味着马上要用，这些内核会将失效通知放到Invalidate Queues，然后快速返回Invalidate Acknowledge消息。后续收到失效通知的内核将会从该queues中逐个处理该命令。
 
 加入了invalid queue之后，cpu在处理任何cache line的MSEI状态前，都必须先看invalid queue中是否有该cache line的Invalid消息没有处理。另外，它也再一次破坏了内存的一致性。看看以下代码执行过程：
 
@@ -390,65 +416,45 @@ void bar() {
 
 ### 总结
 
-MESI协议，可以保证缓存的一致性，但是无法保证实时性。为了解决此类问题，CPU提供了一种通过软件告知CPU什么指令不能重排，什么指令能重排的机制，就是内存屏蔽。不同的CPU架构对内存屏障的实现是不尽相同的，Linux操作系统面向cpu抽象出了自己的一套内存屏障函数，它们分别是：
+MESI协议，可以保证缓存的一致性，但是无法保证全局顺序性，为了解决此类问题，CPU提供了一种通过指令告知CPU什么指令不能重排，什么指令能重排的机制，就是内存屏蔽。内存屏障有两个作用，处理store buffer和invalidate queue，保持全局顺序性。但很多情况下，只需要处理store buffer和invalidate queue中的其中一个即可，所以很多系统将内存屏障细分成了读屏障（read memory barrier）和写屏障（write memory barrier）。读屏障用于处理invalidate queue，写屏障用于处理store buffer。不同的CPU架构对内存屏障的实现是不尽相同的，以场景的 X86 架构下，不同的内存屏障对应的指令分别是：
+
+- 读屏障：lfence
+- 写屏障：sfence
+- 读写屏障：mfence
+
+Linux操作系统面向cpu抽象出了自己的一套内存屏障函数，它们分别是：
 
 - smp_rmb(): 在invalid queue的数据被刷完之后再执行屏障后的读操作。
 - smp_wmb(): 在store buffer的数据被刷完之后再执行屏障后的写操作。
 - smp_mb(): 同时具有读屏障和写屏障功能。
 
+>1.当一个CPU进行写入时，首先会给其它CPU发送Invalid消息，然后把当前写入的数据写入到Store Buffer中，然后异步在某个时刻真正的写入到Cache中。
+>2.当前CPU核如果要读Cache中的数据，需要先扫描Store Buffer之后再读取Cache。
+>3.但是此时其它CPU核是看不到当前核的Store Buffer中的数据的，要等到Store Buffer中的数据被刷到了Cache之后才会触发失效操作。
+>4.而当一个CPU核收到Invalid消息时，会把消息写入自身的Invalidate Queue中，随后异步将其设为Invalid状态。
+>5.和Store Buffer不同的是，当前CPU核心使用Cache时并不扫描Invalidate Queue部分，所以可能会有极短时间的脏读问题。
+
 ## volatile与lock前缀指令
 
 实际通过hsdis工具将代码转换为汇编指令来看volatile的变量在赋值前都加了lock指令，下面详细分析一下lock指令的作用和为什么加上lock指令后就能保证volatile关键字的内存可见性：
 
-### lock指令做了什么
-
-在修改内存操作时，使用LOCK前缀去调用加锁的读-修改-写操作，这种机制用于多处理器系统中处理器之间进行可靠的通讯，具体描述如下：
-
-1. 在Pentium和早期的IA-32处理器中，LOCK前缀会使处理器执行当前指令时产生一个LOCK#信号，这种总是引起显式总线锁定出现
-2. 在Pentium4、Inter Xeon和P6系列处理器中，加锁操作是由高速缓存锁或总线锁来处理。如果内存访问有高速缓存且只影响一个单独的高速缓存行，那么操作中就会调用高速缓存锁，而系统总线和系统内存中的实际区域内不会被锁定。同时，这条总线上的其它Pentium4、Intel Xeon或者P6系列处理器就回写所有已修改的数据并使它们的高速缓存失效，以保证系统内存的一致性。如果内存访问没有被高速缓存或它跨越了高速缓存行的边界，那么这个处理器就会产生LOCK#信号，并在锁定操作期间不会响应总线控制请求。（从Pentium 4，Intel Xeon及P6处理器开始，intel在原有总线锁的基础上做了一个很有意义的优化：如果要访问的内存区域（area of memory）在lock前缀指令执行期间已经在处理器内部的缓存中被锁定（即包含该内存区域的缓存行当前处于独占或已修改状态），并且该内存区域被完全包含在单个缓存行（cache line）中，那么处理器将直接执行该指令。由于在指令执行期间该缓存行会一直被锁定，其它处理器无法读/写该指令要访问的内存区域，因此能保证指令执行的原子性。这个操作过程叫做缓存锁定（cache locking），缓存锁定将大大降低lock前缀指令的执行开销，但是当多处理器之间的竞争程度很高或者指令访问的内存地址**未对齐**时，仍然会锁住总线。）
-
-为显式地强制执行LOCK语义，软件可以在下列指令修改内存区域时使用LOCK前缀。当LOCK前缀被置于其它指令之前或者指令没有对内存进行写操作（也就是说目标操作数在寄存器中）时，会产生一个非法操作码异常（#UD）。
-
-1. 位测试和修改指令（BTS、BTR、BTC）
-2. 交换指令（XADD、CMPXCHG、CMPXCHG8B）
-3. 自动假设有LOCK前缀的XCHG指令
-4. 下列单操作数的算数和逻辑指令：INC、DEC、NOT、NEG
-5. 下列双操作数的算数和逻辑指令：ADD、ADC、SUB、SBB、AND、OR、XOR
-
-IA-32架构提供了几种机制用来强化或弱化内存排序模型，以处理特殊的编程情形。这些机制包括：
-
-1. I/O指令、加锁指令、LOCK前缀以及串行化指令等，强制在处理器上进行较强的排序
-2. SFENCE指令（在Pentium III中引入）和LFENCE指令、MFENCE指令（在Pentium4和Intel Xeon处理器中引入）提供了某些特殊类型内存操作的排序和串行化功能
-   - sfence:  store| 在sfence指令前的写操作当必须在sfence指令后的写操作前完成。
-   - lfence：load | 在lfence指令前的读操作当必须在lfence指令后的读操作前完成。
-   - mfence：modify/mix | 在mfence指令前的读写操作当必须在mfence指令后的读写操作前完成。
-
-这些机制可以通过下面的方式使用：总线上的内存映射设备和其它I/O设备通常对向它们缓冲区写操作的顺序很敏感，I/O指令（IN指令和OUT指令）以下面的方式对这种访问执行强写操作的排序。在执行了一条I/O指令之前，处理器等待之前的所有指令执行完毕以及所有的缓冲区都被都被写入了内存。只有取指令和页表查询能够越过I/O指令，后续指令要等到I/O指令执行完毕才开始执行。
-
-通过上述描述，可以得到lock指令的几个作用：
+lock前缀指令的定义是总线锁，也就是lock前缀指令是通过锁住总线保证可见性和禁止指令重排序的。虽然“总线锁”的说法过于老旧了，现在的系统更多的是“锁缓存行”。但需要注意的是，lock 前缀指令的核心思想还是“锁”，这和内存屏障有着本质的区别，只不过lock前缀指令一部分功能能达到内存屏障的效果。lock前缀指令的作用：
 
 1. 锁总线，其它CPU对内存的读写请求都会被阻塞，直到锁释放，不过实际后来的处理器都采用锁缓存替代锁总线，因为锁总线的开销比较大，锁总线期间其他CPU没法访问内存
 2. lock后的写操作会回写已修改的数据，同时让其它CPU相关缓存行失效，从而重新从主存中加载最新的数据
 3. 不是内存屏障却能完成类似内存屏障的功能，阻止屏障两边的指令重排序
 
-### 由lock指令回看volatile变量读写
+volatile关键字的实现原理：
 
-工作内存Work Memory其实就是对CPU寄存器和高速缓存的抽象，或者说每个线程的工作内存也可以简单理解为CPU寄存器和高速缓存。
+工作内存Work Memory其实就是对CPU寄存器和高速缓存的抽象，或者说每个线程的工作内存也可以简单理解为CPU寄存器和高速缓存。那么当写两条线程Thread-A与Threab-B同时操作主存中的一个volatile变量i时，Thread-A写了变量i，那么：
 
-那么当写两条线程Thread-A与Threab-B同时操作主存中的一个volatile变量i时，Thread-A写了变量i，那么：
-
-- Thread-A发出LOCK#指令
-
-- 发出的LOCK#指令锁总线（或锁缓存行），同时让Thread-B高速缓存中的缓存行内容失效
-- Thread-A向主存回写最新修改的i
+1. Thread-A发出LOCK#指令
+2. 发出的LOCK#指令锁总线（或锁缓存行），同时让Thread-B高速缓存中的缓存行内容失效
+3. Thread-A向主存回写最新修改的i
 
 Thread-B读取变量i，那么：
 
-- Thread-B发现对应地址的缓存行被锁了，等待锁的释放，缓存一致性协议会保证它读取到最新的值
-
-### 总结
-
-volatile通过LOCK#指令锁总线(或缓存行)，同时让其他线程高速缓存中的缓存行内容失效，然后向主存回写最新修改后的变量值，其他线程读取变量时发现对应地址的缓存行被锁，会等待锁的释放，然后通过缓存一致性协议保证读取到最新的值(即CPU的数据读取还是使用缓存一致性协议的)。加不加volatile缓存一致性协议(MESI)都存在，不加volatile由于MESI协议只可以保证缓存的一致性，但是无法保证实时性，所以会产生可见性问题。
+1. Thread-B发现对应地址的缓存行被锁了，等待锁的释放，缓存一致性协议会保证它读取到最新的值
 
 # 原子性
 
@@ -583,72 +589,7 @@ public class Ordering {
         } while (start + interval >= end);
     }
 }
-
 ```
-
-## 如何保证特定情况下不乱序
-
-### 硬件层面
-
-1. SFENCE指令（在Pentium III中引入）和LFENCE指令、MFENCE指令
-2. LOCK前缀指令是一个Full Barrier，执行时会锁住内存子系统来确保执行顺序，甚至跨多个CPU。Software Locks通常使用了内存屏障或原子指令来实现变量可见性和保持程序顺序
-
-### JVM级别如何规范（JSR133）
-
-1. LoadLoad屏障：对于这样的语句Load1; LoadLoad; Load2， 在Load2及后续读取操作要读取的数据被访问前，保证Load1要读取的数据被读取完毕。
-2. StoreStore屏障：对于这样的语句Store1; StoreStore; Store2，在Store2及后续写入操作执行前，保证Store1的写入操作对其它处理器可见。
-3. LoadStore屏障：对于这样的语句Load1; LoadStore; Store2，在Store2及后续写入操作被刷出前，保证Load1要读取的数据被读取完毕。
-4. StoreLoad屏障：对于这样的语句Store1; StoreLoad; Load2， 在Load2及后续所有读取操作执行前，保证Store1的写入对所有处理器可见。
-
-### volatile的实现细节
-
-1. 字节码层面：ACC_VOLATILE
-
-2. JVM层面：volatile内存区的读写 都加屏障
-
-3. OS和硬件层面：在windows系统中利用lock指令实现(有可能linux的实现又不一样，JVM只定义了规范，在不同的操作系统及硬件上的实现也各不相同)
-
-4. 通过反汇编Java字节码，查看汇编层面对volatile关键字做了什么(windows系统)
-
-   - 下载hsdis工具
-
-   - 将hsdis-amd64.dll与hsdis-amd64.lib两个文件放在%JAVA_HOME%\jre\bin\server路径下
-
-   - 跑main函数之前，加入如下虚拟机参数：
-
-     -server
-
-     -Xcomp
-
-     -XX:+UnlockDiagnosticVMOptions
-
-     -XX:+PrintAssembly
-
-     -XX:CompileCommand=compileonly,*LazySingleton.getInstance
-
-     (它表示将LazySingleton类中的getInstance方法转换为汇编指令)
-
-
-```java
-public class LazySingleton {
-	private static volatile LazySingleton instance = null;
-	public static LazySingleton getInstance() {
-		if (instance == null) {
-			instance = new LazySingleton();
-		}
-		return instance;
-	}
-	public static void main(String[] args) {
-		LazySingleton.getInstance();
-	}
-}
-```
-
-### synchronized实现细节
-
-1. 字节码层面：ACC_SYNCHRONIZED、monitorenter、monitorexit
-2. JVM层面：C C++ 调用了操作系统提供的同步机制
-3. OS和硬件层面：X86 : lock cmpxchg / xxx
 
 # 线程的状态
 

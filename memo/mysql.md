@@ -458,7 +458,7 @@ log_timestamps=system
 [root@mysql01 3306]# rm -rf /mysql/log/3306/log-error.err 
 [root@mysql01 3306]# touch /mysql/log/3306/log-error.err
 [root@mysql01 3306]# chown -R mysql:mysql /mysql
-# 初始化
+# 初始化（密码生成在：/mysql/log/3306/log-error.err文件内）
 [root@mysql01 3306]# mysqld --defaults-file=/mysql/data/3306/my.cnf --initialize --user=mysql --basedir=/mysql/app/mysql --datadir=/mysql/data/3306/data
 ```
 

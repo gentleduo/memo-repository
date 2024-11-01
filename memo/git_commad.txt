@@ -14,7 +14,7 @@ $当某个文件被添加到暂存区或者本地仓库，此时会被标记为�
 $ git ls-files
 要从Git中移除某个文件，就必须要从已跟踪文件清单中移除，然后提交。可以用以下命令完成此项工作
 $ git rm <file>
-如果删除之前修改过并且已经放到暂存区域的话，则必须要用强制删除选项 -f
+如果删除之前修改过并且已经放到暂存区域的话，则必须要用强制删除选项 -f，注意：同时工作区也会被删除
 $ git rm -f <file>
 直接从暂存区删除文件，工作区则不做出改变
 $ git rm --cached <file>
@@ -60,19 +60,20 @@ $ git merge FETCH_HEAD
 因为FETCH_HEAD文件是所有branch共享的，所以切换至任意分支后执行git merge FETCH_HEAD都是将同一远程分支的同一版本的内容合并到该本地分支上
 
 创建分支命令：
-$ git checkout -b <new-branch-name> [<existing-branch>]
 <new-branch-name>：新分支的名称。
 <existing-branch>：可选参数，指定新分支的基于哪个现有分支创建。如果不指定，默认为当前所在的分支。
 “git checkout -b”命令实际上是“git branch”和“git checkout”两个命令的组合。它的功能包括：
 1.创建新分支：指定一个新分支名称，可以在仓库中创建一个全新的分支。
 2.切换到新分支：将工作目录切换到新创建的分支上，以便在该分支上进行工作。
-$ git checkout -b feature-branch origin/feature-branch
+$ git checkout -b <new-branch-name> [<existing-branch>]
 创建一个本地分支feature-branch并与远程分支origin/feature-branch关联。
-$ git branch (branchname)
+$ git checkout -b feature-branch origin/feature-branch
 切换分支命令: （git checkout -b (branchname)命令来创建新分支并立即切换到该分支下）
 $ git checkout (branchname)
 列出分支基本命令：（只看远程分支：git branch -r；查看本地分支和远程分支：git branch -a）
 $ git branch
+创建一个名为<branch>的分支。但此命令并不会自动检出新创建的分支。
+$ git branch <branch>
 查看关联分支：
 $ git branch -vv
 重命名当前分支：（dev_zhangcz ===> dev）

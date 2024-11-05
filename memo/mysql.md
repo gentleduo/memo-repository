@@ -576,23 +576,27 @@ lock_file_path="$lockdir/mysql"
 # The following variables are only set for letting mysql.server find things.
 
 # Set some defaults
-# 2、修改mysqld_pid_file_path以及basedir、bindir、datadir、sbindir、libexecdir
+# 2、修改mysqld_pid_file_path
 mysqld_pid_file_path=/mysql/data/3306/mysql.pid
+# 如果basedir为空，那么mysql启动的时候默认会到/usr/local/mysql目录下去找启动命令
+# 如果datadir为空，那么mysql默认会将数据文件存放在/usr/local/mysql/data目录中
+# 由上面已经对basedir和datadir进行了赋值，所以会走else分支；
 if test -z "$basedir"
 then
-  basedir=/mysql/app/mysql
-  bindir=/mysql/app/mysql/bin
+  basedir=/usr/local/mysql
+  bindir=/usr/local/mysql/bin
   if test -z "$datadir"
   then
-    datadir=/mysql/data/3306/data
+    datadir=/usr/local/mysql/data
   fi
-  sbindir=/mysql/app/mysql/bin
-  libexecdir=/mysql/app/mysql/bin
+  sbindir=/usr/local/mysql/bin
+  libexecdir=/usr/local/mysql/bin
 else
   bindir="$basedir/bin"
+  # 由于datadir不为空，所以不满足if条件，不会再次对datadir进行赋值
   if test -z "$datadir"
   then
-    datadir="/mysql/app/3306/data"
+    datadir="$basedir/data"
   fi
   sbindir="$basedir/sbin"
   libexecdir="$basedir/libexec"

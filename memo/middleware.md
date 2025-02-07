@@ -5903,6 +5903,8 @@ GET product/_search
 
 如添加条件筛选，按标签分桶，限制价格区间
 
+如果只想要聚合的结果,就只需要把查询的size为0即可
+
 ```json
 GET product/_search
 {
@@ -5914,10 +5916,12 @@ GET product/_search
       } 
     }
   }, 
+  "size":0,
   "aggs": {
     "type_lv": {
       "terms": {
-        "field": "type.keyword"
+        "field": "type.keyword",
+        "size": 300,
       }
     }
   }
@@ -6031,7 +6035,10 @@ GET product/_search
 
 ### 基于聚合结果的查询
 
+不同在于query查询时 query会基于查询结果聚合，而post_filter不影响聚合，查询和聚合各干各的互不干扰
+
 ```json
+// 查询每个标签的数量，并查询某个标签的详细信息
 GET product/_search
 {
   "post_filter": {

@@ -97,7 +97,7 @@ chmod +x /usr/local/bin/docker-compose
 测试安装结果 
 docker-compose --version 
 
-﻿从主机复制到容器sudo docker cp host_path containerID:container_path
+从主机复制到容器sudo docker cp host_path containerID:container_path
 从容器复制到主机sudo docker cp containerID:container_path host_path
 
 方法一：如果要正常退出不关闭容器，请按Ctrl+P+Q进行退出容器

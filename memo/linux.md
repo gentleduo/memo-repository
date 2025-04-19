@@ -2846,7 +2846,7 @@ LVM，是Logical Volume Manager的缩写，中文意思是逻辑卷管理，它�
 [root@server01 ~]# vgextend vg1 /dev/sdc2
 #########################################################################################
 # 扩充lv1
-[root@server01 ~]# lvextend -l +1000 /dev/vg1/lv1
+[root@server01 ~]# lvextend -L +1000 /dev/vg1/lv1
 # 在线调整大小
 [root@server01 ~]# xfs_growfs /dev/mapper/vg1-lv1
 # 扩充lv2

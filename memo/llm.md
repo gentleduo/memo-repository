@@ -23,6 +23,24 @@ Chinese (Simplified)
 
 ## Docker
 
+- buildkit
+
+  ```bash
+  # 二级制安装的docker，在打镜像的时候如果想用--mount=type=cache功能的话，则必须进行以下设置
+  # https://github.com/docker/buildx?tab=readme-ov-file
+  [root@server02 vllm]# cp buildx-v0.23.0.linux-amd64  /root/.docker/cli-plugins/
+  [root@server02 vllm]# cd /root/..docker/cli-plugins/
+  [root@server02 vllm]# mv buildx-v0.23.0.linux-amd64 docker-buildx
+  [root@server02 vllm]# chmod +x /root/.docker/cli-plugins/docker-buildx
+  [root@server02 vllm]# systemctl restart docker 
+  [root@server02 vllm]# vi /etc/docker/daemon.json
+  {
+    "features": {
+      "buildkit": true
+    }
+  }
+  ```
+
 - 配置生产仓库
 
   ```bash
@@ -139,4 +157,52 @@ Chinese (Simplified)
   ```
 
 - 启动容器时增加 --gpu 参数
+
+
+
+# 传统大模型训练流程
+
+## Pre training
+
+预训练：Base model
+
+预训练利用大量无标签或弱标签的数据，通过某种算法模型进行训练，得到一个初步具备通用知识或能力的模型。
+
+## Supervised fine tuning
+
+监督式微调：Instruct model
+
+尽管预训练模型已经在大规模数据集上学到了丰富的通用特征和先验知识，但这些特征和知识可能并不完全适用于特定的目标任务。微调通过在新任务的少量标注数据上进一步训练预训练模型，使模型能够学习到与目标任务相关的特定特征和规律，从而更好地适应新任务。
+
+## Preference alignment
+
+偏好对齐：chat model
+
+在很多应用场景下有监督微调就已经够用了，但对于一些面向用户的公众模型，偏好对齐还是很有必要的（不然模型说了什么不该说的话可能这个产品甚至公司都要完蛋）。比较经典的偏好对齐的做法就是基于人类反馈的强化学习（Reinforcement Learning from Human Feedback, RLHF）那一套，根据人类偏好/反馈数据训练一个“奖励模型”，并使用该模型作为强化学习中的奖励函数，再通过类似PPO之类的强化学习算法来优化大语言模型的输出。不过对于大多数非公司级的大语言模型来说，不愿意折腾RLHF，毕竟偏好数据不好收集、还要额外训一个奖励模型、还要搞训练不稳定的强化学习。这些成本都是很高的。
+
+# PEFT
+
+Parameter-Efficient Fine-Tuning
+
+# training
+
+```python
+# Step1 导入相关模块
+from datasets import load_dataset
+from transformers import AutoTokenizer, AutoModelForCausalLM, DataCollatorForSeq2Seq, TrainingArguments, Trainer
+
+import warnings
+warnings.filterwarnings('ignore')
+
+#import datasets
+#datasets.__version__
+#'3.6.0'
+#import transformers
+#transformers.__version
+#'4.51.1'
+```
+
+
+
+
 

@@ -123,6 +123,11 @@ c.NotebookApp.notebook_dir = u'' （请注意修改的是这一行）
 c.NotebookApp.notebook_dir = u'E:\\jupyter'
 *************************************************配置jupyter工作目录*************************************************
 
+生成 Jupyter 配置文件
+jupyter notebook --generate-config
+设置新密码
+jupyter notebook password
+
 *************************************************Python CGI编程*************************************************
 找到apache配置文件httpd.conf ,去掉下面代码前面的#号
 LoadModule cgi_module modules/mod_cgid.so

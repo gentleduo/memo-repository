@@ -141,13 +141,26 @@ Chinese (Simplified)
 - 错误解析
 
   ```bash
-  # 1、在安装完驱动、docker以及nvidia-container-toolkit后，用docker创建容器时出现如下报错,原因是gpu的持久模式(nvidia-persistenced daemon)并未开启
+  # 1、安装驱动时提示：WARNING: The Nouveau kernel driver is currently in use by your system.  This driver is incompatible with the NVIDIA driver，and must be disabled before proceeding.（警告：您的系统当前正在使用Nouveau内核驱动程序。此驱动程序与NVIDIA驱动程序不兼容，必须先禁用才能继续。）
+  #在 CentOS 系统上，如果你想要禁用 Nouveau 驱动（这是一个开源的 NVIDIA 驱动，通常用于 Nouveau 显卡），你可以通过以下几种方法来实现：
+  # 1.1 临时禁用：
+  [root@server01 deepseek]# lsmod | grep nouveau
+  [root@server01 deepseek]# rmmod nouveau
+  [root@server01 deepseek]# lsmod | grep nouveau
+  # 1.2 使用黑名单模块
+  [root@server01 deepseek]# vim /etc/modprobe.d/blacklist.conf
+  blacklist nouveau
+  options nouveau modeset=0
+  [root@server01 deepseek]# dracut --force
+  [root@server01 deepseek]# reboot
+  [root@server01 deepseek]# lsmod | grep nouveau
+  # 2、在安装完驱动、docker以及nvidia-container-toolkit后，用docker创建容器时出现如下报错,原因是gpu的持久模式(nvidia-persistenced daemon)并未开启
   [root@server01 deepseek]# docker: Error response from daemon: failed to create shim task: OCI runtime create failed: runc create failed: unable to start container process: error during container init: error running hook #0: error running hook: exit status 1, stdout: , stderr: Auto-detected mode as 'legacy' nvidia-container-cli: initialization error: driver rpc error: timed out: unknown.
   # 可以用nvidia-smi -a查询自己的 Persistence Mode 是否开启、同时也可以用nvidia-smi
   # 解决方案：使用root权限执行如下命令：
   [root@server01 deepseek]# nvidia-smi -pm ENABLED
   
-  # 2、nvidia-docker Failed to initialize NVML: Unknown Error
+  # 3、nvidia-docker Failed to initialize NVML: Unknown Error
   [root@server01 deepseek]# docker run --rm --runtime=nvidia --gpus all centos nvidia-smi
   [root@server01 deepseek]# Failed to initialize NVML: Unknown Error
   # 解决方案：
@@ -261,7 +274,54 @@ warnings.filterwarnings('ignore')
 #'4.51.1'
 ```
 
+## DeepSpeed VS Megatron-LM
 
+DeepSpeed和Megatron-LM都是用于大规模模型训练的框架，但它们的侧重点和功能有所不同。
+
+### 1. 背景
+- **DeepSpeed**:
+- 由Microsoft开发，是一个专注于**优化训练过程**的库，特别是通过减少显存占用和加速通信来提高训练效率。
+- 核心创新：ZeRO（Zero Redundancy Optimizer）技术，通过消除数据并行中的冗余状态（参数、梯度、优化器状态）来节省显存。
+- 支持多种训练优化技术，如混合精度训练、梯度累积、模型并行（与Megatron-LM集成）、CPU/NVMe offload等。
+- 目标：让大规模模型训练更加高效和可扩展，同时降低硬件门槛。
+- **Megatron-LM**:
+- 由NVIDIA开发，是一个专注于**模型并行**（特别是Tensor Parallelism和Pipeline Parallelism）的框架。
+- 提供了高效的模型并行实现，尤其是针对Transformer层内的张量切分（Tensor Parallelism）和模型层的流水线切分（Pipeline Parallelism）。
+- 目标：通过模型并行技术解决单个设备无法容纳超大模型的问题，并利用高效的并行计算来加速训练。
+### 2. 核心技术
+- **DeepSpeed的核心技术**:
+- **ZeRO**：分为三个阶段（Stage 1, 2, 3），通过在不同程度上分割优化器状态、梯度和参数来减少显存占用。
+- **Offload**：将优化器状态、梯度或参数卸载到CPU或NVMe，进一步节省GPU显存。
+- **3D并行**：集成了数据并行（ZeRO）、模型并行（Tensor Parallelism，需要与Megatron-LM集成）和流水线并行（Pipeline Parallelism，通过DeepSpeed的PipelineEngine）。
+- **其他优化**：如激活检查点（activation checkpointing）、通信优化（如压缩梯度）、大规模优化器（如AdamW、LAMB）等。
+- **Megatron-LM的核心技术**:
+- **Tensor Parallelism (TP)**：将Transformer层的矩阵运算（如线性层、自注意力）切分到多个GPU上，实现模型层内的并行。
+- **Pipeline Parallelism (PP)**：将模型按层切分到多个GPU上，形成流水线，不同GPU处理不同的层。
+- **Sequence Parallelism**：进一步将序列维度切分，用于处理长序列。
+- **高效的CUDA核**：针对并行计算优化了Transformer层的实现。
+### 3. 使用方式
+- **DeepSpeed**:
+- 可以作为PyTorch的一个扩展库使用，通过提供配置文件和简单的API集成到现有训练脚本中。
+- 通常与Hugging Face Transformers等库结合使用，只需修改少量代码即可启用ZeRO、Offload等功能。
+- 对于模型并行，需要与Megatron-LM集成（或使用DeepSpeed自带的实验性模型并行功能）。
+- **Megatron-LM**:
+- 是一个独立的训练框架，需要按照其特定的方式构建模型和训练流程。
+- 提供了自己的模型实现（如GPT-2、GPT-3、BERT等），用户需要基于这些实现来构建模型。
+- 通常需要更深入的理解来配置并行策略（TP、PP等）。
+### 4. 集成与协作
+- **DeepSpeed和Megatron-LM的集成**:
+- 两者可以结合使用，形成“3D并行”（数据并行、张量并行、流水线并行）的解决方案。
+- 在这种集成中，DeepSpeed负责数据并行（通过ZeRO）和可能的Offload，而Megatron-LM负责模型内部的张量并行和层间的流水线并行。
+- 例如，在训练千亿级模型时，通常会同时使用这两种技术。
+### 5. 适用场景
+- **DeepSpeed**:
+- 当你希望使用更少的资源（如显存）训练大模型时。
+- 当你已经有一个PyTorch模型，并希望以最小的改动来加速训练和减少显存占用。
+- 需要Offload到CPU/NVMe的场景。
+- **Megatron-LM**:
+- 当模型大到单个GPU无法容纳一层（如百亿、千亿参数模型）时，必须使用模型并行。
+- 当你需要最先进的模型并行实现（特别是Tensor Parallelism）以获得最佳性能时。
+- 当训练超大规模模型且硬件资源充足（如多节点多GPU）时。
 
 
 

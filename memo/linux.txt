@@ -207,6 +207,12 @@ downloadonly指出本次下载仅仅下载，参数downloaddir指定了保存的
 可以使用如下的方式解决：
 yum -y install --downloadonly --installroot=/tmp/createrepo --releasever=/ --downloaddir=/software/nfs nfs-utils
 
+# 创建一个临时目录
+mkdir -p /tmp/nginx-offline
+cd /tmp/nginx-offline
+# 使用installroot创建一个空的环境，这样就不会认为系统已经安装了包
+yumdownloader --resolve --installroot=/tmp/empty-root --releasever=/ --destdir=/tmp/nginx-offline nginx-1.18.0
+
 --installroot=/usr/local        表示指定自定义的安装目录（如果安装到自定义目录，会额外安装很多依赖的软件包，即使这些依赖包已经安装过，也会在你自定义的目录中重新安装）
 
 切换到下载目录rpm中批量安装：

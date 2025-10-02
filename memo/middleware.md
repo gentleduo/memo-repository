@@ -2185,17 +2185,21 @@ requirepass 123456
 >
 >- 0.0.0.0，最特殊的一个ip地址，代表的是本机所有ip地址，不管有多少个网口，多少个ip，如果监听本机的0.0.0.0上的端口，就等于监听机器上的所有ip端口。换句话说，就是只要数据报目的地址是你机器上的一个ip地址，那么就能被接受。
 >
->- `-` 当指定的网络接口不可用且其他网络接口可用时，不会启动失败。
+>- `-` 是一个排除符号。它表示 “不监听” 后面指定的地址。当指定的网络接口不可用且其他网络接口可用时，不会启动失败。
 >
->  当`17.0.0.1`为`无`效ip，以下配置以及`log`输出。
+>- ::1 是 IPv6 的回环地址，等同于 IPv4 中的 127.0.0.1。它表示“本机”。
 >
->  bind 0.0.0.0 -17.0.0.1
+>- `-::1` 的完整意思是：**不监听 IPv6 的回环地址（::1）**。
 >
->  Warning: Could not create server TCP listening socket 17.0.0.1:6379: bind: Cannot assign requested address
+> 当`17.0.0.1`为`无`效ip，以下配置以及`log`输出。
 >
->  ···省略···
+> bind 0.0.0.0 -17.0.0.1
 >
->  Ready to accept connections
+> Warning: Could not create server TCP listening socket 17.0.0.1:6379: bind: Cannot assign requested address
+>
+> ···省略···
+>
+> Ready to accept connections
 
 ### 启动
 

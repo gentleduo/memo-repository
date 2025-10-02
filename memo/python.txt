@@ -675,7 +675,7 @@ class OddIterator(object):
 3
 >>> next(i)
 5
-迭代器可以直接调用next()方法（迭代器本身也是可迭代对象）
+迭代器可以直接调用next()方法
 
 自定义可迭代对象
 class OddNumber(object):
@@ -725,12 +725,15 @@ for x in square_gen:
     print(x)
 
 for 循环会调用 iter() 函数，获取一个生成器；而后调用 next() 函数，将生成器中的下一个值赋值给 x；再执行循环体。因此，上述 for 循环基本等价于：
-genitor = square_gen.__iter__()
+generator = square_gen.__iter__()
 while True:
-    x = geniter.next() # Python 3 是 __next__()
-    print(x)
-注意到，square 是一个生成器函数；作为它的返回值，square_gen 已经是一个迭代器；迭代器的 __iter__() 返回它自己。（也可以直接执行next(square_gen)）因此 geniter 对应的生成器函数，即是 square。
-每次执行到 x = geniter.next() 时，square 函数会从上一次暂停的位置开始，一直执行到下一个 yield 表达式，将 yield 关键字后的表达式列表返回给调用者，并再次暂停。注意，每次从暂停恢复时，生成器函数的内部变量、指令指针、内部求值栈等内容和暂停时完全一致。
+    try:
+        x = generator.__next__()  # Python 3 是 __next__()
+        print(x)
+    except StopIteration:
+        break;
+注意到，square是一个生成器函数；作为它的返回值square_gen已经是一个迭代器；迭代器的__iter__()返回它自己。（也可以直接执行next(square_gen)）因此generator对应的生成器函数，即是square。
+每次执行到x=generator.next()时，square函数会从上一次暂停的位置开始，一直执行到下一个yield表达式，将yield关键字后的表达式列表返回给调用者，并再次暂停。注意，每次从暂停恢复时，生成器函数的内部变量、指令指针、内部求值栈等内容和暂停时完全一致。
 
 使用列表推导，将会一次产生所有结果：
 >>> squares = [x**2 for x in range(5)]

@@ -562,7 +562,7 @@ nginx -V                                    # 显示版本信息和编译选项
 
 记录了访问出错的信息，可以帮助我们定位错误的原因
 
-### 重写日志
+### 重写日 IntelliJ IDEA 中，定位到指定行的快捷键是志
 
 rewrite_log on：表示将发送所有的rewrite相关的日志信息到error_log中，error_log的级别必须设置为notice。随后可以在error_log查看rewrite信息。
 

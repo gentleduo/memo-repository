@@ -104,3 +104,65 @@
       print(f"当前文件所在目录: {os.path.dirname(__file__)}")
       print(f"文件的绝对路径: {os.path.abspath(__file__)}")
       ```
+
+   3. | 操作       | `os.path` 传统写法                  | 等价 Pathlib 写法                                   |
+      | ---------- | ----------------------------------- | --------------------------------------------------- |
+      | 拼路径     | `os.path.join(base, f"{name}.txt")` | `Path(base) / f"{name}.txt"`                        |
+      | 取绝对路径 | `os.path.abspath(__file__)`         | `Path(__file__).resolve()`                          |
+      | 创建文件夹 | `os.makedirs(p, exist_ok=True)`     | `Path('folder').mkdir(parents=True, exist_ok=True)` |
+
+      >Pathlib 更短、可链式、跨平台自动适配。
+      >
+      >Pathlib 用 Path("foo") / "bar.txt" 自动帮你选对分隔符。
+
+3. `__doc__`
+
+   1. 包含模块、类、函数的文档字符串（docstring）
+
+   2. ```python
+      def calculate_area(radius):
+          """计算圆的面积
+          参数:
+              radius (float): 圆的半径
+          返回:
+              float: 圆的面积
+          """
+          return 3.14 * radius ** 2
+      
+      print(calculate_area.__doc__)  # 输出文档字符串
+      ```
+
+4. sys.path
+
+   1. 是一个列表，包含Python解释器在导入模块时搜索的路径
+
+   2. ```python
+      import sys
+      print("当前模块搜索路径:", sys.path)
+      sys.path.append('/my/custom/path')  # 添加自定义路径
+      ```
+
+5. `__builtins__`
+
+   1. 包含所有内置函数和变量的命名空间，如 len、range、str 等。
+
+   2. ```python
+      print("内置函数列表:", dir(__builtins__))
+      print("len函数:", __builtins__.len)
+      print("使用__builtins__调用len:", __builtins__.len([1, 2, 3]))
+      ```
+
+6. sys.exc_info()
+
+   1. 获取当前异常信息，用于错误处理
+
+   2. ```python
+      import sys
+      
+      try:
+          1 / 0
+      except:
+          exc_type, exc_value, exc_traceback = sys.exc_info()
+          print("异常类型:", exc_type)
+          print("异常值:", exc_value)
+      ```

@@ -248,6 +248,96 @@
 
 # 生成器
 
+## Python的栈帧对象模型
+
+Python中"一切皆对象"，特别是栈帧对象的堆分配特性，是掌握Python高级特性（如协程、元编程、调试技巧）的关键基础。这种设计让Python极其灵活，但也需要注意内存管理。
+
+栈帧对象（Frame Objects）
+
+```python
+import inspect
+
+def bar():
+    # 获取当前栈帧
+    frame = inspect.currentframe()
+    print(f"Bar帧ID: {id(frame)}")
+    print(f"Bar帧对象: {frame}")
+    return frame  # 可以返回栈帧对象！
+
+def foo():
+    frame = bar()
+    # 栈帧对象可以被传递和存储
+    frames.append(frame)
+    print(f"Foo结束，但bar的栈帧还被引用着")
+
+# 存储栈帧对象的列表
+frames = []
+foo()
+
+# 即使函数调用结束，栈帧对象还存在
+print(f"存储的帧数: {len(frames)}")
+print(frames[0].f_code.co_name)  # 输出: bar
+```
+
+字节码对象（Code Objects）
+
+```python
+def example():
+    x = 10
+    y = 20
+    return x + y
+
+# 获取函数的字节码对象
+code_obj = example.__code__
+
+print(f"字节码对象: {code_obj}")
+print(f"常量: {code_obj.co_consts}")    # (None, 10, 20)
+print(f"变量名: {code_obj.co_varnames}")  # ('x', 'y')
+print(f"字节码: {code_obj.co_code}")     # 原始字节码
+```
+
+示例
+
+```python
+#1.python中函数的工作原理
+import inspect
+import dis
+
+#python.exe会用一个叫做PyEval_EvalFramEx(c函数)去执行函数， 首先会创建一个栈帧(stack frame)
+"""
+python一切皆对象，栈帧对象， 字节码对象
+当foo调用子函数bar，又会创建一个栈帧对象，
+因为所有的对象都是分配在堆内存上，这就决定了栈帧可以独立于调用者存在
+这跟java等静态语言有较大的区别，java中函数调用完成后整个栈会全部被销毁
+"""
+
+frame = None
+def foo():
+    bar()
+def bar():
+    global frame
+    # 通过inspect获取方法的栈帧
+    frame = inspect.currentframe()
+
+# 可以通过dis.dis获取字节码
+print(dis.dis(foo))
+
+foo()
+# 这里虽然foo()函数运行结束了，但是由于栈帧分配在堆内存中，并且将栈帧赋值给了全局变量，所有仍然可以获取函数的名字和调用者的名字
+print(frame.f_code.co_name)
+caller_frame = frame.f_back
+print(caller_frame.f_code.co_name)
+```
+
+Python vs Java 函数调用对比
+
+| 特性         | Python                  | Java           |
+| :----------- | :---------------------- | :------------- |
+| **栈帧存储** | 堆内存                  | 栈内存         |
+| **生命周期** | 由GC管理                | 函数结束即销毁 |
+| **可访问性** | 可被引用、传递          | 不可访问       |
+| **协程支持** | 天然支持（可暂停/恢复） | 需要额外机制   |
+
 ## send
 
 `send()` 方法是生成器对象的一个核心方法，它允许**双向通信**：在恢复生成器执行的同时，向生成器发送一个值。这个值会成为当前暂停的 `yield` 表达式的返回值。
@@ -419,7 +509,7 @@ def sales_sum(pro_name):
 def middle(key):
     """
     中间协程函数，用于处理销售数据统计
-    while True循环作用是让middle协程能够持续处理多个数据集合，但是在main函数中，为每个key都创建了一个新的middle协程（m = middle(key)），然后预激它，接着发送数据，最后发送一个None结束sales_sum协程；但是main函数已经不会再给这个协程发送数据了，所以这个协程就变成了一个悬挂的协程，无法结束。严格来说，这会造成资源泄露（协程未关闭），但在程序结束时，所有资源都会被回收。
+    while True循环作用是让middle协程能够持续处理多个数据集合，但是在main函数中，为每个key都创建了一个新的middle协程（m = middle(key)），然后预激它，接着发送数据，最后发送一个None结束sales_sum协程；并且在main函数已经不会再给这个协程发送数据了，所以这个协程就变成了一个悬挂的协程，无法结束。严格来说，这会造成资源泄露（协程未关闭），直到程序结束时，所有资源才会被回收。
     这里增加while True表示协程永远不会结束，所以不会抛出StopIteration，所以在main里面第二次m.send(None)的时候不需要进行异常处理
     
     参数:

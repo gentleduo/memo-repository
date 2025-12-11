@@ -620,6 +620,8 @@ Python协程的实现经历了从生成器到async/await语法的演变，这一
 
 协程在Python中的实际应用主要集中在I/O密集型任务处理上，如网络请求、文件读写和数据库操作等。
 
+linux版本：python3
+
 ```python
 import socket
 import select
@@ -628,7 +630,6 @@ import time
 import ssl
 import gzip
 import io
-
 
 class EventLoop:
     """事件循环类：极简稳定版，减少不必要的日志和操作"""
@@ -980,5 +981,390 @@ if __name__ == "__main__":
         print("⚠️  未获取到任何有效数据")
 
 
+```
+
+windows：
+
+```python
+import socket
+import select
+import urllib.parse
+import time
+import ssl
+import gzip
+import io
+import zlib  # 补充缺失的导入
+
+# 自定义事件常量，替代epoll的EPOLLIN/EPOLLOUT
+READ_EVENT = 1
+WRITE_EVENT = 2
+
+class EventLoop:
+    """事件循环类：适配Windows，使用select替代epoll"""
+
+    def __init__(self, timeout=15):
+        # Windows无epoll，改用select，保存socket而非fd
+        self.sockets = {}  # sock -> (coro, events, create_time)
+        self.results = []
+        self.timeout = timeout  # 更长的超时，适配HTTPS
+
+    def register(self, sock, coro, events):
+        """安全注册：忽略重复注册，events为自定义的可读/可写标识"""
+        if sock in self.sockets:
+            self.sockets[sock] = (coro, events, self.sockets[sock][2])
+        else:
+            try:
+                self.sockets[sock] = (coro, events, time.time())
+            except Exception:
+                pass
+
+    def unregister(self, sock):
+        """安全注销：全异常捕获"""
+        if sock in self.sockets:
+            del self.sockets[sock]
+
+    def _check_timeout(self):
+        """超时清理：仅清理超时且无响应的socket"""
+        now = time.time()
+        timeout_socks = [sock for sock, (_, _, ct) in self.sockets.items() if now - ct > self.timeout]
+        for sock in timeout_socks:
+            self.unregister(sock)
+            try:
+                sock.close()
+            except Exception:
+                pass
+
+    def add_coroutine(self, coro):
+        """添加协程：容错处理"""
+        try:
+            sock, events = next(coro)
+            self.register(sock, coro, events)
+        except StopIteration:
+            pass
+        except Exception:
+            pass
+
+    def run(self):
+        """适配Windows的事件循环：使用select替代epoll"""
+        try:
+            while self.sockets:
+                self._check_timeout()
+                if not self.sockets:
+                    break
+
+                # 拆分可读/可写socket列表（select需要明确区分）
+                read_socks = []
+                write_socks = []
+                for sock, (_, events, _) in self.sockets.items():
+                    if events & READ_EVENT:  # 使用自定义读事件
+                        read_socks.append(sock)
+                    if events & WRITE_EVENT:  # 使用自定义写事件
+                        write_socks.append(sock)
+
+                # Windows的select：参数为(可读列表, 可写列表, 异常列表, 超时时间)
+                readable, writable, exceptional = select.select(read_socks, write_socks, self.sockets.keys(), 0.5)
+
+                # 处理异常socket
+                for sock in exceptional:
+                    self.unregister(sock)
+                    try:
+                        sock.close()
+                    except Exception:
+                        pass
+                    continue
+
+                # 处理可读事件
+                for sock in readable:
+                    if sock not in self.sockets:
+                        continue
+                    coro, _, _ = self.sockets[sock]
+                    self._handle_event(sock, coro, READ_EVENT)
+
+                # 处理可写事件
+                for sock in writable:
+                    if sock not in self.sockets:
+                        continue
+                    coro, _, _ = self.sockets[sock]
+                    self._handle_event(sock, coro, WRITE_EVENT)
+        finally:
+            # 清理所有socket
+            for sock in self.sockets.keys():
+                try:
+                    sock.close()
+                except Exception:
+                    pass
+            self.sockets.clear()
+
+    def _handle_event(self, sock, coro, event):
+        """统一处理事件的辅助函数"""
+        try:
+            # 执行协程，获取下一个要监听的socket和事件
+            next_sock, next_events = coro.send(event)
+            self.unregister(sock)
+            self.register(next_sock, coro, next_events)
+        except StopIteration:
+            self.unregister(sock)
+            try:
+                sock.close()
+            except Exception:
+                pass
+        except Exception:
+            self.unregister(sock)
+            try:
+                sock.close()
+            except Exception:
+                pass
+
+
+def decompress_data(data, encoding):
+    """解压数据：处理gzip/deflate压缩"""
+    try:
+        if encoding == 'gzip':
+            with gzip.GzipFile(fileobj=io.BytesIO(data)) as f:
+                return f.read()
+        elif encoding == 'deflate':
+            return zlib.decompress(data)
+        else:
+            return data
+    except Exception:
+        return data
+
+
+def parse_http_response(response_data):
+    """解析HTTP响应：分离头、体、编码"""
+    header_end = response_data.find(b"\r\n\r\n")
+    if header_end == -1:
+        return 200, {}, response_data
+
+    header_part = response_data[:header_end].decode('utf-8', errors='ignore')
+    body_part = response_data[header_end + 4:]
+
+    # 解析状态码
+    status_code = 200
+    encoding = 'identity'
+    headers = {}
+    lines = header_part.split("\r\n")
+    if lines:
+        status_line = lines[0]
+        if status_line.startswith("HTTP/"):
+            try:
+                status_code = int(status_line.split()[1])
+            except Exception:
+                pass
+
+        # 解析响应头
+        for line in lines[1:]:
+            if ":" in line:
+                key, value = line.split(":", 1)
+                key = key.strip().lower()
+                value = value.strip()
+                headers[key] = value
+                if key == 'content-encoding':
+                    encoding = value.lower()
+
+    # 解压数据
+    body_part = decompress_data(body_part, encoding)
+    return status_code, headers, body_part
+
+
+def fetch_url(url, loop, max_redirects=2):
+    """
+    稳定版协程：兼容Windows/SSL/压缩/乱码，全异常捕获
+    """
+    if max_redirects <= 0:
+        return
+
+    sock = None
+    ssl_sock = None
+    is_https = False
+    try:
+        # 1. 解析URL
+        parsed_url = urllib.parse.urlparse(url)
+        host = parsed_url.netloc or parsed_url.path
+        path = parsed_url.path or '/'
+        if parsed_url.query:
+            path += f"?{parsed_url.query}"
+
+        # 2. 识别HTTPS和端口
+        if parsed_url.scheme == 'https':
+            is_https = True
+            port = parsed_url.port or 443
+        else:
+            port = parsed_url.port or 80
+
+        print(f'host:{host},path:{path},port:{port},is_https:{is_https}')
+        # 3. DNS解析（容错）
+        try:
+            addr_info = socket.getaddrinfo(host, port, socket.AF_INET, socket.SOCK_STREAM)[0]
+            ip = addr_info[4][0]
+        except Exception:
+            raise Exception("DNS解析失败")
+
+        # 4. 创建基础Socket（纯非阻塞）
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.setblocking(False)
+
+        # 5. 非阻塞连接（Windows兼容）
+        try:
+            sock.connect((ip, port))
+        except BlockingIOError:
+            pass
+        except Exception as e:
+            # Windows下非阻塞连接可能抛出其他异常，兼容处理
+            if "WSAEWOULDBLOCK" not in str(e):
+                raise
+
+        # 等待连接建立：返回socket和自定义写事件
+        yield (sock, WRITE_EVENT)
+
+        # 6. HTTPS处理（兼容SSL异常，消除废弃警告）
+        if is_https:
+            # 兼容SSL版本和加密套件（新方式，消除DeprecationWarning）
+            context = ssl.create_default_context()
+            # 替代废弃的 ssl.OP_NO_TLSv1 | ssl.OP_NO_TLSv1_1
+            context.minimum_version = ssl.TLSVersion.TLSv1_2
+            context.set_ciphers('DEFAULT:@SECLEVEL=1')  # 降低安全级别，兼容更多网站
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
+
+            # 非阻塞SSL握手
+            ssl_sock = context.wrap_socket(sock, server_hostname=host, do_handshake_on_connect=False)
+            while True:
+                try:
+                    ssl_sock.do_handshake()
+                    break
+                except ssl.SSLWantReadError:
+                    yield (ssl_sock, READ_EVENT)
+                except ssl.SSLWantWriteError:
+                    yield (ssl_sock, WRITE_EVENT)
+                except Exception as e:
+                    raise Exception(f"SSL握手失败: {e}")
+            sock = ssl_sock  # 替换为SSL socket
+
+        # 7. 发送请求（强制不压缩）
+        request = (
+            f"GET {path} HTTP/1.1\r\n"
+            f"Host: {host}\r\n"
+            f"Connection: close\r\n"
+            f"User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36\r\n"
+            f"Accept: text/html,*/*;q=0.8\r\n"
+            f"Accept-Language: zh-CN,zh;q=0.9\r\n"
+            f"Accept-Encoding: gzip, deflate\r\n"  # 允许压缩，后续解压
+            f"\r\n"
+        )
+        sock.send(request.encode('utf-8'))
+
+        # 等待数据可读：返回自定义读事件
+        yield (sock, READ_EVENT)
+
+        # 8. 稳定读取数据（兼容SSL读取）
+        response_data = b""
+        read_start = time.time()
+        while time.time() - read_start < 10:  # 10秒读取超时
+            try:
+                # SSL读取需要特殊处理
+                chunk = sock.recv(4096)
+
+                if not chunk:
+                    break
+                response_data += chunk
+
+                # 提前终止：已获取完整页面
+                if b"</html>" in response_data and len(response_data) > 1024:
+                    break
+            except ssl.SSLWantReadError:
+                yield (sock, READ_EVENT)
+            except ssl.SSLWantWriteError:
+                yield (sock, WRITE_EVENT)
+            except BlockingIOError:
+                time.sleep(0.001)
+                continue
+            except Exception:
+                break
+
+        if not response_data:
+            raise Exception("未读取到任何数据")
+
+        # 9. 解析响应（处理压缩）
+        status_code, headers, body = parse_http_response(response_data)
+
+        # 10. 处理重定向
+        if status_code in [301, 302] and 'location' in headers:
+            redirect_url = urllib.parse.urljoin(url, headers['location'])
+            sock.close()
+            loop.unregister(sock)
+            coro = fetch_url(redirect_url, loop, max_redirects - 1)
+            try:
+                next_sock, next_evt = next(coro)
+                yield (next_sock, next_evt)
+            except Exception:
+                pass
+            return
+
+        # 11. 存储结果（解决乱码）
+        content = body.decode('utf-8', errors='replace')  # 替换乱码字符
+        loop.results.append({
+            "url": url,
+            "status_code": status_code,
+            "length": len(content),
+            "content": content,
+            "is_https": is_https
+        })
+        print(f"✅ 爬取成功 {url} | 状态码: {status_code} | 长度: {len(content)} 字节")
+
+    except Exception as e:
+        print(f"❌ 爬取失败 {url}: {str(e)[:60]}")
+    finally:
+        # 安全清理资源
+        if ssl_sock:
+            try:
+                ssl_sock.close()
+            except Exception:
+                pass
+        elif sock:
+            try:
+                sock.close()
+            except Exception:
+                pass
+        # 注销socket
+        if sock in loop.sockets:
+            loop.unregister(sock)
+
+
+if __name__ == "__main__":
+    # 目标网站
+    target_urls = [
+        # "http://www.baidu.com",
+        "https://www.jd.com",
+        "https://www.163.com",
+        "https://www.sina.com.cn",
+        # "https://www.sohu.com"
+        "https://www.vip.com"
+    ]
+
+    # 初始化事件循环
+    event_loop = EventLoop(timeout=15)
+
+    # 添加协程
+    for url in target_urls:
+        event_loop.add_coroutine(fetch_url(url, event_loop))
+
+    # 启动爬取
+    print("🚀 开始并发爬取...")
+    event_loop.run()
+
+    # 输出结果（清晰展示）
+    print("\n===== 最终爬取结果 ======")
+    if event_loop.results:
+        newline = '\n'
+        for i, res in enumerate(event_loop.results, 1):
+            print(f"\n{i}. 原始URL: {res['url']}")
+            print(f"   HTTPS: {res['is_https']} | 状态码: {res['status_code']}")
+            print(f"   内容长度: {res['length']} 字符")
+            # 预览前200个字符，替换换行
+            preview = res['content'][:200].replace(newline, ' ')
+            print(f"   内容预览: {preview}...")
+    else:
+        print("⚠️  未获取到任何有效数据")
 ```
 

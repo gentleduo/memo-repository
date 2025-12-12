@@ -995,7 +995,6 @@ import gzip
 import io
 import zlib  # 补充缺失的导入
 
-
 # 自定义事件常量，替代epoll的EPOLLIN/EPOLLOUT
 READ_EVENT = 1
 WRITE_EVENT = 2
@@ -1003,10 +1002,11 @@ WRITE_EVENT = 2
 
 class EventLoop:
     """事件循环类：适配Windows，使用select替代epoll，修复超时清理逻辑"""
+
     def __init__(self, timeout=15):
         # Windows无epoll，改用select，保存socket而非fd
         # 数据结构调整：sock -> (coro, events, create_time, last_active_time)
-        self.sockets = {}  
+        self.sockets = {}
         self.results = []
         self.timeout = timeout  # 更长的超时，适配HTTPS
 
@@ -1038,14 +1038,15 @@ class EventLoop:
         """优化的超时清理：仅清理长时间无活动的socket"""
         now = time.time()
         timeout_socks = []
-        
+
         for sock, (_, _, create_time, last_active_time) in self.sockets.items():
             # 两种情况判定为超时：
             # 1. 最后活动时间超过超时阈值（核心判断）
             # 2. 从未活动过，但创建时间超过2倍超时阈值（兜底）
-            if (now - last_active_time > self.timeout) or (last_active_time == create_time and now - create_time > self.timeout * 2):
+            if (now - last_active_time > self.timeout) or (
+                    last_active_time == create_time and now - create_time > self.timeout * 2):
                 timeout_socks.append(sock)
-        
+
         for sock in timeout_socks:
             self.unregister(sock)
             try:
@@ -1071,7 +1072,7 @@ class EventLoop:
                 self._check_timeout()
                 if not self.sockets:
                     break
-                
+
                 # 拆分可读/可写socket列表（select需要明确区分）
                 read_socks = []
                 write_socks = []
@@ -1080,10 +1081,10 @@ class EventLoop:
                         read_socks.append(sock)
                     if events & WRITE_EVENT:  # 使用自定义写事件
                         write_socks.append(sock)
-                
+
                 # Windows的select：参数为(可读列表, 可写列表, 异常列表, 超时时间)
                 readable, writable, exceptional = select.select(read_socks, write_socks, self.sockets.keys(), 0.5)
-                
+
                 # 处理异常socket
                 for sock in exceptional:
                     self.unregister(sock)
@@ -1092,7 +1093,7 @@ class EventLoop:
                     except Exception:
                         pass
                     continue
-                
+
                 # 处理可读事件（更新最后活动时间）
                 for sock in readable:
                     if sock not in self.sockets:
@@ -1100,7 +1101,7 @@ class EventLoop:
                     self._update_last_active(sock)  # 关键：更新活动时间
                     coro, _, _, _ = self.sockets[sock]
                     self._handle_event(sock, coro, READ_EVENT)
-                
+
                 # 处理可写事件（更新最后活动时间）
                 for sock in writable:
                     if sock not in self.sockets:
@@ -1157,10 +1158,10 @@ def parse_http_response(response_data):
     header_end = response_data.find(b"\r\n\r\n")
     if header_end == -1:
         return 200, {}, response_data
-    
+
     header_part = response_data[:header_end].decode('utf-8', errors='ignore')
-    body_part = response_data[header_end+4:]
-    
+    body_part = response_data[header_end + 4:]
+
     # 解析状态码
     status_code = 200
     encoding = 'identity'
@@ -1173,7 +1174,7 @@ def parse_http_response(response_data):
                 status_code = int(status_line.split()[1])
             except Exception:
                 pass
-        
+
         # 解析响应头
         for line in lines[1:]:
             if ":" in line:
@@ -1183,7 +1184,7 @@ def parse_http_response(response_data):
                 headers[key] = value
                 if key == 'content-encoding':
                     encoding = value.lower()
-    
+
     # 解压数据
     body_part = decompress_data(body_part, encoding)
     return status_code, headers, body_part
@@ -1195,7 +1196,7 @@ def fetch_url(url, loop, max_redirects=2):
     """
     if max_redirects <= 0:
         return
-    
+
     sock = None
     ssl_sock = None
     is_https = False
@@ -1206,14 +1207,14 @@ def fetch_url(url, loop, max_redirects=2):
         path = parsed_url.path or '/'
         if parsed_url.query:
             path += f"?{parsed_url.query}"
-        
+
         # 2. 识别HTTPS和端口
         if parsed_url.scheme == 'https':
             is_https = True
             port = parsed_url.port or 443
         else:
             port = parsed_url.port or 80
-       
+
         print(f'host:{host},path:{path},port:{port},is_https:{is_https}')
         # 3. DNS解析（容错）
         try:
@@ -1221,11 +1222,11 @@ def fetch_url(url, loop, max_redirects=2):
             ip = addr_info[4][0]
         except Exception:
             raise Exception("DNS解析失败")
-        
+
         # 4. 创建基础Socket（纯非阻塞）
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.setblocking(False)
-        
+
         # 5. 非阻塞连接（Windows兼容）
         try:
             sock.connect((ip, port))
@@ -1235,10 +1236,10 @@ def fetch_url(url, loop, max_redirects=2):
             # Windows下非阻塞连接可能抛出其他异常，兼容处理
             if "WSAEWOULDBLOCK" not in str(e):
                 raise
-        
+
         # 等待连接建立：返回socket和自定义写事件
         yield (sock, WRITE_EVENT)
-        
+
         # 6. HTTPS处理（兼容SSL异常，消除废弃警告）
         if is_https:
             # 兼容SSL版本和加密套件（新方式，消除DeprecationWarning）
@@ -1248,7 +1249,7 @@ def fetch_url(url, loop, max_redirects=2):
             context.set_ciphers('DEFAULT:@SECLEVEL=1')  # 降低安全级别，兼容更多网站
             context.check_hostname = False
             context.verify_mode = ssl.CERT_NONE
-            
+
             # 非阻塞SSL握手
             ssl_sock = context.wrap_socket(sock, server_hostname=host, do_handshake_on_connect=False)
             while True:
@@ -1262,7 +1263,7 @@ def fetch_url(url, loop, max_redirects=2):
                 except Exception as e:
                     raise Exception(f"SSL握手失败: {e}")
             sock = ssl_sock  # 替换为SSL socket
-        
+
         # 7. 发送请求（强制不压缩）
         request = (
             f"GET {path} HTTP/1.1\r\n"
@@ -1275,10 +1276,10 @@ def fetch_url(url, loop, max_redirects=2):
             f"\r\n"
         )
         sock.send(request.encode('utf-8'))
-        
+
         # 等待数据可读：返回自定义读事件
         yield (sock, READ_EVENT)
-        
+
         # 8. 稳定读取数据（兼容SSL读取）
         response_data = b""
         read_start = time.time()
@@ -1286,11 +1287,11 @@ def fetch_url(url, loop, max_redirects=2):
             try:
                 # SSL读取需要特殊处理
                 chunk = sock.recv(4096)
-                
+
                 if not chunk:
                     break
                 response_data += chunk
-                
+
                 # 提前终止：已获取完整页面
                 if b"</html>" in response_data and len(response_data) > 1024:
                     break
@@ -1303,26 +1304,26 @@ def fetch_url(url, loop, max_redirects=2):
                 continue
             except Exception:
                 break
-        
+
         if not response_data:
             raise Exception("未读取到任何数据")
-        
+
         # 9. 解析响应（处理压缩）
         status_code, headers, body = parse_http_response(response_data)
-        
+
         # 10. 处理重定向
         if status_code in [301, 302] and 'location' in headers:
             redirect_url = urllib.parse.urljoin(url, headers['location'])
             sock.close()
             loop.unregister(sock)
-            coro = fetch_url(redirect_url, loop, max_redirects-1)
+            coro = fetch_url(redirect_url, loop, max_redirects - 1)
             try:
                 next_sock, next_evt = next(coro)
                 yield (next_sock, next_evt)
             except Exception:
                 pass
             return
-        
+
         # 11. 存储结果（解决乱码）
         content = body.decode('utf-8', errors='replace')  # 替换乱码字符
         loop.results.append({
@@ -1333,7 +1334,7 @@ def fetch_url(url, loop, max_redirects=2):
             "is_https": is_https
         })
         print(f"✅ 爬取成功 {url} | 状态码: {status_code} | 长度: {len(content)} 字节")
-    
+
     except Exception as e:
         print(f"❌ 爬取失败 {url}: {str(e)[:60]}")
     finally:
@@ -1356,11 +1357,11 @@ def fetch_url(url, loop, max_redirects=2):
 if __name__ == "__main__":
     # 目标网站
     target_urls = [
-        #"http://www.baidu.com",
+        # "http://www.baidu.com",
         "https://www.jd.com",
         "https://www.163.com",
         "https://www.sina.com.cn",
-        #"https://www.sohu.com"
+        # "https://www.sohu.com"
         "https://www.vip.com"
     ]
 

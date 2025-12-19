@@ -175,3 +175,23 @@ git push -u origin main
 git remote add origin git@github.com:gentleduo/test.git
 git branch -M main
 git push -u origin main
+
+
+
+查看本地提交和远程仓库提交的版本差异
+1. 准备工作：先获取远程更新
+# 获取远程所有分支的最新信息（不会合并）
+git fetch origin
+# 或获取特定远程分支
+git fetch origin main
+2. 查看提交历史差异
+# 查看远程有而本地没有的提交，如果版本一致则不会有任何输出（本地落后于远程）
+git log HEAD..origin/main --oneline
+# 查看本地有而远程没有的提交，如果版本一致则不会有任何输出（本地超前于远程）
+git log origin/main..HEAD --oneline
+# 查看双方的差异，如果版本一致则不会有任何输出（双向比较）
+git log HEAD...origin/main --oneline
+# 查看完整提交信息（包括作者、时间等）
+git log origin/main..HEAD
+# 图形化显示分支差异
+git log --graph --oneline --decorate HEAD origin/main

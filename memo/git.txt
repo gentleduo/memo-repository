@@ -108,7 +108,43 @@ git reset 的三种模式：
 3、git reset --hard <commit>
 表示：移动HEAD指针到指定的<commit>，重置暂存区和工作区
 比如：git reset --hard HEAD~1、表示：不仅撤销了提交，还丢弃了所有相关的修改
-					 
+					
+git revert
+git revert是一个安全撤销更改的命令，它通过创建一个新的提交来撤销指定提交的更改，而不是删除或修改历史记录。
+核心特点
+不改变历史 - 保留原始提交记录
+创建新提交 - 生成一个撤销更改的新提交
+安全协作 - 适合已推送到远程仓库的提交
+可撤销特定提交 - 可以选择性地撤销某个提交，而不影响其他提交
+# 撤销单个提交
+git revert <commit-hash>
+# 撤销最近一次提交
+git revert HEAD
+# 撤销多个连续的提交
+git revert <oldest-commit>..<latest-commit>
+# 撤销但先不提交（需要手动提交）
+git revert --no-commit <commit-hash>
+可视化理解
+初始状态：
+A -- B -- C -- D (main)
+
+执行 git revert C 后：
+A -- B -- C -- D -- E (main)
+                ↑
+                E是撤销C的新提交
+
+执行 git revert E 后（再次撤销）：
+A -- B -- C -- D -- E -- F (main)
+                        ↑
+                        F撤销E，恢复C的效果
+Revert与Reset 的对比
+特性	    git revert	            git reset
+历史记录	创建新提交，不删除历史	修改历史，删除提交
+安全性	    安全，适合已推送的提交	危险，会丢失提交
+协作影响	可以安全推送	        强制推送可能影响他人
+工作区	    不影响未提交的更改	    可能影响工作区/暂存区
+主要用途	撤销已公开的提交	    撤销本地未推送的提交
+
 （一）暂存区是什么
 所谓的暂存区实际只是一个简单的索引文件，即 .git文件夹下的index文件。
 那么index文件中保存了什么东西？直接打开会显示乱码，我们可以使用 git ls-files --stage 命令来查看index文件中内容。

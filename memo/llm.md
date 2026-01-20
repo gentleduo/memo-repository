@@ -1017,7 +1017,7 @@ if __name__ == '__main__':
 
 ## PE
 
-Transformer原始论文中位置编码代码实现：
+Transformer原始论文中绝对位置编码代码实现：
 
 ```python
 import torch
@@ -1026,34 +1026,31 @@ import torch.nn as nn
 
 
 class SinusoidalPositionalEncoding(nn.Module):
-
     """
     Sinusoidal Positional Encoding
     """
 
     def __init__(self, d_model, seq_len=4096):
         super().__init__()
-        self.pe = torch.zeros(seq_len, d_model)  # 初始化位置编码矩阵
-        position = torch.arange(0, seq_len, dtype=torch.float).unsqueeze(1)  # 位置索引 [max_len, 1]
-        # pos是奇数 cos(pos/10000**(2i/d_model)) pos是偶数 sin(pos/10000**(2i/d_model))
-        # 计算三角函数里面的值1/10000**(2i/d_model)
-        # exp(x*(-log(10000)/d_model)) = exp(-log(10000)*x/d_model) = 1/(10000*exp(x/d_model))
-        # div_term = torch.exp(
-        #     torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model)
-        # )  # 频率因子 [d_model/2]
+        # 1. 初始化位置编码矩阵，设置requires_grad=False避免梯度计算
+        self.pe = torch.zeros(seq_len, d_model, requires_grad=False)
+        # 2. 生成位置索引 [seq_len, 1]
+        position = torch.arange(0, seq_len, dtype=torch.float).unsqueeze(1)
+        # 3. 计算频率因子：10000^(2k/d_model)，k=0,1,...,d_model/2-1
+        # 等价形式：exp(2k * log(10000) / d_model)，两种写法均可
         div_term = 10000.0 ** (torch.arange(0, d_model, 2).float() / d_model)
+        # 4. 偶数维度用sin，奇数维度用cos
         self.pe[:, 0::2] = torch.sin(position / div_term)  # 偶数维度用sin
         self.pe[:, 1::2] = torch.cos(position / div_term)  # 奇数维度用cos
 
     def forward(self, x):
-
         """
         接收模型的输入张量x（通常是词嵌入 / 序列特征张量），截取与输入序列长度匹配的位置编码，将位置编码叠加（相加） 到输入张量上，最终返回融合了 “位置信息” 的新张量
         这是让模型能感知序列中每个 token（词 / 字符）位置的关键步骤（比如区分 “我打你” 和 “你打我” 中相同token的不同位置）。
 
         Args:
-            x (Tensor[int, int]): 特征张量
-            
+            x (Tensor[int, int]): 输入的特征张量
+
         Returns:
             Tensor[int, int]: 融合了“位置信息”的新张量
         """
@@ -1069,6 +1066,7 @@ if __name__ == '__main__':
     x = torch.zeros(32, 40)
     r = pe(x)
     print(r)
+
 ```
 
 初始化全0的位置编码矩阵

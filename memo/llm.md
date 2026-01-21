@@ -1225,4 +1225,105 @@ self.pe[:, 1::2] = torch.cos(position * div_term)  # 奇数维度用cos
      [5,4]
      ```
 
-     ，但所有位置都填充了对应的 sin/cos 值。
+     但所有位置都填充了对应的 sin/cos 值。
+
+# Transformer
+
+## LayerNorm
+
+稳定训练过程（规整数据分布）：把数据拉到 “均值 0、方差 1” 的分布，消除输入数据分布偏移（Internal Covariate Shift），稳定梯度，加速模型收敛；
+
+均值 0、方差 1 是**数据分布的 “基准态”**，其核心价值是：规整分布→稳定梯度→加速收敛→提升模型性能
+
+```python
+import torch
+import torch.nn as nn
+
+
+class CustomLayerNorm(nn.Module):
+
+    """
+    自定义LayerNorm层（层归一化），符合Transformer标准实现
+    LayerNorm的核心逻辑：针对指定维度计算均值和方差，将数据归一化后，再通过可学习的仿射变换（γ/β）恢复表达能力
+    """
+
+    def __init__(self, normalizer_shape, eps=1e-5, elementwise_affine=True):
+        """
+        初始化LayerNorm层
+        Args:
+            normalizer_shape (int/tuple): 要归一化的维度形状（如Transformer中通常为hidden_dim，即768）
+                                          若为int则自动转为tuple，如768 → (768,)
+            eps (float): 极小值，防止分母为0（数值稳定性）
+            elementwise_affine (bool): γ（缩放）、β（偏移）：可学习参数，让模型自主调整归一化后的数据分布。默认True（Transformer标准配置）
+        """
+        super().__init__()
+        # 统一将normalizer_shape转为tuple格式，方便后续处理
+        if isinstance(normalizer_shape, int):
+            normalizer_shape = (normalizer_shape,)
+        self.normalizer_shape = normalizer_shape  # 要归一化的维度（如(768,)）
+        self.eps = eps  # 数值稳定项
+        self.elementwise_affine = elementwise_affine  # 是否启用仿射变换
+
+        # gamma（缩放）初始为1，beta（偏移）初始为0
+        if self.elementwise_affine:
+            # nn.Parameter标记为可学习参数，形状与normalizer_shape一致
+            self.gamma = nn.Parameter(torch.ones(*self.normalizer_shape))
+            self.beta = nn.Parameter(torch.zeros(*self.normalizer_shape))
+        else:
+            # 不启用仿射变换时，注册空参数（避免后续调用报错）
+            self.register_parameter('gamma', None)
+            self.register_parameter('beta', None)
+
+    def forward(self, layer_input):
+
+        """
+        前向传播：执行层归一化计算
+        Args:
+            layer_input (torch.Tensor): 输入张量，形状通常为 [batch_size, seq_len, hidden_dim]（Transformer输入格式）
+        Returns:
+            torch.Tensor: 归一化后的输出，形状与输入一致
+        """
+        # 步骤1：确定归一化的维度（根据normalizer_shape推导，取最后N个维度，N为normalizer_shape的长度）
+        # 例如：normalizer_shape=(768,) → dim=-1；normalizer_shape=(12,64) → dim=(-2,-1)
+        dims = tuple(range(-len(self.normalizer_shape), 0))
+
+        # 步骤2：计算指定维度上的均值（keepdim=True保持维度，方便后续广播运算）
+        # 有偏均值（LayerNorm标准实现，无需无偏修正）
+        mean = torch.mean(layer_input, dim=dims, keepdim=True)
+
+        # 步骤3：计算指定维度上的方差（unbiased=False：有偏方差，LayerNorm标准实现）
+        var = torch.var(layer_input, dim=dims, keepdim=True, unbiased=False)
+
+        # 步骤4：核心归一化计算（关键修正：eps要加到方差里再开平方，保证数值稳定性）
+        # (x-mean)/sqrt(var + eps)：将数据归一化到均值0、方差1
+        x_normalized = (layer_input - mean) / torch.sqrt(var + self.eps)
+
+        # 步骤5：仿射变换（可选）：gamma缩放 + beta偏移
+        if self.elementwise_affine:
+            output = self.gamma * x_normalized + self.beta
+        else:
+            output = x_normalized
+
+        return output
+
+
+# 测试代码：模拟Transformer输入（batch_size=2, seq_len=10, hidden_dim=768）
+if __name__ == "__main__":
+
+    # 初始化LayerNorm层（归一化最后一维，即hidden_dim=768）
+    ln = CustomLayerNorm(normalizer_shape=768)
+    # 构造测试输入
+    x = torch.randn(2, 10, 768)
+    # 前向传播
+    result = ln(x)
+
+    print(f"输入形状: {x.shape}")  # 输出：torch.Size([2, 10, 768])
+    print(f"输出形状: {result.shape}")  # 输出：torch.Size([2, 10, 768])
+    print(f"gamma形状: {ln.gamma.shape}")  # 输出：torch.Size([768])
+    print(f"beta形状: {ln.beta.shape}")  # 输出：torch.Size([768])
+
+```
+
+## softmax
+
+把一组数变成 “谁大谁占比高” 的概率，将任意实数向量转换为和为1的概率分布，突出最大值对应的元素，抑制小值，方便做选择（比如注意力权重、分类）。

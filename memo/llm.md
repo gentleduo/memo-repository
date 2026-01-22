@@ -1327,3 +1327,49 @@ if __name__ == "__main__":
 ## softmax
 
 把一组数变成 “谁大谁占比高” 的概率，将任意实数向量转换为和为1的概率分布，突出最大值对应的元素，抑制小值，方便做选择（比如注意力权重、分类）。
+
+```python
+import torch
+
+
+def softmax_torch(x, dim=-1):
+    print(f"输入x的维度: {x.shape}")
+    # 取最大值并保留维度（keepdim=True，它让max_values不会变成一维向量，而是保持和原输入x相同的维度数，仅将指定dim维度的尺寸变为 1）
+    max_values = torch.max(x, dim=dim, keepdim=True).values
+    print(f"max_values的维度: {max_values.shape}")
+    # 指数计算（广播发生在这里）
+    # PyTorch的广播规则核心：两个张量在维度上从后往前匹配，若某一维度的尺寸为1或缺失，则会被广播（复制）到对应维度的尺寸
+    # 张量的维度是有索引顺序的（从 0 开始），“前” 和 “后” 完全对应这个索引的 “左” 和 “右”：
+    # “前”（左）：维度索引更小的维度（比如 shape=(16,10) 中，dim=0 是 “前”）；
+    # “后”（右）：维度索引更大的维度（比如 shape=(16,10) 中，dim=1 是 “后”，也是你代码里的 dim=-1，-1 表示最后一维）。
+    # “从后往前匹配” 就是：先对齐两个张量的最后一维（最右侧），再依次往左匹配前一维，而不是从左到右匹配。
+    # 例子：
+    # 正例：
+    # 张量 C：shape=(2, 3, 4) → 维度索引 0:2，1:3，2:4（最后一维是 4）；
+    # 张量 D：shape=(3, 4) → 维度索引 0:3，1:4（最后一维是 4）。
+    # “从后往前匹配” 的过程：
+    # 先对齐最后一维（后）：C 的 dim=2（4） ↔ D 的 dim=1（4）→ 尺寸相同；
+    # 再对齐倒数第二维：C 的 dim=1（3） ↔ D 的 dim=0（3）→ 尺寸相同；
+    # 最后看最前一维：C 的 dim=0（2），D 没有这个维度 → 视为尺寸 1，广播到 2；
+    # 最终 D 会被广播成 shape=(2, 3, 4)，和 C 匹配。
+    # 反例：
+    # 张量 C=(2,3,4)
+    # 张量 E=(2,4)
+    # 从后往前匹配：
+    # C 的 dim=2（4） ↔ E 的 dim=1（4）→ 匹配；
+    # C 的 dim=1（3） ↔ E 的 dim=0（2）→ 3≠2 且都不是 1 → 广播失败，报错
+    e_x = torch.exp(x - max_values)
+    print(f"e_x的维度: {e_x.shape}")  # 仍为(16,10)，广播后维度不变
+    output = e_x / torch.sum(e_x, dim=dim, keepdim=True)
+    return output
+
+
+batch_size, seq_len = 16, 10
+x = torch.randn(batch_size, seq_len)
+
+result = softmax_torch(x, dim=-1)
+print(f"最终softmax结果维度: {result.shape}")
+print(f"每个样本的softmax求和: {torch.sum(result, -1)}")  # 应为全1（浮点误差忽略）
+
+```
+

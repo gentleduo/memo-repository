@@ -1378,73 +1378,180 @@ print(f"每个样本的softmax求和: {torch.sum(result, -1)}")  # 应为全1（
 ```python
 import torch
 from torch import nn
+from torch import Tensor  # 导入Tensor做类型注解，消除IDE警告
 
 
 class ScaledDotProductAttention(nn.Module):
     """
-    Scaled Dot Product Attention（掩码、无多头版本）
-    公式：attention(Q,K,V) = softmax((Q·K^T)/sqrt(d_k))·V
+    Scaled Dot Product Attention（缩放点积注意力，支持掩码）
+    标准公式：
+    attention(Q,K,V) = softmax( (Q·K^T)/sqrt(d_k) * mask ) · V
+    输入维度适配：兼容多头拆分后的维度 [batch_size, num_heads, seq_len, head_dim]
+                也兼容未拆分的维度 [batch_size, seq_len, d_model]
     """
-
     def __init__(self):
+        # 无任何可学习参数，标准缩放点积注意力是无参数模块
         super(ScaledDotProductAttention, self).__init__()
-        # 添加一个实例变量，消除IDE警告
-        self.scale_factor = None
+        self.scale = None  # 添加一个实例变量，消除IDE警告
 
-    def forward(self, query, key, value, mask=None):
-
+    def forward(self, query: Tensor, key: Tensor, value: Tensor, mask: Tensor = None) -> tuple[Tensor, Tensor]:
         """
-        前向传播：计算注意力矩阵
+        前向传播：计算缩放点积注意力，核心步骤：点积→缩放→掩码→softmax→加权V
 
         Args:
-            query (torch.Tensor): 查询向量，[batch_size, seq_len, d_model]
-            key (torch.Tensor): 键向量，[batch_size, seq_len, d_model]
-            value (torch.Tensor): 值向量，[batch_size, seq_len, d_model]
-
+            query (Tensor): 查询向量，形状 [batch_size, * , seq_len_q, d_k]
+            key (Tensor): 键向量，形状 [batch_size, * , seq_len_k, d_k]
+            value (Tensor): 值向量，形状 [batch_size, * , seq_len_v, d_v]（要求seq_len_k=seq_len_v）
+            mask (Tensor): 注意力掩码，形状需与scores匹配 [batch_size, * , seq_len_q, seq_len_k]
+                  掩码值为0表示屏蔽，1表示保留（与masked_fill配合）
         Returns:
-            torch.Tensor: 注意力输出，[batch_size, seq_len, d_model]
-            torch.Tensor: 注意力分数，[batch_size, seq_len, seq_len]
+            output (Tensor): 注意力加权输出，形状 [batch_size, * , seq_len_q, d_v]
+            attn_scores (Tensor): 注意力分数（softmax后），形状 [batch_size, * , seq_len_q, seq_len_k]
+        """
+        self.scale = None
+        # 获取每个头/模型的维度d_k，对齐query的设备和数据类型
+        d_k = query.size(-1)
+        # 计算缩放因子：1/sqrt(d_k)，直接在原张量上运算，更简洁
+        scale = torch.tensor(d_k, dtype=query.dtype, device=query.device).sqrt()
+        # 1. 计算Q·K^T，点积得到原始注意力分数
+        # key.transpose(-2, -1)：交换最后两个维度，实现K的转置
+        attn_scores = torch.matmul(query, key.transpose(-2, -1))
+        # 2. 缩放：除以sqrt(d_k)，避免点积结果过大导致softmax饱和
+        attn_scores = attn_scores / scale
+        # 3. 掩码：先屏蔽再softmax（核心修正！只做一次softmax）
+        if mask is not None:
+            # 将掩码为0的位置设为-1e9，softmax后这些位置的权重会趋近于0
+            attn_scores = attn_scores.masked_fill(mask == 0, -1e9)
+        # 4. softmax归一化：对最后一维归一化，保证每行注意力权重和为1
+        attn_scores = torch.softmax(attn_scores, dim=-1)
+        # 5. 注意力加权求和：权重 × V，得到最终注意力输出
+        output = torch.matmul(attn_scores, value)
+        return output, attn_scores
+
+
+class MultiHeadAttention(nn.Module):
+    """
+    多头自注意力机制实现（Multi-Head Self-Attention）
+    核心逻辑：将模型维度d_model拆分为num_heads个独立的头，并行计算点积注意力，最后拼接输出
+    适用场景：Transformer编码器/解码器的自注意力层，q=k=v为同一输入
+    可扩展为交叉注意力：只需将forward的输入改为query, key, value三个独立张量即可
+    """
+
+    def __init__(self, d_model: int, num_heads: int):
+
+        """
+        Args:
+            d_model (int): 模型的整体维度（词嵌入/特征维度）
+            num_heads (int): 注意力头的数量，要求d_model能被num_heads整除
         """
 
-        # 添加一个实例变量，消除IDE警告
-        self.scale_factor = None
-        # 获取key的最后一维维度（d_k），并对齐输入的设备和数据类型
-        d_k = key.size(-1)
-        # 修正：用输入的dtype和device创建d_k张量，避免CPU/GPU、精度不匹配
-        scale = torch.sqrt(torch.tensor(d_k, dtype=query.dtype, device=query.device))
+        # 第一步：先调用父类nn.Module的初始化方法，规范写法
+        super(MultiHeadAttention, self).__init__()
+        # 模型核心超参数
+        self.d_model = d_model  # 整体模型维度
+        self.num_heads = num_heads  # 注意力头数
+        # 断言验证：d_model必须能被num_heads整除，保证每个头的维度相等
+        assert self.d_model % self.num_heads == 0, "d_model must be divisible by num_heads"
+        self.head_dim = self.d_model // self.num_heads  # 单个注意力头的维度
 
-        # 计算注意力分数：Q @ K^T / sqrt(d_k)
-        # key.transpose(-2, -1)：交换最后两个维度，实现K^T
-        scores = torch.matmul(query, key.transpose(-2, -1)) / scale
-        # softmax归一化（dim=-1：对最后一维归一化，保证每行和为1）
-        scores = torch.softmax(scores, dim=-1)
-        # 添加掩码
-        if mask is not None:
-            scores = scores.masked_fill(mask == 0, -1e9)
-        scores = torch.softmax(scores, dim=-1)
-        # 注意力分数加权求和V
-        output = torch.matmul(scores, value)
+        # 定义Q/K/V的线性投影层：将d_model维度的输入映射为d_model维度（拆分为num_heads个head_dim）
+        self.query_proj = nn.Linear(d_model, d_model)
+        self.key_proj = nn.Linear(d_model, d_model)
+        self.value_proj = nn.Linear(d_model, d_model)
+        # 定义多头注意力拼接后的输出投影层
+        self.out_proj = nn.Linear(d_model, d_model)
+        # 实例化缩放点积注意力模块（需提前实现，包含mask和softmax逻辑）
+        self.attention = ScaledDotProductAttention()
+        self.scale = None  # 添加一个实例变量，消除IDE警告
 
-        return output, scores
+    def split_heads(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        将输入张量拆分为多个注意力头，为并行计算做准备
+        维度变换：[batch_size, seq_len, d_model] → [batch_size, num_heads, seq_len, head_dim]
+
+        Args:
+            x (torch.Tensor): 输入张量，形状为[batch_size, seq_len, d_model]
+        Returns:
+            torch.Tensor: 拆分为多头后的张量，形状为[batch_size, num_heads, seq_len, head_dim]
+        """
+        batch_size, seq_len, d_model = x.size()
+        # 二次断言：确保输入维度与模型定义的d_model一致，避免维度不匹配错误
+        assert d_model == self.head_dim * self.num_heads, \
+            f"Input dim must be {self.num_heads * self.head_dim}, but got {d_model}"
+        # 先拆分为[bs, seq_len, num_heads, head_dim]，再交换seq_len和num_heads维度
+        return x.view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
+
+    def combine_heads(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        将多个注意力头的计算结果拼接回原始模型维度，与split_heads逆操作
+        维度变换：[batch_size, num_heads, seq_len, head_dim] → [batch_size, seq_len, d_model]
+
+        Args:
+            x (torch.Tensor): 多头计算后的张量，形状为[batch_size, num_heads, seq_len, head_dim]
+        Returns:
+            torch.Tensor: 拼接后的张量，形状为[batch_size, seq_len, d_model]
+        """
+        self.scale = None
+        batch_size, num_heads, seq_len, head_dim = x.size()
+        # 先交换num_heads和seq_len维度，再拼接为[bs, seq_len, d_model]
+        # contiguous()：保证张量内存连续，避免transpose后view报错
+        return x.transpose(1, 2).contiguous().view(batch_size, seq_len, num_heads * head_dim)
+
+    def forward(self, x: torch.Tensor, mask: torch.Tensor = None) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        多头自注意力的前向传播
+        整体流程：Q/K/V线性投影 → 拆分多头 → 缩放点积注意力 → 合并多头 → 输出线性投影
+
+        Args:
+            x (torch.Tensor): 输入张量（自注意力下q=k=v），形状[batch_size, seq_len, d_model]
+            mask (torch.Tensor, optional): 注意力掩码，用于屏蔽padding/未来位置，默认None
+                掩码形状需与缩放点积注意力的要求匹配，一般为[batch_size, 1, seq_len, seq_len]
+        Returns:
+            tuple[torch.Tensor, torch.Tensor]:
+                - 多头注意力最终输出，形状[batch_size, seq_len, d_model]
+                - 注意力分数，形状[batch_size, num_heads, seq_len, seq_len]（用于可视化）
+        """
+        # 1. Q/K/V的线性投影：将输入映射为与模型维度一致的张量
+        q = self.query_proj(x)
+        k = self.key_proj(x)
+        v = self.value_proj(x)
+
+        # 2. 拆分多头：为多个头并行计算注意力做准备
+        q_split = self.split_heads(q)
+        k_split = self.split_heads(k)
+        v_split = self.split_heads(v)
+
+        # 3. 调用缩放点积注意力，计算多头并行的注意力输出和注意力分数
+        attn_output, attn_scores = self.attention(q_split, k_split, v_split, mask)
+
+        # 4. 合并多头：将多个头的输出拼接回原始模型维度
+        attn_output_combine = self.combine_heads(attn_output)
+
+        # 5. 输出线性投影：对拼接后的结果做一次线性变换，完成多头注意力计算
+        final_output = self.out_proj(attn_output_combine)
+
+        return final_output, attn_scores
 
 
 # 测试代码
 if __name__ == "__main__":
-    scaledDotProductAttention = ScaledDotProductAttention()
 
-    batch_size, seq_len, d_model = 16, 10, 768
+    batch, seq, model = 16, 10, 768
+    multiHeadAttention = MultiHeadAttention(model, num_heads=12)
+
     # 生成测试张量（可指定device，比如cuda）
-    q = torch.randn(batch_size, seq_len, d_model)  # 可加device="cuda"测试GPU
-    k = torch.randn(batch_size, seq_len, d_model)
-    v = torch.randn(batch_size, seq_len, d_model)
-    m = torch.tril(torch.ones(seq_len, seq_len)).unsqueeze(0)
-
-    logits, attention = scaledDotProductAttention(q, k, v, m)
+    # q = torch.randn(batch, seq, model)  # 可加device="cuda"测试GPU
+    # k = torch.randn(batch, seq, model)
+    # v = torch.randn(batch, seq, model)
+    m = torch.tril(torch.ones(seq, seq)).unsqueeze(0)
+    in_x = torch.randn(batch, seq, model)
+    logits, attention = multiHeadAttention(in_x, m)
 
     # 修正打印逻辑：维度和张量分开打印，避免输出过多内容
     print(f"output size: {logits.size()}")  # 预期：torch.Size([16, 10, 768])
     print(f"scores size: {attention.size()}")  # 预期：torch.Size([16, 10, 10])
     print(f"scores sample (first batch, first 2 tokens): \n{attention[0, :2, :2]}")
-    print(sum(attention[0][0]))
+    print(sum(attention[0][0][0]))
+
 ```
 

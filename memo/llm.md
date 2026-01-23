@@ -1373,3 +1373,69 @@ print(f"每个样本的softmax求和: {torch.sum(result, -1)}")  # 应为全1（
 
 ```
 
+## attention
+
+```python
+import torch
+from torch import nn
+
+
+class ScaledDotProductAttention(nn.Module):
+
+    """
+    Scaled Dot Product Attention（无掩码、无多头版本）
+    公式：attention(Q,K,V) = softmax((Q·K^T)/sqrt(d_k))·V
+    """
+
+    def __init__(self):
+        super(ScaledDotProductAttention, self).__init__()
+
+    def forward(self, query, key, value):
+
+        """
+        前向传播：计算注意力矩阵
+        Args:
+            query: (torch.Tensor): 查询向量：[batch_size, seq_len, d_model]
+            key: (torch.Tensor): 键向量：[batch_size, seq_len, d_model]
+            value: (torch.Tensor): 值向量：[batch_size, seq_len, d_model]
+        Returns:
+            output: (torch.Tensor): 注意力输出：[batch_size, seq_len, d_model]
+            scores: (torch.Tensor): 注意力分数：[batch_size, seq_len, seq_len]
+        """
+
+        # 获取key的最后一维维度（d_k），并对齐输入的设备和数据类型
+        d_k = key.size(-1)
+        # 修正：用输入的dtype和device创建d_k张量，避免CPU/GPU、精度不匹配
+        scale = torch.sqrt(torch.tensor(d_k, dtype=query.dtype, device=query.device))
+
+        # 计算注意力分数：Q @ K^T / sqrt(d_k)
+        # key.transpose(-2, -1)：交换最后两个维度，实现K^T
+        scores = torch.matmul(query, key.transpose(-2, -1)) / scale
+        # softmax归一化（dim=-1：对最后一维归一化，保证每行和为1）
+        scores = torch.softmax(scores, dim=-1)
+        # 注意力分数加权求和V
+        output = torch.matmul(scores, value)
+
+        return output, scores
+
+
+# 测试代码
+if __name__ == "__main__":
+
+    scaledDotProductAttention = ScaledDotProductAttention()
+
+    batch_size, seq_len, d_model = 16, 10, 768
+    # 生成测试张量（可指定device，比如cuda）
+    q = torch.randn(batch_size, seq_len, d_model)  # 可加device="cuda"测试GPU
+    k = torch.randn(batch_size, seq_len, d_model)
+    v = torch.randn(batch_size, seq_len, d_model)
+
+    logits, attention = scaledDotProductAttention(q, k, v)
+
+    # 修正打印逻辑：维度和张量分开打印，避免输出过多内容
+    print(f"output size: {logits.size()}")  # 预期：torch.Size([16, 10, 768])
+    print(f"scores size: {attention.size()}")  # 预期：torch.Size([16, 10, 10])
+    print(f"scores sample (first batch, first 2 tokens): \n{attention[0, :2, :2]}")
+    print(sum(attention[0][0]))
+```
+

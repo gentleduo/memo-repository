@@ -1555,3 +1555,544 @@ if __name__ == "__main__":
 
 ```
 
+## decoder
+
+```python
+import torch
+from torch import nn
+from torch import Tensor
+from typing import Optional, List, Tuple  # 补全类型注解所需
+
+# 特殊token定义（需和词表一致，根据实际修改）
+BOS_TOKEN_ID = 0  # 起始符 Begin of Sequence
+EOS_TOKEN_ID = 1  # 结束符 End of Sequence
+MAX_GENERATE_LEN = 32  # 最大生成长度，防止无限循环
+
+
+class SinusoidalPositionalEncoding(nn.Module):
+    """
+    Sinusoidal Positional Encoding（正弦位置编码）
+    核心作用：为序列添加位置信息，让模型感知token的顺序
+    公式：pe(pos, 2k) = sin(pos / 10000^(2k/d_model)), pe(pos, 2k+1) = cos(pos / 10000^(2k/d_model))
+    """
+
+    def __init__(self, d_model: int, seq_len: int = 4096):
+        super().__init__()
+        self.pe = torch.zeros(seq_len, d_model, requires_grad=False)  # 位置编码矩阵，无梯度
+        position = torch.arange(0, seq_len, dtype=torch.float).unsqueeze(1)  # [seq_len, 1]
+        div_term = 10000.0 ** (torch.arange(0, d_model, 2).float() / d_model)  # 频率因子 [d_model//2]
+        self.pe[:, 0::2] = torch.sin(position / div_term)  # 偶数维度用sin
+        self.pe[:, 1::2] = torch.cos(position / div_term)  # 奇数维度用cos
+
+    def forward(self, x: Tensor) -> Tensor:
+        """
+        截取与输入序列长度匹配的位置编码，叠加到输入上
+        Args:
+            x: [batch_size, seq_len, d_model] 词嵌入/特征张量
+        Returns:
+            [batch_size, seq_len, d_model] 融合位置信息的张量
+        """
+        return x + self.pe[:x.size(1)].to(x.device)  # 设备对齐：pe移到输入x的设备
+
+
+class ScaledDotProductAttention(nn.Module):
+    """
+     Scaled Dot Product Attention（缩放点积注意力，支持掩码）
+     标准公式：
+     attention(Q,K,V) = softmax( (Q·K^T)/sqrt(d_k) * mask ) · V
+     输入维度适配：兼容多头拆分后的维度 [batch_size, num_heads, seq_len, head_dim]
+                 也兼容未拆分的维度 [batch_size, seq_len, d_model]
+     """
+
+    def __init__(self):
+        # 无任何可学习参数，标准缩放点积注意力是无参数模块
+        super().__init__()
+
+    def forward(self, query: Tensor, key: Tensor, value: Tensor, mask: Tensor = None) -> Tuple[Tensor, Tensor]:
+        """
+        前向传播：计算缩放点积注意力，核心步骤：点积→缩放→掩码→softmax→加权V
+
+        Args:
+            query (Tensor): 查询向量，形状 [batch_size, * , seq_len_q, d_k]
+            key (Tensor): 键向量，形状 [batch_size, * , seq_len_k, d_k]
+            value (Tensor): 值向量，形状 [batch_size, * , seq_len_v, d_v]（要求seq_len_k=seq_len_v）
+            mask (Tensor): 注意力掩码，形状需与scores匹配 [batch_size, * , seq_len_q, seq_len_k]
+                  掩码值为0表示屏蔽，1表示保留（与masked_fill配合）
+        Returns:
+            output (Tensor): 注意力加权输出，形状 [batch_size, * , seq_len_q, d_v]
+            attn_scores (Tensor): 注意力分数（softmax后），形状 [batch_size, * , seq_len_q, seq_len_k]
+        """
+        d_k = query.size(-1)
+        # 计算缩放点积：Q·K^T / √d_k，避免点积结果过大导致softmax饱和
+        attn_scores = torch.matmul(query, key.transpose(-2, -1)) / torch.sqrt(
+            torch.tensor(d_k, dtype=query.dtype, device=query.device))
+
+        # 掩码处理：屏蔽位置设为-1e9，softmax后权重趋近于0
+        if mask is not None:
+            attn_scores = attn_scores.masked_fill(mask, -1e9)
+
+        # 对最后一维归一化，得到注意力权重
+        attn_scores = torch.softmax(attn_scores, dim=-1)
+        # 注意力加权求和
+        output = torch.matmul(attn_scores, value)
+        return output, attn_scores
+
+
+class MultiHeadAttention(nn.Module):
+    """
+    多头自注意力机制实现（Multi-Head Self-Attention）
+    核心逻辑：将模型维度d_model拆分为num_heads个独立的头，并行计算点积注意力，最后拼接输出
+    适用场景：Transformer编码器/解码器的自注意力层，q=k=v为同一输入
+    可扩展为交叉注意力：只需将forward的输入改为query, key, value三个独立张量即可
+    """
+
+    def __init__(self, d_model: int, num_heads: int, dropout: float = 0.1):
+        """
+        Args:
+            d_model (int): 模型的整体维度（词嵌入/特征维度）
+            num_heads (int): 注意力头的数量，要求d_model能被num_heads整除
+            dropout (float): dropout参数
+        """
+
+        super().__init__()
+        self.d_model = d_model
+        self.num_heads = num_heads
+        assert d_model % num_heads == 0, f"d_model({d_model})必须被num_heads({num_heads})整除"
+        self.head_dim = d_model // num_heads  # 单个注意力头的维度
+
+        # Q/K/V线性投影层（无偏置，Transformer标准实现）
+        self.query_proj = nn.Linear(d_model, d_model, bias=False)
+        self.key_proj = nn.Linear(d_model, d_model, bias=False)
+        self.value_proj = nn.Linear(d_model, d_model, bias=False)
+        self.out_proj = nn.Linear(d_model, d_model, bias=False)  # 拼接后的输出投影层
+
+        self.attention = ScaledDotProductAttention()
+        self.dropout = nn.Dropout(dropout)  # 注意力输出dropout
+
+    def split_heads(self, x: Tensor) -> Tensor:
+        """
+        将输入张量拆分为多个注意力头，为并行计算做准备
+        维度变换：[batch_size, seq_len, d_model] → [batch_size, num_heads, seq_len, head_dim]
+
+        Args:
+            x (torch.Tensor): 输入张量，形状为[batch_size, seq_len, d_model]
+        Returns:
+            torch.Tensor: 拆分为多头后的张量，形状为[batch_size, num_heads, seq_len, head_dim]
+        """
+        batch_size, seq_len, d_model = x.size()
+        # 二次断言：确保输入维度与模型定义的d_model一致，避免维度不匹配错误
+        assert d_model == self.head_dim * self.num_heads, \
+            f"Input dim must be {self.num_heads * self.head_dim}, but got {d_model}"
+        # 先拆分为[bs, seq_len, num_heads, head_dim]，再交换seq_len和num_heads维度
+        return x.view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
+
+    def combine_heads(self, x: Tensor) -> Tensor:
+        """
+        将多个注意力头的计算结果拼接回原始模型维度，与split_heads逆操作
+        维度变换：[batch_size, num_heads, seq_len, head_dim] → [batch_size, seq_len, d_model]
+
+        Args:
+            x (torch.Tensor): 多头计算后的张量，形状为[batch_size, num_heads, seq_len, head_dim]
+        Returns:
+            torch.Tensor: 拼接后的张量，形状为[batch_size, seq_len, d_model]
+        """
+        batch_size, _, seq_len, _ = x.size()
+        # 先交换num_heads和seq_len维度，再拼接为[bs, seq_len, d_model]
+        # contiguous()：保证张量内存连续，避免transpose后view报错
+        return x.transpose(1, 2).contiguous().view(batch_size, seq_len, self.d_model)
+
+    def forward(self, x: Tensor, mask: Optional[Tensor] = None) -> Tuple[Tensor, Tensor]:
+        """
+        多头自注意力的前向传播
+        整体流程：Q/K/V线性投影 → 拆分多头 → 缩放点积注意力 → 合并多头 → 输出线性投影
+
+        Args:
+            x (torch.Tensor): 输入张量（自注意力下q=k=v），形状[batch_size, seq_len, d_model]
+            mask (torch.Tensor, optional): 注意力掩码，用于屏蔽padding/未来位置，默认None
+                掩码形状需与缩放点积注意力的要求匹配，一般为[batch_size, 1, seq_len, seq_len]
+        Returns:
+            tuple[torch.Tensor, torch.Tensor]:
+                - 多头注意力最终输出，形状[batch_size, seq_len, d_model]
+                - 注意力分数，形状[batch_size, num_heads, seq_len, seq_len]（用于可视化）
+        """
+        # 1. Q/K/V线性投影
+        q = self.query_proj(x)  # [batch_size, seq_len, d_model]
+        k = self.key_proj(x)
+        v = self.value_proj(x)
+
+        # 2. 拆分为多头
+        q_split = self.split_heads(q)  # [batch_size, num_heads, seq_len, head_dim]
+        k_split = self.split_heads(k)
+        v_split = self.split_heads(v)
+
+        # 3. 计算缩放点积注意力
+        attn_output, attn_scores = self.attention(q_split, k_split, v_split, mask)
+
+        # 4. 合并多头
+        attn_output_combine = self.combine_heads(attn_output)  # [batch_size, seq_len, d_model]
+
+        # 5. 输出投影 + Dropout
+        final_output = self.dropout(self.out_proj(attn_output_combine))
+        return final_output, attn_scores
+
+
+class FeedForwardNeuralNetwork(nn.Module):
+    """
+    Transformer标准前馈神经网络（FFN）
+    核心结构：d_model → d_ff → GELU → Dropout → d_model
+    无内部LayerNorm（由解码器块统一按Pre-LN范式管理），仅负责特征的非线性变换
+    Transformer原文：d_ff=4*d_model，激活函数为ReLU；当前主流：d_ff=4*d_model，激活函数为GELU
+    """
+
+    def __init__(self, d_model: int, d_ff: int, dropout: float = 0.1):
+        """
+        Args:
+            d_model (int): 模型整体维度（与词嵌入/注意力输出维度一致）
+            d_ff (int): 前馈层隐藏维度，通常设为4*d_model
+            dropout (float): Dropout概率，防止过拟合
+        """
+        super().__init__()
+        # 线性层1：升维 d_model → d_ff
+        self.linear1 = nn.Linear(d_model, d_ff, bias=True)
+        # 线性层2：降维 d_ff → d_model（还原模型维度，保证残差连接）
+        self.linear2 = nn.Linear(d_ff, d_model, bias=True)
+        # 激活函数：GELU（优于ReLU，当前LLM主流选择）
+        self.activation = nn.GELU()
+        # Dropout层：线性层2后添加，防止过拟合
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x: Tensor) -> Tensor:
+        """
+        FFN前向传播：升维→激活→降维→Dropout
+        Args:
+            x ([batch_size, seq_len, d_model]): 输入张量（注意力子层的残差输出）
+        Returns:
+            [batch_size, seq_len, d_model]: FFN输出（维度与输入一致，支持残差连接）
+        """
+        # 步骤1：升维 + 激活
+        x = self.activation(self.linear1(x))  # [batch_size, seq_len, d_ff]
+        # 步骤2：降维 + Dropout
+        x = self.dropout(self.linear2(x))  # [batch_size, seq_len, d_model]
+        return x
+
+
+class TransformerDecoderBlock(nn.Module):
+    """
+    Transformer解码器单个块（Decoder Block）
+    采用**Pre-LN范式**（子层前做LayerNorm，训练更稳定、收敛更快，当前主流）
+    核心流程：Norm → 掩码自注意力 → 残差相加 → Norm → FFN → 残差相加
+    每个子层（注意力/FFN）输出后均有Dropout（已在子层内部实现）
+    """
+
+    def __init__(self, d_model: int, num_heads: int, d_ff: int, dropout: float = 0.1):
+        """
+        Args:
+            d_model (int): 模型整体维度
+            num_heads (int): 注意力头数（要求d_model能被num_heads整除）
+            d_ff (int): FFN隐藏层维度，通常4*d_model
+            dropout (float): 所有Dropout层的概率（注意力/FFN共享）
+        """
+        super().__init__()
+        # 掩码自注意力层（解码器核心，防止看到未来位置的token）
+        self.masked_self_attn = MultiHeadAttention(d_model, num_heads, dropout)
+        # FFN前馈网络层
+        self.feed_forward = FeedForwardNeuralNetwork(d_model, d_ff, dropout)
+        # 层归一化：Pre-LN范式，两个子层各一个独立的LayerNorm（参数不共享）
+        self.norm1 = nn.LayerNorm(d_model, eps=1e-5)  # 注意力子层前的Norm
+        self.norm2 = nn.LayerNorm(d_model, eps=1e-5)  # FFN子层前的Norm
+
+    def forward(self, x: Tensor, attn_mask: Optional[Tensor] = None) -> Tuple[Tensor, Tensor]:
+        """
+        解码器块前向传播（Pre-LN范式 + 残差连接）
+        残差连接核心：子层输入 = 上一层输出，子层输出 = 子层输入 + 子层( Norm(子层输入) )
+        Args:
+            x ([batch_size, seq_len, d_model]): 解码器块输入张量
+            attn_mask ([batch_size, 1, seq_len, seq_len]): 因果掩码，bool型：True=屏蔽，False=保留
+        Returns:
+            x ([batch_size, seq_len, d_model]): 解码器块输出张量（维度与输入一致）
+            attn_weights ([batch_size, num_heads, seq_len, seq_len]): 掩码自注意力分数（可可视化）
+        """
+        # 子层1：掩码自注意力 + 残差连接（Pre-LN）
+        # 残差项：原始输入x
+        residual = x
+        # Norm → 掩码自注意力 → 残差相加
+        attn_output, attn_weights = self.masked_self_attn(self.norm1(x), attn_mask)
+        x = residual + attn_output  # [batch_size, seq_len, d_model]
+
+        # 子层2：FFN + 残差连接（Pre-LN）
+        # 残差项：注意力子层的输出x
+        residual = x
+        # Norm → FFN → 残差相加
+        ffn_output = self.feed_forward(self.norm2(x))
+        x = residual + ffn_output  # [batch_size, seq_len, d_model]
+
+        return x, attn_weights
+
+
+class TransformerDecoder(nn.Module):
+    """
+    Transformer完整解码器（堆叠N个DecoderBlock + 词嵌入 + 位置编码 + 输出层）
+    核心流程：词嵌入→缩放→位置编码→Dropout→堆叠解码器块→最终Norm→输出层（权重共享）
+    关键特性：
+        1. 词嵌入+位置编码：为token添加语义+位置信息
+        2. 因果掩码：防止解码器预测时看到未来位置的token
+        3. 权重共享：输出层与词嵌入层权重共享（减少参数，提升效果）
+        4. Pre-LN范式：所有解码器块采用Pre-LN，训练更稳定
+    """
+
+    def __init__(
+            self,
+            vocab_size: int,
+            d_model: int,
+            max_len: int = 4096,
+            num_layers: int = 6,
+            num_heads: int = 8,
+            d_ff: int = 2048,
+            dropout: float = 0.1,
+            pad_token_id: Optional[int] = None
+    ):
+        """
+        Args:
+            vocab_size (int): 词表大小（输出层分类数与词表一致）
+            d_model (int): 模型整体维度
+            max_len (int): 序列最大长度（位置编码的最大长度）
+            num_layers (int): 解码器块的堆叠数量，通常6/12/24
+            num_heads (int): 注意力头数
+            d_ff (int): FFN隐藏层维度，通常4*d_model
+            dropout (float): 全局Dropout概率（嵌入/注意力/FFN共享）
+            pad_token_id (int): padding token的id（若有，可扩展填充掩码）
+        """
+        super().__init__()
+        self.vocab_size = vocab_size
+        self.d_model = d_model
+        self.num_layers = num_layers
+        self.pad_token_id = pad_token_id
+
+        # 1. 词嵌入层：将token id映射为d_model维的向量
+        self.token_embedding = nn.Embedding(vocab_size, d_model)
+        # 2. 位置编码层：正弦位置编码，为序列添加位置信息
+        self.pos_encoder = SinusoidalPositionalEncoding(d_model, max_len)
+        # 3. 嵌入层Dropout：嵌入+位置编码后添加，防止过拟合
+        self.emb_dropout = nn.Dropout(dropout)
+        # 4. 堆叠N个解码器块（ModuleList自动管理子模块参数）
+        self.layers = nn.ModuleList([
+            TransformerDecoderBlock(d_model, num_heads, d_ff, dropout)
+            for _ in range(num_layers)
+        ])
+        # 5. 最终层归一化：堆叠解码器块后做一次Norm，稳定输出分布
+        self.final_norm = nn.LayerNorm(d_model, eps=1e-5)
+        # 6. 输出层：将d_model维特征映射为词表大小的logits（无偏置）
+        self.output_layer = nn.Linear(d_model, vocab_size, bias=False)
+
+        # 权重共享：输出层权重与词嵌入层权重完全相同（Transformer标准操作）
+        self.output_layer.weight = self.token_embedding.weight
+
+        # 初始化模型所有参数
+        self._init_weights()
+
+    def _init_weights(self):
+        """
+        模型参数初始化（遵循LLM主流初始化策略）
+        1. 词嵌入/输出层：正态分布 N(0, 0.02)（BERT/GPT系列标准）
+        2. 线性层：注意力投影层用Xavier正态，FFN线性层用Kaiming正态（适应GELU）
+        3. 偏置项：所有线性层偏置置0，LayerNorm保持默认（weight=1, bias=0）
+        """
+        # 词嵌入/输出层初始化
+        nn.init.normal_(self.token_embedding.weight, mean=0.0, std=0.02)
+        # 遍历所有解码器块，初始化注意力和FFN的线性层
+        for layer in self.layers:
+            # 注意力投影层：Xavier正态（适用于线性变换后做矩阵乘法的场景）
+            nn.init.xavier_normal_(layer.masked_self_attn.query_proj.weight)
+            nn.init.xavier_normal_(layer.masked_self_attn.key_proj.weight)
+            nn.init.xavier_normal_(layer.masked_self_attn.value_proj.weight)
+            nn.init.xavier_normal_(layer.masked_self_attn.out_proj.weight)
+            # FFN线性层：Kaiming正态（适用于激活函数为GELU/ReLU的场景）
+            nn.init.kaiming_normal_(layer.feed_forward.linear1.weight, nonlinearity='relu')
+            nn.init.kaiming_normal_(layer.feed_forward.linear2.weight, nonlinearity='relu')
+            # 所有线性层偏置项置0
+            if layer.feed_forward.linear1.bias is not None:
+                nn.init.constant_(layer.feed_forward.linear1.bias, 0.0)
+            if layer.feed_forward.linear2.bias is not None:
+                nn.init.constant_(layer.feed_forward.linear2.bias, 0.0)
+
+    def create_causal_mask(self, seq_len: int, device: torch.device, dtype: torch.dtype) -> Tensor:
+        """
+        生成因果掩码（Causal Mask），防止解码器看到未来位置的token
+        掩码形状：[1, 1, seq_len, seq_len]（扩展维度为了广播到[batch_size, num_heads, seq_len, seq_len]）
+        掩码值：bool型，True=屏蔽（未来位置），False=保留（当前/过去位置）
+        Args:
+            seq_len (int): 序列长度
+            device (torch.device): 掩码设备（与输入张量一致，避免CPU/GPU不匹配）
+            dtype (torch.dtype): 掩码数据类型（bool型，ScaledDotProductAttention最优）
+        Returns:
+            [1, 1, seq_len, seq_len]: 因果掩码张量
+        """
+        # 生成下三角矩阵（1=保留，0=屏蔽）→ 转置为上三角→转为bool（True=屏蔽未来位置）
+        mask = torch.tril(torch.ones(seq_len, seq_len, device=device, dtype=dtype)) == 0
+        # 扩展两个维度：[seq_len, seq_len] → [1, 1, seq_len, seq_len]，支持batch和num_heads广播
+        return mask.unsqueeze(0).unsqueeze(0)
+
+    def forward(self, input_ids: Tensor) -> Tuple[Tensor, List[Tensor]]:
+        """
+        Transformer解码器前向传播（完整流程）
+        Args:
+            input_ids ([batch_size, seq_len]): 目标序列的token id张量（整数型）
+        Returns:
+            logits ([batch_size, seq_len, vocab_size]): 词表大小的预测logits（未做softmax）
+            all_attn_weights (List[Tensor]): 长度为num_layers的列表，每个元素是[batch_size, num_heads, seq_len, seq_len]的注意力分数
+        """
+        batch_size, seq_len = input_ids.size()
+        device = input_ids.device
+        dtype = torch.bool
+
+        # 步骤1：词嵌入 + 缩放（Transformer标准操作：嵌入后×√d_model，平衡位置编码幅度）
+        # [batch_size, seq_len] → [batch_size, seq_len, d_model]
+        embeddings = self.token_embedding(input_ids) * torch.sqrt(
+            torch.tensor(self.d_model, device=device, dtype=torch.float32))
+
+        # 步骤2：添加位置编码
+        embeddings = self.pos_encoder(embeddings)
+
+        # 步骤3：嵌入层Dropout，防止过拟合
+        hidden_states = self.emb_dropout(embeddings)  # [batch_size, seq_len, d_model]
+
+        # 步骤4：生成因果掩码（设备/形状/dtype均匹配多头注意力输入）
+        causal_mask = self.create_causal_mask(seq_len, device, dtype)
+
+        # 步骤5：通过堆叠的解码器块
+        all_attn_weights = []
+        for layer in self.layers:
+            # 每层输入：上一层的隐藏状态 + 因果掩码
+            hidden_states, attn_weights = layer(hidden_states, causal_mask)
+            all_attn_weights.append(attn_weights)
+
+        # 步骤6：最终层归一化，稳定输出分布
+        hidden_states = self.final_norm(hidden_states)
+
+        # 步骤7：输出层映射为词表logits（未做softmax，训练时用CrossEntropyLoss（内置softmax））
+        logits = self.output_layer(hidden_states)  # [batch_size, seq_len, vocab_size]
+
+        return logits, all_attn_weights
+
+    def generate(
+            self,
+            batch_size: int,
+            bos_token_id: int = BOS_TOKEN_ID,
+            eos_token_id: int = EOS_TOKEN_ID,
+            max_len: int = MAX_GENERATE_LEN,
+            device: torch.device = torch.device("cpu")
+    ) -> Tuple[Tensor, Tensor]:
+        """
+        Transformer解码器自回归生成（模拟大模型推理过程）
+        核心：贪心采样（选概率最大的token），串行生成，拼接待输入
+        Args:
+            batch_size (int): 批量生成的样本数
+            bos_token_id (int): 起始符token_id，推理的初始输入
+            eos_token_id (int): 结束符token_id，生成到该token则停止
+            max_len (int): 最大生成长度（包含起始符）
+            device (torch.device): 生成设备（CPU/GPU）
+        Returns:
+            generated_ids ([batch_size, gen_len]): 生成的完整token序列（包含起始符）
+            generated_probs ([batch_size, gen_len-1]): 每个生成token的预测概率（不含起始符）
+        """
+        self.eval()  # 👉 推理关键：切换为评估模式，关闭Dropout/BatchNorm等训练层
+        generated_probs = []  # 保存每个生成token的概率
+        # 1. 初始输入：[batch_size, 1]，全为起始符bos_token_id（推理的起点）
+        generated_ids = torch.tensor([[bos_token_id]] * batch_size, device=device, dtype=torch.long)
+
+        with torch.no_grad():  # 👉 推理关键：关闭梯度计算，大幅节省内存、提升速度
+            # 2. 自回归循环生成：直到达到最大长度或所有样本都生成了结束符
+            for _ in range(max_len - 1):  # 减1是因为初始输入已经有1个token
+                # 提前终止：如果所有样本都生成了eos，直接退出循环
+                if (generated_ids == eos_token_id).any(dim=1).all():
+                    break
+
+                # 3. 传入模型，得到logits [batch_size, seq_len, vocab_size]
+                logits, _ = self.forward(generated_ids)
+
+                # 核心1：只取最后一个位置的logits，这是下一个token的预测
+                last_logits = logits[:, -1, :]  # [batch_size, vocab_size]
+
+                # 核心2：logits转概率分布（softmax）
+                last_probs = torch.softmax(last_logits, dim=-1)  # [batch_size, vocab_size]
+
+                # 核心3：贪心采样——选概率最大的token（大模型基础采样方式）
+                next_token_probs, next_token_ids = torch.max(last_probs, dim=-1)  # 均为[batch_size]
+
+                # 保存当前生成token的概率
+                generated_probs.append(next_token_probs)
+
+                # 核心4：拼接token，作为下一次的输入
+                # next_token_ids形状：[batch_size] → 扩维为[batch_size,1]，才能拼接
+                next_token_ids = next_token_ids.unsqueeze(1)
+                generated_ids = torch.cat([generated_ids, next_token_ids], dim=1)  # 拼接在序列维度（dim=1）
+
+        # 处理生成的概率：list转tensor，形状[batch_size, gen_len-1]
+        generated_probs = torch.stack(generated_probs, dim=1) if generated_probs else torch.tensor([], device=device)
+        return generated_ids, generated_probs
+
+
+if __name__ == "__main__":
+    # 设备选择：自动检测GPU，无则用CPU
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
+
+    # 初始化解码器
+    decoder = TransformerDecoder(
+        vocab_size=500,
+        d_model=256,
+        max_len=128,
+        num_layers=6,
+        num_heads=8,
+        d_ff=256 * 4,  # 遵循4*d_model的标准
+        dropout=0.1,
+        pad_token_id=0
+    ).to(device)  # 移到指定设备
+
+    # # 训练
+    # # 生成测试输入：[batch_size, seq_len]
+    # batch_size, seq_len = 16, 10
+    # input_ids = torch.randint(0, 500, (batch_size, seq_len), device=device)
+    #
+    # # 前向传播
+    # logits, all_attn_weights = decoder(input_ids)
+    #
+    # # 验证维度正确性（核心测试）
+    # print(f"Input shape: {input_ids.shape}")  # torch.Size([16, 10])
+    # print(f"Output logits shape: {logits.shape}")  # torch.Size([16, 10, 500])
+    # print(f"Number of attention layers: {len(all_attn_weights)}")  # 6
+    # print(f"Attention weights shape (layer 0): {all_attn_weights[0].shape}")  # torch.Size([16, 8, 10, 10])
+    # print("Transformer Decoder forward pass success! All dimensions match!")
+
+    # 推理
+    # ===================== 模拟大模型推理：批量生成3个样本 =====================
+    batch_size = 3  # 一次生成3个序列
+    generated_ids, generated_probs = decoder.generate(
+        batch_size=batch_size,
+        bos_token_id=BOS_TOKEN_ID,
+        eos_token_id=EOS_TOKEN_ID,
+        max_len=MAX_GENERATE_LEN,
+        device=device
+    )
+
+    # 打印推理结果
+    print("=" * 50)
+    print(f"大模型推理生成完成！")
+    print(f"生成序列形状: {generated_ids.shape} → [batch_size={batch_size}, gen_len={generated_ids.shape[1]}]")
+    print(f"生成token序列:\n{generated_ids}")
+    print(
+        f"每个token的预测概率形状: {generated_probs.shape} → [batch_size={batch_size}, gen_len-1={generated_probs.shape[1]}]")
+    print(f"每个token的预测概率:\n{generated_probs}")
+    print("=" * 50)
+
+    # 额外验证：单步推理（看最后一个位置的输出）
+    print("\n【单步推理验证】：输入[3,2]的序列，只取最后一个位置的输出预测下一个token")
+    test_input = torch.tensor([[0, 5], [0, 8], [0, 10]], device=device)  # 3个样本，序列长度2
+    logits, _ = decoder(test_input)
+    last_logits = logits[:, -1, :]  # 只取最后一个位置，[3,500]
+    last_probs = torch.softmax(last_logits, dim=-1)  # 转概率
+    next_token = torch.max(last_probs, dim=-1)[1]  # 贪心选token
+    print(f"测试输入: {test_input}")
+    print(f"下一个token的预测: {next_token}")
+```
+

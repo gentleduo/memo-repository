@@ -1660,10 +1660,26 @@ class MultiHeadAttention(nn.Module):
         assert d_model % num_heads == 0, f"d_model({d_model})必须被num_heads({num_heads})整除"
         self.head_dim = d_model // num_heads  # 单个注意力头的维度
 
-        # Q/K/V线性投影层（无偏置，Transformer标准实现）
+        # Q/K/V线性投影层（无偏置，Transformer标准实现）的核心作用是：将原始输入特征映射到「注意力计算专用的特征空间」，并通过独立的可训练参数，让模型学会生成最适合计算注意力的查询（Q）、键（K）、值（V）表示
+        # 作用1：解耦 Q/K/V 的表示，让模型独立学习 “查询 - 匹配 - 取值” 逻辑
+        # 作用2：引入可训练参数，让注意力机制具备 “学习能力”
+        # 作用3：为“多头拆分”做前置准备，保证多头特征的有效性：先通过全局投影（d_model→d_model）得到高质量的 Q/K/V，再拆分成num_heads个头，每个头的 Q/K/V 是 “全局优质特征的子集”；反之，如果先拆分再投影（比如每个头单独做d_model→head_dim的投影），虽然总参数量相同，但代码实现更复杂，且全局投影能让所有头共享 “统一的特征编码逻辑”，再在各自的子空间计算注意力，效率更高。
+        
+        # 原始输入x：相当于 “通用简历”（包含候选人的所有信息，但没有针对性）；
+        # query_proj(x)生成 Q（Query）：相当于 “面试官的提问角度”（聚焦 “我想查什么”，比如 “这个候选人的编程能力如何？”）；
+        # key_proj(x)生成 K（Key）：相当于 “候选人的匹配标签”（聚焦 “我能提供什么”，比如 “熟悉 Python/Java”）；
+        # value_proj(x)生成 V（Value）：相当于 “候选人的核心能力详情”（聚焦 “我的实际价值是什么”，比如 “参与过 3 个大型项目，负责核心模块开发”）。
+        
+        # 投影层的核心价值是：把同一个 “通用简历”，转换成适合 “面试场景” 的三类专属信息，且三者的转换规则（权重）完全独立 —— 模型可以分别优化：
+        # Q的生成规则：让当前位置的Q精准聚焦于 “自己想查询的信息维度”；
+        # K的生成规则：让其他位置的K和Q的特征空间匹配，方便计算 “匹配度”（点积）；
+        # V的生成规则：让其他位置的V保留对最终输出最有用的信息（而非冗余信息）。
         self.query_proj = nn.Linear(d_model, d_model, bias=False)
         self.key_proj = nn.Linear(d_model, d_model, bias=False)
         self.value_proj = nn.Linear(d_model, d_model, bias=False)
+        # 合并多头只是「无参的简单拼接」，不同头的特征相互独立，无任何交互；而out_proj的核心作用是可训练的线性融合：让模型学习如何加权、整合多头发掘的不同注意力模式
+        # 将分散在不同子空间的多头特征，映射回模型的统一特征空间，保证后续层的学习效率
+        # 这一层是多头注意力的必要设计，去掉后模型性能会显著下降，失去多头的核心价值
         self.out_proj = nn.Linear(d_model, d_model, bias=False)  # 拼接后的输出投影层
 
         self.attention = ScaledDotProductAttention()

@@ -1569,6 +1569,121 @@ EOS_TOKEN_ID = 1  # 结束符 End of Sequence
 MAX_GENERATE_LEN = 32  # 最大生成长度，防止无限循环
 
 
+def rotate_half(x):
+
+    """
+    RoPE的核心旋转操作，将输入张量在最后一维拆分为前后两半，对后一半取负后与前一半拼接
+
+    Args:
+        x (Tensor): 词嵌入/特征张量
+    Returns:
+        Tensor: 返回将输入张量在最后一维拆分为前后两半，对后一半取负后与前一半拼接后的结果
+
+    补充说明（以dim=4、max_seq_len=2为例）：
+    输入x的最后一维拆分（head_dim=4 → 前 2 维 / 后 2 维）：
+        位置 0：x1=[1.0,2.0]，x2=[3.0,4.0] → 旋转后：[-3.0, -4.0, 1.0, 2.0]
+        位置 1：x1=[5.0,6.0]，x2=[7.0,8.0] → 旋转后：[-7.0, -8.0, 5.0, 6.0]
+    """
+    x1, x2 = torch.chunk(x, 2, dim=-1)
+    return torch.cat([-x2, x1], dim=-1)
+
+
+def apply_rotary_pos_emd(x, cos, sin):
+
+    """
+    优化：显式扩展cos/sin维度，匹配x的形状
+    Args:
+        x ([batch_size, num_heads, seq_len, head_dim]): 词嵌入/特征张量
+        cos ([seq_len, head_dim]): cos
+        sin ([seq_len, head_dim]): sin
+    Returns:
+        [batch_size, num_heads, seq_len, head_dim]: 将RoPE的余弦/正弦矩阵应用到输入张量后的结果
+
+    例如：
+        位置0的计算（sin全为 0，结果等于原x）：
+        x[0] * cos[0] = [1*1, 2*1, 3*1, 4*1] = [1.0, 2.0, 3.0, 4.0]
+        rotate_half(x)[0] * sin[0] = [-3*0, -4*0, 1*0, 2*0] = [0.0, 0.0, 0.0, 0.0]
+        总和 = [1.0, 2.0, 3.0, 4.0]
+
+        位置1的计算（核心旋转）：
+        # x[1] * cos[1]
+        5*0.5403=2.7015, 6*0.9999=5.9994, 7*0.5403=3.7821, 8*0.9999=7.9992 → [2.7015, 5.9994, 3.7821, 7.9992]
+        # rotate_half(x)[1] * sin[1]
+        -7*0.8415=-5.8905, -8*0.0100=-0.0800, 5*0.8415=4.2075, 6*0.0100=0.0600 → [-5.8905, -0.0800, 4.2075, 0.0600]
+
+        # 求和（保留4位小数）
+        2.7015-5.8905 = -3.1890
+        5.9994-0.0800 = 5.9194
+        3.7821+4.2075 = 7.9896
+        7.9992+0.0600 = 8.0592
+        → [-3.1890, 5.9194, 7.9896, 8.0592]
+    """
+    return x * cos + rotate_half(x) * sin
+
+
+class RotaryEmbedding(nn.Module):
+
+    def __init__(self, base, head_dim):
+
+        super().__init__()
+        self.base = base # RoPE频率基数，默认10000（Transformer标准值）
+        self.dim = head_dim  # 单个注意力头的维度（需为偶数）
+
+    def forward(self, max_seq_len):
+        """
+        生成旋转位置编码（RoPE）所需的余弦/正弦矩阵，核心公式：
+            θ_i = 1 / base^(2i/dim) （i为维度索引，范围0,1,...,(dim/2)-1）
+            m为token的位置索引（范围0,1,...,max_seq_len-1）
+            cos矩阵：cos(m * θ_i)，sin矩阵：sin(m * θ_i)
+            最终通过拼接扩展维度，匹配单个注意力头的完整维度
+
+        Args:
+            max_seq_len (int): 序列的最大长度，即需要生成位置编码的token数量
+
+        Returns:
+            cos (torch.Tensor): 旋转编码的余弦矩阵
+                - 形状：[max_seq_len, head_dim]
+                - 维度含义：
+                  - 第1维（max_seq_len）：对应token的位置m（0到max_seq_len-1）
+                  - 第2维（head_dim）：对应单个注意力头的维度，每个位置m的余弦值按如下规律排列：
+                    [cos(m*θ₀), cos(m*θ₁), ..., cos(m*θ_{dim/2-1}), cos(m*θ₀), cos(m*θ₁), ..., cos(m*θ_{dim/2-1})]
+            sin (torch.Tensor): 旋转编码的正弦矩阵
+                - 形状：[max_seq_len, head_dim]
+                - 维度含义：
+                  - 第1维（max_seq_len）：对应token的位置m（0到max_seq_len-1）
+                  - 第2维（head_dim）：对应单个注意力头的维度，每个位置m的正弦值按如下规律排列：
+                    [sin(m*θ₀), sin(m*θ₁), ..., sin(m*θ_{dim/2-1}), sin(m*θ₀), sin(m*θ₁), ..., sin(m*θ_{dim/2-1})]
+
+        补充说明（以dim=4、max_seq_len=2为例）：
+            1. θ_i计算：θ = [1/base^0, 1/base^(2*1/dim), 1/base^(2*2/dim), ..., 1/base^(2*(dim/2-1)/dim)]，长度为dim/2，对应注意力头维度的前半部分
+               dim为4，torch.arange(0, 4, 2) → [0, 2]
+               指数计算：0/4=0，2/4=0.5 → 10000^0=1，10000^0.5=100
+               inv_freq = [1/1, 1/100] → [1.0, 0.01]
+            2. 外积计算：emb = m ⊗ θ → 形状[max_seq_len, dim/2]，每个元素为m*θ_i（m是位置，i是频率索引）
+               seq = torch.arange(2) → [0, 1]（对应 2 个 token 的位置 0、1）
+               外积torch.outer(seq, inv_freq)：
+               [0*1.0, 0*0.01] → [0.0, 0.0]  # 位置0的频率值
+               [1*1.0, 1*0.01] → [1.0, 0.01] # 位置1的频率值
+            3. 维度扩展：将emb拼接为[emb, emb] → 形状[max_seq_len, dim]，匹配单个注意力头的完整维度
+               emb = torch.cat([emb, emb], dim=-1) → 扩展后：
+               位置0: [0.0, 0.0, 0.0, 0.0]
+               位置1: [1.0, 0.01, 1.0, 0.01]
+            4. 计算cos/sin的最终数值：
+               cos = torch.cos(emb)：
+               位置0: [cos(0), cos(0), cos(0), cos(0)] → [1.0, 1.0, 1.0, 1.0]
+               位置1: [cos(1), cos(0.01), cos(1), cos(0.01)] → [0.5403, 0.9999, 0.5403, 0.9999]
+               sin = torch.sin(emb)：
+               位置0: [sin(0), sin(0), sin(0), sin(0)] → [0.0, 0.0, 0.0, 0.0]
+               位置1: [sin(1), sin(0.01), sin(1), sin(0.01)] → [0.8415, 0.0100, 0.8415, 0.0100]
+        """
+        inv_freq = 1.0 / (self.base ** (torch.arange(0, self.dim, 2) / self.dim))
+        seq = torch.arange(max_seq_len)
+        emb = torch.outer(seq, inv_freq)
+        emb = torch.cat([emb, emb], dim=-1)
+
+        return torch.cos(emb), torch.sin(emb)
+
+
 class SinusoidalPositionalEncoding(nn.Module):
     """
     Sinusoidal Positional Encoding（正弦位置编码）
@@ -1646,7 +1761,7 @@ class MultiHeadAttention(nn.Module):
     可扩展为交叉注意力：只需将forward的输入改为query, key, value三个独立张量即可
     """
 
-    def __init__(self, d_model: int, num_heads: int, dropout: float = 0.1):
+    def __init__(self, d_model: int, num_heads: int, dropout: float = 0.1, base: int = 10000):
         """
         Args:
             d_model (int): 模型的整体维度（词嵌入/特征维度）
@@ -1684,6 +1799,7 @@ class MultiHeadAttention(nn.Module):
 
         self.attention = ScaledDotProductAttention()
         self.dropout = nn.Dropout(dropout)  # 注意力输出dropout
+        self.rotaryEmbedding = RotaryEmbedding(base, self.head_dim)
 
     def split_heads(self, x: Tensor) -> Tensor:
         """
@@ -1741,6 +1857,12 @@ class MultiHeadAttention(nn.Module):
         k_split = self.split_heads(k)
         v_split = self.split_heads(v)
 
+        _, seq_len, _ = x.size()
+        # 应用旋转位置矩阵
+        cos, sin = self.rotaryEmbedding(seq_len)
+        q_split = apply_rotary_pos_emd(q_split, cos, sin)
+        k_split = apply_rotary_pos_emd(k_split, cos, sin)
+        
         # 3. 计算缩放点积注意力
         attn_output, attn_scores = self.attention(q_split, k_split, v_split, mask)
 
@@ -1887,7 +2009,7 @@ class TransformerDecoder(nn.Module):
         # 1. 词嵌入层：将token id映射为d_model维的向量
         self.token_embedding = nn.Embedding(vocab_size, d_model)
         # 2. 位置编码层：正弦位置编码，为序列添加位置信息
-        self.pos_encoder = SinusoidalPositionalEncoding(d_model, max_len)
+        # self.pos_encoder = SinusoidalPositionalEncoding(d_model, max_len)
         # 3. 嵌入层Dropout：嵌入+位置编码后添加，防止过拟合
         self.emb_dropout = nn.Dropout(dropout)
         # 4. 堆叠N个解码器块（ModuleList自动管理子模块参数）
@@ -1967,7 +2089,7 @@ class TransformerDecoder(nn.Module):
             torch.tensor(self.d_model, device=device, dtype=torch.float32))
 
         # 步骤2：添加位置编码
-        embeddings = self.pos_encoder(embeddings)
+        # embeddings = self.pos_encoder(embeddings)
 
         # 步骤3：嵌入层Dropout，防止过拟合
         hidden_states = self.emb_dropout(embeddings)  # [batch_size, seq_len, d_model]

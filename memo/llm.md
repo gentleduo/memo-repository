@@ -2234,3 +2234,80 @@ if __name__ == "__main__":
     print(f"下一个token的预测: {next_token}")
 ```
 
+# CrossEntropyLoss
+
+```python
+import torch
+import torch.nn as nn
+
+
+def loss_func(x, logits):
+    """
+    计算序列建模（语言模型）的交叉熵损失，核心逻辑：移位匹配（前N-1个logits预测后N-1个标签）
+    Args:
+        x (torch.Tensor): 真实标签，维度 [batch_size, seq_len]，元素为token的索引（0~val_size-1），padding位置可设为-100
+        logits (torch.Tensor): 模型原始输出（未经过softmax），维度 [batch_size, seq_len, val_size]
+    Returns:
+        loss: 平均交叉熵损失值（标量）
+    """
+    # 移位标签：取第2个到最后一个token作为预测目标（shape: [batch_size, seq_len-1]）
+    # 示例： batch_size=2，seq_len=3，val_size=4
+    # 标签维度：[2,3]
+    # 示例：x=[[1,2,3],[0,1,2]] → shift_labels=[[2,3],[1,2]]
+    # 移位后维度：[2,2]
+    shift_labels = x[:, 1:]
+
+    # 移位logits：取第1个到倒数第二个token的输出作为预测值（shape: [batch_size, seq_len-1, val_size]）
+    # 维度：[2,3,4]
+    # 示例：logits=[[[0.1,0.2,0.3,0.4],
+    # [0.5,0.6,0.7,0.8],
+    # [0.9,1.0,1.1,1.2]],
+    # [[1.3,1.4,1.5,1.6],
+    # [1.7,1.8,1.9,2.0],
+    # [2.1,2.2,2.3,2.4]]]
+    # 移位后维度：[2,2,4]
+    # logits[:,:-1,:]=[[[0.1,0.2,0.3,0.4],
+    # [0.5,0.6,0.7,0.8]],
+    # [[1.3,1.4,1.5,1.6],
+    # [1.7,1.8,1.9,2.0]]]
+    shift_logits = logits[:, :-1, :]
+
+    # 获取词汇表大小（val_size）
+    val_size = logits.size()[-1]
+
+    # 展平logits：将[batch_size, seq_len-1, val_size] → [batch_size*(seq_len-1), val_size]
+    # 目的：适配nn.CrossEntropyLoss的输入要求（input: [N, C], target: [N]）
+    # 示例：[2,2,4] → [4,4]
+    shift_logits = shift_logits.contiguous().view(-1, val_size)
+
+    # 展平标签：将[batch_size, seq_len-1] → [batch_size*(seq_len-1)]
+    # 示例：[2,2] → [4]
+    shift_labels = shift_labels.contiguous().view(-1)
+
+    # 定义交叉熵损失函数：ignore_index=-100表示忽略标签为-100的位置（通常是padding）
+    loss_fn = nn.CrossEntropyLoss(ignore_index=-100)
+
+    # 计算损失：input=展平的logits，target=展平的标签
+    # CrossEntropyLoss内部会自动做：log_softmax + nll_loss，无需提前对logits做softmax
+    loss = loss_fn(shift_logits, shift_labels)
+
+    return loss
+
+
+# 测试示例
+if __name__ == "__main__":
+    # 设定超参数
+    batch_size, seq_len, val_size = 32, 20, 100000
+
+    # 生成真实标签：模拟token索引，其中随机插入-100（padding）以测试ignore_index
+    input_x = torch.randint(0, val_size, size=(batch_size, seq_len))
+    input_x[0, -5:] = -100  # 给第一个样本最后5个位置设为padding
+
+    # 生成模型原始输出（logits）：nn.CrossEntropyLoss内部已集成log_softmax计算，输入需为未经过 softmax 的原始 logits；
+    input_logits = torch.randn(size=(batch_size, seq_len, val_size))  # 用randn更符合模型输出分布（rand是0~1，不符合）
+
+    # 计算损失
+    l = loss_func(input_x, input_logits)
+    print(f"计算得到的交叉熵损失值：{l.item():.4f}")
+```
+

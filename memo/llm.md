@@ -2487,14 +2487,17 @@ $R_{s}^{a}$ = E[$R_{t+1}$ | $s_{t}$ = s , $a_{t}$ = a]
 > 4. 独立公式（换行居中）：$$A_{\substack{下标}}^{上标}$$
 > 5. 求和：$\sum\limits_{a \in A}^{上标}$
 > 6. 求积：$\prod\limits_{i=1}^{n} x_i$
-> 7. 求导：$\frac{dy}{dx}$
-> 8. 积分：$\int_{a}^{b} f(x) dx$
+> 7. 求导：$\frac{dy}{dx}$或者$\frac{\partial J(\theta)}{\partial \theta}$
+> 8. 积分：$\int_{a}^{b} f(x) \cdot dx$
 > 9. 期望：$\bar{x}$ 
 > 10. 梯度：$\nabla f(x,y,z)$
 > 11. 散度：$\nabla \cdot \vec{F}$
 > 12. 旋度：$\nabla \times \vec{F}$
 > 13. 增量：$\Delta$
 > 14. 变分：$\delta$
+> 15. ≈：\approx
+> 16. ≃：\simeq
+> 17. ≅：\cong
 
 ## 贝尔曼方程
 
@@ -2604,7 +2607,7 @@ $\bar{R_{\theta}} = \sum\limits_{\tau}R(\tau)p_{\theta}(\tau) = E_{\tau \sim p_{
 
 $\nabla\bar{R_{\theta}} = \sum\limits_{\tau}R(\tau)\nabla p_{\theta}(\tau) $
 
-其中，只有$p_{\theta}(\tau)$与$\theta$有关
+其中，只有$p_{\theta}(\tau)$与$\theta$有关，$R(\tau)$只跟环境相关跟策略$\theta$无关
 
 再考虑到$\nabla f(x) = f(x) \nabla logf(x)$得到
 
@@ -2613,3 +2616,160 @@ $\frac{\nabla p_{\theta}(\tau)}{p_{\theta}(\tau)} = \nabla logp_{\theta}(\tau)$
 从而进一步转化，可得$\nabla \bar{R_{\theta}} =  E_{\tau \sim p_{\theta}(\tau)}[R(\tau)\nabla logp_{\theta}(\tau)]$
 
 表示期望的梯度等于对数概率梯度 
+
+
+
+策略梯度（Policy Gradient, PG）的核心是直接对策略参数θ求梯度，以最大化累积奖励的期望。
+
+在强化学习的马尔可夫决策过程（MDP） 中，定义以下核心符号：
+
+### 前置定义与符号约定
+
+| 符号                                                         | 含义                                                         |
+| ------------------------------------------------------------ | ------------------------------------------------------------ |
+| $s_{t}$                                                      | 时刻t的状态                                                  |
+| $a_{t}$                                                      | 时刻t的动作                                                  |
+| $\pi_\theta(a_t | s_t)$                                      | 策略函数：状态$s_{t}$下采取动作$a_{t}$的概率，θ 为策略参数   |
+| $p(s_{t+1} | s_t,a_t)$                                       | 环境转移概率：状态$s_{t}$执行动作$a_{t}$后转移到$s_{t+1}$的概率 |
+| $r_{t} = r(s_{t},a_{t})$                                     | 时刻 t 的即时奖励                                            |
+| $γ \in [0,1]$                                                | 折扣因子：未来奖励的衰减系数                                 |
+| $\tau = (s_{0},a_{0},r_{0},s_{1},a_{1},r_{1},......,s_{T},a_{T},r_{T})$ | 一条完整的轨迹（Episode），$\tau$为轨迹长度                  |
+| $R(\tau) = \sum\limits_{t=0}^{T} \gamma^{t} r_{t}$           | 轨迹$\tau$的**总折扣奖励**                                   |
+| $J(\theta) = E_{\tau \sim \pi_{\theta}}[R(\tau)]$            | 策略的目标函数：所有轨迹的期望总奖励，也是我们要最大化的目标 |
+
+### 目标函数展开
+
+目标函数$ J(θ)$ 是轨迹总奖励的期望，根据期望的定义，可写成积分形式（离散空间为求和，连续空间为积分，这里统一用积分表示）：
+
+$J(\theta) = \int_{\tau} P_{\theta}(\tau) \cdot R(\tau) d\tau$
+
+其中 $P_{\theta}(\tau)$ 是轨迹 $\tau$被策略$\pi_{\theta}$ 采样到的概率，这是推导的核心变量。
+
+#### 轨迹概率分解
+
+一条轨迹$\tau$从初始状态$s_{0}$开始，依次执行动作$a_{t}$、转移到$s_{t+1}$，因此其概率可以分解为**初始状态概率**、**策略概率**和**环境转移概率**的乘积：
+
+$P_{\theta}(\tau) = p(s_{0}) \cdot \prod_{t=0}^T \pi (a_{t}|s_{t}) \cdot p(s_{t+1} | s_{t}, a_{t})$
+
+$p(s_{0})$：初始状态分布，与策略参数$θ$无关。
+
+$\prod_{t=0}^T \pi_{\theta}(a_{t}|s_{t})$：策略在轨迹中选择所有动作的联合概率，与$θ$强相关。
+
+$\prod_{t=0}^Tp(s_{t+1}|s_{t},a_{t})$：环境转移的联合概率，与$\theta$无关。
+
+### 对目标函数求梯度
+
+计算$\nabla_{\theta}J(\theta)$，即目标函数对策略参数的梯度，然后通过**梯度上升**更新$\theta：\theta ← \theta + \alpha \nabla_{\theta}J(\theta)$（$\alpha$为学习率）
+
+$\nabla_{\theta} J(\theta) = \nabla_{\theta} \int_{\tau} P_{\theta}(\tau) \cdot R(\tau) d\tau$
+
+根据**积分与求导的交换律**（满足利普希茨条件时成立），可以将梯度算子移入积分内部：
+
+$\nabla_{\theta} J(\theta) = \int_{\tau} \nabla_{\theta}  P_{\theta}(\tau) \cdot R(\tau) d\tau$    (1)
+
+直接计算$\nabla_{\theta} P_{\theta}(\tau)$比较复杂，这里引入关键技巧：对于任意可微的概率分布 $P(x)$，有恒等式：
+
+$\nabla_{\theta}P(x) = P(x) \cdot \nabla_{\theta}logP(x)$
+
+证明：根据对数求导法则，$\nabla_{\theta}logP(x) = \frac{\nabla_{\theta}P(x)}{P(x)}$,两边乘以$P(x)$即可得到上式。
+
+将这个技巧应用到$P_{\theta}(\tau)$，可得：
+
+$\nabla_{\theta}P_{\theta}(\tau) = P_{\theta}(\tau) \cdot \nabla_{\theta}logP_{\theta}(\tau)$    (2)
+
+将公式 (2) 代入公式 (1)：
+
+$\nabla_{\theta}J(\theta) = \int_{\tau} P_{\theta}(\tau)\cdot\nabla_{\theta}logP_{\theta}(\tau) \cdot R(\tau)d\tau$
+
+根据期望的定义$E_{x \sim p}[f(x)] = \int P(x)f(x)dx$，上式可以写成期望形式：
+
+$\nabla _{\theta}J(\theta) =  E_{\tau \sim \pi_{\theta}}[\nabla_{\theta}logP_{\theta}(\tau) \cdot R(\tau)]$    (3)
+
+将梯度转化为了期望形式，为近似采样奠定了基础
+
+### 轨迹对数概率的分解
+
+接下来需要化简$\nabla _{\theta}logP_{\theta}(\tau)$。根据轨迹概率的分解式：
+
+$logP_{\theta}(\tau) = logp(s_{0}) + \sum\limits_{t=0}^Tlog\pi_{\theta}(a_{t}|s_{t}) + \sum\limits_{t=0}^Tlogp(s_{t+1}|s_{t},a_{t})$
+
+对$\theta$求梯度时，与$\theta$无关的项梯度为0：
+
+$\nabla _{\theta}logp(s_{0}) = 0$（初始状态分布与$\theta$无关）
+
+$\nabla _{\theta}logp(s_{t+1}|s_{t},a_{t}) = 0$（环境转移概率与$\theta$无关）
+
+因此，只有策略相关的项保留：
+$\nabla _{\theta}logP_{\theta}\tau = \sum\limits_{t=0}^{T}\nabla_{\theta}log\pi_{\theta}(a_{t}|s_{t})$    (4)
+
+### 策略梯度的基础公式
+
+将公式 (4) 代入公式 (3)，得到：
+
+$\nabla _{\theta}J(\theta) = E_{\tau \sim \pi_{\theta}}[(\sum\limits_{t=0}^{T}\nabla _{\theta}log\pi_{\theta}(a_{t}|s_{t})) \cdot R(\tau)]$
+
+交换求和与期望的顺序（线性运算性质）：
+
+$\nabla _{\theta}J(\theta) = E_{\tau \sim \pi_{\theta}}[\sum\limits_{t=0}^{T}\nabla _{\theta}log\pi_{\theta}(a_{t}|s_{t}) \cdot R(\tau)]$    (5)
+
+公式 (5)中$R(τ)$是整条轨迹的总奖励，但实际上，时刻$t$的动作$a_{t}$只能影响$t$时刻及之后的奖励，因此可以将$R(\tau)$ 拆分为时刻$t$之后的累积奖励$G_{t}$：
+
+$G_{t} = \sum\limits_{k=t}^{T}\gamma^{k-t}r_{k}$：
+
+$G_{t}$ 称为从t时刻开始的回报（Return），表示动作$a_{t}$带来的长期价值。
+
+根据强化学习的**无后效性**（马尔可夫性），可以证明：
+
+$\nabla _{\theta}J(\theta) = E_{\tau \sim \pi_{\theta}}[\sum\limits_{t=0}^{T}\nabla _{\theta}log\pi_{\theta}(a_{t}|s_{t}) \cdot R(\tau)] = E_{\tau \sim \pi_{\theta}}[\sum\limits_{t=0}^{T}\nabla _{\theta}log\pi_{\theta}(a_{t}|s_{t}) \cdot G_{t}]$    (6)
+
+### 近似采样
+
+公式 (6) 是期望形式，无法直接计算，实际中需要通过**采样轨迹**来近似期望。
+
+假设我们采样了N条独立的轨迹${\tau_{1},\tau_{2},…,\tau_{N}}$，每条轨迹$\tau_{i}$ 包含状态序列 $s_{i,0},…,s_{i,\tau_{i}}$、动作序列${a_{i,0},…,a_{i,\tau_{i}}}$ 和回报序列${G_{i,0},…,G_{i,\tau_{i}}}$，则梯度的无偏估计为：
+
+$\nabla _{\theta}J(\theta) \approx \frac{1}{N} \sum\limits_{i=1}^{N}\sum\limits_{t=0}^{T_{i}} \nabla_{\theta} log\pi_{\theta}(a_{i,t}|s_{i,t}) \cdot G_{i,t}$
+
+**无偏性**：采样的期望等于真实梯度，这是策略梯度算法的理论保证。
+
+**高方差问题**：采样轨迹的回报$G_{t}$波动较大，会导致梯度方差高，这也是后续引入基线、优势函数的原因
+
+### 关键结论与物理意义
+
+1. 核心思想：策略梯度通过调整策略参数，让 “带来高回报的动作” 的概率增加，“带来低回报的动作” 的概率减少。
+2. $\nabla _{\theta}log\pi_{\theta}(a_{t}|s_{t})$的作用：称为得分函数（Score Function），表示参数$θ$变化对动作$a_{t}$概率的影响方向。
+3. $G_{t}$：作为权重，高回报的动作会放大梯度更新幅度，低回报的动作会缩小更新幅度。
+4. 随机策略的优势：公式天然支持随机策略 $\pi_{\theta}(a|s)$（输出概率分布），适合大模型生成多样化 token 的场景。
+
+### 衍生公式
+
+基础公式的高方差问题会导致训练不稳定，因此引入与动作无关的基线函数$b(s_{t})$，改进后的梯度公式：
+
+$\nabla _{\theta}J(\theta) = E_{\tau \sim \pi_{\theta}}[\sum\limits_{t=0}^{T}\nabla _{\theta}log\pi_{\theta}(a_{t}|s_{t}) \cdot (G_{t} - b(s_{t}))]$
+
+原理：$E_{\tau \sim \pi_{\theta}}[\nabla _{\theta}log\pi_{\theta}(a_{t}|s_{t}) \cdot b(s_{t})] = 0$（与动作无关），因此不改变梯度的无偏差性，但能显著降低方差。
+
+>**导数补充说明**
+>
+>求目标函数$ J(\theta)$的梯度$\nabla_{\theta}J(\theta)$，本质上就是对 $ J(\theta)$ 关于参数 $\theta$ 求导，$\nabla_{\theta} J(\theta)$和$J'(\theta)$表达的意思是一致的($\nabla_{\theta}只是一个符号，跟$$J'(\theta)中的'表示同一操作$)，二者是同一操作的不同表述，核心区别在于参数的维度：
+>
+>1. 标量参数：梯度 = 导数
+>
+>   如果策略参数$θ$是一个标量（比如只有一个参数需要优化），那么梯度 $\nabla_{\theta}J(\theta)$就等价于普通导数$\frac{dJ(\theta)}{d \theta}$
+>
+>    $\nabla_{\theta}J(\theta)$ = $\frac{dJ(\theta)}{d \theta}$
+>
+>   例子：假设策略是$\pi_{\theta} (a|s) = \theta \cdot a$(简化场景)，$ J(\theta)$是关于$\theta$的一元函数，此时求梯度就是直接求导。
+>
+>2. 向量/矩阵参数：梯度是导数组成的向量/矩阵
+>
+>   在实际的大模型或强化学习场景中，$θ$是一个高维参数向量（比如 Transformer 的权重是数百万甚至上亿维的参数），此时：
+>
+>   - 导数：针对参数向量中的单个元素$\theta_{i}$，求$J{\theta}$对$\theta_{i}$的偏导数$\frac{\partial J(\theta)}{\partial \theta_{i}}$
+>   - 梯度：把所有偏导数组合成一个和$θ$维度相同的**向量**，即$\nabla_{\theta}J(\theta) = (\frac{\partial J(\theta)}{\partial \theta_{1}}, \frac{\partial J(\theta)}{\partial \theta_{2}},......,\frac{\partial J(\theta)}{\partial \theta_{n}})^T$
+>
+>   **通俗理解**：
+>
+>   导数是**一维**的变化率，梯度是**多维**的变化率方向。
+>
+>   梯度是导数的 “高维扩展”，导数是梯度的 “一维特例”。

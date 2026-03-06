@@ -2904,3 +2904,55 @@ $E[\frac{1}{N} \sum\limits_{i=1}^{N}f(x_{i})w(x_{i})] = \frac{1}{N} \sum\limits_
 
 归一化重要性采样：对权重进行归一化，降低方差（代价是牺牲无偏性）。$E_{x \sim p}[f(x)] \approx \frac{\sum\limits_{i=1}^{N}f(x_{i})w(x_{i})}{\sum\limits_{i=1}^{N}w(x_{i})}$
 
+### A2C
+
+基础公式：$\nabla _{\theta}J(\theta) = E_{\tau \sim \pi_{\theta}}[\sum\limits_{t=0}^{T}\nabla _{\theta}log\pi_{\theta}(a_{t}|s_{t}) \cdot R(\tau)] = E_{\tau \sim \pi_{\theta}}[\sum\limits_{t=0}^{T}\nabla _{\theta}log\pi_{\theta}(a_{t}|s_{t}) \cdot G_{t}]$
+
+近似采样：$\nabla _{\theta}J(\theta) \approx \frac{1}{N} \sum\limits_{i=1}^{N}\sum\limits_{t=0}^{T_{i}} \nabla_{\theta} log\pi_{\theta}(a_{i,t}|s_{i,t}) \cdot G_{i,t}$
+
+实际在做策略梯度的时候，并不是给整个轨迹$\tau$都一样的分数，而是每一个动作-状态会分开来计算，但通过蒙特卡洛方法进行随机抽样的时候，可能会出现问题，比如在采样多条轨迹时可能会出现如下问题：
+
+1. 所有动作均为正奖励
+2. 出现比价大的方差
+
+对于第一个问题，例如在某一个状态下，可以执行的动作有a、b、c，但可能只采样到动作b和动作c，没有采样到动作a：
+
+1. 现在所有的动作的奖励都是正，所以采取a、b、c的概率都应该要提高
+2. 实际上最终b、c的概率按预期提高了，但因为a没有被采样到，所以a的概率反而下降了
+3. a不一定是一个不好的动作，它只是没有被采样到，所以概率会下降
+
+为了解决奖励总是正的问题，也为了避免方差过大，需要在之前梯度计算的公式基础上加一个基准线baseline，这个b可以是任意函数，只要不依赖动作a即可，
+
+1. b有一种选择是使用轨迹上的奖励的均值。
+2. b还可以是状态价值函数$V_{\pi}(s_{t})$，Actor学习参数化的策略即策略函数，Critic通过学一个状态价值函数来尽可能准确描述当前状态遵循某个策略可以获得的预期总回报，并将其用于更好的模拟真实回报。
+
+$R(s_{t},a_{t}) - b$一般被定义为优势函数(Advantage Function)，$A^{\theta}(s_{t},a_{t})$是对一个动作在平均意义上比其他动作好多少的度量。一般有$A_{\pi}(s,a) = Q_{\pi}(s,a) - V_{\pi}(s)$，表示选择一个动作时，根据该动作相对于特定状态下其他动作执行情况来选择，而不是根据该动作的绝对值。并且通常只学习$V_{\pi}(s)$然后通过$V_{\pi}(s)$与奖励结合来估计$Q_{\pi}$，即：$Q_{\pi} =  R + \gamma V_{\pi}(s_{t+1})$。$A^{\theta}(s_{t},a_{t})$评估的是在状态$s_{t}$采取动动$a_{t}$是好还是不好，如果$A^{\theta}(s_{t},a_{t})$是正的，意味着在状态$s_{t}$采取动作$a_{t}$获得的回报比在状态$s_{t}$采取任何其他可能得动作获得的回报都要好，要增加概率，反之则减少概率。
+
+最终在更新梯度的时候用如下的公式：
+
+$E_{(s_{t},r_{t}) \sim \pi_{\theta}} [A^{\theta}(s_{t},a_{t})\nabla log\pi_{\theta}(a_{t}|s_{t})]$
+
+基于重要性采样原则，加重要性权重：
+
+$E_{(s_{t},a_{t}) \sim \pi_{\theta ^{'}}}[\frac{\pi_{\theta}(s_{t},a_{t})}{\pi_{\theta^{'}}(s_{t},a_{t})}A^{\theta^{'}}(s_{t},a_{t})\nabla log\pi_{\theta}(a_{t}|s_{t})]$
+
+拆解$\pi_{\theta}(s_{t},a_{t})$和$\pi_{\theta^{'}}(s_{t},a_{t})$
+
+$\pi_{\theta}(s_{t},a_{t}) =  \pi_{\theta}(a_{t}|s_{t})\pi_{\theta}(s_{t})$
+
+$\pi_{\theta^{'}}(s_{t},a_{t}) =  \pi_{\theta^{'}}(a_{t}|s_{t})\pi_{\theta^{'}}(s_{t})$
+
+可得：
+
+$E_{(s_{t},a_{t}) \sim \pi_{\theta ^{'}}}[\frac{\pi_{\theta}(a_{t}|s_{t})\pi_{\theta}(s_{t})}{\pi_{\theta^{'}}(a_{t}|s_{t})\pi_{\theta^{'}}(s_{t})}A^{\theta^{'}}(s_{t},a_{t})\nabla log\pi_{\theta}(a_{t}|s_{t})]$
+
+需要保证$\theta$中$s_{t}$的概率和$\theta^{'}$中$s_{t}$的概率基本一致，即$\theta$和$\theta^{'}$的参数不能差太多，因此引入TRPO算法，但是由于TRPO将$\theta$和$\theta^{'}$的KL散度当作一个额外约束，没有放在目标里面，导致TRPO很难计算。针对与TRPO算法计算量大的问题发展出了PPO算法，PPO算法主要有两个变种：近端策略优化惩罚(PPO-penalty)和近端策略优化裁剪(PPO-clip)，其中PPO-penalty和TRPO一样也用上了KL散度约束。近端策略优化裁剪的目标函数里面没有KL散度，可以解决计算量大的问题，其目标函数为：
+
+$J_{PPO2}^{\theta^{'}}(\theta) \approx \sum\limits_{(s_{t},a_{t})}min(\frac{\pi_{\theta}(a_{t},s_{t})}{\pi_{\theta^{'}}(a_{t},s_{t})}A_{\theta^{'}}(a_{t}|s_{t}),clip(\frac{\pi_{\theta}(a_{t},s_{t})}{\pi_{\theta^{'}}(a_{t},s_{t})}, 1-\varepsilon,1+\varepsilon)A_{\theta^{'}}(a_{t}|s_{t}))$
+
+整个目标函数在min这个大括号里有两部分，最终对比两部分哪部分小，就取哪部分的值，本质是为了让$\pi_{\theta}(a_{t}|s_{t})$和$p_{\theta^{'}}(a_{t}|s_{t})$可以尽可能接近不要差距太大。总之，裁剪算法和KL散度约束所要做的事情本质上是一致的，都是为了让两个分布之间差距不要过大，但裁剪算法相对好实现。
+
+
+
+
+

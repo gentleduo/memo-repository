@@ -1,129 +1,133 @@
 # 虚拟环境
 
-1. venv
-   1. 使用 venv 模块（推荐，Python 3.3+ 内置）
-   2. 进入你的项目目录：/path/to/your/project
-   3. 创建虚拟环境：python -m venv myenv（myenv 是你为虚拟环境起的名字，可以自定义（如 venv, env, myproject_env 等）。
-   4. 激活虚拟环境
-      1. Windows (命令提示符或 PowerShell)：myenv\Scripts\activate
-      2. macOS / Linux：source ./myenv/bin/activate
-   5. 退出虚拟环境：deactivate
-   6. 删除虚拟环境：直接删除整个虚拟环境文件夹即可（例如 myenv 文件夹）。
+## venv
 
-2. virtualenv
-   1. virtualenv 是一个更早、功能更丰富的第三方工具，但现在 venv 通常已足够。
-   2. 安装 virtualenv：pip install virtualenv
-   3. 创建虚拟环境：virtualenv milvus_env
-   4. 也可以指定Python版本：virtualenv -p python3.9 myenv
-   5. 激活、使用、退出虚拟环境的步骤与venv完全相同。
+1. 使用 venv 模块（推荐，Python 3.3+ 内置）
+2. 进入你的项目目录：/path/to/your/project
+3. 创建虚拟环境：python -m venv myenv（myenv 是你为虚拟环境起的名字，可以自定义（如 venv, env, myproject_env 等）。
+4. 激活虚拟环境
+   1. Windows (命令提示符或 PowerShell)：myenv\Scripts\activate
+   2. macOS / Linux：source ./myenv/bin/activate
+5. 退出虚拟环境：deactivate
+6. 删除虚拟环境：直接删除整个虚拟环境文件夹即可（例如 myenv 文件夹）。
 
-3. uv
+## virtualenv
 
-   Python uv是用Rust写的超高速、一站式Python包与项目管理工具，核心是替代pip+venv+pip-tools+poetry+tox等一整套工具链，解决传统工具慢、繁琐、环境不一致的问题。
+1. virtualenv 是一个更早、功能更丰富的第三方工具，但现在 venv 通常已足够。
+2. 安装 virtualenv：pip install virtualenv
+3. 创建虚拟环境：virtualenv milvus_env
+4. 也可以指定Python版本：virtualenv -p python3.9 myenv
+5. 激活、使用、退出虚拟环境的步骤与venv完全相同。
 
-   传统的python项目管理方式：pip+venv的工作流程：
+## uv
 
-   1. 首先在系统上安装对应的python版本
-   2. 创建虚拟环境：python -m venv .venv
-   3. 在当前目录下激活环境：
-      1. Windows (命令提示符或 PowerShell)：myenv\Scripts\activate
-      2. macOS / Linux：source ./myenv/bin/activate
-   4. 使用pip安装依赖：pip install openai；
-   5. 生成依赖文件：pip freeze > requirements.txt
-   6. 同步环境依赖：pip install -r requirements.txt
+Python uv是用Rust写的超高速、一站式Python包与项目管理工具，核心是替代pip+venv+pip-tools+poetry+tox等一整套工具链，解决传统工具慢、繁琐、环境不一致的问题。
 
-   这个流程虽然能用，但是作为开发者，期间会遇到非常多的问题：
+传统的python项目管理方式：pip+venv的工作流程：
 
-   1. 慢：pip的依赖解析和安装速度，在项目变大时，会异常缓慢。
-   2. 繁琐：每次打开新终端，都得手动activate才能激活虚拟环境，很容易忘记
-   3. 无多版本管理：运行python -m venv .venv命令时，它会使用您当前系统上默认的python版本来创建虚拟环境，只有已安装的python版本才可以创建虚拟环境，否则无法直接创建。
-   4. 依赖不精准：pip freeze会把子依赖也冻结进去，但我们真正关心的是直接依赖。同时pip没有依赖预检功能，很容易造成依赖冲突。
+1. 首先在系统上安装对应的python版本
+2. 创建虚拟环境：python -m venv .venv
+3. 在当前目录下激活环境：
+   1. Windows (命令提示符或 PowerShell)：myenv\Scripts\activate
+   2. macOS / Linux：source ./myenv/bin/activate
+4. 使用pip安装依赖：pip install openai；
+5. 生成依赖文件：pip freeze > requirements.txt
+6. 同步环境依赖：pip install -r requirements.txt
 
-   安装：
+这个流程虽然能用，但是作为开发者，期间会遇到非常多的问题：
 
-   uv支持macOS/Linux/Windows系统，并且在安装前可以不用配置Python环境，使用一行命令即可快速安装：
+1. 慢：pip的依赖解析和安装速度，在项目变大时，会异常缓慢。
+2. 繁琐：每次打开新终端，都得手动activate才能激活虚拟环境，很容易忘记
+3. 无多版本管理：运行python -m venv .venv命令时，它会使用您当前系统上默认的python版本来创建虚拟环境，只有已安装的python版本才可以创建虚拟环境，否则无法直接创建。
+4. 依赖不精准：pip freeze会把子依赖也冻结进去，但我们真正关心的是直接依赖。同时pip没有依赖预检功能，很容易造成依赖冲突。
 
-   ```makefile
-   # 官网：https://docs.astral.sh/
-   # macOS and Linux：
-   curl -LsSf https://astral.sh/uv/install.sh | sh
-   wget -qO- https://astral.sh/uv/install.sh | sh
-   curl -LsSf https://astral.sh/uv/0.10.9/install.sh | sh
-   
-   # Windows
-   powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-   ```
+安装：
 
-   也可以在Github上下载uv编译好的可执行文件，解压存储到电脑中，同时将路径添加到环境变量的path中即可：链接：https://github.com/astral-sh/uv/releases
+uv支持macOS/Linux/Windows系统，并且在安装前可以不用配置Python环境，使用一行命令即可快速安装：
 
-   在当前目录下创建一个不同版本独立的python虚拟环境：
+```makefile
+# 官网：https://docs.astral.sh/
+# macOS and Linux：
+curl -LsSf https://astral.sh/uv/install.sh | sh
+wget -qO- https://astral.sh/uv/install.sh | sh
+curl -LsSf https://astral.sh/uv/0.10.9/install.sh | sh
 
-   ```cmd
-   D:\Python-Code\athena>uv venv --python 3.12
-   ```
+# Windows
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
 
-   激活：
+也可以在Github上下载uv编译好的可执行文件，解压存储到电脑中，同时将路径添加到环境变量的path中即可：链接：https://github.com/astral-sh/uv/releases
 
-   ```cmd
-   # CMD
-   .venv\Scripts\activate.bat
-   # PowerShell/win11
-   .venv\Scripts\activate.ps1
-   # 在win11下如果执行报错：这是因为PowerShell执行政策导致的，可以使用以下方式解决：
-   # 临时允许脚本（推荐）
-   Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-   # 针对当前用户永久放宽
-   Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
-   # bash
-   source .venv/bin/activate
-   ```
+在当前目录下创建一个不同版本独立的python虚拟环境：
 
-   同时如果想使用原先的pip工作流，操作技巧也很简单，只需要在原先的命令前带上uv即可：
-   ```bash
-   uv pip install fastapi
-   ```
-   
-   这也是传统的工作流，在一个Python项目下可能会有一堆配置文件：setup.py requirements等，简直是一场僵梦，所以更推荐使用uv+pyproject.toml这种工作流方式，这是一个由官方PEP标准定义的、统一的配置文件，用于存放：
-   
-   - 项目的基本信息（项目名、版本、作者）
-   
-   - 项目依赖
-   
-   - 开发环境依赖
-   
-   - 构建工具配置
-   
-   - 测试、Linter等工具的配置
+```cmd
+D:\Python-Code\athena\api>uv venv --python 3.12
+```
+
+激活：
+
+```cmd
+# CMD
+.venv\Scripts\activate.bat
+# PowerShell/win11
+.venv\Scripts\activate.ps1
+# 在win11下如果执行报错：这是因为PowerShell执行政策导致的，可以使用以下方式解决：
+# 临时允许脚本（推荐）
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+# 针对当前用户永久放宽
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+# bash
+source .venv/bin/activate
+```
+
+同时如果想使用原先的pip工作流，操作技巧也很简单，只需要在原先的命令前带上uv即可：
+```bash
+uv pip install fastapi
+```
+
+这也是传统的工作流，在一个Python项目下可能会有一堆配置文件：setup.py requirements等，简直是一场僵梦，所以更推荐使用uv+pyproject.toml这种工作流方式，这是一个由官方PEP标准定义的、统一的配置文件，用于存放：
+
+- 项目的基本信息（项目名、版本、作者）
+
+- 项目依赖
+
+- 开发环境依赖
+
+- 构建工具配置
+
+- 测试、Linter等工具的配置
 
 uv天生就是围绕这个文件工作，在项目下运行uv init即可生成这些配置，常用命令如下：
 
 ```cmd
-# 初始化项目，交互式生成pyproject.toml和.venv虚拟环境
-D:\Python-Code\athena>uv init
+# 创建虚拟环境
+D:\Python-Code\athena\api>uv venv --python 3.12
+# 初始化项目，交互式生成pyproject.toml
+D:\Python-Code\athena\api>uv init
 # 安装依赖
-D:\Python-Code\athena>uv add openai
+D:\Python-Code\athena\api>uv add openai
 # 同步环境，该命令会按照pyproject.toml创建一个虚拟环境，并安装所有的依赖
-D:\Python-Code\athena>uv sync
+D:\Python-Code\athena\api>uv sync
 # 执行命令，以往需要激活环境才能运行命令，现在可以通过uv run <command>在项目中快速执行命令而无需提前激活
-D:\Python-Code\athena>uv run main.py
+D:\Python-Code\athena\api>uv run main.py
 # 卸载依赖
-D:\Python-Code\athena>uv remove openai
+D:\Python-Code\athena\api>uv remove openai
 # 创建一份pip的依赖文件
-D:\Python-Code\athena>uv export -o requirements.txt
+D:\Python-Code\athena\api>uv export -o requirements.txt
 
 # 以树状图展示当前项目的依赖关系。检查依赖冲突
-D:\Python-Code\athena>uv show
+D:\Python-Code\athena\api>uv show
 # 以列表形式显示当前环境中所有已安装的包及版本
-D:\Python-Code\athena>uv pip list
+D:\Python-Code\athena\api>uv pip list
 # 以requirements.txt格式输出所有已安装的包，包括子依赖
-D:\Python-Code\athena>uv pip freeze
+D:\Python-Code\athena\api>uv pip freeze
 
 # 显示uv全局缓存的目录位置
-D:\Python-Code\athena>uv cache dir
+D:\Python-Code\athena\api>uv cache dir
 # 清理uv全局缓存。
-D:\Python-Code\athena>uv cache clean
+D:\Python-Code\athena\api>uv cache clean
 # 更新uv工具本身到最新版本
-D:\Python-Code\athena>uv self update
+D:\Python-Code\athena\api>uv self update
 ```
 
 # 脚本执行

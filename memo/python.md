@@ -105,7 +105,7 @@ D:\Python-Code\athena\api>uv venv --python 3.12
 # 初始化项目，交互式生成pyproject.toml
 D:\Python-Code\athena\api>uv init
 # 安装依赖
-D:\Python-Code\athena\api>uv add openai
+D:\Python-Code\athena\api>uv add pydantic fastapi openai uvicorn[standard] pydantic-settings redis
 # 同步环境，该命令会按照pyproject.toml创建一个虚拟环境，并安装所有的依赖
 D:\Python-Code\athena\api>uv sync
 # 执行命令，以往需要激活环境才能运行命令，现在可以通过uv run <command>在项目中快速执行命令而无需提前激活

@@ -105,7 +105,7 @@ D:\Python-Code\athena\api>uv venv --python 3.12
 # 初始化项目，交互式生成pyproject.toml
 D:\Python-Code\athena\api>uv init
 # 安装依赖
-D:\Python-Code\athena\api>uv add pydantic fastapi openai uvicorn[standard] pydantic-settings redis asyncpy sqlalchemy asyncpg cos-python-sdk-v5 alembic psycopg2-binary mcp httpx filelock json_repair httpx beautifulsoup4 browser-use browser-use-sdk playwright
+D:\Python-Code\athena\api>uv add pydantic fastapi openai uvicorn[standard] pydantic-settings redis asyncpy sqlalchemy asyncpg cos-python-sdk-v5 alembic psycopg2-binary mcp httpx filelock json_repair httpx beautifulsoup4 browser-use browser-use-sdk playwright markdownify
 # playwright install是安装真实的浏览器二进制文件（Chrome、Firefox、Safari 等），如果电脑已经安装了相应的浏览器，可以不执行上述命令
 D:\Python-Code\athena\api>playwright install
 D:\Python-Code\athena\api>uv add pytest httpx --dev
@@ -117,6 +117,8 @@ D:\Python-Code\athena\api>uv run main.py
 D:\Python-Code\athena\api>uv remove openai
 # 创建一份pip的依赖文件
 D:\Python-Code\athena\api>uv export -o requirements.txt
+# 创建一份pip的依赖文件
+D:\Python-Code\athena\api>uv export --format requirements.txt --no-dev --no-hashes --output-file requirements.txt
 
 # 以树状图展示当前项目的依赖关系。检查依赖冲突
 D:\Python-Code\athena\api>uv show
@@ -2522,3 +2524,220 @@ google-chrome --remote-debugging-port=9222 --user-data-dir="D:\chrome_dev_profil
 地图会瞬间飞到“南极”或者“埃菲尔铁塔”
 
 browser-use本质上是通过CDP暴露的API接口，通过传递不同的参数实现对浏览器的操控。但是CDP参数太多，而Playwright这个库通过封装CDP简化了整个调用流程。
+
+# Supervisor
+
+Docker自带错误重启功能，但是存在一个问题：假设FastAPI项目出错，但是其他进程都是正常并且正在运行的，如果重启Docker容器，会导致其他进程数据丢失。所以不能依靠Docker的纠错机制来确保进程的稳健运行，这时候进程管理工具--Supervisor就起到用途了，这是一个由Python开发的通用进程管理程序（不仅仅可以用在Python程序中），这个工具可以让一个普通的命令行变成后台daemon，并监控进程状态，异常时能退出自动重启，官网链接：https://supervisord.org/
+
+```shell
+# 安装supervisor
+apt-get install supervisor
+```
+
+其中[unix_http_server]、[supervisord]、[rpcinterface:supervisor]、[supervisorctl]的写法一般比较固定，对于 需要supervisor管理的进程可以使用[program:进程名]进行配置，为进程设置运行命令、工作空间、启动进程用户、是否自动开启/重启、日志记录、环境变量等。
+
+比如在容易中通过supervisord启动FastAPI（supervisord.conf放在/sandbox目录下）
+
+```properties
+; 通信http服务配置
+[unix_http_server]
+file=/tmp/supervisor.sock    ; socket文件路径
+chmod=0770                   ; socket文件权限，770表示文件所有者和同组用户有读/写/执行权限，其他用户无任何权限
+chown=root:root              ; socket文件的所有者和组
+
+; supervisord日志配置信息
+[supervisord]
+logfile=/dev/stdout          ; 主日志路径
+logfile_maxbytes=0           ; 不限制日志大小(用完即弃无需考虑)
+loglevel=info                ; 日志等级
+pidfile=/tmp/supervisord.pid ; pid文件路径
+nodaemon=true                ; 设为true表示在前台运行(Docker前台)，方便Docker捕捉日志
+minfds=1024                  ; 打开文件描述符的最小值
+minprocs=200                 ; 最小进程数
+autoshutdown=true            ; 所有服务停止后自动退出
+
+; 启用supervisor的远程过程调用接口
+[rpcinterface:supervisor]
+supervisor.rpcinterface_factory = supervisor.rpcinterface:make_main_rpcinterface
+
+; supervisorctl连接服务配置
+[supervisorctl]
+serverurl=unix:///tmp/supervisor.sock
+
+; FastAPI进程配置
+[program:app]
+command=/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
+directory=/sandbox
+user=root
+autostart=true
+autorestart=true
+stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
+stderr_logfile=/dev/stderr
+stderr_logfile_maxbytes=0
+environment=HOME=/home/ubuntu
+priority=60
+```
+
+启动：
+
+```shell
+(sandbox) root@294e9985ad91:/sandbox# supervisord -c supervisord.conf -n
+```
+
+比如在一容器中除了启动FastAPI以后，还需要安装一些额外的服务：
+
+1、安装Chrome浏览器，并且开放cdp_url，同时通过socat将cdp_url的数据双向绑定到另外一个端口，以解决Chrome只能本地ip访问的限制；
+
+2、安装x11vnc实现远程桌面，并使用websockify将VNC转化为WebSocket流量，以便前端可以通过浏览器查看远程桌面；
+
+3、安装xvfb启动虚拟显示器（在内存中模拟一个显示器，骗过程序）以供Chrome浏览器模拟使用；
+
+相当于整个docker容器中，会同时运行FastAPI + Chrome + Socat + xvfb + x11nc + websockify共6个进程，使用Supervisor管理起来也非常简单，在supervisord.conf中添加[program:进程名]并独立维护每一个进程即可，示例如下：
+
+```properties
+; 通信http服务配置
+[unix_http_server]
+file=/tmp/supervisor.sock    ; socket文件路径
+chmod=0770                   ; socket文件权限，770表示文件所有者和同组用户有读/写/执行权限，其他用户无任何权限
+chown=ubuntu:ubuntu          ; socket文件的所有者和组
+
+; supervisord日志配置信息
+[supervisord]
+logfile=/dev/stdout          ; 主日志路径
+logfile_maxbytes=0           ; 不限制日志大小(用完即弃无需考虑)
+loglevel=info                ; 日志等级
+pidfile=/tmp/supervisord.pid ; pid文件路径
+nodaemon=true                ; 设为true表示在前台运行(Docker前台)，方便Docker捕捉日志
+minfds=1024                  ; 打开文件描述符的最小值
+minprocs=200                 ; 最小进程数
+autoshutdown=true            ; 所有服务停止后自动退出
+
+; 启用supervisor的远程过程调用接口
+[rpcinterface:supervisor]
+supervisor.rpcinterface_factory = supervisor.rpcinterface:make_main_rpcinterface
+
+; supervisorctl连接服务配置
+[supervisorctl]
+serverurl=unix:///tmp/supervisor.sock
+
+; FastAPI进程配置
+[program:app]
+command=uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload %(ENV_UVI_ARGS)s
+directory=/sandbox
+user=root
+autostart=true
+autorestart=true
+stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
+stderr_logfile=/dev/stderr
+stderr_logfile_maxbytes=0
+environment=HOME=/home/ubuntu
+priority=60
+
+; Chrome浏览器配置
+[program:chrome]
+command=chromium \
+    --display=:1 \
+    --window-size=1280,1080 \
+    --start-maximized \
+    --no-sandbox \
+    --disable-dev-shm-usage \
+    --disable-setuid-sandbox \
+    --disable-accelerated-2d-canvas \
+    --disable-gpu \
+    --disable-features=WelcomeExperience,SigninPromo \
+    --no-first-run \
+    --no-default-browser-check \
+    --disable-infobars \
+    --test-type \
+    --disable-popup-blocking \
+    --disable-gpu-sandbox \
+    --no-xshm \
+    --new-window=false \
+    --disable-notifications \
+    --disable-extensions \
+    --disable-component-extensions-with-background-pages \
+    --disable-prompt-on-repost \
+    --disable-dialogs \
+    --disable-modal-dialogs \
+    --disable-web-security \
+    --disable-site-isolation-trials \
+    --remote-debugging-address=0.0.0.0 \
+    --remote-debugging-port=8222 %(ENV_CHROME_ARGS)s
+autostart=true
+autorestart=true
+stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
+stderr_logfile=/dev/stderr
+stderr_logfile_maxbytes=0
+environment=DISPLAY=:1
+priority=20
+startretries=3
+startsecs=5
+
+; socat进程配置
+[program:socat]
+command=socat TCP-LISTEN:9222,bind=0.0.0.0,fork,reuseaddr TCP:127.0.0.1:8222
+autostart=true
+autorestart=true
+stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
+stderr_logfile=/dev/stderr
+stderr_logfile_maxbytes=0
+priority=30
+startsecs=2
+
+; Xvfb虚拟显示器配置
+[program:xvfb]
+command=bash -c "rm -f /tmp/.X1-lock && Xvfb :1 -screen 0 1280x1080x24"
+autostart=true
+autorestart=true
+stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
+stderr_logfile=/dev/stderr
+stderr_logfile_maxbytes=0
+priority=10
+startsecs=2
+
+; x11vnc服务配置
+[program:x11vnc]
+command=x11vnc -display :1 -nopw -shared -listen 0.0.0.0 -xkb -forever -rfbport 5900
+autostart=true
+autorestart=true
+stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
+stderr_logfile=/dev/stderr
+stderr_logfile_maxbytes=0
+priority=40
+startsecs=3
+
+; Websockify配置/将VNC转换为Websocket
+[program:websockify]
+command=websockify 0.0.0.0:5901 localhost:5900
+autostart=true
+autorestart=true
+stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
+stderr_logfile=/dev/stderr
+stderr_logfile_maxbytes=0
+priority=50
+startsecs=3
+
+; 使用分组来统一启动or关闭进程
+[group:services]
+programs=xvfb,chrome,socat,x11vnc,websockify,app
+```
+
+# sandbox
+
+沙箱5大额外进程与noVNC的关联与作用
+
+1. Chromlum浏览器（Chrome浏览器开源版功能更精简），由于CDP只允许本机访问，因此需要通过Socat监听9222端口并将访问该端口的请求转发至CDP，让非本机IP也能访问CDP
+2. Chromlum浏览器无法在无界面环境中运行，因此使用xvfb创建虚拟显示器骗过浏览器
+3. x11vnc虚拟网络通过捕获xvfb虚拟显示器并通过vnc协议传输出去，暴露TCP协议的5900端口，远程桌面本身是双向通信的，如果使用TCP的话会发起大量请求导致性能较差，所以需要将x11vnc的TCP协议转成WSS协议
+4. websockify中转代理，监听TCP 5900端口并转换为WSS协议5901 Websocket双向通信接口
+5. novnc开源网页VNC客户端，使用wss协议让浏览器远程操控桌面
+
+
+

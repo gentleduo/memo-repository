@@ -105,7 +105,7 @@ D:\Python-Code\athena\api>uv venv --python 3.12
 # 初始化项目，交互式生成pyproject.toml
 D:\Python-Code\athena\api>uv init
 # 安装依赖
-D:\Python-Code\athena\api>uv add pydantic fastapi openai uvicorn[standard] pydantic-settings redis asyncpy sqlalchemy asyncpg cos-python-sdk-v5 alembic psycopg2-binary mcp httpx filelock json_repair httpx beautifulsoup4 browser-use browser-use-sdk playwright markdownify
+D:\Python-Code\athena\api>uv add pydantic fastapi openai uvicorn[standard] pydantic-settings redis asyncpy sqlalchemy asyncpg cos-python-sdk-v5 alembic psycopg2-binary mcp httpx filelock json_repair httpx beautifulsoup4 browser-use browser-use-sdk playwright markdownify async-lru docker a2a-sdk[http-server]
 # playwright install是安装真实的浏览器二进制文件（Chrome、Firefox、Safari 等），如果电脑已经安装了相应的浏览器，可以不执行上述命令
 D:\Python-Code\athena\api>playwright install
 D:\Python-Code\athena\api>uv add pytest httpx --dev
@@ -118,7 +118,8 @@ D:\Python-Code\athena\api>uv remove openai
 # 创建一份pip的依赖文件
 D:\Python-Code\athena\api>uv export -o requirements.txt
 # 创建一份pip的依赖文件
-D:\Python-Code\athena\api>uv export --format requirements.txt --no-dev --no-hashes --output-file requirements.txt
+D:\Python-Code\athena\api>uv export --format requirements-txt --no-dev --no-hashes --output-file requirements.txt
+D:\Python-Code\athena\api>uv export --format requirements-txt --no-dev --no-hashes -o requirements.txt
 
 # 以树状图展示当前项目的依赖关系。检查依赖冲突
 D:\Python-Code\athena\api>uv show

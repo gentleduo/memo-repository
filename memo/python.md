@@ -765,8 +765,13 @@ def gen_func():
 if __name__ == "__main__":
     gen = gen_func()
     print(next(gen))  # 输出: http://projectsedu.com
-    print(gen.throw(Exception, "download error"))  # 引发异常，被 except 捕获，并输出2
-    print(next(gen))  # 际输出 3
+    print(gen.throw(Exception("download error")))  # 引发异常，被 except 捕获，并输出2
+    print(next(gen))  # 实际输出 3
+    try:
+        next(gen)
+    except StopIteration as e:
+        # 最终的返回值通过StopIteration的value获取
+        print(f"生成器结束，返回值: {e.value}")
 ```
 
 - **`next(gen)` 第一次调用**：
@@ -845,6 +850,122 @@ gen.close()
 
 ## yield from
 
+`yield from` 是 Python 3.3 引入的**生成器嵌套语法糖**，核心作用是**将一个可迭代对象 / 生成器的元素 “平铺” 到当前生成器中**，避免手动写嵌套循环的 `yield` 逻辑，同时还能实现**生成器之间的双向通信**（传值、抛异常）。
+
+一、核心作用：简化嵌套生成器
+
+1. 基础场景：替代手动循环 `yield`
+
+   如果没有 `yield from`，要遍历嵌套的可迭代对象，需要写两层循环：
+
+   ```python
+   # 无 yield from：手动嵌套循环
+   def gen_nested(iterable):
+       for sub_iter in iterable:
+           for item in sub_iter:
+               yield item
+   
+   # 测试
+   data = [[1,2], [3,4], [5,6]]
+   for num in gen_nested(data):
+       print(num, end=" ")  # 输出: 1 2 3 4 5 6
+   ```
+
+   用 `yield from` 可以直接简化为一行，效果完全等价：
+
+   ```python
+   # 有 yield from：直接平铺子迭代器
+   def gen_simple(iterable):
+       for sub_iter in iterable:
+           yield from sub_iter  # 等价于内层的 for + yield
+   
+   # 测试
+   data = [[1,2], [3,4], [5,6]]
+   for num in gen_simple(data):
+       print(num, end=" ")  # 输出: 1 2 3 4 5 6
+   ```
+
+2. 进阶场景：嵌套生成器的调用
+
+   `yield from` 不仅能处理列表、元组等普通可迭代对象，还能直接调用**另一个生成器函数**，实现生成器的嵌套协作。
+
+   ```python
+   # 子生成器：生成 1~n 的数
+   def sub_gen(n):
+       for i in range(1, n+1):
+           yield i
+   
+   # 主生成器：通过 yield from 调用子生成器
+   def main_gen():
+       print("开始调用子生成器 1~3")
+       yield from sub_gen(3)  # 平铺子生成器的结果
+       print("开始调用子生成器 10~12")
+       yield from sub_gen(3)  # 再次调用
+   
+   # 测试
+   for num in main_gen():
+       print(num)
+   ```
+
+二、核心优势：生成器双向通信
+
+这是 `yield from` 最强大的功能 ——**主生成器可以通过 `send()` 向子生成器传值，子生成器的返回值也能被主生成器获取**。
+
+如果不用 `yield from`，实现双向通信需要写大量的 `try/except` 逻辑，而 `yield from` 帮我们封装了这些细节。
+
+```python
+def sub_gen_with_return():
+    total = 0
+    while True:
+        # 接收主生成器传过来的值
+        value = yield total  # yield 的值会返回给主生成器
+        if value is None:  # 主生成器传 None 时退出
+            break
+        total += value  # 累加传过来的值
+    return total  # 子生成器的返回值
+
+def main_gen_with_comm():
+    # yield from 会返回子生成器的 return 值
+    result = yield from sub_gen_with_return()
+    yield f"子生成器累加结果: {result}"
+
+# 测试双向通信
+gen = main_gen_with_comm()
+# 1. 启动生成器（第一次 next 到第一个 yield）
+print(next(gen))  # 输出: 0 (子生成器初始 total=0)
+# 2. 向子生成器传值 5
+print(gen.send(5))  # 输出: 5 (total=0+5)
+# 3. 向子生成器传值 10
+print(gen.send(10))  # 输出: 15 (total=5+10)
+# 4. 传 None 让子生成器退出
+print(gen.send(None))  # 输出: 子生成器累加结果: 15
+```
+
+**运行逻辑拆解**：
+
+1. `next(gen)` 启动主生成器，执行到 `yield from sub_gen_with_return()`，进而启动子生成器，子生成器执行 `yield total`，返回 `0`。
+2. `gen.send(5)` 将 `5` 传给子生成器的 `value`，子生成器计算 `total=5`，再次 `yield total`，返回 `5`。
+3. `gen.send(10)` 同理，返回 `15`。
+4. `gen.send(None)` 时，子生成器 `break` 并 `return total`，`yield from` 会将这个返回值赋值给 `result`，主生成器继续执行 `yield f"子生成器累加结果: {result}"`。
+
+`yield from` vs `yield` 核心区别
+
+| 特性           | `yield`              | `yield from`                       |
+| -------------- | -------------------- | ---------------------------------- |
+| 嵌套迭代       | 需要手动写多层循环   | 直接平铺子迭代器 / 生成器          |
+| 双向通信       | 需手动处理传值、异常 | 自动封装通信逻辑                   |
+| 子生成器返回值 | 无法直接获取         | 可以直接接收子生成器的 `return` 值 |
+
+典型应用场景
+
+**扁平化嵌套数据结构**：比如处理多层嵌套的列表、字典、JSON 数据。
+
+**生成器协作**：比如异步编程中，用 `yield from` 实现协程的嵌套调用（早期 `asyncio` 的核心用法）。
+
+**管道式数据处理**：多个生成器串联，前一个生成器的输出作为后一个的输入，用 `yield from` 简化串联逻辑。
+
+其他示例：
+
 ```python
 final_result = {}
 
@@ -922,6 +1043,170 @@ if __name__ == '__main__':
 
 协程的生命周期包括四个状态：Pending（未启动）、Running（正在执行）、Suspended（因await暂停）和Completed（执行完毕） 。每个协程被编译为生成器对象，通过这些状态的转换实现并发执行。在Python中，协程通过async def定义，返回一个协程对象，需要通过事件循环来执行。调用协程函数不会立即执行函数体，而是返回一个协程对象，必须显式启动才能执行。
 
+核心概念：
+
+- **`async def`**：定义**异步函数**（协程函数），调用后不会立即执行，而是返回一个**协程对象**。
+- **`await`**：在异步函数内部使用，用于等待一个**可等待对象**（协程对象、`Future`、`Task` 等）执行完成，且**不会阻塞整个事件循环**。
+- **事件循环**：异步编程的核心，负责调度协程的执行、管理 IO 事件（如网络请求、文件读写）等。
+
+### 基础示例
+
+最简异步函数
+
+```python
+import asyncio
+
+# 定义异步函数（协程函数）
+async def hello():
+    print("Hello, 开始执行异步任务")
+    # 模拟耗时操作（如网络请求），用 asyncio.sleep 替代 time.sleep
+    # time.sleep 是阻塞的，asyncio.sleep 是异步非阻塞的
+    await asyncio.sleep(1)
+    print("Hello, 异步任务执行完成")
+
+if __name__ == "__main__":
+    # 手动创建新循环
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    # 将协程对象加入事件循环并运行
+    loop.run_until_complete(hello())
+    # 关闭事件循环
+    loop.close()
+```
+
+Python 3.7+ 简化写法
+
+`asyncio.run()` 会自动创建、运行、关闭事件循环，无需手动操作：
+
+```python
+import asyncio
+
+async def hello():
+    print("Hello, 开始执行异步任务")
+    await asyncio.sleep(1)
+    print("Hello, 异步任务执行完成")
+
+if __name__ == "__main__":
+    asyncio.run(hello())
+```
+
+### 核心优势
+
+异步编程的核心价值是**并发处理多个耗时 IO 任务**（如网络请求、文件读写），避免因单个任务阻塞而浪费时间。
+
+```python
+import asyncio
+import aiohttp  # 异步 HTTP 库，需安装：pip install aiohttp
+
+# 异步下载单个网页
+async def fetch_url(session, url):
+    print(f"开始下载: {url}")
+    async with session.get(url) as response:
+        # 等待响应返回（非阻塞，事件循环可处理其他任务）
+        content = await response.text()
+        print(f"完成下载: {url}，长度: {len(content)}")
+        return len(content)
+
+# 主异步函数：并发执行多个下载任务
+async def main():
+    urls = [
+        "https://www.baidu.com",
+        "https://www.taobao.com",
+        "https://www.jd.com"
+    ]
+    # 创建异步 HTTP 会话
+    async with aiohttp.ClientSession() as session:
+        # 方式1：用 asyncio.gather 并发执行多个协程
+        tasks = [fetch_url(session, url) for url in urls]
+        # 等待所有任务完成，返回结果列表
+        results = await asyncio.gather(*tasks)
+        print(f"所有任务完成，总长度: {sum(results)}")
+
+if __name__ == "__main__":
+    # 运行主协程
+    asyncio.run(main())
+```
+
+**运行逻辑**：
+
+1. 程序启动后，`asyncio.run(main())` 启动事件循环。
+2. `main()` 函数创建 3 个 `fetch_url` 协程任务，通过 `asyncio.gather` 并发调度。
+3. 当第一个 `fetch_url` 执行到 `await response.text()` 时，会**暂停当前协程**，事件循环切换到其他未完成的协程执行。
+4. 所有协程完成后，`gather` 返回结果列表，程序输出总长度。
+
+**并发优势**：3 个网页的下载几乎是同时进行的，总耗时≈最慢的那个网页的下载时间；而同步下载的总耗时≈3 个网页下载时间之和。
+
+### 关键细节
+
+1. `await` 只能在 `async def` 函数内部使用
+
+   同步函数中不能用 `await`，否则会报 `SyntaxError`。
+
+   ```python
+   def sync_func():
+       await asyncio.sleep(1)  # 错误！SyntaxError: 'await' outside async function
+   ```
+
+2. `await` 后面必须跟可等待对象
+
+   可等待对象包括 3 类：
+
+   - **协程对象**：`async def` 函数调用后的返回值。
+   - **Task 对象**：`asyncio.create_task()` 创建的对象，用于并发执行协程。
+   - **Future 对象**：底层异步 IO 操作的结果容器。
+
+3. `asyncio.create_task()` 主动创建并发任务
+
+   上面的示例用了 `asyncio.gather`，也可以用 `create_task` 手动创建任务：
+
+   ```python
+   async def main():
+       urls = ["https://www.baidu.com", "https://www.taobao.com"]
+       async with aiohttp.ClientSession() as session:
+           tasks = []
+           for url in urls:
+               # 创建 Task 并加入列表，任务会立即开始执行
+               task = asyncio.create_task(fetch_url(session, url))
+               tasks.append(task)
+           # 等待所有 Task 完成
+           results = await asyncio.gather(*tasks)
+           print(results)
+   ```
+
+### 性能对比
+
+```python
+import asyncio
+import aiohttp
+import requests
+import time
+
+# 同步下载
+def sync_download():
+    urls = ["https://www.baidu.com"] * 5
+    start = time.time()
+    for url in urls:
+        requests.get(url)
+    print(f"同步下载耗时: {time.time() - start:.2f} 秒")
+
+# 异步下载
+async def async_download():
+    urls = ["https://www.baidu.com"] * 5
+    start = time.time()
+    async with aiohttp.ClientSession() as session:
+        tasks = [asyncio.create_task(fetch_url(session, url)) for url in urls]
+        await asyncio.gather(*tasks)
+    print(f"异步下载耗时: {time.time() - start:.2f} 秒")
+
+async def fetch_url(session, url):
+    async with session.get(url) as response:
+        await response.text()
+
+if __name__ == "__main__":
+    sync_download()
+    asyncio.run(async_download())
+```
+
 ## Python协程的演进历程
 
 Python协程的实现经历了从生成器到async/await语法的演变，这一过程反映了Python社区对并发编程需求的不断深入理解。
@@ -951,7 +1236,7 @@ Python协程的实现经历了从生成器到async/await语法的演变，这一
 
 协程与任务的关系是理解事件循环的关键。协程（Coroutine）是使用async def定义的函数，它返回一个协程对象；而任务（Task）是由事件循环管理的协程封装体，它表示协程的执行过程。当协程被事件循环执行时，它会被包装为Task对象，并加入任务队列。Task对象提供了更多功能，如异常处理、结果获取等，使得协程的管理更加方便。
 
-协程切换的底层机制涉及Python解释器的字节码处理。当协程执行到await关键字时，CPython解释器会执行对应的字节码（如AWAIT），保存当前帧的上下文，并切换到事件循环 35 。事件循环通过维护任务队列和等待队列，实现了协程的并发执行。这种切换完全在用户态完成，无需内核参与，因此切换代价极小。
+协程切换的底层机制涉及Python解释器的字节码处理。当协程执行到await关键字时，CPython解释器会执行对应的字节码（如AWAIT），保存当前帧的上下文，并切换到事件循环。事件循环通过维护任务队列和等待队列，实现了协程的并发执行。这种切换完全在用户态完成，无需内核参与，因此切换代价极小。
 
 协程的唤醒机制基于Future对象。当协程执行到await future时，它会挂起并将自身与Future对象关联。当Future对象完成（如I/O操作完成）时，事件循环会触发相应的回调，将协程重新加入就绪队列，等待下一次调度执行。这种机制使得协程能够在等待I/O操作时主动让出CPU资源，待I/O操作完成后继续执行，实现了高效的资源利用。
 

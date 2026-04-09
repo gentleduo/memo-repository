@@ -366,6 +366,243 @@ D:\Python-Code\athena\api>uv self update
           print("异常值:", exc_value)
       ```
 
+# 魔法函数
+
+## 定义
+
+魔法函数（Magic Methods），也叫**双下划线方法**。
+
+特点：
+
+1. 名字前后都有 **双下划线 `__xxx__`**
+2. **不需要手动调用**
+3. Python 解释器在特定场景会**自动触发**它们
+4. 让自定义对象可以像内置类型（列表、字符串、字典）一样使用
+
+## 示例
+
+```python
+class Company(object):
+
+    def __init__(self, employee_list):
+        self.employee = employee_list
+
+    def __getitem__(self, item):
+    	"""支持下标、遍历、切片"""
+   		 return self.employee[item]
+
+    def __len__(self):
+        """支持 len() 函数"""
+        return len(self.employee)
+
+    def __str__(self):
+        """支持 print 打印"""
+        return str(self.employee)
+
+ 
+company = Company(["tom", "bob", "jane"])
+# 普通对象不能遍历：
+# 但实现__getitem__之后，就可以通过for循环进行遍历
+# Python的for循环机制：
+#   1.先尝试把对象当成迭代器
+#   2.如果不行，自动调用 __getitem__，从 0 开始依次取值
+#   3.直到抛出 IndexError 停止
+for item in company:
+    print(item)
+```
+
+`__getitem__` 的作用：**让你的对象变成 “可下标访问” 的对象**，触发时机：
+
+- `obj[index]`  下标访问
+- `for 循环遍历`
+- `切片`
+- `list(obj)` 转列表
+- `tuple(obj)` 转元组
+
+Python就会**自动调用 `__getitem__`**
+
+## 常见的魔法函数
+
+| 类别              | 魔法函数           | 作用                     | 触发场景                  |
+| :---------------- | :----------------- | :----------------------- | :------------------------ |
+| **初始化与构造**  | `__init__`         | 实例初始化               | `obj = Class()`           |
+|                   | `__new__`          | 控制实例创建（单例模式） | 实例化之前                |
+|                   | `__del__`          | 析构（对象被垃圾回收前） | `del obj` 或程序结束      |
+| **属性访问**      | `__getattr__`      | 访问不存在的属性时       | `obj.unknown`             |
+|                   | `__setattr__`      | 设置任意属性时           | `obj.attr = value`        |
+|                   | `__getattribute__` | 访问任何属性时（无条件） | `obj.any_attr`            |
+| **容器/序列模拟** | `__len__`          | 返回长度                 | `len(obj)`                |
+|                   | `__getitem__`      | 索引/切片取值            | `obj[key]`                |
+|                   | `__setitem__`      | 索引/切片赋值            | `obj[key] = value`        |
+|                   | `__delitem__`      | 删除索引/切片            | `del obj[key]`            |
+|                   | `__contains__`     | 成员测试                 | `item in obj`             |
+| **迭代器协议**    | `__iter__`         | 返回迭代器               | `iter(obj)` 或 `for` 循环 |
+|                   | `__next__`         | 返回下一个值             | `next(iterator)`          |
+| **数值计算**      | `__add__`          | 加法                     | `obj1 + obj2`             |
+|                   | `__sub__`          | 减法                     | `obj1 - obj2`             |
+|                   | `__mul__`          | 乘法                     | `obj1 * obj2`             |
+|                   | `__truediv__`      | 真除法                   | `obj1 / obj2`             |
+|                   | `__floordiv__`     | 整除                     | `obj1 // obj2`            |
+| **比较运算**      | `__eq__`           | 相等 `==`                | `obj1 == obj2`            |
+|                   | `__ne__`           | 不等 `!=`                | `obj1 != obj2`            |
+|                   | `__lt__`           | 小于 `<`                 | `obj1 < obj2`             |
+|                   | `__le__`           | 小于等于 `<=`            | `obj1 <= obj2`            |
+| **字符串表示**    | `__str__`          | 面向用户的字符串         | `print(obj)`              |
+|                   | `__repr__`         | 面向开发者的字符串       | 交互式环境、`repr(obj)`   |
+| **上下文管理**    | `__enter__`        | 进入 `with` 块           | `with obj as ...`         |
+|                   | `__exit__`         | 退出 `with` 块           | 块结束时                  |
+
+## 底层调用机制
+
+Python 解释器在遇到特定语法时，会**隐式查找**对应的魔法函数。例如：
+
+```python
+# 用户写的代码            # 解释器实际调用的方法
+len(obj)        →       obj.__len__()
+obj[key]        →       obj.__getitem__(key)
+obj.attr        →       obj.__getattribute__("attr")  (若失败则调用 __getattr__)
+obj + other     →       obj.__add__(other)
+with obj:       →       obj.__enter__() 和 obj.__exit__()
+```
+
+**重要特性**：
+
+- 魔法函数应该**只由 Python 调用**，而不是用户直接调用（`obj.__len__()` 虽然合法，但不推荐，应使用 `len(obj)`）。
+- 它们**作用于类级别**，而不是实例级别。修改实例的 `__len__` 属性不会生效，因为 Python 在类中查找这些方法。
+
+## Python的协议
+
+Python 没有严格的“接口”或“抽象类”概念，而是通过**协议**（Protocol）约定行为。例如：
+
+- **可迭代协议**：实现 `__iter__` 或 `__getitem__`（带整数索引回退）。
+- **序列协议**：实现 `__len__` 和 `__getitem__`。
+- **上下文管理协议**：实现 `__enter__` 和 `__exit__`。
+
+只要一个类实现了协议要求的魔法函数，它就可以无缝融入 Python 的语言特性。这种**鸭子类型**设计使得代码非常灵活，且无需继承自特定基类。
+
+>**Python 鸭子类型（Duck Typing）**
+>
+>鸭子类型（Duck Typing）是 Python 等动态类型语言中一种**核心的编程风格**，其名字源于一句谚语：**“如果它走起来像鸭子，叫起来像鸭子，那么它就是鸭子。”**
+>
+>在编程中的含义：**我们关注一个对象“能做什么”（即它的方法和属性），而不是它“是什么”（即它的类型或继承关系）。**
+>
+>换句话说，当你调用对象的某个方法或访问某个属性时，只要对象**实际拥有**这些方法/属性，它就可以被使用，而不需要显式地声明它实现了某个接口或继承了某个类。
+>
+>**Python 中的鸭子类型示例**
+>
+>示例 1：迭代（与之前的 `__getitem__` 呼应）
+>
+>```python
+>class Company:
+>    def __init__(self, employees):
+>        self.employees = employees
+>
+>    def __getitem__(self, index):
+>        return self.employees[index]
+>
+>class Library:
+>    def __init__(self, books):
+>        self.books = books
+>
+>    def __getitem__(self, index):
+>        return self.books[index]
+>
+># 两个完全无关的类，都实现了 __getitem__
+>company = Company(["Tom", "Bob", "Jane"])
+>library = Library(["1984", "Brave New World", "Fahrenheit 451"])
+>
+># 同一个 for 循环，可以遍历两种不同的对象
+>for item in company:
+>    print(f"Employee: {item}")
+>
+>for item in library:
+>    print(f"Book: {item}")
+>```
+>
+>`for` 循环并不关心 `company` 和 `library` 是什么类型，只要它们能按索引返回元素（实现了 `__getitem__`），就可以被迭代。这正是鸭子类型：**“能迭代的就是可迭代对象”**，而不是“是 list 或 tuple 的才是可迭代对象”。
+>
+>示例 2：一个接受“文件对象”的函数
+>
+>```python
+>def read_first_line(file_like):
+>    """读取任意“类文件对象”的第一行"""
+>    return file_like.readline().strip()
+>
+># 传入真正的文件对象
+>with open("data.txt") as f:
+>    print(read_first_line(f))
+>
+># 传入自定义的“类文件对象”
+>class StringReader:
+>    def __init__(self, text):
+>        self.lines = text.splitlines()
+>        self.index = 0
+>    def readline(self):
+>        if self.index < len(self.lines):
+>            line = self.lines[self.index]
+>            self.index += 1
+>            return line + "\n"
+>        return ""
+>
+>reader = StringReader("hello\nworld\n")
+>print(read_first_line(reader))  # 输出 "hello"
+>```
+>
+>`read_first_line` 函数没有要求参数必须是 `io.TextIOBase` 的子类，它只要求参数有 `readline` 方法。任何提供 `readline` 的对象都可以被使用——这就是鸭子类型。
+>
+>**鸭子类型 vs. 静态类型（传统多态）**
+>
+>| 特性     | 鸭子类型（Python、Ruby）           | 传统接口/继承（Java、C++）           |
+>| :------- | :--------------------------------- | :----------------------------------- |
+>| 类型检查 | **运行时**，调用时检查方法是否存在 | **编译时**，要求显式声明实现某个接口 |
+>| 多态实现 | 基于**行为**，无需继承             | 基于**继承**或**接口实现**           |
+>| 灵活性   | 极高：任意对象只要“像”就可以使用   | 较低：必须符合类型层次结构           |
+>| 代码耦合 | 松耦合，依赖文档和约定             | 紧耦合，依赖接口契约                 |
+>| 错误发现 | 运行时 AttributeError              | 编译时类型错误                       |
+>
+>**鸭子类型与协议**
+>
+>在 Python 中，“鸭子类型”常常与“协议”一同提及。**协议**是一组魔法方法构成的约定，例如：
+>
+>- **可迭代协议**：实现 `__iter__` 或 `__getitem__`
+>- **序列协议**：实现 `__len__` 和 `__getitem__`
+>- **上下文管理协议**：实现 `__enter__` 和 `__exit__`
+>- **数值协议**：实现 `__add__`、`__sub__` 等
+>
+>只要一个类实现了这些协议中的方法，它就可以像内置类型一样工作，**无需显式继承**。这正是鸭子类型的具体实现方式。
+>
+>**Python 3.8+ 的 `typing.Protocol`（用于静态类型检查）**
+>
+>为了在静态类型检查（如 mypy）中描述鸭子类型，Python 引入了 `typing.Protocol`：
+>
+>```python
+>from typing import Protocol
+>
+>class Readable(Protocol):
+>    def read(self) -> str:
+>        ...
+>
+>def process(obj: Readable) -> None:
+>    data = obj.read()
+>
+># StringReader 没有显式继承 Readable，但满足协议
+>class StringReader:
+>    def read(self) -> str:
+>        return "hello"
+>
+>process(StringReader())  # mypy 检查通过
+>```
+>
+>`Protocol` 是**静态的鸭子类型描述**：它告诉类型检查器“任何有 `read` 方法的对象都符合要求”，但运行时并不强制继承。
+>
+>**总结**
+>
+>- **鸭子类型的核心**：关注对象的行为（方法/属性），而不是类型。
+>- **Python 的表现**：不检查 `isinstance`，直接调用方法；如果失败，抛出 `AttributeError`。
+>- **与魔法函数的关系**：魔法函数是实现鸭子类型的“语言级钩子”，让自定义对象可以模拟内置类型的行为。
+>- **最佳实践**：使用 EAFP 风格（try/except）处理可能的缺失方法；编写文档说明对象应支持哪些方法；可以配合 `typing.Protocol` 进行静态类型检查。
+>- **优缺点**：灵活解耦 vs. 运行时错误风险。
+
 # 生成器
 
 ## Python的栈帧对象模型

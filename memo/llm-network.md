@@ -339,3 +339,25 @@ codex logout
 # 再用 key 登录（管道输入，不进历史）
 echo "sk-xxxxxxxx" | codex login --with-api-key
 ```
+
+# claude-tap
+
+https://github.com/liaohch3/claude-tap
+
+```powershell
+
+$source = 'C:\Program Files\WindowsApps\OpenAI.Codex_26.901.6511.0_x64__2p2nqsd0c76g0\app'
+$target = "$env:LOCALAPPDATA\CodexTapStandalone"
+
+Copy-Item -LiteralPath $source -Destination $target -Recurse -ErrorAction Stop
+
+$env:CODEX_APP_EXECUTABLE = "$target\ChatGPT.exe"
+
+claude-tap --tap-client codexapp
+
+$env:CODEX_APP_EXECUTABLE = "$env:LOCALAPPDATA\CodexTapStandalone\ChatGPT.exe"
+$env:CODEX_APP_USER_DATA_DIR = "$env:LOCALAPPDATA\CodexTapProfile"
+
+claude-tap --tap-client codexapp
+```
+

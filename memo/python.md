@@ -120,6 +120,7 @@ D:\Python-Code\athena\api>uv export -o requirements.txt
 # 创建一份pip的依赖文件
 D:\Python-Code\athena\api>uv export --format requirements-txt --no-dev --no-hashes --output-file requirements.txt
 D:\Python-Code\athena\api>uv export --format requirements-txt --no-dev --no-hashes -o requirements.txt
+D:\Python-Code\athena\api>uv export --locked --format requirements.txt --no-dev --no-hashes --no-emit-project -o requirements.txt
 
 # 以树状图展示当前项目的依赖关系。检查依赖冲突
 D:\Python-Code\athena\api>uv show
@@ -135,6 +136,23 @@ D:\Python-Code\athena\api>uv cache clean
 # 更新uv工具本身到最新版本
 D:\Python-Code\athena\api>uv self update
 ```
+
+>uv export 参数说明：
+>
+>| 参数                | 作用                                 | 当前项目中的效果                                             |
+>| ------------------- | ------------------------------------ | ------------------------------------------------------------ |
+>| `--no-dev`          | 排除 `dev` 开发依赖组                | 不导出 pytest 及其仅用于开发的依赖                           |
+>| `--no-hashes`       | 不输出安装包的 SHA256 哈希           | 文件更简洁；仍保留 `包名==版本` 和平台条件，但不提供导出文件中的安装包哈希校验信息 |
+>| `--no-emit-project` | 不导出当前项目自身，继续导出它的依赖 | 只列出第三方依赖，不要求安装 `sandbox-node-agent` 本身       |
+>
+>`--locked` 的作用是：**要求使用现有的 `uv.lock`，并且不允许修改它。**
+>
+>执行导出时，uv 会检查 `pyproject.toml` 与 `uv.lock` 是否一致：
+>
+>- **一致**：按照锁文件中的版本导出 `requirements.txt`。
+>- **不一致，需要更新锁文件**：直接报错，不会自动重新解析并修改依赖版本。
+>
+>这样可以避免构建镜像时悄悄改变依赖版本
 
 # 脚本执行
 
